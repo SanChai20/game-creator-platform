@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ES2022", "moduleResolution": "Bundler", "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true, "noEmit": true, "skipLibCheck": true, "allowJs": true, "checkJs": false,
+    "resolveJsonModule": true, "isolatedModules": true, "noUncheckedIndexedAccess": false
+  },
+  "include": ["src/**/*"]
+}

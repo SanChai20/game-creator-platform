@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "game-creator-platform",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/mcp", "/mcp/*", "/authorize", "/oauth/*", "/.well-known/*", "/sdk/*", "/kits/*", "/vendor/*", "/guides/*", "/templates/*", "/__game/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "gcp-db", "database_id": "111e0b7d-ed5f-4e81-97bd-8ba0444e54bf", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "gcp-games" }],
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "d573f7e6dbe34a35993fd1ac678687c0" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "GameRoom" },
+      { "name": "PIPELINE", "class_name": "Pipeline" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }],
+  "browser": { "binding": "BROWSER" },
+  "triggers": { "crons": ["17 3 * * *"] },
+  "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
+  "observability": { "enabled": true },
+  "vars": {
+    // "cloudflare" deploys each game as its own Worker. "local" serves games from this Worker (wrangler dev).
+    "DEPLOY_DRIVER": "cloudflare",
+    "GAMES_BUCKET": "gcp-games",
+    "STRIPE_API_BASE": "https://api.stripe.com"
+  }
+  // Secrets (wrangler secret put …):
+  //   SESSION_SECRET          signs play tokens and consent cookies (required)
+  //   CF_API_TOKEN            Cloudflare token with Workers Scripts:Edit, used to deploy game Workers (required)
+  //   CF_ACCOUNT_ID           the account games are deployed into (required)
+  //   ADMIN_CLAIM_TOKEN       one-time token for claiming the first admin account
+  //   STRIPE_SECRET_KEY       Stripe secret key (payments + Connect payouts)
+  //   STRIPE_WEBHOOK_SECRET   signing secret of the Stripe webhook endpoint
+}

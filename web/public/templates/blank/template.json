@@ -1,0 +1,1 @@
+{ "title": "Blank", "summary": "The smallest page that satisfies the platform contract: a canvas, a frame loop, a boot screen and GCP.ready(). Start here when you want to choose everything yourself.", "pipeline": "any" }

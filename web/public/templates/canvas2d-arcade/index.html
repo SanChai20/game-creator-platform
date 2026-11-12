@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Glowmoth Meadow</title>
+<style>
+  :root { color-scheme: dark; --bg: #12100c; --ink: #f1e6cf; --acc: #f0b64a; --sl: max(12px, env(safe-area-inset-left)); --st: max(12px, env(safe-area-inset-top)); --sr: max(12px, env(safe-area-inset-right)); }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; font: 14px/1.35 Georgia, 'Songti SC', serif; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #cv { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #ui { position: fixed; inset: 0; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  #score { position: absolute; left: var(--sl); top: var(--st); font-size: 26px; font-weight: 700; color: var(--acc); }
+  #best { position: absolute; right: var(--sr); top: var(--st); opacity: .8; }
+  #lives { position: absolute; left: var(--sl); top: calc(var(--st) + 36px); letter-spacing: .2em; color: #e8604c; }
+  #over { position: absolute; inset: 0; display: none; place-items: center; text-align: center; background: rgba(12, 10, 6, .6); }
+  #over.on { display: grid; pointer-events: auto; }
+  #over h1 { font-size: clamp(32px, 8vw, 56px); margin: 0 0 4px; }
+  #over button { font: inherit; font-size: 16px; font-weight: 700; margin-top: 14px; padding: 10px 22px; border-radius: 8px; border: 0; background: var(--acc); color: #2a1c05; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="ui">
+  <div id="score">0</div><div id="lives">♥♥♥</div><div id="best"></div>
+  <div id="over"><div><h1>Night falls</h1><div id="final"></div><button id="again">Fly again</button></div></div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

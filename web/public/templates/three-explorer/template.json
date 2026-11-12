@@ -1,0 +1,1 @@
+{ "title": "Three.js explorer", "summary": "A complete small 3D game: seeded procedural island, instanced trees and rocks, sky, a shadowed sun, a third-person character with keyboard, mouse and touch controls, collectibles, a leaderboard, quality levels that adapt to slow devices. Forward rendering, zero downloaded assets.", "pipeline": "three-forward" }

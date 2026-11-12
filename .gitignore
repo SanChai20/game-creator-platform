@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+web/public/vendor/
+web/public/templates/index.json
+web/public/kits/index.json
+src/generated/
+*.log

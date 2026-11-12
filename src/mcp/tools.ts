@@ -1,0 +1,480 @@
+// The tools an external agent uses to build, check, deploy, verify, publish and manage games.
+// Descriptions are written for agents of ordinary ability: each says when to call it and what comes next.
+import { unzipSync } from 'fflate';
+import { AppError, bad, forbidden, type Env, type User } from '../env';
+import { gameUrl } from '../deploy';
+import { balanceOf, splitSale } from '../earnings';
+import { enqueue } from '../pipeline';
+import {
+  applyTemplate, assetJson, assetText, checkProject, createProject, defaultImports, deleteFile, getVersion, listFiles, logEvent, ownedProject, publicVersion,
+  putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
+} from '../projects';
+import { takeOffline } from '../routes/api';
+import { getSettings } from '../settings';
+import { THREE_VERSION } from '../generated/runtime-source';
+import { addDays, cleanPath, dayOf, extOf, isText, now, parseJson, sha256, token as randomToken, unb64, usd } from '../util';
+
+export interface ToolCtx { env: Env; user: User; origin: string; client: string }
+interface Tool {
+  name: string; title: string; description: string; inputSchema: Record<string, unknown>;
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean };
+  run: (a: Record<string, any>, c: ToolCtx) => Promise<unknown>;
+}
+
+const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
+const PROJECT = { type: 'string', description: 'Project id or slug (from list_projects or create_project).' };
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const issueLine = (i: Issue) => `${i.level.toUpperCase()}${i.file ? ` ${i.file}${i.line ? `:${i.line}` : ''}` : ''}: ${i.message}${i.frame ? `\n${i.frame}` : ''}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
+
+async function guideIndex(env: Env) { return assetJson<{ guides: { topic: string; title: string; summary: string }[] }>(env, '/guides/index.json'); }
+async function kitIndex(env: Env) { return assetJson<{ three: string; kits: { name: string; file: string; summary: string; exports: string[] }[] }>(env, '/kits/index.json'); }
+
+async function account(c: ToolCtx) {
+  const s = await getSettings(c.env), u = c.user, bal = await balanceOf(c.env, u.id);
+  return {
+    name: u.name, creator_license: !!u.creator,
+    can_publish: !!u.creator || !s.creator_fee_required,
+    license: u.creator ? 'active' : `Not purchased. Publishing needs a one-time ${usd(s.creator_fee_cents)} creator license (unlimited games). Building, previewing and verifying are free. The account owner buys it at ${c.origin}/console`,
+    console_url: `${c.origin}/console`,
+    earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
+    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents } : 'disabled',
+    limits: { files_per_bundle: s.bundle_max_files, bundle_bytes: s.bundle_max_bytes, file_bytes: s.file_max_bytes, server_code: s.allow_server_code },
+  };
+}
+
+async function waitVersion(c: ToolCtx, pid: string, n: number, ms: number) {
+  const end = Date.now() + ms;
+  let v = await getVersion(c.env, pid, n);
+  while (v && (v.status === 'queued' || v.status === 'deploying' || v.status === 'verifying') && Date.now() < end) { await sleep(2000); v = await getVersion(c.env, pid, n); }
+  return v!;
+}
+
+async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_version: number | null }, n: number, v: Awaited<ReturnType<typeof getVersion>>) {
+  const s = await getSettings(c.env);
+  if (!v) throw bad(`Version ${n} does not exist. Call list_versions.`);
+  const pub = publicVersion(v, c.origin), el = versionEligible(v, s.verify_browser_required);
+  const running = ['queued', 'deploying', 'verifying'].includes(v.status);
+  return {
+    ...pub, can_publish: el.ok, eligibility: el.reason,
+    preview_page: `${c.origin}/console/projects/${p.id}`,
+    next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} again in about 10 seconds.`
+      : el.ok ? `Verified. Tell the user they can try it at the preview page, then call publish {project, version: ${n}} when they are happy.`
+        : 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.',
+  };
+}
+
+export const TOOLS: Tool[] = [
+  {
+    name: 'get_started', title: 'Start here',
+    description: 'Call this first. Returns the workflow, the three hard rules every game must follow, the account status, and which guides, kits and templates exist. Call it again whenever you are unsure what to do next.',
+    inputSchema: obj({}), annotations: { readOnlyHint: true },
+    run: async (_a, c) => ({
+      platform: (await getSettings(c.env)).brand_name,
+      account: await account(c),
+      workflow: [
+        '1. create_project (optionally with a template so you start from something that already runs)',
+        '2. write files: put_files for small text files, edit_file for changes, create_upload_url + curl for big or binary files or a whole folder',
+        '3. check_project: static checks (syntax, imports, missing files, the contract). Fix everything it reports.',
+        '4. deploy_preview: freezes a version, deploys it as its own Cloudflare Worker, and runs it in a real browser. Read the report.',
+        '5. Repeat 2 to 4 until the version is verified. The user can play the preview from their console.',
+        '6. publish: makes that verified version live in the marketplace. Later: list_versions, rollback, unpublish, get_stats.',
+      ],
+      rules: [
+        'The game is a web page: index.html at the bundle root, plus any files it loads with relative paths. No build step is required.',
+        'Call GCP.ready() once, right after the first playable frame is drawn. `GCP` is injected by the platform; never bundle or import it.',
+        'It must run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
+      ],
+      freedom: 'Everything else is yours: genre, art direction, camera, rendering technique, engine or no engine. Guides and kits are advice and optional help, not a house style.',
+      imports_available_by_default: defaultImports(c.origin),
+      guides: (await guideIndex(c.env)).guides.map((g) => `${g.topic}: ${g.summary}`),
+      kits: (await kitIndex(c.env)).kits.map((k) => `@gcp/${k.file}: ${k.summary}`),
+      templates: (await assetJson<{ templates: { name: string; summary: string }[] }>(c.env, '/templates/index.json')).templates.map((t) => `${t.name}: ${t.summary}`),
+      tip: 'Not sure how to render the game? Call recommend_pipeline with a short description before writing code.',
+    }),
+  },
+  {
+    name: 'get_account', title: 'Account status',
+    description: 'Shows whether this account can publish (creator license), earnings, paid-game rules and bundle limits. Call it when publish is refused or the user asks about money.',
+    inputSchema: obj({}), annotations: { readOnlyHint: true }, run: (_a, c) => account(c),
+  },
+  {
+    name: 'list_guides', title: 'List authoring guides',
+    description: 'Lists the authoring guides: rendering pipelines, meshes, materials and textures, animation, loading, input, performance, audio, saves, multiplayer, and troubleshooting. They distil conventions verified in shipped games. Read the relevant ones before writing that part of the game.',
+    inputSchema: obj({}), annotations: { readOnlyHint: true }, run: async (_a, c) => guideIndex(c.env),
+  },
+  {
+    name: 'get_guide', title: 'Read a guide',
+    description: 'Returns one authoring guide as Markdown with working code. Topics come from list_guides (for example "platform-contract", "rendering-pipelines", "meshes", "materials-textures", "loading", "performance", "troubleshooting").',
+    inputSchema: obj({ topic: { type: 'string', description: 'Guide topic from list_guides.' } }, ['topic']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const idx = await guideIndex(c.env), topic = String(a.topic || '').toLowerCase().trim();
+      const g = idx.guides.find((x) => x.topic === topic) || idx.guides.find((x) => x.topic.includes(topic) || topic.includes(x.topic));
+      const text = g && await assetText(c.env, `/guides/${g.topic}.md`);
+      if (!text) throw bad(`No guide "${a.topic}".`, `Topics: ${idx.guides.map((x) => x.topic).join(', ')}`);
+      return { markdown: text.replaceAll('{{ORIGIN}}', c.origin).replaceAll('{{THREE}}', THREE_VERSION) };
+    },
+  },
+  {
+    name: 'recommend_pipeline', title: 'Recommend a rendering approach',
+    description: 'Describe the game you are about to build and get a concrete rendering recommendation: which pipeline fits (2D canvas, Three.js forward, forward with post-processing, deferred, WebGPU), which kit modules and template to start from, a frame budget, and the mistakes to avoid. It never dictates art style or gameplay. Call it before writing rendering code.',
+    inputSchema: obj({
+      description: { type: 'string', description: 'One or two sentences about the game: what the player sees and does.' },
+      dimension: { type: 'string', enum: ['2d', '2.5d', '3d'], description: 'How the world is drawn.' },
+      world: { type: 'string', enum: ['single-screen', 'level', 'open-world'], description: 'How much world is visible or streamed.' },
+      look: { type: 'string', enum: ['flat', 'stylized-lit', 'realistic', 'pixel'], description: 'Rough visual direction, if decided.' },
+      devices: { type: 'string', enum: ['desktop', 'mobile', 'both'], description: 'Where it must run well. Default both.' },
+      dynamic_lights: { type: 'integer', description: 'Light sources that move or switch at once (torches, muzzle flashes). Default 0.' },
+      moving_things: { type: 'integer', description: 'Roughly how many things animate at once (enemies, particles count as 1 system).' },
+      multiplayer: { type: 'boolean', description: 'True if players share a session.' },
+    }, ['description']), annotations: { readOnlyHint: true },
+    run: async (a) => recommend(a),
+  },
+  {
+    name: 'list_kits', title: 'List reusable kits',
+    description: 'Lists the optional reusable modules hosted by the platform (import them as "@gcp/<file>"): loop and seeded noise, input, Three.js helpers, 2D canvas helpers, audio, multiplayer. Using them is optional; they exist so you do not have to re-derive solved problems.',
+    inputSchema: obj({}), annotations: { readOnlyHint: true },
+    run: async (_a, c) => { const k = await kitIndex(c.env); return { three_version: k.three, import_prefix: '@gcp/', kits: k.kits.map((x) => ({ import: `@gcp/${x.file}`, summary: x.summary, exports: x.exports })), note: 'Read the source with get_kit_file to see exact signatures. You may also copy a kit into your bundle and change it.' }; },
+  },
+  {
+    name: 'get_kit_file', title: 'Read kit source',
+    description: 'Returns the source of one kit module (for example "three-kit.js") so you can see exact function signatures or copy and adapt it.',
+    inputSchema: obj({ file: { type: 'string', description: 'File name from list_kits, e.g. "core.js".' } }, ['file']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const file = String(a.file || '').replace(/^@gcp\//, '');
+      const text = /^[a-z0-9\-]+\.js$/.test(file) ? await assetText(c.env, `/kits/v1/${file}`) : null;
+      if (!text) throw bad(`No kit file "${a.file}".`, 'Call list_kits for the file names.');
+      return { file, import: `@gcp/${file}`, source: text };
+    },
+  },
+  {
+    name: 'list_templates', title: 'List starter templates',
+    description: 'Lists starter games that already pass verification. Starting from one and reshaping it is the most reliable way to a working game; none of them limits what the final game looks or plays like.',
+    inputSchema: obj({}), annotations: { readOnlyHint: true }, run: async (_a, c) => assetJson(c.env, '/templates/index.json'),
+  },
+  {
+    name: 'list_projects', title: 'List projects',
+    description: "Lists this account's game projects with status (draft, live, offline), versions and marketplace numbers.",
+    inputSchema: obj({}), annotations: { readOnlyHint: true },
+    run: async (_a, c) => {
+      const rows = await c.env.DB.prepare("SELECT id, slug, title, status, live_version, preview_version, price_cents, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all();
+      return { projects: rows.results };
+    },
+  },
+  {
+    name: 'create_project', title: 'Create a game project',
+    description: 'Creates a new game project. Pass `template` to start from a starter that already runs (recommended: "three-explorer" for 3D, "canvas2d-arcade" for 2D, "blank" for an empty page that satisfies the contract). Returns the project id used by every other tool.',
+    inputSchema: obj({
+      title: { type: 'string', description: 'Game title shown in the marketplace.' },
+      template: { type: 'string', description: 'Optional starter template name from list_templates.' },
+      tagline: { type: 'string', description: 'One line shown on the game card.' },
+      description: { type: 'string', description: 'Longer description for the game page.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Up to 8 genre or mood tags.' },
+    }, ['title']),
+    run: async (a, c) => {
+      const p = await createProject(c.env, c.user, a as any, c.client);
+      const files = a.template ? await applyTemplate(c.env, p, String(a.template)) : [];
+      return { project: p.id, slug: p.slug, title: p.title, files, console_page: `${c.origin}/console/projects/${p.id}`, next: files.length ? 'Template files are in the workspace. Use read_file to study them, change them with edit_file or put_files, then check_project.' : 'Upload index.html and the rest with put_files, then check_project.' };
+    },
+  },
+  {
+    name: 'update_project', title: 'Update listing details or price',
+    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, and price. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents). The platform keeps its cut of each sale and credits the rest to the creator.',
+    inputSchema: obj({
+      project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
+      controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
+      price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
+    }, ['project']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      await updateProjectMeta(c.env, p, a);
+      const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s).net) : null };
+    },
+  },
+  {
+    name: 'get_project', title: 'Project status',
+    description: 'Shows one project: status, live and preview versions, the latest verification result, workspace size and links. Call it to see where things stand.',
+    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id);
+      const latest = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 1').bind(p.id).first<any>();
+      return {
+        project: p.id, slug: p.slug, title: p.title, status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', live_version: p.live_version, preview_version: p.preview_version,
+        workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) },
+        latest_version: latest ? await versionReport(c, p, latest.n, latest) : null,
+        game_page: p.status === 'live' ? `${c.origin}/g/${p.slug}` : null, console_page: `${c.origin}/console/projects/${p.id}`,
+      };
+    },
+  },
+  {
+    name: 'put_files', title: 'Write files',
+    description: 'Creates or replaces files in the project workspace. Best for text files up to a few hundred lines. For a small change to an existing file use edit_file instead (it saves tokens). For large or binary files, or to upload a whole folder at once, use create_upload_url. Paths are relative, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64".',
+    inputSchema: obj({
+      project: PROJECT,
+      files: { type: 'array', minItems: 1, maxItems: 40, items: obj({ path: { type: 'string' }, content: { type: 'string' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
+    }, ['project', 'files']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      if (!Array.isArray(a.files) || !a.files.length) throw bad('files must be a non-empty array of {path, content}.');
+      const written = [];
+      for (const f of a.files) {
+        let bytes: Uint8Array;
+        try { bytes = f.encoding === 'base64' ? unb64(String(f.content).replace(/\s+/g, '')) : new TextEncoder().encode(String(f.content ?? '')); } catch { throw bad(`${f.path}: content is not valid base64.`); }
+        const row = await putFile(c.env, p, f.path, bytes);
+        written.push({ path: row.path, bytes: row.size });
+      }
+      return { written, next: 'Run check_project when your changes are complete.' };
+    },
+  },
+  {
+    name: 'edit_file', title: 'Edit part of a file',
+    description: 'Replaces an exact piece of text in a workspace file. old_string must match the file exactly (including spaces and newlines) and appear once, unless replace_all is true. Use read_file first if you are not sure of the exact text.',
+    inputSchema: obj({ project: PROJECT, path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' }, replace_all: { type: 'boolean' } }, ['project', 'path', 'old_string', 'new_string']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), path = cleanPath(a.path) || '';
+      const { bytes } = await readFile(c.env, p.id, path);
+      if (!isText(path)) throw bad('edit_file only works on text files.');
+      const src = new TextDecoder().decode(bytes), old = String(a.old_string);
+      if (!old) throw bad('old_string must not be empty.');
+      const count = src.split(old).length - 1;
+      if (count === 0) throw bad('old_string was not found in the file.', 'Call read_file and copy the exact text, including indentation.');
+      if (count > 1 && !a.replace_all) throw bad(`old_string appears ${count} times.`, 'Include more surrounding text to make it unique, or set replace_all to true.');
+      const out = a.replace_all ? src.split(old).join(String(a.new_string)) : src.replace(old, () => String(a.new_string));
+      const row = await putFile(c.env, p, path, new TextEncoder().encode(out));
+      return { path: row.path, bytes: row.size, replaced: a.replace_all ? count : 1 };
+    },
+  },
+  {
+    name: 'read_file', title: 'Read a file',
+    description: 'Returns a workspace file. Text files come back as text with line numbers available through offset and limit (lines). Binary files return only their size and type.',
+    inputSchema: obj({ project: PROJECT, path: { type: 'string' }, offset: { type: 'integer', description: 'First line to return (1-based).' }, limit: { type: 'integer', description: 'Number of lines (default 400, max 2000).' } }, ['project', 'path']),
+    annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), path = cleanPath(a.path) || '';
+      const { row, bytes } = await readFile(c.env, p.id, path);
+      if (!isText(path)) return { path, bytes: row.size, type: row.ctype, note: 'Binary file; content not returned.' };
+      const lines = new TextDecoder().decode(bytes).split('\n'), off = Math.max(1, Number(a.offset) || 1), lim = Math.min(2000, Math.max(1, Number(a.limit) || 400));
+      const slice = lines.slice(off - 1, off - 1 + lim).map((l) => (l.length > 4000 ? l.slice(0, 4000) + ' …[line truncated]' : l));
+      return { path, total_lines: lines.length, from_line: off, to_line: off + slice.length - 1, content: slice.join('\n'), more: off - 1 + lim < lines.length };
+    },
+  },
+  {
+    name: 'list_files', title: 'List workspace files',
+    description: 'Lists every file in the project workspace with sizes.',
+    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size })), total_bytes: files.reduce((x, f) => x + f.size, 0) }; },
+  },
+  {
+    name: 'delete_files', title: 'Delete files',
+    description: 'Deletes files from the project workspace. Versions that were already deployed keep their own copies.',
+    inputSchema: obj({ project: PROJECT, paths: { type: 'array', items: { type: 'string' }, minItems: 1 } }, ['project', 'paths']), annotations: { destructiveHint: true },
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); const deleted = []; for (const path of a.paths || []) if (await deleteFile(c.env, p.id, String(path))) deleted.push(path); return { deleted }; },
+  },
+  {
+    name: 'apply_template', title: 'Copy a starter template into the project',
+    description: 'Copies a starter template into the workspace, overwriting files with the same paths. Use it to (re)start from a known-good base.',
+    inputSchema: obj({ project: PROJECT, template: { type: 'string' } }, ['project', 'template']),
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); return { files: await applyTemplate(c.env, p, String(a.template)) }; },
+  },
+  {
+    name: 'create_upload_url', title: 'Get a direct upload URL',
+    description: 'Returns a short-lived URL for uploading files straight from a shell with curl, without passing their contents through this conversation. Use it when you have a terminal and the files are large, binary, or many (a zip of the whole folder works). Valid for 30 minutes.',
+    inputSchema: obj({ project: PROJECT }, ['project']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), t = randomToken(24);
+      await c.env.DB.prepare('INSERT INTO uploads (token_hash, project_id, user_id, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(t), p.id, c.user.id, now() + 30 * 60000).run();
+      const base = `${c.origin}/api/upload/${t}`;
+      return {
+        expires_in_minutes: 30,
+        one_file: `curl -fsS -X PUT --data-binary @index.html "${base}?path=index.html"`,
+        whole_folder: `zip -qr /tmp/game.zip . -x '.*' && curl -fsS -X POST --data-binary @/tmp/game.zip "${base}/zip"`,
+        note: 'Paths inside the zip become paths in the workspace. Add ?clean=1 to the zip URL to delete workspace files that are not in the zip. Each call prints JSON listing what was written.',
+      };
+    },
+  },
+  {
+    name: 'set_cover', title: 'Set the cover image',
+    description: 'Uses an image file from the workspace (png, jpg or webp, ideally 16:9, under 2 MB) as the marketplace cover. Without a cover, the verification screenshot is used.',
+    inputSchema: obj({ project: PROJECT, path: { type: 'string', description: 'Workspace path of the image.' } }, ['project', 'path']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), path = cleanPath(a.path) || '', ext = extOf(path);
+      if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) throw bad('The cover must be a png, jpg or webp file.');
+      const { row, bytes } = await readFile(c.env, p.id, path);
+      if (row.size > 2 * 1024 * 1024) throw bad('The cover must be under 2 MB.');
+      const key = `covers/${p.id}-${now().toString(36)}.${ext}`;
+      await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: row.ctype } });
+      await c.env.DB.prepare('UPDATE projects SET cover_key = ? WHERE id = ?').bind(key, p.id).run();
+      return { ok: true, cover: `${c.origin}/api/media/${key}` };
+    },
+  },
+  {
+    name: 'check_project', title: 'Static checks',
+    description: 'Checks the workspace without deploying: JavaScript syntax (with the exact line), imports that do not resolve, files referenced but missing, the GCP.ready() contract, and size limits. It is fast, so run it after every round of edits and fix every error before deploy_preview.',
+    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), r = await checkProject(c.env, p, c.origin);
+      return { ok: r.ok, files: r.files, bytes: r.bytes, errors: r.errors.map(issueLine), warnings: r.warnings.map(issueLine), next: r.ok ? 'No errors. Call deploy_preview.' : 'Fix the errors above, then run check_project again.' };
+    },
+  },
+  {
+    name: 'deploy_preview', title: 'Deploy a preview and verify it',
+    description: 'Freezes the workspace as a new numbered version, deploys it as its own Cloudflare Worker (the preview), then opens it in a real browser and checks that it boots, renders, survives input and throws no errors. Returns the verification report; if it is still running after about 45 seconds, call get_version to see the result. The user can play the preview from their console.',
+    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' } }, ['project']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      const check = await checkProject(c.env, p, c.origin);
+      if (!check.ok) return { deployed: false, reason: 'Static checks failed, so nothing was deployed.', errors: check.errors.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
+      const busy = await c.env.DB.prepare("SELECT n FROM versions WHERE project_id = ? AND status IN ('queued','deploying','verifying') AND created_at > ?").bind(p.id, now() - 10 * 60000).first<{ n: number }>();
+      if (busy) throw new AppError(409, `Version ${busy.n} is still being deployed.`, 'busy', `Call get_version {project, version: ${busy.n}} and wait for it to finish first.`);
+      const v = await snapshot(c.env, p, check.manifest, String(a.note || ''));
+      await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
+      await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
+      const done = await waitVersion(c, p.id, v.n, 45000);
+      return { deployed: true, warnings: check.warnings.map(issueLine), ...(await versionReport(c, p, v.n, done)) };
+    },
+  },
+  {
+    name: 'get_version', title: 'Version status and verification report',
+    description: 'Returns a version\'s deploy and verification status with the full report: each check, uncaught errors, missing files, load time, frame rate and a screenshot URL. Omit version for the newest one.',
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer' } }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      const n = Number(a.version) || (await c.env.DB.prepare('SELECT MAX(n) AS n FROM versions WHERE project_id = ?').bind(p.id).first<{ n: number }>())?.n || 0;
+      if (!n) throw bad('This project has no versions yet.', 'Call deploy_preview first.');
+      return versionReport(c, p, n, await waitVersion(c, p.id, n, 20000));
+    },
+  },
+  {
+    name: 'list_versions', title: 'List versions',
+    description: 'Lists the project\'s versions, newest first, with status and which one is live and which is on preview.',
+    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
+      const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
+      return { live_version: p.live_version, preview_version: p.preview_version, status: p.status, versions: rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage, can_publish: versionEligible(v, s.verify_browser_required).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' })) };
+    },
+  },
+  {
+    name: 'publish', title: 'Publish a verified version',
+    description: 'Makes a verified version live in the marketplace (deployed as the game\'s live Worker). Only versions that passed verification can be published, and the account needs a creator license. Omit version to publish the newest verified one. Also use this to roll back: pass an older verified version number.',
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' } }, ['project']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
+      if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
+      if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
+      let v = a.version ? await getVersion(c.env, p.id, Number(a.version)) : null;
+      if (!a.version) {
+        const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all<any>();
+        v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
+      }
+      if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
+      const el = versionEligible(v, s.verify_browser_required);
+      if (!el.ok) throw new AppError(409, el.reason, 'not_verified', 'Call get_version to read the failed checks, fix them, and deploy_preview again.');
+      if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
+      await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
+      await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
+      const end = Date.now() + 45000;
+      let q = await ownedProject(c.env, c.user, p.id);
+      while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
+      const live = q.status === 'live' && q.live_version === v.n;
+      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call get_project in a little while to confirm.' };
+    },
+  },
+  {
+    name: 'rollback', title: 'Roll back to an earlier version',
+    description: 'Makes an earlier verified version live again. Same as publish with that version number.',
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer' } }, ['project', 'version']),
+    run: async (a, c) => TOOLS.find((t) => t.name === 'publish')!.run(a, c),
+  },
+  {
+    name: 'unpublish', title: 'Take a game offline',
+    description: 'Takes the live game out of the marketplace and removes its live Worker. Versions and the preview stay; publish puts it back.',
+    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { destructiveHint: true },
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); if (p.status !== 'live') throw bad('This game is not live.'); await takeOffline(c.env, p, c.client); return { ok: true, status: 'offline' }; },
+  },
+  {
+    name: 'get_stats', title: 'Marketplace numbers and runtime errors',
+    description: 'Returns how the published game is doing: plays, play time, ratings and recent reviews, sales, and errors reported from real players\' browsers (useful for fixing bugs that verification did not hit).',
+    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB;
+      const [daily, errors, reviews, sales] = await Promise.all([
+        db.prepare('SELECT day, sessions, plays, seconds FROM game_daily WHERE project_id = ? AND day >= ? ORDER BY day').bind(p.id, addDays(dayOf(now()), -13)).all<any>(),
+        db.prepare('SELECT version, env, message, count FROM client_errors WHERE project_id = ? ORDER BY last_at DESC LIMIT 15').bind(p.id).all(),
+        db.prepare('SELECT rating, body FROM reviews WHERE project_id = ? AND hidden = 0 ORDER BY updated_at DESC LIMIT 10').bind(p.id).all(),
+        db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first<{ n: number; net: number }>(),
+      ]);
+      return {
+        status: p.status, live_version: p.live_version, plays: p.plays, minutes_played: Math.round(p.seconds / 60), rating: p.rating_count ? +(p.rating_sum / p.rating_count).toFixed(2) : null, ratings: p.rating_count,
+        price: p.price_cents ? usd(p.price_cents) : 'free', sales: sales?.n || 0, creator_earnings: usd(sales?.net || 0),
+        last_14_days: daily.results.map((d) => ({ day: d.day, sessions: d.sessions, plays: d.plays, minutes: Math.round(d.seconds / 60) })),
+        runtime_errors: errors.results, recent_reviews: reviews.results,
+      };
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------------------------
+// Pipeline recommendation: plain rules distilled from the reference games.
+// ---------------------------------------------------------------------------------------------
+function recommend(a: Record<string, any>) {
+  const text = String(a.description || '').toLowerCase();
+  const has = (...w: string[]) => w.some((x) => text.includes(x));
+  const dim = a.dimension || (has('2d', 'top-down', 'topdown', 'platformer', 'pixel', 'card', 'puzzle', 'board', 'sprite', 'side-scroll') ? '2d' : has('isometric', '2.5d') ? '2.5d' : '3d');
+  const mobile = (a.devices || 'both') !== 'desktop';
+  const lights = Number(a.dynamic_lights) || 0, world = a.world || (has('open world', 'open-world', 'survival', 'explore', 'island', 'terrain') ? 'open-world' : 'level');
+  const gpuSim = has('fluid', 'million', 'gpu simulation', 'compute shader', 'cellular');
+  const out: Record<string, unknown> = {};
+  if (dim === '2d' || dim === '2.5d' && !has('3d model', 'rotate camera')) {
+    out.pipeline = 'canvas2d';
+    out.why = ['A 2D canvas draws thousands of pre-baked sprites per frame on any device, starts instantly, and has no shader or GPU-driver failure modes.', 'Depth is a sort by ground position; lighting is a multiply layer. Both are a few lines.'];
+    out.start_from = { template: 'canvas2d-arcade', kits: ['@gcp/core.js', '@gcp/canvas2d.js', '@gcp/input.js', '@gcp/audio.js'] };
+    out.frame = ['update(dt) with dt clamped to 0.1 s', 'draw cached ground chunks', 'draw sprites sorted by y', 'draw lighting/fog overlay', 'DOM HUD on top'];
+    out.avoid = ['Drawing vector paths every frame: bake each sprite once into an offscreen canvas and drawImage it.', 'Reading pixels back (getImageData) in the frame loop.', 'A canvas larger than devicePixelRatio 2: cap it.'];
+    out.guides = ['platform-contract', 'rendering-pipelines', 'loading', 'input', 'performance'];
+  } else if (gpuSim) {
+    out.pipeline = 'webgpu (with a WebGL fallback or creator-qualified verification)';
+    out.why = ['GPU compute is the only way to run that much simulation per frame.', 'The verification browser has no WebGPU, so either ship a reduced WebGL path or qualify the version by playing the preview yourself.'];
+    out.start_from = { template: 'blank', kits: ['@gcp/core.js', '@gcp/input.js'] };
+    out.avoid = ['Assuming navigator.gpu exists: feature-detect, and call GCP.fatal with a clear message when it does not.', 'Creating pipelines inside the frame loop.'];
+    out.guides = ['platform-contract', 'rendering-pipelines', 'performance', 'troubleshooting'];
+  } else {
+    const deferred = lights > 8 || has('many lights', 'ssao', 'screen-space', 'deferred');
+    const post = !deferred && (a.look === 'stylized-lit' || a.look === 'realistic' || has('bloom', 'glow', 'neon', 'cinematic'));
+    out.pipeline = deferred ? 'three-forward first, custom deferred as a quality tier' : post ? 'three-forward + post-processing' : 'three-forward';
+    out.why = deferred
+      ? ['More than about 8 moving lights, or effects that need depth and normals (SSAO, screen-space water), are what a G-buffer is for.', 'Build and ship the forward path first as the "low" tier: it is the fallback for phones and the path verification will exercise. Add the deferred path behind a quality setting once the game is playable.']
+      : ['One forward pass with a shadowed sun, hemisphere ambient and fog renders stylised worlds well and runs everywhere, including the software GPU used by verification.', post ? 'Add bloom and tone mapping through EffectComposer on medium quality and above; keep "low" as the plain pass.' : 'Skip post-processing until the game is playable; it is easy to add later and costly on phones.'];
+    out.start_from = { template: 'three-explorer', kits: ['@gcp/core.js', '@gcp/three-kit.js', '@gcp/input.js', '@gcp/audio.js'] };
+    out.frame = ['update(dt) with dt clamped to 0.1 s', world === 'open-world' ? 'stream chunks: build at most a few per frame from a queue, dispose far ones' : 'update animated objects', 'move the shadow camera with the player', post ? 'composer.render()' : 'renderer.render(scene, camera)', 'DOM HUD on top'];
+    out.budget = { pixel_ratio: mobile ? 'min(devicePixelRatio, 1.5); 1 on low' : 'min(devicePixelRatio, 2)', draw_calls: mobile ? 'under 150' : 'under 400', shadow_map: mobile ? 1024 : 2048, lights: 'one shadow-casting directional light; up to 4 point lights without shadows' };
+    out.avoid = ['One Mesh per tree, rock or blade: use InstancedMesh, or merge static parts into one geometry with vertex colours.', 'New materials or textures per object: cache and share them.', 'Allocating vectors inside the frame loop.', 'Loading assets over the network when a canvas-painted texture or generated geometry will do.', 'Shadows on every light.'];
+    out.guides = ['platform-contract', 'rendering-pipelines', 'meshes', 'materials-textures', 'animation', 'loading', 'performance'];
+  }
+  out.multiplayer = a.multiplayer || has('multiplayer', 'co-op', 'coop', 'versus', 'pvp') ? { use: 'GCP.room(code) with one host that owns the world state; guests send inputs and render snapshots', kit: '@gcp/net.js', guide: 'multiplayer' } : undefined;
+  out.always = ['Show a boot screen at once and report GCP.progress; call GCP.ready() after the first playable frame.', 'Offer quality levels and pick a low one automatically on touch devices or when frames are slow.', 'Wrap startup in try/catch and call GCP.fatal(error) so failures are reported instead of a blank page.'];
+  out.note = 'This is a starting point chosen for reliability. Art direction, camera, mechanics and feel are entirely up to you.';
+  return out;
+}
+
+/** Unzips an uploaded archive into the workspace. */
+export async function importZip(env: Env, user: User, projectId: string, zip: Uint8Array, clean: boolean) {
+  const p = await ownedProject(env, user, projectId);
+  let entries: Record<string, Uint8Array>;
+  try { entries = unzipSync(zip); } catch (e) { throw bad(`Not a readable zip file: ${(e as Error).message}`); }
+  let names = Object.keys(entries).filter((n) => !n.endsWith('/') && !n.startsWith('__MACOSX/'));
+  // If everything sits in one top-level folder, strip it so index.html lands at the root.
+  const tops = new Set(names.map((n) => n.split('/')[0]));
+  const strip = tops.size === 1 && names.every((n) => n.includes('/')) && !names.includes('index.html') ? [...tops][0] + '/' : '';
+  const written: string[] = [], skipped: string[] = [];
+  for (const n of names) {
+    const path = cleanPath(strip ? n.slice(strip.length) : n);
+    if (!path) { skipped.push(n); continue; }
+    await putFile(env, p, path, entries[n]);
+    written.push(path);
+  }
+  let removed: string[] = [];
+  if (clean) { const keep = new Set(written); for (const f of await listFiles(env, p.id)) if (!keep.has(f.path)) { await deleteFile(env, p.id, f.path); removed.push(f.path); } }
+  return { written, skipped, removed, next: 'Run check_project.' };
+}
+void gameUrl; void parseJson;

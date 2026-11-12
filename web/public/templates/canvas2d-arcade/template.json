@@ -1,0 +1,1 @@
+{ "title": "2D canvas arcade", "summary": "A complete small top-down 2D game on a plain canvas: sprites baked once at boot, cached ground chunks, y-sorted drawing, a following camera with shake, keyboard and touch controls, synthesised sound, cloud-saved best score and a leaderboard. No engine, zero downloaded assets.", "pipeline": "canvas2d" }
