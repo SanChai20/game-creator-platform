@@ -60,6 +60,17 @@ const state = (page) => page.evaluate(() => {
     caps: { webgl2: !!document.createElement('canvas').getContext('webgl2'), webgpu: !!navigator.gpu } };
 });
 
+/** A touch tap that works in Puppeteer and, through a raw protocol session, in Playwright without touch emulation. */
+async function tap(page, x, y) {
+  try { await page.touchscreen.tap(x, y); return; } catch { /* Playwright without hasTouch */ }
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+  } catch { /* this browser cannot send touch events */ }
+}
+
 /**
  * @param page   Puppeteer/Playwright page (fresh, viewport ~960x540)
  * @param url    game URL including the play token
@@ -74,9 +85,16 @@ export async function verifyPage(page, url, opts = {}) {
   page.on('dialog', (d) => { d.dismiss().catch(() => {}); });
 
   const report = { ok: false, summary: '', checks, metrics: {}, errors: [], warnings: [], missing: [], caps: {}, gpuLimited: false, at: Date.now() };
-  let status = 0;
-  try { const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }); status = resp ? resp.status() : 0; }
-  catch (e) { add('deployed', false, 'The deployed game responds', `Navigation failed: ${e.message}`); report.summary = 'The deployed game did not load.'; return { report, shots: [] }; }
+  // A Worker that was deployed seconds ago can still be missing at some edge locations, so a 404 or 5xx gets a few more tries.
+  let status = 0, navError = '';
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (attempt) await sleep(5000);
+    try { const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }); status = resp ? resp.status() : 0; navError = ''; }
+    catch (e) { status = 0; navError = String(e && e.message || e); }
+    if (status === 200 || (status >= 400 && status < 500 && status !== 404)) break;
+  }
+  if (navError) { add('deployed', false, 'The deployed game responds', `Navigation failed: ${navError}`); report.summary = 'The deployed game did not load.'; return { report, shots: [] }; }
+  if (status === 200) { badResponses.length = 0; pageErrors.length = 0; }   // earlier attempts do not count against the game
   add('deployed', status === 200, 'The deployed game responds', `HTTP ${status}`, status === 200 ? '' : 'The preview Worker did not serve index.html.');
   if (status !== 200) { report.summary = `The game document returned HTTP ${status}.`; return { report, shots: [] }; }
 
@@ -109,20 +127,28 @@ export async function verifyPage(page, url, opts = {}) {
     const blank = !pic1 || !pic1.ok || pic1.other < 200 || pic1.colors < 2; // a flat screen; a sparse one (Pong) is fine
     add('picture', !blank, 'Something is drawn', pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background` : 'No screenshot',
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
-    // 5. input: click, keys, drag, touch
+    // 5. input: click, keys, drag, touch. A marker on window tells us afterwards whether the page was reloaded.
+    await page.evaluate(() => { window.__gcpStay = 1; }).catch(() => {});
     try {
       const vp = page.viewport ? page.viewport() : page.viewportSize(); const cx = (vp?.width || 960) / 2, cy = (vp?.height || 540) / 2;
       await page.mouse.click(cx, cy); await sleep(150);
       for (const k of ['Enter', 'Space']) { await page.keyboard.press(k); await sleep(80); }
       for (const k of ['KeyW', 'KeyD', 'ArrowUp', 'ArrowRight']) { await page.keyboard.down(k); await sleep(220); await page.keyboard.up(k); }
       await page.mouse.move(cx - 80, cy); await page.mouse.down(); await page.mouse.move(cx + 80, cy + 30, { steps: 6 }); await page.mouse.up();
-      try { await page.touchscreen.tap(cx + 40, cy + 40); } catch { /* this browser has no touch emulation */ }
+      await tap(page, cx + 40, cy + 40);
       await page.keyboard.press('Escape');
     } catch (e) { report.warnings.push('Input simulation error: ' + e.message); }
-    const c = await state(page); await sleep(1500); const d = await state(page);
-    f2 = d.frames - c.frames; s = d;
-    add('input', f2 >= Math.max(3, o.minFrames / 3), 'Survives keyboard, mouse and touch input', `${f2} frames in the 1.5s after input`, f2 >= 3 ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
-    pic2 = await shoot();
+    await sleep(300);
+    let d = null;
+    try { if (await page.evaluate(() => window.__gcpStay === 1)) { const c = await state(page); await sleep(1500); d = await state(page); f2 = d.frames - c.frames; } } catch { d = null; }
+    if (!d) {
+      add('input', false, 'Survives keyboard, mouse and touch input', 'The page reloaded or navigated away when it received input.',
+        'Something reloads or leaves the page on a click, tap or key press. A common cause is a button or link that is invisible (opacity 0) but still clickable: hide inactive UI with display:none or visibility:hidden.');
+    } else {
+      s = d;
+      add('input', f2 >= Math.max(3, o.minFrames / 3), 'Survives keyboard, mouse and touch input', `${f2} frames in the 1.5s after input`, f2 >= 3 ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
+      pic2 = await shoot();
+    }
   }
   // 1b + 6
   const missing = [...new Set([...(s.missing || []), ...badResponses])];

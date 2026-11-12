@@ -73,12 +73,12 @@ export async function undeployGame(env: Env, pid: string, e: GameEnv): Promise<v
 export async function waitHealthy(env: Env, url: string, version: number, timeoutMs = 150000): Promise<{ ok: boolean; detail: string }> {
   if (env.DEPLOY_DRIVER === 'local') return { ok: true, detail: 'local driver' };
   const start = Date.now();
-  let last = '';
+  let last = '', good = 0;   // three answers in a row, so one lucky edge location is not mistaken for a finished rollout
   while (Date.now() - start < timeoutMs) {
     try {
       const r = await fetch(url + '__gcp/health', { headers: { 'cache-control': 'no-cache' } });
-      if (r.ok) { const j = await r.json<{ version?: number }>().catch(() => ({} as { version?: number })); if (j.version === version) return { ok: true, detail: `healthy after ${Math.round((Date.now() - start) / 1000)}s` }; last = `serving version ${j.version}`; }
-      else last = `HTTP ${r.status}`;
+      if (r.ok) { const j = await r.json<{ version?: number }>().catch(() => ({} as { version?: number })); if (j.version === version) { if (++good >= 3) return { ok: true, detail: `healthy after ${Math.round((Date.now() - start) / 1000)}s` }; await new Promise((r) => setTimeout(r, 1200)); continue; } good = 0; last = `serving version ${j.version}`; }
+      else { good = 0; last = `HTTP ${r.status}`; }
     } catch (e) { last = String((e as Error).message || e); }
     await new Promise((r) => setTimeout(r, 2500));
   }

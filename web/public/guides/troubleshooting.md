@@ -41,6 +41,8 @@
 
 An event handler threw. The verifier presses common keys (WASD, arrows, space, enter, escape), clicks, drags and sends touch events. Typical causes: reading a property of something that does not exist until the game has started, `requestPointerLock()` or `requestFullscreen()` rejecting without a `catch`, `audio.play()` rejecting, or Escape closing the game with no way back. Handle rejections: `canvas.requestPointerLock()?.catch?.(() => {})`.
 
+If the report says the page reloaded or navigated away, something calls `location.reload()` or follows a link on input. The usual culprit is a control that is invisible (`opacity: 0`) but still clickable, such as a "Play again" button on a hidden overlay. Hide inactive UI with `display: none` or `visibility: hidden`.
+
 ## files: some requests failed
 
 The report lists each address. Fix the path or upload the file. Remember that paths are case sensitive, that a game is not guaranteed to sit at the root of its address (so use `./assets/x.png`, never `/assets/x.png`), and that third-party URLs can fail; bundle what you depend on.

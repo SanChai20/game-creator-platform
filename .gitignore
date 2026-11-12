@@ -7,3 +7,4 @@ web/public/templates/index.json
 web/public/kits/index.json
 src/generated/
 *.log
+smoke-state.json

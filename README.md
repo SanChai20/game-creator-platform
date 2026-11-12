@@ -108,4 +108,12 @@ npx wrangler secret put SESSION_SECRET     # and the other secrets above
 npm run deploy              # build the web app and deploy the Worker
 ```
 
+To check a deployment end to end (sign-up, OAuth, MCP, a real game Worker and browser verification for each template) without touching the admin claim:
+
+```sh
+BASE=https://<site> node tests/live-smoke.mjs
+```
+
+It leaves a throwaway account and draft projects behind; remove them from the admin console.
+
 Then open `https://<site>/signup`, create an account, and visit `https://<site>/claim-admin?token=<ADMIN_CLAIM_TOKEN>` to become the administrator.
