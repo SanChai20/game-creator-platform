@@ -121,6 +121,9 @@ export async function verifyPage(page, url, opts = {}) {
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
     // For the craft review: a second picture a moment later with nothing pressed (does anything move by itself?), and the HUD.
     await sleep(700); picIdle = await shoot(); ui1 = await uiState(page);
+    // Browsers keep sound locked until the first real press. One click in the top-left corner pixel gives the page that press, as a
+    // player's first key or tap would, so sounds played during the play-through are real and can be measured.
+    try { await page.mouse.click(2, 2); await sleep(120); } catch { /* no pointer */ }
     // 4b. play-through: if the game registered one, it plays itself to the end and every step is reported.
     let play = null;
     try {
@@ -188,7 +191,8 @@ export async function verifyPage(page, url, opts = {}) {
   if (pic1 && pic1.img) {
     try {
       const after = await page.evaluate(() => (window.__GCP && window.__GCP.probe ? JSON.parse(JSON.stringify(window.__GCP.probe)) : null)).catch(() => null);
-      const probe = restarted || !after ? probeBeforeInput || after : after;   // after a self-restart the fresh page has seen almost nothing
+      let probe = restarted || !after ? probeBeforeInput || after : after;   // after a self-restart the fresh page has seen almost nothing
+      if (restarted && probe && after && after.audio && probe.audio) probe = { ...probe, audio: { contexts: Math.max(probe.audio.contexts || 0, after.audio.contexts || 0), starts: Math.max(probe.audio.starts || 0, after.audio.starts || 0) } };
       const ui = [ui1, ui2].filter(Boolean).sort((a, b) => b.texts - a.texts)[0] || { texts: 0, chars: 0 };
       report.craft = craftReview({
         stills: [pic1, pic2].filter((p) => p && p.img).map((p) => imageMetrics(p.img)), idleMotion: picIdle && picIdle.img ? motionBetween(pic1.img, picIdle.img) : 0,

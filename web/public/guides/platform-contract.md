@@ -60,7 +60,7 @@ Every call that talks to the platform resolves instead of throwing, so a network
 | renders | Frames keep being drawn for a few seconds after ready. |
 | picture | A screenshot is not blank or a single flat colour. |
 | playthrough | Only if the game registered one: its own play-through script finished without failing. |
-| input | After key presses, clicks, drags and touches, frames are still being drawn. |
+| input | After key presses, clicks, drags and touches, frames are still being drawn. A game that restarts by reloading the page (a "Play again" button) passes as long as it boots again. |
 | files | Every file the page asked for was served. |
 | clean | No uncaught errors and no unhandled promise rejections. |
 
@@ -71,6 +71,8 @@ if (window.GCP) GCP.test.onAutostart(() => startGame({ skipIntro: true }));
 ```
 
 A menu that renders and reacts is also a valid first playable frame. The hook only makes the report and the cover screenshot more useful.
+
+Just before the play-through the browser clicks once in the top-left corner pixel. Browsers keep sound locked until the first real press, and that click is the press, so sound that starts on the first key or pointer event (the usual pattern, and what `createSound()` does) plays during the check and is counted.
 
 ### The craft score
 
