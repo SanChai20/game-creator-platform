@@ -143,7 +143,7 @@ export const TOOLS: Tool[] = [
           when_needed: ['saves: cloud saves, leaderboards, server code', 'multiplayer: rooms', 'audio: sound without files', 'troubleshooting: as soon as deploy_preview comes back not verified'],
           note: 'Guides are short and contain working code. Reading the ones on this list for your kind of game first is cheaper than a failed preview.',
         },
-        start_from: 'You do not need a template. For a 3D world, design_scene writes the starting files for your description. Templates remain for other cases: "three-blank" (your own renderer, lights, loop and input, nothing else), "canvas2d-arcade" (a complete small 2D game), "blank" (a bare 2D canvas).',
+        start_from: 'You do not need a template. For a world, 3D or flat top-down 2D (camera "2d"), design_scene writes the starting files for your description. Templates remain for other cases: "three-blank" (your own renderer, lights, loop and input, nothing else), "canvas2d-arcade" (a complete small 2D game), "blank" (a bare 2D canvas).',
         tip: 'Not sure how to render the game? Call recommend_pipeline with a short description before writing code.',
       };
     },
@@ -172,12 +172,12 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'design_scene', title: 'Plan a 3D game from a description',
-    description: 'Describe the game in a sentence and get (1) a plan that names a building block for every part of it: stage and mood, ground, scenery, landmarks, hero, creatures, sound, interface, and (2) a complete starting game (index.html + src/main.js) made only of those blocks, with a start screen, an end screen, touch input, sound and a play-through, that you then reshape into your game. Plain rules, no AI: the same description gives the same plan, and every choice can be overridden with an argument. Call it before writing a 3D game; it is the fastest way to a world that looks finished. For 2D games it returns the blocks that apply instead.',
+    description: 'Describe the game in a sentence and get (1) a plan that names a building block for every part of it: stage and mood, ground, scenery, landmarks, hero, creatures, sound, interface, and (2) a complete starting game (index.html + src/main.js) made only of those blocks, with a start screen, an end screen, touch input, sound and a play-through, that you then reshape into your game. Plain rules, no AI: the same description gives the same plan, and every choice can be overridden with an argument. Call it before writing a game with a world; it is the fastest way to one that looks finished. It writes 3D worlds (third-person or from above) and flat, painted top-down worlds with upright sprites (camera "2d", also chosen when the description says 2D, 2.5D, pixel or isometric). For games that are not a world (puzzles, boards, platformers) it returns the blocks that apply instead.',
     inputSchema: obj({
       description: { type: 'string', description: 'What the player sees and does, for example "a knight collects sunstones on a volcanic island at dusk while wolves chase him". Things you name (trees, animals, props, a character) are put in the plan.' },
       setting: { type: 'string', enum: DESIGN_SETTINGS, description: 'The kind of world. Chosen from the description when omitted.' },
       goal: { type: 'string', enum: DESIGN_GOALS, description: 'The rules the starting game ships with: collect every pickup, survive hunters until the clock runs out, or find keys and reach a portal. You will change them; this decides what is already wired up.' },
-      camera: { type: 'string', enum: ['third', 'top'], description: 'third: behind the hero with drag-to-look (default). top: a high camera looking down.' },
+      camera: { type: 'string', enum: ['third', 'top', '2d'], description: 'third: 3D, behind the hero with drag-to-look (default). top: 3D, a high camera looking down. 2d: a flat painted world seen from above with upright sprites (the 2.5D look of survival and farming games), drawn on a plain canvas.' },
       mood: { type: 'string', description: 'Light and sky, one of the moods in list_blocks (clear-day, golden-hour, misty-dawn, dusk, night, storm, …).' },
       weather: { type: 'string', description: 'rain, snow, motes, fireflies, embers, leaves, dust, or none.' },
       terrain: { type: 'string', description: 'island, hills, plains, valley, dunes, mountains or flat.' },
@@ -236,7 +236,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'list_templates', title: 'List starter templates',
-    description: 'Lists starter projects that already pass verification. They are optional: for a 3D world, design_scene writes starting files that fit your description, and list_blocks gives you the parts. Use a template when you want a bare renderer ("three-blank"), a 2D starting point ("canvas2d-arcade", "blank") or an example to read.',
+    description: 'Lists starter projects that already pass verification. They are optional: for a world (3D, or flat top-down 2D), design_scene writes starting files that fit your description, and list_blocks gives you the parts. Use a template when you want a bare renderer ("three-blank"), a 2D starting point ("canvas2d-arcade", "blank") or an example to read.',
     inputSchema: obj({}), annotations: { readOnlyHint: true }, run: async (_a, c) => assetJson(c.env, '/templates/index.json'),
   },
   {
@@ -250,7 +250,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'create_project', title: 'Create a game project',
-    description: 'Creates a new game project. Templates are optional: for a 3D world leave `template` out and write the files design_scene returns; pass `template` for a bare starting point ("three-blank" for your own Three.js setup, "canvas2d-arcade" for 2D, "blank" for an empty page that satisfies the contract). Returns the project id used by every other tool.',
+    description: 'Creates a new game project. Templates are optional: for a world (3D, or flat top-down 2D) leave `template` out and write the files design_scene returns; pass `template` for a bare starting point ("three-blank" for your own Three.js setup, "canvas2d-arcade" for 2D, "blank" for an empty page that satisfies the contract). Returns the project id used by every other tool.',
     inputSchema: obj({
       title: { type: 'string', description: 'Game title shown in the marketplace.' },
       template: { type: 'string', description: 'Optional starter template name from list_templates.' },
@@ -516,7 +516,7 @@ function recommend(a: Record<string, any>) {
   if (dim === '2d' || dim === '2.5d' && !has('3d model', 'rotate camera')) {
     out.pipeline = 'canvas2d';
     out.why = ['A 2D canvas draws thousands of pre-baked sprites per frame on any device, starts instantly, and has no shader or GPU-driver failure modes.', 'Depth is a sort by ground position; lighting is a multiply layer. Both are a few lines.'];
-    out.start_from = { template: 'canvas2d-arcade', kits: ['@gcp/core.js', '@gcp/canvas2d.js', '@gcp/input.js'], blocks: "createHud from '@gcp/hud.js' (interface), createSound from '@gcp/sound.js' (effects, ambience, music), and from '@gcp/procgen.js': paint(kind).toCanvas() for tiles and patterns, noise() for maps and variation, rng(seed) for repeatable levels" };
+    out.start_from = { world: 'For a top-down or 2.5D world, design_scene {description, camera: "2d"} writes a complete starting game on @gcp/craft2d.js: painted land, 30 kinds of sprites, animated people and animals, darkness with lights, weather. list_blocks {group: "world2d"} shows the parts.', template: 'canvas2d-arcade', kits: ['@gcp/craft2d.js', '@gcp/core.js', '@gcp/canvas2d.js', '@gcp/input.js'], blocks: "createHud from '@gcp/hud.js' (interface), createSound from '@gcp/sound.js' (effects, ambience, music), and from '@gcp/procgen.js': paint(kind).toCanvas() for tiles and patterns, noise() for maps and variation, rng(seed) for repeatable levels" };
     out.frame = ['update(dt) with dt clamped to 0.1 s', 'draw cached ground chunks', 'draw sprites sorted by y', 'draw lighting/fog overlay', 'DOM HUD on top'];
     out.avoid = ['Drawing vector paths every frame: bake each sprite once into an offscreen canvas and drawImage it.', 'Reading pixels back (getImageData) in the frame loop.', 'A canvas larger than devicePixelRatio 2: cap it.'];
     out.guides = ['platform-contract', 'rendering-pipelines', 'loading', 'input', 'performance'];

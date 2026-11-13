@@ -3,6 +3,8 @@
 // rules, no AI: the same description and seed always give the same plan. Nothing here is a house style: every choice
 // is an argument the caller can override, and the code it returns is ordinary code the agent keeps editing.
 
+import { write2d } from './design-scene-2d.js';
+
 const K = (code, r = 0) => ({ code, r });   // a landmark: code of the kind, radius of its footprint (0 = walk through)
 
 // One row per setting. `words` decide which row a description lands on. Kinds are written as code so the result reads
@@ -117,7 +119,8 @@ const GOALS = {
   survive: { words: /surviv|chase|hunted|enem|monster|attack|defend|escape from|avoid|flee|zombie|wolves|horde/, summary: 'Stay alive until the clock runs out while hunters chase the hero.' },
   reach: { words: /reach|escape|portal|exit|gate|get to|find the way|unlock|keys?\b|deliver/, summary: 'Find the keys, then reach the portal before the time runs out.' },
 };
-const TWO_D = /\b(2d|2-d|pixel|platformer|side.?scroll|puzzle|card|board|match.?3|tetris|snake|pong|breakout|chess|sudoku|word game|clicker|idle game|text adventure)\b/;
+// a flat world to walk around in (the planner writes it) against games that are not a world at all (it does not)
+const WORLD_2D = /(^|[^\w.])(2d|2-d|2\.5d|pixel|isometric|sprites?|stardew|zelda)\b/, NOT_A_WORLD = /\b(platformer|side.?scroll|puzzle|card|board|match.?3|tetris|snake|pong|breakout|chess|sudoku|word game|clicker|idle game|text adventure)\b/;
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const q = (s) => `'${String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
@@ -125,7 +128,7 @@ const pick = (v, list, fallback) => (v != null && list.includes(String(v)) ? Str
 
 /**
  * args: description (required), setting, mood, weather ('none' for clear air), terrain, palette, hero, goal, camera
- * ('third' | 'top'), title, seed, pickups, time_limit. values: the lists from the block catalog (moods, props, …).
+ * ('third' | 'top' | '2d': a flat, painted top-down world), title, seed, pickups, time_limit. values: the lists from the block catalog (moods, props, …).
  */
 const ARGS = ['description', 'setting', 'mood', 'weather', 'terrain', 'palette', 'hero', 'goal', 'camera', 'title', 'seed', 'pickups', 'time_limit'];
 const READ = 300;   // characters of the description the planner reads; it also bounds the plan line written into the game
@@ -134,8 +137,8 @@ const planArgs = (args) => Object.fromEntries(ARGS.filter((k) => args[k] != null
 
 export function designScene(args, V) {
   const text = String(args.description || '').slice(0, READ).toLowerCase();
-  const explicit3d = /\b3d\b|three\.?js|third.?person|first.?person|open world/.test(text) || args.setting;
-  if (TWO_D.test(text) && !explicit3d) return twoD(args);
+  const explicit3d = /\b3d\b|three\.?js|third.?person|first.?person/.test(text) || args.camera === 'third' || args.camera === 'top';
+  if (NOT_A_WORLD.test(text) && !explicit3d && !args.setting && args.camera !== '2d') return twoD(args);
 
   const id = pick(args.setting, Object.keys(SETTINGS), ORDER.find((k) => SETTINGS[k].words.test(text)) || 'forest'), S = SETTINGS[id], notes = [];
   if (String(args.description || '').length > READ) notes.push(`The planner reads the first ${READ} characters of the description. Put the setting, the hero, the goal and the things you want in it first, or pass them as arguments.`);
@@ -146,9 +149,9 @@ export function designScene(args, V) {
   const palette = args.palette && V.terrain_palettes.includes(args.palette) ? q(args.palette) : S.flat ? S.palette : q(S.palette);
   const hero = pick(args.hero, V.humanoids, V.humanoids.find((h) => new RegExp(`\\b${h}`).test(text)) || S.hero);
   const goal = pick(args.goal, Object.keys(GOALS), ['survive', 'reach', 'collect'].find((g) => GOALS[g].words.test(text)) || 'collect');
-  const camera = pick(args.camera, ['third', 'top'], /top.?down|isometric|bird'?s.?eye|overhead/.test(text) ? 'top' : 'third');
+  const camera = pick(args.camera, ['third', 'top', '2d'], WORLD_2D.test(text) && !explicit3d ? '2d' : /top.?down|bird'?s.?eye|overhead/.test(text) ? 'top' : 'third');
   const seed = String(args.seed || id).slice(0, 40), title = String(args.title || S.title).slice(0, 60);
-  for (const [k, list] of [['setting', Object.keys(SETTINGS)], ['mood', V.moods], ['weather', [...V.weather, 'none']], ['terrain', V.terrain_shapes], ['palette', V.terrain_palettes], ['hero', V.humanoids], ['goal', Object.keys(GOALS)], ['camera', ['third', 'top']]]) {
+  for (const [k, list] of [['setting', Object.keys(SETTINGS)], ['mood', V.moods], ['weather', [...V.weather, 'none']], ['terrain', V.terrain_shapes], ['palette', V.terrain_palettes], ['hero', V.humanoids], ['goal', Object.keys(GOALS)], ['camera', ['third', 'top', '2d']]]) {
     if (args[k] != null && !list.includes(String(args[k]))) notes.push(`"${args[k]}" is not a ${k} this tool knows, so the default was used. Valid: ${list.join(', ')}.`);
   }
 
@@ -168,6 +171,7 @@ export function designScene(args, V) {
   const time = Math.max(20, Math.min(1800, Math.round(Number(args.time_limit) || (goal === 'survive' ? 90 : 240))));
   const drift = DRIFT[mood] || null, water = !flat, waterOpt = S.water && water ? `, color: ${S.water}` : '';
   const objective = goal === 'collect' ? `Find the ${count} ${pk[3]} before time runs out` : goal === 'survive' ? `Stay alive for ${time} seconds` : 'Find the three keys, then reach the portal';
+  if (camera === '2d') return write2d({ args, V, id, S, mood: pick(args.mood, V.moods2d, fromWords(MOOD_WORDS) || S.mood), weather: weather && V.weather2d.includes(weather) ? weather : null, hero: pick(hero, V.actors2d, 'explorer'), goal, goalSummary: GOALS[goal].summary, seed, title, count, time, pk, objective, notes, drift, big, small, camp, animals, foes, planLine: `${PLAN_MARK}${JSON.stringify(planArgs(args))}` });
   const moveHint = camera === 'top' ? 'WASD or arrows to move · Shift to run · Space to jump' : 'WASD or arrows to move · drag to look · Shift to run · Space to jump';
 
   const used = new Set(['run', 'createStage', 'terrain', 'scatter', 'place', 'prop', 'humanoid', 'animal', 'control', 'wander', 'createFx', 'createHud', 'createSound', 'createInput', 'rng']);
@@ -370,7 +374,8 @@ function twoD(args) {
   return {
     dimension: '2d',
     plan: {
-      note: 'This reads as a 2D game. The scene planner writes 3D worlds; for 2D you draw with the canvas yourself and still use the engine-agnostic blocks below.',
+      note: 'This reads as a 2D game that is not a world to walk around in (a puzzle, a board, a platformer). The scene planner writes worlds: 3D ones, and flat painted top-down ones with camera "2d". For this kind you draw with the canvas yourself and still use the blocks below.',
+      world_blocks: 'If the game does have a top-down world, call design_scene again with camera: "2d": it returns a complete game on @gcp/craft2d.js (createStage2d, ground2d, sprite2d, scatter2d, actor2d, control2d, wander2d).',
       loop_and_boot: 'run(main) and createLoop from @gcp/core.js',
       drawing: 'setupCanvas, bake (paint each sprite or tile once on an off-screen canvas), Camera2D, drawSorted, ChunkCache from @gcp/canvas2d.js',
       textures: "paint(kind, { seed, color }).toCanvas() from @gcp/procgen.js gives any of the painted textures (grass, brick, planks, stonewall, …) as a canvas to use as a tile or a pattern; noise({ seed, scale }) gives terrain, clouds and variation; rng(seed) gives repeatable randomness",
@@ -380,7 +385,7 @@ function twoD(args) {
       start_from: 'create_project with template "canvas2d-arcade" (a complete small 2D game) or "blank", then add the blocks above',
     },
     files: null,
-    notes: [args.description ? 'Pass setting (for example "forest") if you do want a 3D world for this idea.' : 'No description given.'],
+    notes: [args.description ? 'Pass camera: "2d" for a flat top-down world, or setting (for example "forest") for a 3D world.' : 'No description given.'],
   };
 }
 

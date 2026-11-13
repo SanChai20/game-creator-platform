@@ -101,7 +101,7 @@ async function main() {
   const tools = (await rpc('tools/list')).tools;
   assert.ok(tools.length >= 20 && tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   const started = await tool('get_started');
-  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 10 && started.quality.target && started.building_blocks.tools.length === 3);
+  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 11 && started.quality.target && started.building_blocks.tools.length === 3);
   const rec = await tool('recommend_pipeline', { description: 'An open world survival game on an island with torches at night', dynamic_lights: 3 });
   assert.match(rec.pipeline, /three-forward/);
   assert.equal((await tool('recommend_pipeline', { description: 'a top-down pixel puzzle' })).pipeline, 'canvas2d');
@@ -149,7 +149,17 @@ async function main() {
   assert.ok(pd.quality.own_work.still_the_plan && pd.quality.own_work.unchanged === pd.quality.own_work.planned_lines && pd.quality.own_work.ideas.length && /own_work/.test(pd.next) && !/Tell the user/.test(pd.next), JSON.stringify(pd.quality.own_work));
   assert.ok(Array.isArray(pd.quality.improve) && pd.quality.improve.every((l) => /full marks/.test(l) || /\d/.test(l)), JSON.stringify(pd.quality.improve));
   assert.ok(/refresh_token/.test((await tool('get_started', {})).session));
-  ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), look ${pd.quality.look_score}, portrait in ${pd.report.portrait.ms} ms, ${pd.report.metrics.fps} fps`);
+  // a flat, painted top-down world from the same planner
+  const p2 = await tool('design_scene', { description: 'A 2.5D survival game: an explorer gathers berries in a forest with deer', goal: 'collect', seed: 'e2e-2d', title: `Flat ${run}` });
+  assert.ok(p2.plan.camera === '2d' && p2.files['src/main.js'].includes("from '@gcp/craft2d.js'") && /section 6/.test(p2.how_to_use.join(' ')), JSON.stringify(p2.plan).slice(0, 400));
+  assert.ok((await tool('list_blocks', { group: 'world2d' })).blocks.some((b) => b.name === 'sprite2d'));
+  const flatP = await tool('create_project', { title: `Flat ${run}`, tagline: 'A painted top-down world' });
+  await tool('put_files', { project: flatP.project, files: Object.entries(p2.files).map(([path, content]) => ({ path, content })) });
+  let fd = await tool('deploy_preview', { project: flatP.project, note: '2d from design_scene' });
+  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(fd.status); i++) { await sleep(2000); fd = await tool('get_version', { project: flatP.project, version: fd.version }); }
+  assert.equal(fd.status, 'verified', JSON.stringify(fd.report, null, 1).slice(0, 2000));
+  assert.ok(fd.report.playthrough.steps.length === 5 && fd.quality.craft_score >= fd.quality.target && fd.quality.own_work.still_the_plan, JSON.stringify(fd.quality).slice(0, 1500));
+  ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its 2D game verified with craft ${fd.quality.craft_score}/100 (look ${fd.quality.look_score}); its 3D game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), look ${pd.quality.look_score}, portrait in ${pd.report.portrait.ms} ms, ${pd.report.metrics.fps} fps`);
 
   // a broken game is caught statically, with a line number and a fix
   const bad = await tool('create_project', { title: `Broken ${run}` });

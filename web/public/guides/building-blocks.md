@@ -119,6 +119,33 @@ Nothing is all-or-nothing.
 - **Other engines and 2D.** `@gcp/hud.js` and `@gcp/sound.js` are plain DOM and WebAudio. From `@gcp/procgen.js`, `paint(kind).toCanvas()` gives any painted texture as a canvas for tiles and patterns, `noise()` gives maps and variation, `rng(seed)` gives repeatable levels.
 - **Change a block.** `get_kit_file {file: "craft/props.js"}` returns the source. Copy it into your bundle and edit it.
 
+## 2D and 2.5D worlds
+
+`@gcp/craft2d.js` does for a flat world what the blocks above do for a 3D one. The view is from above with upright things (trees, houses and people stand up and overlap by their feet), the look of survival, farming and adventure games. `design_scene {description, camera: "2d"}` writes a complete game with it; a description that says 2D, 2.5D, pixel or isometric picks it by itself.
+
+```js
+import { run, createStage2d, ground2d, sprite2d, scatter2d, actor2d, control2d, wander2d, createHud, createSound, createInput } from '@gcp/craft2d.js';
+
+const stage = createStage2d('#view', { mood: 'night', weather: 'fireflies' });   // the same mood and weather names as in 3D
+const land = ground2d({ seed: 'vale', palette: 'temperate' });                   // water, shore, grass, dirt paths, stone
+const { solids } = scatter2d([sprite2d('tree', { species: 'oak' }), sprite2d('tree', { species: 'pine' }), sprite2d('rock')], { count: 500, radius: 56, minDistance: 1.9 });
+stage.add(sprite2d('campfire'), 2, 1);                                            // fires, lanterns and lamps light the dark
+const hero = actor2d('explorer'), input = createInput(stage.canvas), player = control2d(hero, { input, solids });
+const deer = actor2d('deer', { x: 6, y: 3 }); wander2d(deer, { flee: hero });
+stage.run((dt) => { player.update(dt); input.endFrame(); });
+```
+
+| You need | Call | What you get |
+|---|---|---|
+| The frame around everything | `createStage2d(canvas, { mood, weather })` | canvas sized for the device, a camera that follows `stage.focus`, depth sorting, soft shadows, moods that really darken the picture, lights that cut through it, weather, wind in the trees, `stage.fx` (bursts, rings, floating text, confetti) |
+| Land | `ground2d({ seed, palette })` | painted per pixel from noise and cached in chunks: lakes with foam at the shore, sand, grass in two tones, dirt paths, stone, tufts and flowers; `walkable(x, y)`, `kindAt(x, y)`, `randomPoint(rand)` |
+| Things | `sprite2d(kind, opts)` | 30 outlined, shaded kinds painted once each: trees by species, rocks, bushes, houses, camp props, lights, pickups |
+| Many things | `scatter2d(kinds, { count, radius, minDistance, avoid })` | hundreds placed by rule; returns the solid ones for collision |
+| People and animals | `actor2d(kind)` | drawn from parts every frame, so they walk, turn four ways, cheer and flinch with no sprite sheets |
+| Movement | `control2d(hero, { input, solids })`, `wander2d(actor, { flee, chase, onReach })` | keyboard and touch movement with collision and a following camera; creatures that stroll, flee or hunt |
+
+Your own art mixes in: `bake(w, h, draw)` from the same module turns any canvas drawing into a sprite for `stage.add`, and `stage.ctx` is the plain 2D context.
+
 ## The craft score
 
 After a version verifies, the browser loads the game once more at full quality and takes its portrait (see the platform-contract guide). Seven things are then measured and returned as `quality`: a craft score out of 100, `look_score` for the picture alone, what was measured, and what to improve. Nothing is judged by taste and publishing never depends on it. The measures are calibrated on finished games: a hand-made open-world game with ambient occlusion, bloom and soft shadows measures look 93.

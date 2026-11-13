@@ -11,6 +11,7 @@ const GROUPS = [
   { id: 'nature', title: 'Nature: terrain, water, trees, rocks, bushes, ground cover, grass, scattering', files: ['craft/nature.js'], from: '@gcp/craft.js' },
   { id: 'props', title: 'Props: buildings, furniture, lights, pickups', files: ['craft/props.js'], from: '@gcp/craft.js' },
   { id: 'actors', title: 'Actors: animated people and animals, player control, wandering', files: ['craft/actors.js'], from: '@gcp/craft.js' },
+  { id: 'world2d', title: '2D and 2.5D worlds: painted top-down land, sprites, animated people and animals, darkness with lights, weather (plain canvas)', files: ['craft2d.js'], from: '@gcp/craft2d.js' },
   { id: 'fx', title: 'Effects: particles, bursts, floating text', files: ['craft/fx.js'], from: '@gcp/craft.js' },
   { id: 'hud', title: 'HUD: counters, bars, timer, objective, title and end screens (plain DOM, any engine)', files: ['hud.js'], from: '@gcp/craft.js' },
   { id: 'sound', title: 'Sound: synthesised effects, ambience and music with no audio files (any engine)', files: ['sound.js'], from: '@gcp/craft.js' },
@@ -43,7 +44,7 @@ function parse(src) {
 
 export async function buildBlocks(pub) {
   const kits = join(pub, 'kits/v1');
-  const craft = await import(pathToFileURL(join(kits, 'craft.js')).href), procgen = await import(pathToFileURL(join(kits, 'procgen.js')).href);
+  const craft = await import(pathToFileURL(join(kits, 'craft.js')).href), flat = await import(pathToFileURL(join(kits, 'craft2d.js')).href), procgen = await import(pathToFileURL(join(kits, 'procgen.js')).href);
   const groups = [], missing = [];
   for (const g of GROUPS) {
     const blocks = [];
@@ -57,6 +58,7 @@ export async function buildBlocks(pub) {
   const values = {
     moods: list(craft.MOODS), weather: list(craft.WEATHERS), surfaces: list(craft.SURFACES), trees: list(craft.TREES), ground_cover: list(craft.COVERS),
     terrain_shapes: list(craft.TERRAIN_SHAPES), terrain_palettes: list(craft.TERRAIN_PALETTES), props: list(craft.PROPS), humanoids: list(craft.HUMANOIDS), animals: list(craft.ANIMALS_LIST),
+    moods2d: list(flat.MOODS2D), weather2d: list(flat.WEATHERS2D), sprites2d: list(flat.SPRITES2D), trees2d: list(flat.TREES2D), actors2d: list(flat.ACTORS2D), ground_palettes: list(flat.GROUND_PALETTES),
     sounds: list(craft.SOUNDS), ambiences: list(craft.AMBIENCES), music: list(craft.MUSIC), recipe_kinds: craft.recipeKinds(), algorithms: procgen.ALGO,
   };
   for (const [k, v] of Object.entries(values)) if (Array.isArray(v) && !v.length) throw new Error(`blocks: no values for ${k}`);

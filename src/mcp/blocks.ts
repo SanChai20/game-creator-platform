@@ -18,7 +18,7 @@ const CRAFT_GROUPS = ['stage', 'surfaces', 'nature', 'props', 'actors', 'fx', 'h
 const VALUES_OF: Record<string, string[]> = {
   createStage: ['moods', 'weather'], surface: ['surfaces'], surfaceTexture: ['surfaces'], surfaceNormal: ['surfaces'], block: ['surfaces'], floor: ['surfaces'], paint: ['surfaces'],
   tree: ['trees'], groundCover: ['ground_cover'], terrain: ['terrain_shapes', 'terrain_palettes'], prop: ['props'], place: ['props', 'trees', 'ground_cover'], scatter: ['trees', 'ground_cover', 'props'],
-  humanoid: ['humanoids'], animal: ['animals'], createSound: ['sounds', 'ambiences', 'music'], build: ['recipe_kinds'], recipe: ['recipe_kinds'], variants: ['recipe_kinds'],
+  humanoid: ['humanoids'], animal: ['animals'], sprite2d: ['sprites2d', 'trees2d'], actor2d: ['actors2d'], ground2d: ['ground_palettes'], createStage2d: ['moods2d', 'weather2d'], scatter2d: ['sprites2d'], createSound: ['sounds', 'ambiences', 'music'], build: ['recipe_kinds'], recipe: ['recipe_kinds'], variants: ['recipe_kinds'],
 };
 // objects the blocks return: "hud.title" is documented under createHud, and so on
 const OWNERS: Record<string, string> = { stage: 'createStage', hud: 'createHud', sound: 'createSound', fx: 'createFx', actor: 'humanoid', hero: 'humanoid', player: 'control', controller: 'control', land: 'terrain', input: 'createInput', boot: 'run' };
@@ -36,16 +36,18 @@ export async function listBlocks(env: Env, origin: string, a: Record<string, any
     what: 'Building blocks hosted by the platform. Each is one call that returns something finished: generated in code from options and a seed, nothing to download, the same on every device. They are optional and they combine freely with your own Three.js code.',
     import: "import { createStage, terrain, tree, scatter, prop, place, humanoid, control, createHud, createSound } from '@gcp/craft.js'   // one import covers everything in the first list",
     craft_blocks: cat.groups.filter((g) => CRAFT_GROUPS.includes(g.id)).map((g) => ({ group: g.id, title: g.title, blocks: g.blocks.filter((b) => b.kind !== 'value').map(line) })),
+    world_2d: (() => { const g = cat.groups.find((x) => x.id === 'world2d'); return g ? { note: "Flat, painted top-down worlds with upright sprites (the 2.5D look) on a plain canvas: import from '@gcp/craft2d.js'. design_scene with camera \"2d\" writes a complete game with them.", blocks: g.blocks.filter((b) => b.kind !== 'value').map(line) } : undefined; })(),
     procedural_core: {
       note: "The layer underneath, for making your own assets: import from '@gcp/procgen.js'. Pure JS apart from the mesh builder, so 2D games and other engines can use the noise and the texture painter too. list_blocks {group} shows each in full.",
-      groups: cat.groups.filter((g) => !CRAFT_GROUPS.includes(g.id)).map((g) => ({ group: g.id, title: g.title, blocks: g.blocks.map((b) => b.name).join(', ') })),
+      groups: cat.groups.filter((g) => !CRAFT_GROUPS.includes(g.id) && g.id !== 'world2d').map((g) => ({ group: g.id, title: g.title, blocks: g.blocks.map((b) => b.name).join(', ') })),
     },
     valid_names: {
       moods: cat.values.moods, weather: cat.values.weather, surfaces: cat.values.surfaces, trees: cat.values.trees, ground_cover: cat.values.ground_cover, terrain_shapes: cat.values.terrain_shapes, terrain_palettes: cat.values.terrain_palettes,
       props: cat.values.props, humanoids: cat.values.humanoids, animals: cat.values.animals, sounds: cat.values.sounds, ambiences: cat.values.ambiences, music: cat.values.music,
+      sprites2d: (cat.values as any).sprites2d, trees2d: (cat.values as any).trees2d, actors2d: (cat.values as any).actors2d, ground_palettes: (cat.values as any).ground_palettes,
     },
     preview: `${origin}/lab shows every block live in a browser (pick a kind, change the seed and the options, copy the recipe).`,
-    next: 'For a 3D world, call design_scene with a description: it picks blocks for every part of the game and returns a complete starting game made of them. Call get_block {name} for the full options of one block.',
+    next: 'For a world (3D, or flat top-down with camera "2d"), call design_scene with a description: it picks blocks for every part of the game and returns a complete starting game made of them. Call get_block {name} for the full options of one block.',
   };
 }
 
@@ -90,11 +92,11 @@ export async function designSceneTool(env: Env, origin: string, a: Record<string
     how_to_use: [
       'create_project (no template), then put_files with the two files above exactly as returned. It already runs, has a start and an end screen, sound, touch input and a five-step play-through.',
       'deploy_preview. The report includes a craft score out of 100 with what was measured. Uploaded unchanged, this starting point already scores well, because the blocks do; that is the floor to build on, not the finished game.',
-      'Make it your game: section 7 of src/main.js is the rules, sections 3, 4 and 6 are the world. Swap kinds (valid names are in list_blocks), move landmarks, add your own mechanics, keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).',
+      r.dimension === '2d' ? 'Make it your game: section 6 of src/main.js is the rules, sections 2 to 5 are the world. Swap kinds (list_blocks {group: "world2d"} has the valid names), move landmarks, add your own mechanics (building, crafting, farming, more players), keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).' : 'Make it your game: section 7 of src/main.js is the rules, sections 3, 4 and 6 are the world. Swap kinds (valid names are in list_blocks), move landmarks, add your own mechanics, keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).',
       `Deploy again after each round of changes and keep the craft score at ${s.craft_target} or above.`,
     ],
-    change_the_plan: `Call design_scene again with any of: setting (${DESIGN_SETTINGS.join(', ')}), mood, weather, terrain, palette, hero, goal (${DESIGN_GOALS.join(', ')}), camera (third, top), title, seed, pickups, time_limit.`,
-    not_a_limit: 'This is a starting point made of ordinary calls, not a required structure. Blocks mix with your own Three.js meshes, materials and shaders; get_block {name} shows every option.',
+    change_the_plan: `Call design_scene again with any of: setting (${DESIGN_SETTINGS.join(', ')}), mood, weather, terrain, palette, hero, goal (${DESIGN_GOALS.join(', ')}), camera (third, top, or 2d for a flat painted top-down world), title, seed, pickups, time_limit.`,
+    not_a_limit: r.dimension === '2d' ? 'This is a starting point made of ordinary calls, not a required structure. Blocks mix with your own canvas drawing (stage.ctx, bake() for your own sprites); get_block {name} shows every option.' : 'This is a starting point made of ordinary calls, not a required structure. Blocks mix with your own Three.js meshes, materials and shaders; get_block {name} shows every option.',
     preview_blocks: `${origin}/lab`,
   };
 }
