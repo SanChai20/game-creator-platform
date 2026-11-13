@@ -57,7 +57,7 @@ export function deviceOAuth(exchange: TokenExchange) {
     return c.json({
       device_code: deviceCode, user_code: userCode, verification_uri: `${origin}/device`, verification_uri_complete: `${origin}/device?code=${userCode}`,
       expires_in: TTL_S, interval: INTERVAL_S, token_endpoint: `${origin}/oauth/token`, grant_type: DEVICE_GRANT,
-      next: `Ask your user to open verification_uri_complete in any browser, sign in and approve. Meanwhile POST grant_type=${DEVICE_GRANT} and device_code to token_endpoint every ${INTERVAL_S} seconds until it returns access_token.`,
+      next: `Ask your user to open verification_uri_complete in any browser, sign in and approve. Meanwhile POST grant_type=${DEVICE_GRANT} and device_code to token_endpoint every ${INTERVAL_S} seconds until it returns access_token. Send a User-Agent header with every request: Python urllib's default one is refused with 403 "error code: 1010" before it reaches this server.`,
     }, 200, noStore);
   });
 

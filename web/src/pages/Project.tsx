@@ -10,6 +10,7 @@ function Report({ v }: { v: any }) {
       {(r.checks || []).map((c: any) => (
         <div className="check" key={c.id}><i className={c.ok ? 'ok' : 'no'}>{c.ok ? '✓' : '×'}</i><div><b>{c.label}</b>{c.detail && <div className="mute" style={{ fontSize: 13 }}>{c.detail}</div>}{!c.ok && c.hint && <div className="sig" style={{ fontSize: 13, marginTop: 4 }}>{c.hint}</div>}</div></div>
       ))}
+      {r.playthrough === null && (r.checks || []).some((c: any) => c.id === 'input') && <p className="mute" style={{ fontSize: 13 }}>{t('Only start-up, rendering and input were checked. This version has no play-through script, so nothing confirmed that it can be played to the end. Ask your agent to add one.', '仅检查了启动、渲染与输入。该版本没有试玩脚本，因此无法确认游戏能否完整玩到结束。可以让你的智能体补上。')}</p>}
       {!!r.errors?.length && <div className="log">{r.errors.join('\n')}</div>}
       {!!r.missing?.length && <div className="log">{t('Files that failed to load', '加载失败的文件')}:{'\n'}{r.missing.join('\n')}</div>}
       {r.browser === 'unavailable' && <p className="mute" style={{ fontSize: 13 }}>{t('The automatic browser check could not run for this version. Play the preview yourself for a short while to verify it.', '该版本无法进行自动浏览器检查。请亲自试玩预览版一小段时间来完成验证。')}</p>}

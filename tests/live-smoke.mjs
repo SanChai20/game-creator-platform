@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 const BASE = process.env.BASE; if (!BASE) throw new Error('Set BASE to the site origin.');
 const run = randomBytes(3).toString('hex'), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const templates = process.argv.slice(2).length ? process.argv.slice(2) : ['blank', 'canvas2d-arcade', 'three-explorer'];
+const templates = process.argv.slice(2).length ? process.argv.slice(2) : ['blank', 'three-blank', 'canvas2d-arcade', 'three-explorer'];
 function client() {
   const jar = new Map();
   const call = async (method, path, body, extra = {}) => {
@@ -50,7 +50,7 @@ for (const t of templates) {
   const t0 = Date.now(); let d = await tool('deploy_preview', { project: p.project, note: 'smoke' });
   for (let i = 0; i < 90 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(3000); d = await tool('get_version', { project: p.project, version: d.version }); }
   const secs = Math.round((Date.now() - t0) / 1000);
-  if (d.status === 'verified') console.log(`  ✓ ${t}: verified in ${secs}s (${d.report.metrics.loadMs} ms load, ${d.report.metrics.fps} fps, ${d.report.metrics.colors} colours)  ${d.screenshot}`);
+  if (d.status === 'verified') console.log(`  ✓ ${t}: verified in ${secs}s (${d.report.metrics.loadMs} ms load, ${d.report.metrics.fps} fps, ${d.report.metrics.colors} colours, ${d.report.playthrough ? `play-through ${d.report.playthrough.steps.length} steps in ${d.report.playthrough.ms} ms` : "no play-through"})  ${d.screenshot}`);
   else { failed++; console.log(`  ✗ ${t}: ${d.status} after ${secs}s\n${JSON.stringify(d.report || d, null, 1).slice(0, 2500)}`); }
 }
 save();

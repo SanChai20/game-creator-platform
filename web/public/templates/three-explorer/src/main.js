@@ -98,7 +98,12 @@ run(async (boot) => {
     const rows = await G.leaderboard.top('time', 5, 'asc');
     $('board').innerHTML = ''; for (const r of rows) { const li = document.createElement('li'); li.innerHTML = '<span></span><b></b>'; li.firstChild.textContent = r.name; li.lastChild.textContent = fmt(r.score); $('board').appendChild(li); }
   }
-  $('again').onclick = () => location.reload();
+  function restart() {            // a new run in place: the world stays, only the run's state is reset
+    for (const s of shards) { s.got = false; s.m.visible = true; }
+    found = 0; t0 = 0; time = 0; done = false; p.x = 0; p.z = 0; p.y = height(0, 0); p.vy = 0;
+    $('banner').classList.remove('on'); hud();
+  }
+  $('again').onclick = restart;
 
   // ---- frame --------------------------------------------------------------------------------
   const fwd = new THREE.Vector3(), slow = { n: 0, acc: 0 };
@@ -154,6 +159,19 @@ run(async (boot) => {
 
   // Tests and the verifier can skip straight to play and collect one shard.
   if (G) G.test.onAutostart(() => { p.x = shards[0].x - 3; p.z = shards[0].z; p.y = height(p.x, p.z); });
+
+  // The verifier runs this and reports each step, so a version is only verified if a whole run can be finished:
+  // every shard collected, the end screen shown, and "Play again" starting a fresh run. Wait on game state, never on fixed times.
+  if (G) G.test.onPlaythrough(async (t) => {
+    t.step('start a fresh run'); restart(); await t.frames(2);
+    t.step(`collect all ${shards.length} shards`);
+    for (const s of shards) { const before = found; p.x = s.x; p.z = s.z; p.y = height(p.x, p.z); await t.until(() => found > before, 6000, 'a shard to be collected'); }
+    t.step('the end screen appears with the time');
+    await t.until(() => done && $('banner').classList.contains('on'), 3000, 'the end screen');
+    t.assert($('bs').textContent.startsWith('Your time'), 'the end screen does not show the time');
+    t.step('Play again starts a new run'); $('again').click(); await t.frames(2);
+    t.assert(found === 0 && !done && !$('banner').classList.contains('on') && shards.every((s) => s.m.visible), 'the run did not reset');
+  });
 
   await boot.step(0.95, 'Almost there');
   update(0, 0);                 // draw the first frame

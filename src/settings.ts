@@ -30,6 +30,7 @@ export const SETTING_DEFS = {
   verify_ready_timeout_s: { v: 30, type: 'int', group: 'Verification', label: 'Seconds a game has to call GCP.ready()' },
   verify_min_frames: { v: 6, type: 'int', group: 'Verification', label: 'Frames that must render in the observation window (the check runs on a software GPU, so keep this low)' },
   verify_observe_s: { v: 3, type: 'int', group: 'Verification', label: 'Observation window after ready (seconds)' },
+  verify_playthrough_s: { v: 20, type: 'int', group: 'Verification', label: "Seconds a game's own play-through script may take" },
   verify_browser_required: { v: true, type: 'bool', group: 'Verification', label: 'Require the automated browser check (otherwise a clean creator preview session also qualifies)' },
   verify_human_min_seconds: { v: 20, type: 'int', group: 'Verification', label: 'Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it' },
 

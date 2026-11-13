@@ -77,14 +77,14 @@ async function tap(page, x, y) {
  * @param opts   { readyTimeoutS, minFrames, observeS, usesWebGPU, log }
  */
 export async function verifyPage(page, url, opts = {}) {
-  const o = { readyTimeoutS: 30, minFrames: 6, observeS: 3, usesWebGPU: false, ...opts };
+  const o = { readyTimeoutS: 30, minFrames: 6, observeS: 3, playthroughS: 20, usesWebGPU: false, ...opts };
   const checks = [], pageErrors = [], badResponses = [];
   const add = (id, ok, label, detail = '', hint = '') => checks.push({ id, ok, label, detail, hint });
   page.on('pageerror', (e) => { if (pageErrors.length < 20) pageErrors.push(String(e && (e.message || e)).slice(0, 500)); });
   page.on('response', (r) => { try { const s = r.status(); if (s >= 400 && badResponses.length < 20 && !/favicon\.ico/.test(r.url())) badResponses.push(`${s} ${r.url().split('?')[0]}`); } catch { /* detached */ } });
   page.on('dialog', (d) => { d.dismiss().catch(() => {}); });
 
-  const report = { ok: false, summary: '', checks, metrics: {}, errors: [], warnings: [], missing: [], caps: {}, gpuLimited: false, at: Date.now() };
+  const report = { ok: false, summary: '', checks, metrics: {}, errors: [], warnings: [], missing: [], notes: [], caps: {}, gpuLimited: false, at: Date.now() };
   // A Worker that was deployed seconds ago can still be missing at some edge locations, so a 404 or 5xx gets a few more tries.
   let status = 0, navError = '';
   for (let attempt = 0; attempt < 6; attempt++) {
@@ -127,6 +127,23 @@ export async function verifyPage(page, url, opts = {}) {
     const blank = !pic1 || !pic1.ok || pic1.other < 200 || pic1.colors < 2; // a flat screen; a sparse one (Pong) is fine
     add('picture', !blank, 'Something is drawn', pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background` : 'No screenshot',
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
+    // 4b. play-through: if the game registered one, it plays itself to the end and every step is reported.
+    let play = null;
+    try {
+      play = await Promise.race([
+        page.evaluate((ms) => (window.__GCP && window.__GCP.runPlaythrough ? window.__GCP.runPlaythrough(ms) : { ran: false }), o.playthroughS * 1000),
+        sleep(o.playthroughS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The play-through did not finish within ${o.playthroughS} s.`, steps: [], ms: o.playthroughS * 1000, frames: 0 })),
+      ]);
+    } catch (e) { play = { ran: true, ok: false, error: 'The page reloaded or closed during the play-through: ' + String(e && e.message || e).slice(0, 200), steps: [], ms: 0, frames: 0 }; }
+    if (play && play.ran) {
+      const last = play.steps.length ? play.steps[play.steps.length - 1] : '';
+      add('playthrough', !!play.ok, 'The game plays through', play.ok ? `${play.steps.length} step(s) in ${(play.ms / 1000).toFixed(1)} s: ${play.steps.join(' → ').slice(0, 600)}` : `${play.error}${last ? ` (during step ${play.steps.length}: "${last}")` : ''}`,
+        play.ok ? '' : 'The function given to GCP.test.onPlaythrough failed. Either the game has a bug on that path or the script waits for something that does not happen. The verification browser is slow, so wait on game state with t.until(...) instead of fixed times.');
+      report.playthrough = { ok: !!play.ok, steps: play.steps, error: play.error || '', ms: play.ms, frames: play.frames };
+    } else {
+      report.playthrough = null;
+      report.notes.push('Only start-up, rendering and input were checked: this version registers no play-through, so nothing confirmed that it can be played to the end. Add GCP.test.onPlaythrough (see the platform-contract guide) to have the whole loop played and reported.');
+    }
     // 5. input: click, keys, drag, touch. A marker on window tells us afterwards whether the page was reloaded.
     await page.evaluate(() => { window.__gcpStay = 1; }).catch(() => {});
     try {
@@ -161,6 +178,6 @@ export async function verifyPage(page, url, opts = {}) {
   report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / o.observeS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
   const failed = checks.filter((c) => !c.ok);
-  report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / o.observeS)} fps in the verification browser, no errors.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
+  report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / o.observeS)} fps in the verification browser, no errors${report.playthrough ? `, play-through of ${report.playthrough.steps.length} step(s) passed` : '; no play-through registered, so only start-up, rendering and input were checked'}.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
   return { report, shots };
 }

@@ -75,7 +75,7 @@ export const TOOLS: Tool[] = [
         '1. create_project (optionally with a template so you start from something that already runs)',
         '2. write files: put_files for small text files, edit_file for changes, create_upload_url + curl for big or binary files or a whole folder',
         '3. check_project: static checks (syntax, imports, missing files, the contract). Fix everything it reports.',
-        '4. deploy_preview: freezes a version, deploys it as its own Cloudflare Worker, and runs it in a real browser. Read the report.',
+        '4. deploy_preview: freezes a version, deploys it as its own Cloudflare Worker, and runs it in a real browser. Read the report. The browser only knows how to start the game and poke at it; register GCP.test.onPlaythrough (platform-contract guide) so it also plays your rules to the end and reports each step.',
         '5. Repeat 2 to 4 until the version is verified. The user can play the preview from their console.',
         '6. publish: makes that verified version live in the marketplace. Later: list_versions, rollback, unpublish, get_stats.',
       ],
@@ -89,6 +89,14 @@ export const TOOLS: Tool[] = [
       guides: (await guideIndex(c.env)).guides.map((g) => `${g.topic}: ${g.summary}`),
       kits: (await kitIndex(c.env)).kits.map((k) => `@gcp/${k.file}: ${k.summary}`),
       templates: (await assetJson<{ templates: { name: string; summary: string }[] }>(c.env, '/templates/index.json')).templates.map((t) => `${t.name}: ${t.summary}`),
+      what_to_read: {
+        always: ['platform-contract (10 minutes, before writing any code: the rules, the SDK, what verification checks, the play-through hook)'],
+        '3d_game_with_three_js': ['rendering-pipelines (renderer setup that works)', 'performance (read "The verification browser" before building the scene: it has no GPU)', 'loading', 'input', 'meshes and materials-textures when you build models and surfaces from code', 'animation when things move'],
+        '2d_game': ['rendering-pipelines (the canvas section)', 'input', 'performance (the 2D section)', 'loading'],
+        when_needed: ['saves: cloud saves, leaderboards, server code', 'multiplayer: rooms', 'audio: sound without files', 'troubleshooting: as soon as deploy_preview comes back not verified'],
+        note: 'Guides are short and contain working code. Reading the ones on this list for your kind of game first is cheaper than a failed preview.',
+      },
+      start_from: 'For Three.js from scratch use the template "three-blank" (renderer, lights, loop, input, GCP.ready() and a play-through, nothing else). "three-explorer" and "canvas2d-arcade" are complete small games to reshape. "blank" is a bare 2D canvas.',
       tip: 'Not sure how to render the game? Call recommend_pipeline with a short description before writing code.',
     }),
   },
@@ -208,10 +216,10 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'put_files', title: 'Write files',
-    description: 'Creates or replaces files in the project workspace. Best for text files up to a few hundred lines. For a small change to an existing file use edit_file instead (it saves tokens). For large or binary files, or to upload a whole folder at once, use create_upload_url. Paths are relative, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64".',
+    description: 'Creates or replaces files in the project workspace. Best for text files up to a few hundred lines. For a small change to an existing file use edit_file instead (it saves tokens). For large or binary files, or to upload a whole folder at once, use create_upload_url. Paths are relative, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64". Example arguments: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}, {"path": "src/main.js", "content": "import * as THREE from \'three\';..."}]}. `files` is an array of objects, not a map of path to content.',
     inputSchema: obj({
       project: PROJECT,
-      files: { type: 'array', minItems: 1, maxItems: 40, items: obj({ path: { type: 'string' }, content: { type: 'string' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
+      files: { type: 'array', minItems: 1, maxItems: 40, description: 'Array of {path, content} objects, e.g. [{"path": "index.html", "content": "<!doctype html>..."}]. Up to 40 per call.', items: obj({ path: { type: 'string', description: 'Relative path inside the bundle, e.g. "src/main.js".' }, content: { type: 'string', description: 'The whole file as text (or base64 when encoding is "base64").' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
     }, ['project', 'files']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
@@ -318,7 +326,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
-    description: 'Freezes the workspace as a new numbered version, deploys it as its own Cloudflare Worker (the preview), then opens it in a real browser and checks that it boots, renders, survives input and throws no errors. Returns the verification report; if it is still running after about 45 seconds, call get_version to see the result. The user can play the preview from their console.',
+    description: 'Freezes the workspace as a new numbered version, deploys it as its own Cloudflare Worker (the preview), then opens it in a real browser and checks that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also runs that script and the report lists each step; without one, the report says that only start-up, rendering and input were checked. Returns the verification report; if it is still running after about 45 seconds, call get_version to see the result. The user can play the preview from their console.',
     inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
@@ -445,14 +453,15 @@ function recommend(a: Record<string, any>) {
     out.why = deferred
       ? ['More than about 8 moving lights, or effects that need depth and normals (SSAO, screen-space water), are what a G-buffer is for.', 'Build and ship the forward path first as the "low" tier: it is the fallback for phones and the path verification will exercise. Add the deferred path behind a quality setting once the game is playable.']
       : ['One forward pass with a shadowed sun, hemisphere ambient and fog renders stylised worlds well and runs everywhere, including the software GPU used by verification.', post ? 'Add bloom and tone mapping through EffectComposer on medium quality and above; keep "low" as the plain pass.' : 'Skip post-processing until the game is playable; it is easy to add later and costly on phones.'];
-    out.start_from = { template: 'three-explorer', kits: ['@gcp/core.js', '@gcp/three-kit.js', '@gcp/input.js', '@gcp/audio.js'] };
+    out.start_from = { template: 'three-explorer', or_from_scratch: 'three-blank (renderer, lights, loop, input and GCP.ready() in one file, no kits)', kits: ['@gcp/core.js', '@gcp/three-kit.js', '@gcp/input.js', '@gcp/audio.js'] };
     out.frame = ['update(dt) with dt clamped to 0.1 s', world === 'open-world' ? 'stream chunks: build at most a few per frame from a queue, dispose far ones' : 'update animated objects', 'move the shadow camera with the player', post ? 'composer.render()' : 'renderer.render(scene, camera)', 'DOM HUD on top'];
     out.budget = { pixel_ratio: mobile ? 'min(devicePixelRatio, 1.5); 1 on low' : 'min(devicePixelRatio, 2)', draw_calls: mobile ? 'under 150' : 'under 400', shadow_map: mobile ? 1024 : 2048, lights: 'one shadow-casting directional light; up to 4 point lights without shadows' };
     out.avoid = ['One Mesh per tree, rock or blade: use InstancedMesh, or merge static parts into one geometry with vertex colours.', 'New materials or textures per object: cache and share them.', 'Allocating vectors inside the frame loop.', 'Loading assets over the network when a canvas-painted texture or generated geometry will do.', 'Shadows on every light.'];
-    out.guides = ['platform-contract', 'rendering-pipelines', 'meshes', 'materials-textures', 'animation', 'loading', 'performance'];
+    out.guides = ['platform-contract', 'rendering-pipelines', 'performance', 'loading', 'input', 'meshes', 'materials-textures', 'animation'];
+    out.verification_browser = 'It has no GPU and draws 960x540 on the CPU. A forward pass with one shadowed light and simple materials runs at 5 to 10 fps there, which passes. Full-screen post-processing, several shadow lights or heavy fragment shaders at default quality can fail: start on the lowest quality when frames are slow. See the performance guide.';
   }
   out.multiplayer = a.multiplayer || has('multiplayer', 'co-op', 'coop', 'versus', 'pvp') ? { use: 'GCP.room(code) with one host that owns the world state; guests send inputs and render snapshots', kit: '@gcp/net.js', guide: 'multiplayer' } : undefined;
-  out.always = ['Show a boot screen at once and report GCP.progress; call GCP.ready() after the first playable frame.', 'Offer quality levels and pick a low one automatically on touch devices or when frames are slow.', 'Wrap startup in try/catch and call GCP.fatal(error) so failures are reported instead of a blank page.'];
+  out.always = ['Show a boot screen at once and report GCP.progress; call GCP.ready() after the first playable frame.', 'Offer quality levels and pick a low one automatically on touch devices or when frames are slow.', 'Wrap startup in try/catch and call GCP.fatal(error) so failures are reported instead of a blank page.', 'Register GCP.test.onPlaythrough with a short script that plays the core loop to its end (score, win or lose, restart). The verifier runs it, so bugs in the rules are caught before the user plays.'];
   out.note = 'This is a starting point chosen for reliability. Art direction, camera, mechanics and feel are entirely up to you.';
   return out;
 }

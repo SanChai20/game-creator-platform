@@ -98,7 +98,17 @@ run(async (boot) => {
     input.endFrame();
   }
 
-  await boot.step(0.9, 'Waking the moth');
+  // The verifier runs this and reports each step, so a version is only verified if a whole round can be played:
+  // score a point, lose the last life, see the end screen, start again. Wait on game state, never on fixed times.
+  if (G) G.test.onPlaythrough(async (t) => {
+    t.step('start a fresh round'); reset(); await t.frames(2);
+    t.step('gather a mote'); motes.push({ x: p.x + 0.3, y: p.y, t: 0 }); await t.until(() => score >= 1, 5000, 'the score to go up');
+    t.assert($('score').textContent === String(score), 'the score on screen is wrong');
+    t.step('lose the last life to a wisp'); lives = 1; p.hurt = 0; wisps.push({ x: p.x + 0.2, y: p.y, a: 0, sp: 0 }); await t.until(() => over, 5000, 'the round to end');
+    t.step('the end screen shows the result'); t.assert($('over').classList.contains('on') && $('final').textContent.includes(String(score)), 'the end screen is missing or shows the wrong score');
+    t.step('Play again starts a new round'); $('again').click(); await t.frames(2); t.assert(!over && score === 0 && lives === 3, 'the round did not reset');
+  });
+
   update(0, 0);               // first frame
   if (window.GCP) GCP.ready();           // the contract
   boot.done();

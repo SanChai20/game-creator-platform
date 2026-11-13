@@ -1,16 +1,16 @@
 {
   "guides": [
-    { "topic": "platform-contract", "title": "The platform contract", "summary": "The few hard rules, what the platform injects, how files are served, and exactly what verification checks. Read this first." },
+    { "topic": "platform-contract", "title": "The platform contract", "summary": "The few hard rules, what the platform injects, how files are served, exactly what verification checks, and how to register a play-through so the verifier plays your rules to the end. Read this first." },
     { "topic": "rendering-pipelines", "title": "Choosing a rendering pipeline", "summary": "2D canvas, Three.js forward, custom post or deferred, raw WebGL2, WebGPU: what each is good at, what each costs, and a minimal working setup for each." },
     { "topic": "meshes", "title": "Procedural meshes", "summary": "Building models from code: merged primitives with vertex colours, noise-displaced shapes, terrain from a height function, instancing, chunked worlds." },
     { "topic": "materials-textures", "title": "Materials and textures", "summary": "Painting textures on a canvas at boot, caching materials, colour space, patching built-in shaders safely, writing your own, transparency pitfalls." },
     { "topic": "animation", "title": "Animation without animation files", "summary": "Frame-rate independent motion, procedural walk cycles, springs and easing, shader wind and water, tweening, camera follow, particles." },
     { "topic": "loading", "title": "Boot and loading", "summary": "A boot screen that always shows something, staged generation that keeps the page responsive, failure messages, when to call GCP.ready()." },
     { "topic": "input", "title": "Input on every device", "summary": "Keyboard by physical key, pointer lock, touch sticks and buttons, gamepads, stuck-key prevention, mobile viewport and safe areas." },
-    { "topic": "performance", "title": "Performance", "summary": "A frame budget, draw calls, pixel ratio, quality levels, shadows, garbage, adaptive resolution, and how to measure instead of guessing." },
+    { "topic": "performance", "title": "Performance", "summary": "A frame budget, draw calls, pixel ratio, quality levels, shadows, garbage, adaptive resolution, how heavy a scene the GPU-less verification browser can take, and how to measure instead of guessing." },
     { "topic": "audio", "title": "Audio", "summary": "The autoplay rule, synthesised effects with WebAudio, simple generative music, loading audio files when you want them." },
     { "topic": "saves", "title": "Saves, leaderboards and server code", "summary": "Cloud saves per player, shared game data, leaderboards, and optional server code that runs inside the game's own Worker." },
     { "topic": "multiplayer", "title": "Multiplayer", "summary": "Realtime rooms on the platform, the host-authoritative model, snapshots and interpolation, host migration, turn-based games." },
-    { "topic": "troubleshooting", "title": "Troubleshooting a failed verification", "summary": "Each verification check, the usual reasons it fails, and the fix. Start here when deploy_preview comes back not verified." }
+    { "topic": "troubleshooting", "title": "Troubleshooting a failed verification", "summary": "Each verification check, the usual reasons it fails, and the fix, plus what to do when the server cannot be reached (401, 403). Start here when deploy_preview comes back not verified." }
   ]
 }

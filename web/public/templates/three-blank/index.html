@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>New 3D game</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #0b0d0f; color: #e8e4da; overflow: hidden; font: 14px/1.4 system-ui, sans-serif; -webkit-user-select: none; user-select: none; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #hud { position: fixed; left: max(14px, env(safe-area-inset-left)); top: max(14px, env(safe-area-inset-top)); pointer-events: none; text-shadow: 0 1px 3px #000; font-size: 16px; font-weight: 700; }
+  #hud small { display: block; font-weight: 400; font-size: 13px; opacity: .75; }
+</style>
+<!-- No import map is needed: the platform maps "three", "three/addons/…" and "@gcp/…" for you.
+     If you add your own import map here, the platform adds nothing and yours must list everything. -->
+</head>
+<body>
+<canvas id="view"></canvas>
+<div id="hud"><span id="score">Beacons: 0</span><small>WASD or arrows, or drag</small></div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

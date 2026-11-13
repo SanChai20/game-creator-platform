@@ -43,6 +43,7 @@ GCP.player        // { id, name } of the signed-in player
 GCP.env           // 'preview' | 'live' | 'local'
 GCP.test.seed     // value of ?gcp_seed, or null
 GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the game
+GCP.test.onPlaythrough(fn) // fn(t) plays the game to its end; the verifier runs it and reports each step
 GCP.fullscreen()  // asks the platform page to toggle fullscreen
 ```
 
@@ -50,7 +51,7 @@ Every call that talks to the platform resolves instead of throwing, so a network
 
 ## What verification does
 
-`deploy_preview` freezes your files as a numbered version, deploys that version as a Worker, opens it in a real browser at 1280×720 and checks, in order:
+`deploy_preview` freezes your files as a numbered version, deploys that version as a Worker, opens it in a real browser at 960×540 and checks, in order:
 
 | Check | Passes when |
 | --- | --- |
@@ -58,6 +59,7 @@ Every call that talks to the platform resolves instead of throwing, so a network
 | boots | `GCP.ready()` is called within the time limit and `GCP.fatal()` is not. |
 | renders | Frames keep being drawn for a few seconds after ready. |
 | picture | A screenshot is not blank or a single flat colour. |
+| playthrough | Only if the game registered one: its own play-through script finished without failing. |
 | input | After key presses, clicks, drags and touches, frames are still being drawn. |
 | files | Every file the page asked for was served. |
 | clean | No uncaught errors and no unhandled promise rejections. |
@@ -69,6 +71,42 @@ if (window.GCP) GCP.test.onAutostart(() => startGame({ skipIntro: true }));
 ```
 
 A menu that renders and reacts is also a valid first playable frame. The hook only makes the report and the cover screenshot more useful.
+
+## Prove the game can be played: the play-through
+
+The checks above only know how to start a game and poke at it. They cannot know your rules, so on their own they say nothing about whether a lantern can be collected, the timer ends the round, or the end screen appears. Register a play-through and the verifier plays the game your way and lists every step in the report:
+
+```js
+if (window.GCP) GCP.test.onPlaythrough(async (t) => {
+  t.step('start a fresh run');            startGame({ skipIntro: true }); await t.frames(2);
+  t.step('collect a lantern');            player.position.copy(lanterns[0].position);
+                                          await t.until(() => state.collected === 1, 5000, 'the lantern to be collected');
+  t.step('the timer ends the round');     state.timeLeft = 0.2;
+                                          await t.until(() => state.phase === 'over', 5000, 'the round to end');
+  t.step('the end screen shows the score'); t.assert(endScreen.textContent.includes('1'), 'the end screen shows the wrong score');
+  t.step('play again resets');            restartButton.click(); await t.frames(2);
+                                          t.assert(state.phase === 'playing' && state.collected === 0, 'the run did not reset');
+});
+```
+
+| Helper | What it does |
+| --- | --- |
+| `t.step(label)` | Names what is about to be tried. Steps are listed in the report, and a failure names the step it happened in. |
+| `t.assert(condition, message)` | Fails the play-through with `message` when the condition is false. |
+| `await t.until(fn, timeoutMs, label)` | Waits until `fn()` returns something truthy. Fails after the timeout (default 5000 ms). |
+| `await t.frames(n)` | Waits until `n` more frames have been drawn. Fails if the loop has stopped. |
+| `await t.key(code, holdMs)` | Presses a key by physical code (`'KeyW'`, `'Space'`, `'ArrowLeft'`) with real `keydown` and `keyup` events. |
+| `await t.wait(ms)` | A plain pause. Prefer `t.until`. |
+
+How to write a good one:
+
+- **Play the rules, not the page.** Cover the loop a player goes through: score a point, win or lose, see the result, start again. Five to eight steps is plenty.
+- **Drive the game through its own state and functions.** Moving the player onto a pickup and waiting for the count to change tests the collision and scoring code. Setting `score = 1` and asserting `score === 1` tests nothing.
+- **Wait on state, not on time.** The verification browser has no GPU and may draw five frames a second. `await t.until(() => state.phase === 'over')` works at any speed; `await t.wait(2000)` does not.
+- **Begin by resetting and end in a playable state**, because the input check runs afterwards on whatever is on screen.
+- The whole script has 20 seconds. If it throws, an assertion fails or it runs out of time, the version is not verified, and the report says which step failed and why.
+
+A play-through is optional. Without one the report says plainly that only start-up, rendering and input were checked, which means nobody has confirmed the game can be finished. All templates except `blank` include one to copy from.
 
 If the game needs WebGPU and has no fallback, the automatic browser check cannot run it. The version then waits for its creator to play the preview for a short while with no errors, which counts as verification.
 

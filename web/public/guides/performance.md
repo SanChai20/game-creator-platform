@@ -54,6 +54,41 @@ const apply = () => renderer.setPixelRatio(Math.min(devicePixelRatio, Q.dpr) * s
 
 The verification browser renders on the CPU and is slow. A game that adapts like this passes comfortably; a game that insists on full quality may render too few frames to count as alive.
 
+## The verification browser: how heavy a scene can be
+
+The browser that runs `deploy_preview` has no GPU. It draws a 960×540 page with a software renderer, so every pixel of every pass is shaded on a CPU core. To pass, the game has to call `GCP.ready()` within 30 seconds and then draw at least 6 frames in 3 seconds (2 frames a second). The report gives the frame rate it measured.
+
+Measured there, for scale:
+
+| Scene | Frame rate in the verification browser |
+| --- | --- |
+| `blank` template (2D canvas, a few rectangles) | about 55 fps |
+| `canvas2d-arcade` template (cached ground chunks, about 60 sprites) | about 28 fps |
+| `three-explorer` template (35k-triangle terrain, 400 instanced props in 3 draw calls, one 2048 shadow map, Lambert materials, fog) | 5 to 10 fps |
+
+So a forward-rendered scene of that weight is fine, and a low number in the report is normal: 5 fps there is 60 fps on an ordinary laptop. What matters is the distance to the 2 fps floor. These are rules of thumb for staying clear of it, from most to least costly on a CPU renderer:
+
+1. **Full-screen passes.** Each post-processing pass (bloom, SSAO, depth of field, FXAA) shades half a million pixels again, and bloom is several passes. One cheap pass is usually survivable; a chain of them at default quality is the most common way to fail `renders`. Keep post-processing off on the lowest quality level.
+2. **Shadow maps.** Each shadow-casting light draws the scene again. One directional light at 1024 or 2048 is fine. Point-light shadows draw it six times each.
+3. **Per-pixel shading.** `MeshStandardMaterial` and `MeshPhysicalMaterial` cost several times what `MeshLambertMaterial` does, more with each light. Fragment shaders that loop (raymarching, many octaves of noise per pixel, parallax) can take seconds per frame.
+4. **Pixel count.** Canvas pixels are what is shaded. A pixel ratio above 1 is wasted in this browser.
+5. **Start-up.** Every distinct material compiles a shader, which is slow without a GPU, and generation work before the first frame counts against the 30 seconds. Share materials, and build the far parts of the world after `GCP.ready()`.
+
+Triangle count and draw calls matter less here than they do on a phone: a few hundred thousand triangles in a handful of draw calls is not the problem, the pixels are.
+
+The dependable way to pass is the same thing that makes the game run on a weak laptop: notice there is no GPU and start on the lowest quality.
+
+```js
+function softwareRenderer(renderer) {                       // true when WebGL runs on the CPU
+  const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+  return /swiftshader|llvmpipe|software|basic render/i.test(name);
+}
+let quality = softwareRenderer(renderer) ? 'low' : pickQuality(store.get('quality'));
+```
+
+Together with the adaptive resolution above, this keeps a heavy game verifiable without making it look worse for anyone with a GPU. If `renders` still fails, the report's frame count and `GCP.stats` numbers show how far off it is; remove full-screen passes first.
+
 ## Draw less
 
 - **Frustum culling** is automatic per object in Three.js, which is a reason to split a huge world into chunks instead of one mesh.

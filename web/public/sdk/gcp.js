@@ -87,7 +87,45 @@
     connect();
   }
 
-  var autostartFns = [];
+  var autostartFns = [], playFn = null;
+  // The play-through a game may register: the verifier runs it and reports each step, so "playable" can mean
+  // "the whole loop was played to the end" instead of only "it booted". Limits: 60 steps, one run at a time.
+  S.playthrough = false;
+  S.runPlaythrough = function (limitMs) {
+    if (!playFn) return Promise.resolve({ ran: false });
+    var steps = [], t0 = performance.now(), frames0 = S.frames, over = false;
+    var wait = function (ms) { return new Promise(function (r) { setTimeout(r, Math.max(0, +ms || 0)); }); };
+    var until = function (fn, timeoutMs, label) {
+      var end = performance.now() + (timeoutMs || 5000);
+      return new Promise(function (res, rej) {
+        (function poll() {
+          var v; try { v = fn(); } catch (e) { return rej(e); }
+          if (v) return res(v);
+          if (over || performance.now() > end) return rej(new Error('Timed out waiting for ' + (label || 'a condition') + ' (' + Math.round((timeoutMs || 5000) / 1000) + ' s).'));
+          setTimeout(poll, 30);
+        })();
+      });
+    };
+    var t = {
+      /** Names what is about to be tried. The report lists the steps, and a failure names the last one. */
+      step: function (label) { if (steps.length < 60) steps.push(String(label).slice(0, 120)); },
+      assert: function (cond, message) { if (!cond) throw new Error(String(message || 'Assertion failed')); },
+      wait: wait,
+      /** Resolves after n more frames have been drawn. Fails if the loop has stopped. */
+      frames: function (n) { var target = S.frames + (n || 1); return until(function () { return S.frames >= target; }, 8000, (n || 1) + ' more frame(s)'); },
+      until: until,
+      /** Presses a key by its physical code ('KeyW', 'Space', 'ArrowLeft') the way a keyboard would, held for holdMs. */
+      key: function (code, holdMs) {
+        var key = code === 'Space' ? ' ' : /^Key[A-Z]$/.test(code) ? code.slice(3).toLowerCase() : /^Digit\d$/.test(code) ? code.slice(5) : code;
+        var fire = function (type) { var e = new KeyboardEvent(type, { code: code, key: key, bubbles: true, cancelable: true }); (document.activeElement || document.body).dispatchEvent(e); };
+        fire('keydown'); return wait(holdMs == null ? 120 : holdMs).then(function () { fire('keyup'); });
+      },
+    };
+    var out = function (ok, error) { over = true; return { ran: true, ok: ok, error: error || '', steps: steps, ms: Math.round(performance.now() - t0), frames: S.frames - frames0 }; };
+    var limit = new Promise(function (r) { setTimeout(function () { r(out(false, 'The play-through did not finish within ' + Math.round(limitMs / 1000) + ' s.')); }, limitMs); });
+    var run; try { run = Promise.resolve(playFn(t)); } catch (e) { run = Promise.reject(e); }
+    return Promise.race([limit, run.then(function () { return out(true); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400)); })]);
+  };
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
@@ -130,6 +168,9 @@
       param: function (name) { return q.get(name); },
       /** Register a function that skips menus and drops straight into play. Called after ready() when ?gcp_autostart is set. */
       onAutostart: function (fn) { autostartFns.push(fn); },
+      /** Register one async function that plays the game to its end by itself: fn(t) with t.step, t.assert, t.wait, t.frames, t.until, t.key.
+          The verifier runs it after the game is ready and fails the version if it throws. Optional, and worth having. */
+      onPlaythrough: function (fn) { playFn = typeof fn === 'function' ? fn : null; S.playthrough = !!playFn; },
     },
     /** Ask the platform page to toggle fullscreen (works inside the play frame). */
     fullscreen: function () { try { parent.postMessage({ gcp: 'fullscreen' }, '*'); } catch (e) { /* not framed */ } },

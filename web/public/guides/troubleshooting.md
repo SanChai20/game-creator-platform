@@ -37,6 +37,18 @@
 - A full-screen overlay (the boot screen, a menu background) was never removed.
 - A custom shader failed to compile. The error is in `warnings`; Three.js logs the GLSL line.
 
+## playthrough: the game's own play-through failed
+
+This check exists only when the game registered `GCP.test.onPlaythrough`. The report names the step that failed and the message.
+
+- **An assertion failed.** That is usually a real bug on that path: the pickup was not counted, the end screen did not open, the restart left old state behind. Fix the game, not the assertion.
+- **"Timed out waiting for …".** Either the thing never happens (a bug), or the script depends on speed. The verification browser may draw five frames a second, so a move that takes one second on a laptop can take several there. Wait with `t.until(() => state…)` and give slow steps a longer timeout; do not count on `t.wait(ms)`.
+- **"did not finish within 20 s".** The script is too long or waits on something that never resolves. Shorten the route: place the player next to the goal instead of walking across the map, shorten a timer by setting the remaining time.
+- **"The page reloaded or closed".** The game calls `location.reload()` on restart. Reset the state in place instead.
+- **`t.key` does nothing.** The game listens on an element that does not have focus, or reads `event.keyCode`. Listen on `window` and use `event.code`.
+
+No play-through registered? The report says only start-up, rendering and input were checked. Add one (see the platform-contract guide); it is the only way the platform can tell that the game can actually be played to the end.
+
 ## input: the game stopped after input
 
 An event handler threw. The verifier presses common keys (WASD, arrows, space, enter, escape), clicks, drags and sends touch events. Typical causes: reading a property of something that does not exist until the game has started, `requestPointerLock()` or `requestFullscreen()` rejecting without a `catch`, `audio.play()` rejecting, or Escape closing the game with no way back. Handle rejections: `canvas.requestPointerLock()?.catch?.(() => {})`.
@@ -58,6 +70,12 @@ If the game requires WebGPU and has no fallback, the report says the browser che
 ## Works in preview, breaks for players
 
 `get_stats` returns the errors real players hit, grouped by message, with counts and the version. Fix, preview, publish the new version. If a release goes badly, `rollback` puts an earlier verified version back at once.
+
+## Cannot reach the MCP server at all
+
+- **401 with a JSON body.** No token yet. The body lists the steps: a client with MCP OAuth support signs in through a browser; an agent with no browser posts to `{{ORIGIN}}/oauth/device`, shows the user the link, and polls `{{ORIGIN}}/oauth/token`.
+- **403 with the text "error code: 1010".** The request was refused by the network in front of the platform because of its `User-Agent`, before it reached the server. Python's built-in `urllib` is refused with its default one. Send any descriptive `User-Agent` header, for example `my-agent/1.0`, or use `requests`, `httpx`, `curl` or `fetch`, which are accepted as they are.
+- **Tools return "What to do" text.** A tool error is returned as a normal result with a hint; read it instead of retrying the same call.
 
 ## Local testing
 

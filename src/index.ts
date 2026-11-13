@@ -193,6 +193,7 @@ function accessHelp(origin: string) {
         `5. When the access token expires, POST ${origin}/oauth/token with grant_type=refresh_token, refresh_token and client_id from step 3.`,
       ],
       example: `curl -s -X POST ${origin}/oauth/device -d client_name=my-agent`,
+      if_you_get_403_error_code_1010: "That answer comes from the network in front of this server and means your HTTP client's User-Agent was refused (Python urllib's default is). Send a descriptive User-Agent header such as my-agent/1.0.",
       for_your_user: `Open ${origin}/create to see how to connect an agent.`,
     },
   };

@@ -101,7 +101,7 @@ async function main() {
   const tools = (await rpc('tools/list')).tools;
   assert.ok(tools.length >= 20 && tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   const started = await tool('get_started');
-  assert.ok(started.workflow.length >= 5 && started.templates.length === 3 && started.kits.length === 6);
+  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 6);
   const rec = await tool('recommend_pipeline', { description: 'An open world survival game on an island with torches at night', dynamic_lights: 3 });
   assert.match(rec.pipeline, /three-forward/);
   assert.equal((await tool('recommend_pipeline', { description: 'a top-down pixel puzzle' })).pipeline, 'canvas2d');
@@ -134,9 +134,23 @@ async function main() {
   assert.equal((await rpc('tools/call', { name: 'publish', arguments: { project: bad.project } })).isError, true);
   ok('runtime error caught by the browser check; publish refused');
 
+  // a game that boots and renders but whose rules are broken is caught by its own play-through
+  const broken = await tool('create_project', { title: `Broken rules ${run}`, template: 'three-blank' });
+  const src = (await tool('read_file', { project: broken.project, path: 'src/main.js' }));
+  const text = typeof src === 'string' ? src : src.content;
+  assert.ok(text.includes("score++; hud.textContent = 'Beacons: ' + score; placeBeacon();"));
+  await tool('put_files', { project: broken.project, files: [{ path: 'src/main.js', content: text.replace("score++; hud.textContent = 'Beacons: ' + score; placeBeacon();", "score++; placeBeacon();") }] });   // the HUD never updates
+  let bd = await tool('deploy_preview', { project: broken.project, note: 'hud bug' });
+  for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(bd.status); i++) { await sleep(2000); bd = await tool('get_version', { project: broken.project, version: bd.version }); }
+  assert.equal(bd.status, 'failed', JSON.stringify(bd.report, null, 1).slice(0, 1500));
+  const bp = bd.report.checks.find((c) => c.id === 'playthrough');
+  assert.ok(bp && !bp.ok && /HUD says "Beacons: 0"/.test(bp.detail) && /during step 3/.test(bp.detail), JSON.stringify(bp));
+  assert.ok(bd.report.checks.filter((c) => !c.ok).length === 1);                 // everything else about it is fine
+  ok('broken game rules caught by the play-through: boots and renders, but the failed step is named and publish is blocked');
+
   // every template deploys and verifies
   const projects = {};
-  for (const t of ['blank', 'canvas2d-arcade', 'three-explorer']) {
+  for (const t of ['blank', 'three-blank', 'canvas2d-arcade', 'three-explorer']) {
     const p = await tool('create_project', { title: `${t} ${run}`, template: t, tagline: 'An e2e game', tags: ['test', t] });
     const c = await tool('check_project', { project: p.project });
     assert.equal(c.ok, true, c.errors.join('\n'));
@@ -144,8 +158,11 @@ async function main() {
     for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(2000); d = await tool('get_version', { project: p.project, version: d.version }); }
     assert.equal(d.status, 'verified', `${t}: ${JSON.stringify(d.report, null, 1).slice(0, 1500)}`);
     assert.ok(d.screenshot && d.can_publish);
+    const play = d.report.checks.find((c) => c.id === 'playthrough');
+    if (t === 'blank') { assert.ok(!play && d.report.playthrough === null && /no play-through/.test(d.report.summary) && d.report.notes.length === 1); }
+    else { assert.ok(play && play.ok && d.report.playthrough.steps.length >= 3, `${t}: ${JSON.stringify(play)}`); assert.match(d.report.summary, /play-through of \d+ step/); }
     projects[t] = p.project;
-    ok(`template ${t}: checks clean, deployed, verified (${d.report.metrics.loadMs} ms load, ${d.report.metrics.fps} fps, ${d.report.metrics.colors} colours)`);
+    ok(`template ${t}: checks clean, deployed, verified (${d.report.metrics.loadMs} ms load, ${d.report.metrics.fps} fps, ${d.report.metrics.colors} colours, ${play ? `play-through of ${d.report.playthrough.steps.length} steps in ${(d.report.playthrough.ms / 1000).toFixed(1)} s` : 'no play-through'})`);
   }
   const pid = projects['three-explorer'];
 
