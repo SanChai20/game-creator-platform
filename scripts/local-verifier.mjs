@@ -16,7 +16,7 @@ createServer(async (req, res) => {
     const page = await ctx.newPage();
     const { report, shots } = await verifyPage(page, url, opts);
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ report, shot: shots.length ? Buffer.from(shots[shots.length - 1]).toString('base64') : null }));
+    res.end(JSON.stringify({ report, shot: shots.length ? Buffer.from(shots[0]).toString('base64') : null }));
   } catch (e) {
     res.writeHead(500, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ error: String(e && e.stack || e) }));
