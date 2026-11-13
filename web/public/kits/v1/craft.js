@@ -8,6 +8,7 @@
 //   fx        createFx: particles, rings, floating text, pop
 //   hud       createHud: counters, bars, timer, objective, hints, start and end screens
 //   sound     createSound: effects, ambience, generative music
+//   play      inventory, crafting, needs, a day clock, harvest nodes, building, quests, saving, and their panels
 // A complete small game is: createStage, terrain, scatter some kinds, place a few props, humanoid + control,
 // createHud, createSound, and your rules.
 export * from './craft/stage.js';
@@ -24,3 +25,4 @@ export { rng, mulberry32, strSeed, toSeed, mixSeed, noise, Simplex } from './pro
 export { build, recipe, variants, recipeKinds, defineRecipe } from './procgen/recipe.js';
 export { M4, mergeParts, lumpy, displace, tbox, tplane, tcylinder, tprism, simplify, lodMesh, countTriangles } from './procgen/mesh.js';
 export { paint, Raster, TEXTURES, defineTexture } from './procgen/texture.js';
+export * from './play.js';

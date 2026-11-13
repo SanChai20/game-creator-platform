@@ -1,5 +1,6 @@
 // The 2D half of the scene planner: the same settings, moods, heroes and goals as the 3D one, written as a complete
 // top-down game on @gcp/craft2d.js (upright sprites sorted by their feet: the "2.5D" look of survival and farming games).
+import { PLAY_IMPORTS, playBind, homesteadRules, HOMESTEAD_HINT } from './design-scene-play.js';
 const q = (s) => `'${String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 const STAND_IN = { tower: 'ruin', windmill: 'house', stall: 'tent', cart: 'crate', boat: 'log', statue: 'pillar', arch: 'pillar', gate: 'fence', bench: 'log', flag: 'signpost', spikes: 'rock', beacon: 'lantern', antenna: 'lamp', console: 'crate', drum: 'barrel', pipe: 'log', barrier: 'fence', haystack: 'bush', bridge: 'log' };
 const SPOTS = [[5.5, -4.5], [1.6, 1.2], [-4.5, -2.2], [-2, 2.4], [3, -1], [3.9, 0.4], [-3.4, 3.6], [0.8, -5.5]];
@@ -15,12 +16,20 @@ function flat(code, V) {
   return `sprite2d(${q(kind)}${rest ? ', ' + rest : ''})`;
 }
 
+const HTML = (title) => `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">\n<title>${title.replace(/[<&]/g, '')}</title>\n<style>html, body { height: 100%; margin: 0; background: #0b0d0f; overflow: hidden; } #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }</style>\n</head>\n<body>\n<canvas id="view"></canvas>\n<script type="module" src="src/main.js"></script>\n</body>\n</html>\n`;
+export const PLAY_SYSTEMS = { inventory: 'createInventory: 24 slots, an 8-slot hotbar, painted item icons', crafting: 'createCrafting: 8 recipes, one of them at a campfire', needs: 'createNeeds: health, food, stamina', time: 'createClock: a day that passes, hunters at night', harvesting: 'createNodes + createInteract: prompts, tools that work faster, regrowth', building: 'createBuilder: campfire, torch, fence, tent on a grid', quests: 'createQuests: six steps from the first tree to dawn', saving: "createSave: the player's cloud save, every 20 seconds" };
+export const PLAY_INTERFACE = 'createHud plus needsUI, questUI, clockUI, minimapUI, hotbarUI, inventoryUI (backpack with crafting), pauseMenu, interact prompts, start and end screens';
+
 export function write2d(c) {
-  const { S, V, mood, weather, hero, goal, seed, title, count, time, pk, objective, notes, planLine, drift } = c;
+  const { S, V, mood, weather, hero, goal, seed, title, count, time, pk, objective, notes, planLine, drift } = c, play = goal === 'homestead';
   const uniq = (list) => [...new Set(list.filter(Boolean))];
   const big = uniq(c.big.map((x) => flat(x, V))), small = uniq(c.small.map((x) => flat(x, V)));
   if (!small.length) small.push("sprite2d('rock', { size: 0.6 })");
-  const camp = c.camp.map((k) => flat(k.code, V)).filter(Boolean).slice(0, SPOTS.length);
+  if (play) {   // a homestead needs wood, stone and berries within reach
+    if (!big.some((x) => x.includes("'tree'"))) big.push("sprite2d('tree', { species: 'oak' })"); if (!big.some((x) => x.startsWith("sprite2d('rock'"))) big.push("sprite2d('rock')");
+    if (![...big, ...small].some((x) => x.includes("'bush'"))) big.push("sprite2d('bush')");
+  }
+  const camp = c.camp.map((k) => flat(k.code, V)).filter(Boolean).filter((k) => !(c.goal === 'homestead' && /'(campfire|tent)'/.test(k))).slice(0, SPOTS.length);
   const people = (list) => list.filter((a) => V.actors2d.includes(a)), animals = people(c.animals), foes = people(c.foes).length ? people(c.foes) : ['wolf', 'slime'];
   const palette = typeof S.palette === 'string' && V.ground_palettes.includes(S.palette) ? S.palette : 'city', dark = ['night', 'neon-night', 'dusk', 'storm', 'volcanic', 'alien', 'indoor'].includes(mood);
   const pickup = V.sprites2d.includes(pk[0]) ? pk[0] : 'gem', hint = 'WASD or arrows to move · Shift to run';
@@ -29,7 +38,8 @@ export function write2d(c) {
     '// A top-down world of upright, painted things. Every call is a building block from @gcp/craft2d.js; get_block {name} lists its options.',
     '// The numbered sections are independent: change the kinds, the counts, the seed and above all the rules in section 6.',
     planLine,
-    "import { run, createStage2d, ground2d, sprite2d, scatter2d, actor2d, control2d, wander2d, createHud, createSound, createInput, rng } from '@gcp/craft2d.js';", '',
+    "import { run, createStage2d, ground2d, sprite2d, scatter2d, actor2d, control2d, wander2d, createHud, createSound, createInput, rng } from '@gcp/craft2d.js';",
+    ...(play ? [`import { ${PLAY_IMPORTS.join(', ')} } from '@gcp/craft2d.js';`] : []), '',
     `const SEED = ${q(seed)};   // a different seed gives a different world with the same rules`, '',
     'run(async (boot) => {',
     '  // 1. Stage: the canvas, the camera, depth sorting, shadows, the mood (darkness and lights) and the weather.',
@@ -40,7 +50,7 @@ export function write2d(c) {
     '  // 3. Scenery. scatter2d() places hundreds of things by rule and returns the solid ones for collision.',
     "  await boot.step(0.35, 'Growing the world');", '  const scenery = scatter2d([', ...big.map((x) => `    ${x},`),
     `  ], { count: ${S.bigCount ? S.bigCount * 2 : 560}, radius: 56, minDistance: 1.9, avoid: [{ x: 0, y: 0, r: 5 }], seed: SEED });`,
-    '  scatter2d([', ...small.map((x) => `    ${x},`),
+    `  ${play ? 'const cover = ' : ''}scatter2d([`, ...small.map((x) => `    ${x},`),
     `  ], { count: ${S.smallCount ? S.smallCount : 320}, radius: 56, avoid: [{ x: 0, y: 0, r: 2.5 }], seed: SEED + '-cover' });`, '',
     '  // 4. Landmarks around the start, placed by hand. Fires and lanterns light the dark.',
     "  await boot.step(0.6, 'Building');", '  const solids = [...scenery.solids];',
@@ -50,8 +60,9 @@ export function write2d(c) {
     "  await boot.step(0.8, 'Waking the world');",
     `  const hero = actor2d(${q(hero)});`,
     `  const input = createInput(stage.canvas), sound = createSound(), hud = createHud({ accent: ${q(S.accent)} }), fx = stage.fx;`,
-    "  const player = control2d(hero, { input, solids, bounds: 60, onStep: () => sound.play('step') });",
-    ...(dark ? ['  const glow = stage.light(0, 0, 4.5, 0xffe0a0);   // the hero carries a light in the dark'] : []),
+    ...(play ? playBind('2d') : []),
+    `  const player = control2d(hero, { input, solids, bounds: 60, ${play ? "canRun: () => needs.get('stamina') > 3, " : ''}onStep: () => sound.play('step') });`,
+    ...(dark || play ? ['  const glow = stage.light(0, 0, 4.5, 0xffe0a0);   // the hero carries a light in the dark'] : []),
     "  const rand = rng(SEED + '-life');",
     `  for (const kind of [${animals.map(q).join(', ')}]) {`,
     '    const p = land.randomPoint(rand, { minRadius: 6, maxRadius: 40 }), a = actor2d(kind, { x: p.x, y: p.y });',
@@ -63,6 +74,24 @@ export function write2d(c) {
     `    hud.end({ win, title: win ? ${q(winTitle)} : ${q(loseTitle)}, stats: ${stats}, onRestart: () => location.reload() });`, '  }', ''];
   const near = (v, r = 1.1) => `Math.hypot(${v}.x - hero.x, ${v}.y - 0.3 - hero.y) > ${r}`;
   let proof;
+  if (play) {
+    L.push(...homesteadRules({ dim: '2d', n: 6, S, title, objective, day: time, foes: foes.slice(0, 3) }));
+    return {
+      dimension: '2d',
+      plan: {
+        title, setting: c.id, goal: `${goal}: ${c.goalSummary}`, camera: '2d', view: 'top-down with upright, painted sprites sorted by their feet (the 2.5D look)',
+        stage: { block: 'createStage2d', mood, weather: weather || 'none', day_and_night: 'createClock drives stage.setTime: warm dawn, day, golden evening, blue night with lights' },
+        ground: { block: 'ground2d', palette }, scenery: { block: 'scatter2d + sprite2d', large: big, small, harvest: 'every tree, rock and bush is a node (createNodes().fromScatter)' }, landmarks: camp,
+        hero: { block: 'actor2d + control2d', preset: hero, controls: 'input.bind: named actions for keyboard, mouse, touch buttons and gamepad' },
+        systems: PLAY_SYSTEMS, interface: PLAY_INTERFACE, life: { block: 'actor2d + wander2d', animals, hunters_at_night: foes.slice(0, 3) },
+        sound: { block: 'createSound', ambience: S.ambience, music: S.music },
+        proof: 'GCP.test.onPlaythrough with ten steps: gather, craft, build, eat, night, fight, cook, dawn, win',
+        not_covered: 'One hero on one device. For several players add GCP.room from @gcp/net.js (see the multiplayer guide): the host owns inv, build and clock and sends them with room.setState.',
+      },
+      files: { 'index.html': HTML(title), 'src/main.js': L.join('\n') + '\n' },
+      notes,
+    };
+  }
   if (goal === 'collect') {
     L.push(`  // 6. Rules: collect every pickup before the time runs out. This is the part to make your own.`,
       `  const GOAL = ${count}, TIME = ${time}, state = { playing: false, over: false, found: 0 }, pickups = [];`,
@@ -141,7 +170,7 @@ export function write2d(c) {
     '  // 10. Proof. The verification browser runs this to check the rules work from start to end.',
     '  GCP.test.onAutostart(() => hud.start());', '  GCP.test.onPlaythrough(async (t) => {',
     "    t.step('start the game'); if (hud.screenOpen) hud.start(); await t.frames(3); t.assert(state.playing, 'the game is running');", ...proof, '  });', '});');
-  const html = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">\n<title>${title.replace(/[<&]/g, '')}</title>\n<style>html, body { height: 100%; margin: 0; background: #0b0d0f; overflow: hidden; } #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }</style>\n</head>\n<body>\n<canvas id="view"></canvas>\n<script type="module" src="src/main.js"></script>\n</body>\n</html>\n`;
+  const html = HTML(title);
   return {
     dimension: '2d',
     plan: {
@@ -151,7 +180,7 @@ export function write2d(c) {
       hero: { block: 'actor2d + control2d', preset: hero }, life: { block: 'actor2d + wander2d', animals, hunters: goal === 'survive' ? foes : [] },
       interface: 'createHud: start screen, objective, counter or health bar, timer, toasts, end screen', sound: { block: 'createSound', ambience: S.ambience, music: S.music },
       proof: 'GCP.test.onPlaythrough with five steps that play the rules to the end screen',
-      not_covered: 'One hero on one device. For several players add GCP.room from @gcp/net.js (see the multiplayer guide); for building, crafting or farming write those rules in section 6.',
+      not_covered: 'One hero on one device. For several players add GCP.room from @gcp/net.js (see the multiplayer guide). For gathering, crafting, building and survival ask for goal "homestead", or add those systems from the same kit (list_blocks, group play).',
     },
     files: { 'index.html': html, 'src/main.js': L.join('\n') + '\n' },
     notes,

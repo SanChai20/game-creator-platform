@@ -146,6 +146,59 @@ stage.run((dt) => { player.update(dt); input.endFrame(); });
 
 Your own art mixes in: `bake(w, h, draw)` from the same module turns any canvas drawing into a sprite for `stage.add`, and `stage.ctx` is the plain 2D context.
 
+## Games with depth: controls, interface and systems
+
+A world that looks finished still needs things to do. The `play` group holds the systems most games with depth share,
+as plain data and DOM, so the same code serves 2D and 3D. Both `@gcp/craft.js` and `@gcp/craft2d.js` export them.
+`design_scene` with goal `homestead` writes a complete game on all of them; the parts also work one at a time.
+
+**Controls.** Name the actions once and ask for them by name. Keyboard, mouse buttons, on-screen buttons on phones
+and a gamepad then all trigger the same code, and prompts show the right key for the device in use.
+
+```js
+input.bind({ interact: ['KeyE'], attack: ['Space', 'Mouse0'], bag: ['Tab', 'KeyI'], run: ['ShiftLeft'] },
+  { touch: { interact: 'E', attack: '⚔', bag: '▦' }, pad: { interact: 0, attack: 2, bag: 3, run: 10 }, bottom: 96 });
+if (input.action('attack')) swing();          // pressed this frame, on any device
+hud.prompt(input.keyOf('interact'), 'Open');  // "E", the touch label, or "A" on a gamepad
+```
+
+`control()` and `control2d()` ease in and out of movement, slide along solids, run on the action named `run`, take
+`canRun: () => needs.get('stamina') > 3`, and give `player.ahead(d)`: the spot in front of the hero, where to place or hit.
+
+**Systems.** Each is one call and they fit each other:
+
+```js
+const inv = createInventory({ slots: 24, hotbar: 8, items: { berry: { food: 12 }, axe: { tool: 'axe', stack: 1 } }, start: { berry: 3 } });
+const craft = createCrafting(inv, [{ makes: 'axe', needs: { wood: 3, stone: 2 } }, { makes: 'cooked_meat', needs: { meat: 1 }, station: 'campfire' }]);
+const needs = createNeeds({ health: { max: 100 }, food: { max: 100, drain: 0.5, empty: { health: -3 } }, stamina: { max: 100, regen: 16 } });
+const clock = createClock({ dayLength: 300, hour: 10, stage });      // the stage's light follows the hour, in 2D and 3D
+const nodes = createNodes();                                          // every scattered tree and rock becomes harvestable:
+nodes.fromScatter(forest.items, (it) => it.type === 'tree' && { label: 'Chop the tree', hp: 4, drops: { wood: [2, 3] }, respawn: 120 });
+const interact = createInteract({ nodes, input, hud, inventory: inv, at: () => ({ x: hero.position.x, y: hero.position.z }) });
+const build = createBuilder({ grid: 2, inventory: inv, solids, pieces: { campfire: { cost: { campfire: 1 }, station: true, make: (x, z) => place('campfire', x, land.heightAt(x, z), z) } } });
+const quests = createQuests([{ id: 'wood', text: 'Chop trees for 4 wood', done: () => inv.has('wood', 4) }]);
+const save = createSave('world', { inv, needs, clock, build, quests });   // the player's cloud save; save.auto(20)
+```
+
+Every frame: `clock.update(dt); needs.update(dt); nodes.update(dt); quests.update(); interact.update();`. The ground
+plane is `x, y` in these systems; in a 3D game pass `z` as `y`. A harvested tree disappears from the picture and from
+collision by itself and grows back after `respawn` seconds, because `scatter()` and `scatter2d()` items have `visible`.
+For floors and stairs give a piece a `height` and the controller `heightAt: (x, z) => land.heightAt(x, z) + build.topAt(x, z)`.
+
+**Interface.** Panels for those systems, on the same `createHud()`:
+
+```js
+needsUI(hud, needs);  questUI(hud, quests, { corner: 'tl' });  const clockView = clockUI(hud, clock);
+minimapUI(hud, { center: () => hero, color: land.mapColor, markers: () => enemies });
+const bar = hotbarUI(hud, inv, { input });          // number keys, the wheel and shoulder buttons select
+const bag = inventoryUI(hud, inv, { crafting: craft, stations: () => build.near(hero.x, hero.y), onUse: eat });
+const menu = pauseMenu(hud, { title, controls: [['WASD', 'Move'], ['E', 'Use']], onRestart });
+const { mode, code } = await lobbyUI(hud, { title });   // host, join by code, or play alone, for games with rooms
+```
+
+They fit a phone held upright, on-screen buttons step aside while a window is open, and item icons are painted in
+code (`ITEMS` lists the 32 built-in kinds; any other id gets a tile, or give it your own `icon`).
+
 ## The craft score
 
 After a version verifies, the browser loads the game once more at full quality and takes its portrait (see the platform-contract guide). Seven things are then measured and returned as `quality`: a craft score out of 100, `look_score` for the picture alone, what was measured, and what to improve. Nothing is judged by taste and publishing never depends on it. The measures are calibrated on finished games: a hand-made open-world game with ambient occlusion, bloom and soft shadows measures look 93.

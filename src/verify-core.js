@@ -69,7 +69,7 @@ async function tap(page, x, y) {
  * @param opts   { readyTimeoutS, minFrames, observeS, usesWebGPU, log }
  */
 export async function verifyPage(page, url, opts = {}) {
-  const o = { readyTimeoutS: 30, minFrames: 6, observeS: 3, playthroughS: 20, usesWebGPU: false, ...opts };
+  const o = { readyTimeoutS: 30, minFrames: 6, observeS: 3, playthroughS: 30, usesWebGPU: false, ...opts };
   const checks = [], pageErrors = [], badResponses = [];
   const add = (id, ok, label, detail = '', hint = '') => checks.push({ id, ok, label, detail, hint });
   page.on('pageerror', (e) => { if (pageErrors.length < 20) pageErrors.push(String(e && (e.message || e)).slice(0, 500)); });

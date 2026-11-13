@@ -43,7 +43,7 @@ This check exists only when the game registered `GCP.test.onPlaythrough`. The re
 
 - **An assertion failed.** That is usually a real bug on that path: the pickup was not counted, the end screen did not open, the restart left old state behind. Fix the game, not the assertion.
 - **"Timed out waiting for …".** Either the thing never happens (a bug), or the script depends on speed. The verification browser may draw five frames a second, so a move that takes one second on a laptop can take several there. Wait with `t.until(() => state…)` and give slow steps a longer timeout; do not count on `t.wait(ms)`.
-- **"did not finish within 20 s".** The script is too long or waits on something that never resolves. Shorten the route: place the player next to the goal instead of walking across the map, shorten a timer by setting the remaining time.
+- **"did not finish within 30 s".** The script is too long or waits on something that never resolves. Shorten the route: place the player next to the goal instead of walking across the map, shorten a timer by setting the remaining time.
 - **"The page reloaded or closed".** Something reloaded the page while the play-through was still running, which ends the script. Do not press a reloading "Play again" button inside the play-through; end the script on the end screen.
 - **`t.key` does nothing.** The game listens on an element that does not have focus, or reads `event.keyCode`. Listen on `window` and use `event.code`.
 

@@ -101,7 +101,7 @@ async function main() {
   const tools = (await rpc('tools/list')).tools;
   assert.ok(tools.length >= 20 && tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   const started = await tool('get_started');
-  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 11 && started.quality.target && started.building_blocks.tools.length === 3);
+  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 12 && started.quality.target && started.building_blocks.tools.length === 3);
   const rec = await tool('recommend_pipeline', { description: 'An open world survival game on an island with torches at night', dynamic_lights: 3 });
   assert.match(rec.pipeline, /three-forward/);
   assert.equal((await tool('recommend_pipeline', { description: 'a top-down pixel puzzle' })).pipeline, 'canvas2d');
@@ -159,6 +159,20 @@ async function main() {
   for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(fd.status); i++) { await sleep(2000); fd = await tool('get_version', { project: flatP.project, version: fd.version }); }
   assert.equal(fd.status, 'verified', JSON.stringify(fd.report, null, 1).slice(0, 2000));
   assert.ok(fd.report.playthrough.steps.length === 5 && fd.quality.craft_score >= fd.quality.target && fd.quality.own_work.still_the_plan, JSON.stringify(fd.quality).slice(0, 1500));
+  // a game with depth: the homestead goal wires up the play systems (inventory, crafting, needs, clock, building, quests, save)
+  const p3 = await tool('design_scene', { description: 'A 2.5D survival crafting game in a forest: chop trees, craft tools, build a camp and survive the night', seed: 'e2e-home', title: `Homestead ${run}` });
+  assert.ok(p3.plan.camera === '2d' && /^homestead/.test(p3.plan.goal) && p3.plan.systems.inventory && /createInventory/.test(p3.files['src/main.js']) && /input\.bind/.test(p3.files['src/main.js']), JSON.stringify(p3.plan).slice(0, 600));
+  const p3d = await tool('design_scene', { description: 'A survival crafting game on an island: chop trees, craft tools, build a camp', camera: 'third', seed: 'e2e-home' });
+  assert.ok(p3d.plan.camera === 'third' && p3d.plan.systems && /createBuilder/.test(p3d.files['src/main.js']) && /from '@gcp\/craft\.js'/.test(p3d.files['src/main.js']));
+  const playBlocks = await tool('list_blocks', { group: 'play' });
+  assert.ok(['createInventory', 'createCrafting', 'createNeeds', 'createClock', 'createNodes', 'createInteract', 'createBuilder', 'createQuests', 'createSave', 'hotbarUI', 'inventoryUI', 'minimapUI', 'pauseMenu', 'lobbyUI'].every((n) => playBlocks.blocks.some((b) => b.name === n)), playBlocks.blocks.map((b) => b.name).join(','));
+  const homeP = await tool('create_project', { title: `Homestead ${run}`, tagline: 'Gather, craft, build, survive' });
+  await tool('put_files', { project: homeP.project, files: Object.entries(p3.files).map(([path, content]) => ({ path, content })) });
+  let hd = await tool('deploy_preview', { project: homeP.project, note: 'homestead from design_scene' });
+  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(hd.status); i++) { await sleep(2000); hd = await tool('get_version', { project: homeP.project, version: hd.version }); }
+  assert.equal(hd.status, 'verified', JSON.stringify(hd.report, null, 1).slice(0, 2000));
+  assert.ok(hd.report.playthrough.steps.length === 11 && hd.quality.craft_score >= hd.quality.target, JSON.stringify(hd.quality).slice(0, 1500));
+  ok(`depth: design_scene goal homestead writes a 2D and a 3D game on the play systems; the 2D one verified with an ${hd.report.playthrough.steps.length}-step play-through (gather, craft, build, eat, night, fight, cook, dawn), craft ${hd.quality.craft_score}/100`);
   ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its 2D game verified with craft ${fd.quality.craft_score}/100 (look ${fd.quality.look_score}); its 3D game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), look ${pd.quality.look_score}, portrait in ${pd.report.portrait.ms} ms, ${pd.report.metrics.fps} fps`);
 
   // a broken game is caught statically, with a line number and a fix

@@ -176,7 +176,10 @@ export function place(kind, x = 0, y = 0, z = 0, { scale = 1, rotY = 0, shadow =
  *   where (x, z, y, slope) -> false to skip or a 0..1 chance (keep trees off beaches and cliffs),
  *   scale [min, max], minDistance (between items of this call), avoid [{ x, z, r }] (clearings, paths, the spawn),
  *   weights (per kind), seed, sink (metres pushed into the ground so nothing floats, default 0.08), shadow.
- * Returns { meshes, items: [{ x, y, z, r, scale, kind }], solids }: pass solids to control() for collision; use items for harvesting or anything else.
+ * Returns { meshes, items: [{ x, y, z, r, scale, kind, type, visible }], solids }: pass solids to control() for collision.
+ * Each item is one copy: item.type is 'tree', 'rock', 'bush' or the cover or prop name, and item.visible = false
+ * removes that copy from the picture and from collision (a felled tree, a mined rock); true brings it back.
+ * createNodes().fromScatter(items, rule) from @gcp/play.js turns them into things the player can harvest.
  */
 export function scatter(scene, kinds, opts = {}) {
   if (!scene || !scene.isObject3D) { opts = kinds || {}; kinds = scene; scene = (opts.stage || currentStage()).scene; }   // scatter(kinds, opts) uses the stage's scene
@@ -190,7 +193,7 @@ export function scatter(scene, kinds, opts = {}) {
     if (avoid.some((a) => Math.hypot(a.x - x, a.z - z) < a.r)) continue;
     if (minDistance > 0) { let clash = false; const cx = Math.floor(x / cell), cz = Math.floor(z / cell); for (let i = -1; i <= 1 && !clash; i++) for (let j = -1; j <= 1 && !clash; j++) for (const o of grid.get(`${cx + i},${cz + j}`) || []) if (Math.hypot(o.x - x, o.z - z) < minDistance) { clash = true; break; } if (clash) continue; }
     let w = r() * tot, k = 0; if (weights) { while (k < list.length - 1 && (w -= weights[k]) > 0) k++; } else k = (r() * list.length) | 0;
-    const s = scale[0] + r() * (scale[1] - scale[0]), it = { x, y: y - sink * s, z, scale: s, rotY: r() * TAU, kind: list[k], r: list[k].radius * s, solid: !!list[k].solid };
+    const s = scale[0] + r() * (scale[1] - scale[0]), it = { x, y: y - sink * s, z, scale: s, rotY: r() * TAU, kind: list[k], type: TREES.includes(list[k].name) ? 'tree' : list[k].name || 'thing', r: list[k].radius * s, solid: !!list[k].solid, at: [], off: false };
     items.push(it); per[k].push(it); if (minDistance > 0) { const key = keyOf(x, z); if (!grid.has(key)) grid.set(key, []); grid.get(key).push(it); }
   }
   // One InstancedMesh per kind and per map cell, so whole cells drop out when they are off screen or in the fog.
@@ -199,9 +202,12 @@ export function scatter(scene, kinds, opts = {}) {
   list.forEach((kind, k) => { if (!per[k].length) return; const cells = new Map(); for (const it of per[k]) { const key = Math.floor(it.x / cs) + ',' + Math.floor(it.z / cs); if (!cells.has(key)) cells.set(key, []); cells.get(key).push(it); }
     for (const group of cells.values()) for (const part of kind.parts) {
       const mesh = new THREE.InstancedMesh(part.geometry, part.material, group.length); mesh.userData.glow = !!part.glow;
-      group.forEach((it, i) => { q.setFromAxisAngle(up, it.rotY); mesh.setMatrixAt(i, m4.compose(pv.set(it.x, it.y, it.z), q, sv.setScalar(it.scale))); });
+      group.forEach((it, i) => { q.setFromAxisAngle(up, it.rotY); mesh.setMatrixAt(i, m4.compose(pv.set(it.x, it.y, it.z), q, sv.setScalar(it.scale))); it.at.push([mesh, i]); });
       mesh.instanceMatrix.needsUpdate = true; mesh.castShadow = shadow && !part.glow && !(small && kind.radius < 0.7); mesh.receiveShadow = !part.glow && !(st && st.software); mesh.computeBoundingSphere(); scene.add(mesh); meshes.push(mesh);
     } });
+  // item.visible = false takes one copy out of the picture and out of collision (a felled tree, a mined rock); true puts it back
+  const show = (it, on) => { it.off = !on; for (const [mesh, i] of it.at) { q.setFromAxisAngle(up, it.rotY); mesh.setMatrixAt(i, m4.compose(pv.set(it.x, it.y, it.z), q, sv.setScalar(on ? it.scale : 0))); mesh.instanceMatrix.needsUpdate = true; } };
+  for (const it of items) Object.defineProperty(it, 'visible', { get: () => !it.off, set: (v) => show(it, !!v) });
   return { meshes, items, solids: items.filter((i) => i.solid) };
 }
 

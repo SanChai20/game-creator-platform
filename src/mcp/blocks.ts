@@ -12,13 +12,13 @@ interface Catalog { three: string; groups: { id: string; title: string; blocks: 
 export const catalog = (env: Env) => assetJson<Catalog>(env, '/kits/blocks.json');
 // the opening of a doc comment, cut at a sentence end inside 240 characters
 const firstSentence = (doc: string) => { const flat = doc.replace(/\s+/g, ' ').trim(); if (flat.length <= 240) return flat; const cut = flat.slice(0, 240), end = cut.lastIndexOf('. '); return end > 60 ? cut.slice(0, end + 1) : cut.replace(/\s+\S*$/, '') + ' …'; };
-const CRAFT_GROUPS = ['stage', 'surfaces', 'nature', 'props', 'actors', 'fx', 'hud', 'sound', 'basics'];
+const CRAFT_GROUPS = ['stage', 'surfaces', 'nature', 'props', 'actors', 'play', 'fx', 'hud', 'sound', 'basics'];
 
 // which value list each block takes, so get_block can print the valid names next to the options
 const VALUES_OF: Record<string, string[]> = {
   createStage: ['moods', 'weather'], surface: ['surfaces'], surfaceTexture: ['surfaces'], surfaceNormal: ['surfaces'], block: ['surfaces'], floor: ['surfaces'], paint: ['surfaces'],
   tree: ['trees'], groundCover: ['ground_cover'], terrain: ['terrain_shapes', 'terrain_palettes'], prop: ['props'], place: ['props', 'trees', 'ground_cover'], scatter: ['trees', 'ground_cover', 'props'],
-  humanoid: ['humanoids'], animal: ['animals'], sprite2d: ['sprites2d', 'trees2d'], actor2d: ['actors2d'], ground2d: ['ground_palettes'], createStage2d: ['moods2d', 'weather2d'], scatter2d: ['sprites2d'], createSound: ['sounds', 'ambiences', 'music'], build: ['recipe_kinds'], recipe: ['recipe_kinds'], variants: ['recipe_kinds'],
+  humanoid: ['humanoids'], animal: ['animals'], sprite2d: ['sprites2d', 'trees2d'], actor2d: ['actors2d'], ground2d: ['ground_palettes'], createStage2d: ['moods2d', 'weather2d'], scatter2d: ['sprites2d'], createSound: ['sounds', 'ambiences', 'music'], createInventory: ['items'], itemIcon: ['items'], build: ['recipe_kinds'], recipe: ['recipe_kinds'], variants: ['recipe_kinds'],
 };
 // objects the blocks return: "hud.title" is documented under createHud, and so on
 const OWNERS: Record<string, string> = { stage: 'createStage', hud: 'createHud', sound: 'createSound', fx: 'createFx', actor: 'humanoid', hero: 'humanoid', player: 'control', controller: 'control', land: 'terrain', input: 'createInput', boot: 'run' };
@@ -35,6 +35,7 @@ export async function listBlocks(env: Env, origin: string, a: Record<string, any
   return {
     what: 'Building blocks hosted by the platform. Each is one call that returns something finished: generated in code from options and a seed, nothing to download, the same on every device. They are optional and they combine freely with your own Three.js code.',
     import: "import { createStage, terrain, tree, scatter, prop, place, humanoid, control, createHud, createSound } from '@gcp/craft.js'   // one import covers everything in the first list",
+    depth: "For a game with more than one rule, group \"play\" has the systems ready to combine, in 2D and 3D alike: createInventory, createCrafting, createNeeds, createClock, createNodes + createInteract (harvest any scattered tree or rock), createBuilder, createQuests, createSave, and the panels hotbarUI, inventoryUI, needsUI, clockUI, questUI, minimapUI, pauseMenu, lobbyUI. input.bind names actions once for keyboard, mouse, touch buttons and gamepad. design_scene with goal \"homestead\" writes a complete game on all of them.",
     craft_blocks: cat.groups.filter((g) => CRAFT_GROUPS.includes(g.id)).map((g) => ({ group: g.id, title: g.title, blocks: g.blocks.filter((b) => b.kind !== 'value').map(line) })),
     world_2d: (() => { const g = cat.groups.find((x) => x.id === 'world2d'); return g ? { note: "Flat, painted top-down worlds with upright sprites (the 2.5D look) on a plain canvas: import from '@gcp/craft2d.js'. design_scene with camera \"2d\" writes a complete game with them.", blocks: g.blocks.filter((b) => b.kind !== 'value').map(line) } : undefined; })(),
     procedural_core: {
@@ -44,7 +45,7 @@ export async function listBlocks(env: Env, origin: string, a: Record<string, any
     valid_names: {
       moods: cat.values.moods, weather: cat.values.weather, surfaces: cat.values.surfaces, trees: cat.values.trees, ground_cover: cat.values.ground_cover, terrain_shapes: cat.values.terrain_shapes, terrain_palettes: cat.values.terrain_palettes,
       props: cat.values.props, humanoids: cat.values.humanoids, animals: cat.values.animals, sounds: cat.values.sounds, ambiences: cat.values.ambiences, music: cat.values.music,
-      sprites2d: (cat.values as any).sprites2d, trees2d: (cat.values as any).trees2d, actors2d: (cat.values as any).actors2d, ground_palettes: (cat.values as any).ground_palettes,
+      items: (cat.values as any).items, sprites2d: (cat.values as any).sprites2d, trees2d: (cat.values as any).trees2d, actors2d: (cat.values as any).actors2d, ground_palettes: (cat.values as any).ground_palettes,
     },
     preview: `${origin}/lab shows every block live in a browser (pick a kind, change the seed and the options, copy the recipe).`,
     next: 'For a world (3D, or flat top-down with camera "2d"), call design_scene with a description: it picks blocks for every part of the game and returns a complete starting game made of them. Call get_block {name} for the full options of one block.',
@@ -90,9 +91,9 @@ export async function designSceneTool(env: Env, origin: string, a: Record<string
     files: r.files,
     ...(r.notes.length ? { notes: r.notes } : {}),
     how_to_use: [
-      'create_project (no template), then put_files with the two files above exactly as returned. It already runs, has a start and an end screen, sound, touch input and a five-step play-through.',
+      r.plan.systems ? 'create_project (no template), then put_files with the two files above exactly as returned. It already runs: a start and an end screen, sound, named actions for keyboard, mouse, touch buttons and gamepad, an inventory with a hotbar, crafting, needs, day and night, harvesting, building, quests, a cloud save, and a play-through that plays the whole loop.' : 'create_project (no template), then put_files with the two files above exactly as returned. It already runs, has a start and an end screen, sound, touch input and a five-step play-through.',
       'deploy_preview. The report includes a craft score out of 100 with what was measured. Uploaded unchanged, this starting point already scores well, because the blocks do; that is the floor to build on, not the finished game.',
-      r.dimension === '2d' ? 'Make it your game: section 6 of src/main.js is the rules, sections 2 to 5 are the world. Swap kinds (list_blocks {group: "world2d"} has the valid names), move landmarks, add your own mechanics (building, crafting, farming, more players), keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).' : 'Make it your game: section 7 of src/main.js is the rules, sections 3, 4 and 6 are the world. Swap kinds (valid names are in list_blocks), move landmarks, add your own mechanics, keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).',
+      r.dimension === '2d' ? 'Make it your game: section 6 of src/main.js is the rules, sections 2 to 5 are the world. Swap kinds (list_blocks {group: "world2d"} has the valid names), move landmarks, add your own mechanics (for building, crafting, needs, quests and saving use the blocks of list_blocks {group: "play"}, or ask for goal "homestead" to get them wired up), keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).' : 'Make it your game: section 7 of src/main.js is the rules, sections 3, 4 and 6 are the world. Swap kinds (valid names are in list_blocks), move landmarks, add your own mechanics (for an inventory, crafting, needs, building, quests and saving use the blocks of list_blocks {group: "play"}, or ask for goal "homestead" to get them wired up), keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).',
       `Deploy again after each round of changes and keep the craft score at ${s.craft_target} or above.`,
     ],
     change_the_plan: `Call design_scene again with any of: setting (${DESIGN_SETTINGS.join(', ')}), mood, weather, terrain, palette, hero, goal (${DESIGN_GOALS.join(', ')}), camera (third, top, or 2d for a flat painted top-down world), title, seed, pickups, time_limit.`,

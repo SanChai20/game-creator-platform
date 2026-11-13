@@ -259,11 +259,17 @@ export function wander(actor, opts = {}) {
  * jumps, animates the actor, and keeps the camera behind it. Call controller.update(dt) once per frame.
  *   const player = control(hero, { input, heightAt: land.heightAt, solids: forest.solids });
  * Options: input (from createInput in @gcp/input.js; required), stage, mode ('third' behind the player with drag-to-look,
- * 'top' a fixed high camera, 'side' a side-scroller view), heightAt (x, z) -> y, solids [{ x, z, r }] (circles the
- * player cannot enter; scatter() returns them as .solids), speed (4.5), runSpeed (7.5, hold Shift), jump (7.5, Space; 0
+ * 'top' a fixed high camera, 'side' a side-scroller view), heightAt (x, z) -> y (any function: return the top of a
+ * floor, a bridge or a player-built block where there is one and the land elsewhere, and the hero stands on it),
+ * solids [{ x, z, r }] (circles the player cannot enter; scatter() returns them as .solids. The array is read every
+ * frame, so push to it, splice it or set solid.off = true at any time: there is no need to assign it again. A step up
+ * to 1.2 is climbed and a higher one stops the hero, so floors and stairs carry it and walls block it), speed (4.5), runSpeed (7.5, hold Shift), jump (7.5, Space; 0
  * to disable), gravity (22), distance (camera distance, 7), pitch (camera tilt, 0.35), bounds (radius the player
- * stays inside), minY (e.g. water level: the player cannot go below it), onJump, onLand, onStep (footstep sounds).
- * Returns { position, velocity, grounded, moving, speedNow, yaw, enabled, update(dt), teleport(x, z),
+ * stays inside), minY (e.g. water level: the player cannot go below it), canRun (() => false while out of stamina),
+ * onJump, onLand, onStep (footstep sounds). Movement eases in and out. Running is Shift, or the action named 'run'
+ * if you bound one with input.bind; an action named 'jump' jumps as Space does.
+ * Returns { position, velocity, grounded, moving, running, speedNow, yaw, enabled, update(dt), teleport(x, z),
+ *   ahead(d) -> { x, z } (the point d metres in front of the hero: where to place or hit),
  *   moveTo(x, z) -> Promise (walks there by itself: useful for cut-scenes and for play-through scripts) }.
  */
 export function control(actor, opts = {}) {
@@ -274,28 +280,30 @@ export function control(actor, opts = {}) {
   if (st && !st.focus) st.focus = actor;
   actor.position.y = Math.max(heightAt(actor.position.x, actor.position.z), minY);
   C.teleport = (x, z) => { actor.position.set(x, Math.max(heightAt(x, z), minY), z); C.velocity.set(0, 0, 0); camReady = false; };
+  C.ahead = (d = 1) => ({ x: actor.position.x + Math.sin(C.yaw) * d, z: actor.position.z + Math.cos(C.yaw) * d });
   C.moveTo = (x, z, timeout = 20) => new Promise((res) => { C.target = { x, z, res, t: timeout }; });
   C.update = (dt) => {
     dt = Math.min(dt, 0.05); const p = actor.position; let mx = 0, mz = 0, running = false;
     if (C.enabled) {
       if (mode === 'third') { const l = input.takeLook(); C.camYaw -= l.dx; C.camPitch = clamp(C.camPitch + l.dy, -0.2, 1.3); }
       if (C.target) { const dx = C.target.x - p.x, dz = C.target.z - p.z, d = Math.hypot(dx, dz); C.target.t -= dt; if (d < 0.5 || C.target.t <= 0) { const r = C.target.res; C.target = null; r(d < 0.5); } else { mx = dx / d; mz = dz / d; running = d > 6; } }
-      else { const m = input.move; if (mode === 'side') { mx = m.x; } else { const yaw = mode === 'third' ? C.camYaw : Math.PI, fx = -Math.sin(yaw), fz = -Math.cos(yaw); mx = fx * m.y - fz * m.x; mz = fz * m.y + fx * m.x; if (mode !== 'third') { mx = m.x; mz = -m.y; } } running = input.down('ShiftLeft') || input.down('ShiftRight'); }
-      if (jump > 0 && C.grounded && (input.pressed('Space') || (mode === 'side' && (input.pressed('ArrowUp') || input.pressed('KeyW'))))) { C.velocity.y = jump; C.grounded = false; if (opts.onJump) opts.onJump(); }
+      else { const m = input.move; if (mode === 'side') { mx = m.x; } else { const yaw = mode === 'third' ? C.camYaw : Math.PI, fx = -Math.sin(yaw), fz = -Math.cos(yaw); mx = fx * m.y - fz * m.x; mz = fz * m.y + fx * m.x; if (mode !== 'third') { mx = m.x; mz = -m.y; } } running = (input.actions && input.actions.run ? input.held('run') : input.down('ShiftLeft') || input.down('ShiftRight')) && (!opts.canRun || opts.canRun()); }
+      if (jump > 0 && C.grounded && (input.pressed('Space') || (input.action && input.action('jump')) || (mode === 'side' && (input.pressed('ArrowUp') || input.pressed('KeyW'))))) { C.velocity.y = jump; C.grounded = false; if (opts.onJump) opts.onJump(); }
     }
-    const len = Math.hypot(mx, mz), sp = (running ? runSpeed : speed) * Math.min(1, len);
-    C.moving = len > 0.08; C.speedNow = C.moving ? sp : 0;
-    if (C.moving) { const nx = p.x + mx / len * sp * dt, nz = p.z + mz / len * sp * dt; let x = nx, z = nz;
-      for (const s of C.solids) { const dx = x - s.x, dz = z - s.z, rr = (s.r || 0.5) * 0.7 + 0.3, d2 = dx * dx + dz * dz; if (d2 < rr * rr && d2 > 1e-6) { const d = Math.sqrt(d2); x = s.x + dx / d * rr; z = s.z + dz / d * rr; } }
+    const len = Math.hypot(mx, mz), go = len > 0.08, sp = (running ? runSpeed : speed) * Math.min(1, len), ease = C.target ? 1 : 1 - Math.exp(-dt * (go ? 14 : 20)), vel = C.velocity;
+    vel.x += ((go ? mx / len * sp : 0) - vel.x) * ease; vel.z += ((go ? mz / len * sp : 0) - vel.z) * ease;   // eases in and out instead of snapping
+    const v = Math.hypot(vel.x, vel.z); C.moving = v > 0.4; C.speedNow = v; C.running = running && go;
+    if (v > 0.02) { let x = p.x + vel.x * dt, z = p.z + vel.z * dt;
+      for (const s of C.solids) { if (s.off) continue; const dx = x - s.x, dz = z - s.z, rr = (s.r || 0.5) * 0.7 + 0.3, d2 = dx * dx + dz * dz; if (d2 < rr * rr && d2 > 1e-6) { const d = Math.sqrt(d2); x = s.x + dx / d * rr; z = s.z + dz / d * rr; } }
       const d0 = Math.hypot(x, z); if (d0 > bounds) { x *= bounds / d0; z *= bounds / d0; }
-      const gy = heightAt(x, z); if (!C.grounded || gy - p.y < 1.2) { p.x = x; p.z = z; }
-      let da = Math.atan2(mx, mz) - C.yaw; da = Math.atan2(Math.sin(da), Math.cos(da)); C.yaw += da * Math.min(1, dt * 12); actor.rotation.y = C.yaw;
-      if (C.grounded && opts.onStep) { C.stepT -= dt * sp; if (C.stepT <= 0) { C.stepT = 2.2; opts.onStep(); } }
+      const gy = heightAt(x, z); if (!C.grounded || gy - p.y < 1.2) { p.x = x; p.z = z; } else { vel.x = vel.z = 0; }
+      if (go) { let da = Math.atan2(mx, mz) - C.yaw; da = Math.atan2(Math.sin(da), Math.cos(da)); C.yaw += da * Math.min(1, dt * 12); actor.rotation.y = C.yaw; }
+      if (C.grounded && C.moving && opts.onStep) { C.stepT -= dt * v; if (C.stepT <= 0) { C.stepT = 2.2; opts.onStep(); } }
     }
     const ground = Math.max(heightAt(p.x, p.z), minY);
     if (C.grounded) { p.y += (ground - p.y) * Math.min(1, dt * 18); }
     else { C.velocity.y -= gravity * dt; p.y += C.velocity.y * dt; if (p.y <= ground) { p.y = ground; C.velocity.y = 0; C.grounded = true; if (opts.onLand) opts.onLand(); } }
-    if (actor.animate) actor.animate(!C.grounded ? (C.velocity.y > 0 ? 'jump' : 'fall') : C.moving ? (running ? 'run' : 'walk') : 'idle', dt, C.moving ? sp / (running ? runSpeed : speed) : 1);
+    if (actor.animate) actor.animate(!C.grounded ? (C.velocity.y > 0 ? 'jump' : 'fall') : C.moving ? (running ? 'run' : 'walk') : 'idle', dt, C.moving ? Math.max(0.5, v / (running ? runSpeed : speed)) : 1);
     const h = (actor.height || 1.7) * 0.8; look.set(p.x, p.y + h, p.z);
     if (mode === 'side') want.set(p.x, p.y + h + 1.5, p.z + C.distance);
     else { const cy = Math.cos(C.camPitch), yaw = mode === 'third' ? C.camYaw : Math.PI; want.set(p.x + Math.sin(yaw) * cy * C.distance, p.y + h + Math.sin(C.camPitch) * C.distance, p.z + Math.cos(yaw) * cy * C.distance); if (mode === 'top') want.set(p.x, p.y + Math.sin(C.camPitch) * C.distance, p.z + Math.cos(C.camPitch) * C.distance); }

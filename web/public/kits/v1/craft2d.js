@@ -47,6 +47,9 @@ export const currentStage2d = () => CURRENT;
  *   stage.light(x, y, r, color)    a light of its own; returns { x, y, r, on }
  *   stage.focus = actor            what the camera follows;  stage.camera.zoom  pixels per world unit
  *   stage.setMood(name, secs)      blend to another mood;  stage.setWeather(kind)
+ *   stage.setTime(hours)           0..24 on a day cycle: warm dawn, full day, golden evening, dusk, blue night (lights
+ *                                  show in the dark). createClock({ stage }) from @gcp/play.js drives it for you
+ *   stage.toWorld(px, py)          a screen point (input.pointer.x, .y) as a world point { x, y }
  *   stage.fx                       burst(x, y, color), text(x, y, 'words', color), ring(x, y, color), confetti(x, y)
  *   stage.shake(amount), stage.onUpdate(fn), stage.run(update)  the frame loop; calls GCP.ready() after the first frames
  * Options: mood, weather, zoom (pixels per unit, default fits about 22 units across), ground (a ground2d, or set
@@ -58,7 +61,7 @@ export function createStage2d(canvas, opts = {}) {
   const items = [], actors = [], lights = [], updaters = [], parts = [], texts = [], drawList = [];
   const lightC = document.createElement('canvas'), lctx = lightC.getContext('2d');
   let mood = { ...MOODS2D[opts.mood] || MOODS2D['clear-day'] }, from = null, to = null, blend = 0, secs = 0, weather = null, drops = [], time = 0, shakeAmt = 0, vig = null, vigKey = '';
-  const amb = () => rgb(mood.ambient);
+  const amb = () => rgb(mood.ambient), NIGHT_C = [58, 76, 138]; let base = { ...mood };
   const stage = {
     canvas: el, view, ctx, camera: cam, items, actors, lights, ground: opts.ground || null, focus: null, time: 0, wind: opts.wind ?? 1, mood, is2d: true,
     add(sprite, x, y, o = {}) {
@@ -68,7 +71,13 @@ export function createStage2d(canvas, opts = {}) {
     },
     addActor(a) { if (!actors.includes(a)) actors.push(a); a.stage = stage; return a; },
     light(x, y, r = 3, color = 0xffc070, flicker = false) { const l = { x, y, r, color: rgb(color), on: true, flicker, phase: Math.random() * TAU }; lights.push(l); return l; },
-    setMood(name, s = 0) { const t = { ...MOODS2D['clear-day'], ...(typeof name === 'string' ? MOODS2D[name] : name) }; if (s > 0) { from = { ...mood }; to = t; blend = 0; secs = s; } else { mood = t; stage.mood = mood; from = to = null; } return stage; },
+    setMood(name, s = 0) { const t = { ...MOODS2D['clear-day'], ...(typeof name === 'string' ? MOODS2D[name] : name) }; if (s > 0) { from = { ...mood }; to = t; blend = 0; secs = s; } else { mood = t; stage.mood = mood; from = to = null; } base = { ...t }; return stage; },
+    setTime(h) {
+      h = ((h % 24) + 24) % 24; const D = rgb(base.ambient), K = [[0, NIGHT_C, 0.5, 0.6], [4.8, NIGHT_C, 0.5, 0.6], [6.2, [232, 176, 150], 0.7, 0.45], [8, D, 1, base.vignette], [16.5, D, 1, base.vignette], [18.3, [255, 202, 150], 0.85, 0.38], [19.6, [176, 128, 160], 0.6, 0.48], [21, NIGHT_C, 0.5, 0.6], [24, NIGHT_C, 0.5, 0.6]];
+      let i = 0; while (i < K.length - 2 && h >= K[i + 1][0]) i++; const a = K[i], b = K[i + 1], t = smoothstep(a[0], b[0], h), c = [0, 1, 2].map((k) => Math.round(lerp(a[1][k], b[1][k], t)));
+      from = to = null; mood = { ...base, ambient: (c[0] << 16) | (c[1] << 8) | c[2], shadow: base.shadow * lerp(a[2], b[2], t), vignette: lerp(a[3], b[3], t) }; stage.mood = mood; stage.hour = h; return stage;
+    },
+    toWorld: (px, py) => cam.toWorld(view, px, py),
     setWeather(kind) { weather = WEATHER2D[kind] || null; drops = weather ? Array.from({ length: weather.n }, () => ({ x: Math.random(), y: Math.random(), s: Math.random() })) : []; return stage; },
     shake(a = 0.4) { shakeAmt = Math.min(1.5, shakeAmt + a); },
     onUpdate(fn) { updaters.push(fn); return () => { const i = updaters.indexOf(fn); if (i >= 0) updaters.splice(i, 1); }; },
@@ -153,7 +162,7 @@ export const GROUND_PALETTES = Object.keys(LANDS2D);
 
 /**
  * The painted land (set as the stage's ground for you). Returns { kindAt(x, y), walkable(x, y), randomPoint(rand, { minRadius,
- * maxRadius }), size, deep }. kindAt gives 'water' | 'sand' | 'grass' | 'dirt' | 'stone'.
+ * maxRadius }), mapColor(x, y) (for a minimap), size, deep }. kindAt gives 'water' | 'sand' | 'grass' | 'dirt' | 'stone'.
  * Options: seed, size (the land's radius in units, default 60; beyond it lies water, a natural edge), palette
  * (temperate, autumn, desert, snow, volcanic, alien, tropical, city, or your own colours), water (0..1: how much of
  * the land is lakes and coves, default 0.3), paths (false for no dirt paths), clearing ({ x, y, r }: dry open
@@ -194,8 +203,11 @@ export function ground2d(opts = {}) {
       else if (pal.paved && k !== 'water' && gx % 4 === 0 && gy % 4 === 0) { ctx.strokeStyle = 'rgba(0,0,0,0.14)'; ctx.lineWidth = 0.04; ctx.strokeRect(wx, wy, 2, 2); }
     }
   };
+  const MAPC = { water: hex(pal.water[0]), sand: hex(pal.sand), dirt: hex(pal.dirt), stone: hex(pal.stone), grass: shade(pal.grass[0], -0.12), grass2: shade(pal.grass[1], -0.05) };
   const land = {
     size, deep: hex(pal.water[1]), kindAt, heightAt: H, walkable: (x, y) => H(x, y) >= WATER + 0.01, palette: pal,
+    /** The colour of the land at a point, for minimapUI({ color: land.mapColor }). */
+    mapColor: (x, y) => { const k = kindAt(x, y); return k === 'grass' && nz.n2(x * 0.09 + 13, y * 0.09 - 7) > 0 ? MAPC.grass2 : MAPC[k]; },
     cache: new ChunkCache({ chunk: 8, scale: 48, paint, max: 80 }),
     ripples(ctx, b, t) {   // moving glints on open water; lava glows instead
       ctx.strokeStyle = pal.glow ? 'rgba(255,220,120,0.5)' : 'rgba(255,255,255,0.35)'; ctx.lineWidth = 0.05; ctx.lineCap = 'round'; ctx.beginPath();
@@ -304,6 +316,8 @@ export function sprite2d(kind, opts = {}) {
  * Places many sprites by rule. kinds: a list of sprite2d() results. Options: count, radius (around 0, 0), ground
  * (things stand only where they can: on land, off the paths), where (x, y, kind) => true | false | chance,
  * avoid [{ x, y, r }], minDistance, seed, stage. Returns { items, solids } where solids is [{ x, y, r }] for control2d.
+ * Each item is one thing in the world: { x, y, type ('tree', 'rock', 'bush', …), visible, circle (its solid, if any) }.
+ * createNodes().fromScatter(items, rule) from this kit turns them into things the player can chop, mine and pick.
  */
 export function scatter2d(kinds, opts = {}) {
   const st = opts.stage || CURRENT, g = opts.ground || (st && st.ground), { count = 200, radius = 50, avoid = [], minDistance = 0, where } = opts, r = mulberry32(sd(opts.seed) * 5413 + 3), items = [], solids = [], cell = new Map(), md = minDistance;
@@ -313,7 +327,7 @@ export function scatter2d(kinds, opts = {}) {
     if (where) { const ok = where(x, y, k); if (!ok || (typeof ok === 'number' && r() > ok)) continue; }
     if (avoid.some((v) => Math.hypot(x - v.x, y - v.y) < v.r)) continue;
     if (md) { const cx = Math.floor(x / md), cy = Math.floor(y / md); let hit = false; for (let i = -1; i <= 1 && !hit; i++) for (let j = -1; j <= 1 && !hit; j++) for (const p of cell.get((cx + i) + ',' + (cy + j)) || []) if (Math.hypot(p[0] - x, p[1] - y) < md) { hit = true; break; } if (hit) continue; const ck = cx + ',' + cy; if (!cell.has(ck)) cell.set(ck, []); cell.get(ck).push([x, y]); }
-    const it = st.add(s, x, y, { flip: r() < 0.5 && s.kind !== 'house', scale: 0.88 + r() * 0.3 }); items.push(it); if (s.solid) solids.push({ x, y: y - 0.1, r: s.solid * it.scale });
+    const it = st.add(s, x, y, { flip: r() < 0.5 && s.kind !== 'house', scale: 0.88 + r() * 0.3 }); it.type = s.kind; items.push(it); if (s.solid) { it.circle = { x, y: y - 0.1, r: s.solid * it.scale }; solids.push(it.circle); }
   }
   return { items, solids };
 }
@@ -388,26 +402,35 @@ function drawBeast(c, B, col, sw, t, a) {
 }
 
 /**
- * Player movement and the camera for an actor2d. Options: input (createInput), ground (walks only on land), solids
- * ([{ x, y, r }] from scatter2d), speed, runSpeed (Shift), bounds (radius), onStep, stage.
- * Returns the controller: update(dt) every frame, enabled, teleport(x, y), moveTo(x, y) (a promise; used by play-throughs).
+ * Player movement and the camera for an actor2d. Movement eases in and out, slides along solids and shorelines, and
+ * reads the keyboard, the on-screen stick and a gamepad through createInput. Options: input (createInput), ground
+ * (walks only on land), solids ([{ x, y, r }] from scatter2d; add your own, e.g. builder.solids), speed, runSpeed
+ * (Shift, or the action named 'run' if you bound one), canRun (() => false while out of stamina), bounds (radius),
+ * onStep, stage.
+ * Returns the controller: update(dt) every frame, enabled, running (true this frame), dir ({ x, y }: the way the
+ * actor faces), ahead(d) (the point d units in front: where to place or hit), teleport(x, y), moveTo(x, y) (a
+ * promise; used by play-throughs), addSolids(list) (more things to bump into, kept by reference).
  */
 export function control2d(actor, opts = {}) {
   const st = opts.stage || CURRENT, g = opts.ground || (st && st.ground), { input, speed = 4.2, runSpeed = 6.8, bounds = Infinity } = opts;
   if (!input) throw new Error('control2d() needs { input }: const input = createInput(canvas) from "@gcp/craft2d.js".');
-  const C = { enabled: true, solids: opts.solids || [], target: null, stepT: 0 }; if (st && !st.focus) { st.focus = actor; st.camera.x = actor.x; st.camera.y = actor.y; }
-  C.teleport = (x, y) => { actor.x = x; actor.y = y; }; C.moveTo = (x, y, timeout = 20) => new Promise((res) => { C.target = { x, y, res, t: timeout }; });
+  const C = { enabled: true, solids: opts.solids || [], more: [], target: null, stepT: 0, running: false, dir: { x: 0, y: 1 }, vx: 0, vy: 0 }; if (st && !st.focus) { st.focus = actor; st.camera.x = actor.x; st.camera.y = actor.y; }
+  C.teleport = (x, y) => { actor.x = x; actor.y = y; C.vx = C.vy = 0; }; C.moveTo = (x, y, timeout = 20) => new Promise((res) => { C.target = { x, y, res, t: timeout }; });
+  C.ahead = (d = 1) => ({ x: actor.x + C.dir.x * d, y: actor.y + C.dir.y * d }); C.addSolids = (list) => { C.more.push(list); return C; };
+  const push = (list, p) => { for (const s of list) { if (s.off) continue; const dx = p.x - s.x, dy = p.y - s.y, rr = s.r + actor.radius * 0.6, d2 = dx * dx + dy * dy; if (d2 < rr * rr && d2 > 1e-6) { const d = Math.sqrt(d2); p.x = s.x + dx / d * rr; p.y = s.y + dy / d * rr; } } };
   C.update = (dt) => {
-    let mx = 0, my = 0, run = false;
-    if (C.enabled) { if (C.target) { const dx = C.target.x - actor.x, dy = C.target.y - actor.y, d = Math.hypot(dx, dy); C.target.t -= dt; if (d < 0.35 || C.target.t <= 0) { const r = C.target.res; C.target = null; r(d < 0.35); } else { mx = dx / d; my = dy / d; } } else { const m = input.move; mx = m.x; my = -m.y; run = input.down('ShiftLeft') || input.down('ShiftRight'); } }
-    const len = Math.hypot(mx, my), sp = (run ? runSpeed : speed) * Math.min(1, len); actor.moving = len > 0.08; actor.speed = run ? 1.4 : 1;
-    if (actor.moving) {
-      let x = actor.x + mx / len * sp * dt, y = actor.y + my / len * sp * dt;
-      for (const s of C.solids) { const dx = x - s.x, dy = y - s.y, rr = s.r + actor.radius * 0.6, d2 = dx * dx + dy * dy; if (d2 < rr * rr && d2 > 1e-6) { const d = Math.sqrt(d2); x = s.x + dx / d * rr; y = s.y + dy / d * rr; } }
-      const d0 = Math.hypot(x, y); if (d0 > bounds) { x *= bounds / d0; y *= bounds / d0; }
-      if (!g || C.target || g.walkable(x, y)) { actor.x = x; actor.y = y; } else if (g.walkable(x, actor.y)) actor.x = x; else if (g.walkable(actor.x, y)) actor.y = y;
-      actor.facing = Math.abs(mx) > Math.abs(my) ? (mx < 0 ? 'left' : 'right') : my < 0 ? 'up' : 'down';
-      if (opts.onStep) { C.stepT -= dt * sp; if (C.stepT <= 0) { C.stepT = 2.2; opts.onStep(); } }
+    let mx = 0, my = 0, run = false, auto = false;
+    if (C.enabled) { if (C.target) { const dx = C.target.x - actor.x, dy = C.target.y - actor.y, d = Math.hypot(dx, dy); C.target.t -= dt; if (d < 0.35 || C.target.t <= 0) { const r = C.target.res; C.target = null; r(d < 0.35); } else { mx = dx / d; my = dy / d; auto = true; } } else { const m = input.move; mx = m.x; my = -m.y; run = (input.actions && input.actions.run ? input.held('run') : input.down('ShiftLeft') || input.down('ShiftRight')) && (!opts.canRun || opts.canRun()); } }
+    const len = Math.hypot(mx, my), sp = (run ? runSpeed : speed) * Math.min(1, len), k = auto ? 1 : 1 - Math.exp(-dt * (len > 0.08 ? 16 : 22));
+    C.vx += ((len > 0.08 ? mx / len * sp : 0) - C.vx) * k; C.vy += ((len > 0.08 ? my / len * sp : 0) - C.vy) * k;
+    const v = Math.hypot(C.vx, C.vy); actor.moving = v > 0.35; actor.speed = run ? 1.4 : Math.max(0.6, Math.min(1, v / speed)); C.running = run && len > 0.08;
+    if (v > 0.02) {
+      const p = { x: actor.x + C.vx * dt, y: actor.y + C.vy * dt };
+      push(C.solids, p); for (const l of C.more) push(l, p);
+      const d0 = Math.hypot(p.x, p.y); if (d0 > bounds) { p.x *= bounds / d0; p.y *= bounds / d0; }
+      if (!g || C.target || g.walkable(p.x, p.y)) { actor.x = p.x; actor.y = p.y; } else if (g.walkable(p.x, actor.y)) { actor.x = p.x; C.vy = 0; } else if (g.walkable(actor.x, p.y)) { actor.y = p.y; C.vx = 0; } else C.vx = C.vy = 0;
+      if (len > 0.08) { C.dir.x = mx / len; C.dir.y = my / len; actor.facing = Math.abs(mx) > Math.abs(my) ? (mx < 0 ? 'left' : 'right') : my < 0 ? 'up' : 'down'; }
+      if (opts.onStep && actor.moving) { C.stepT -= dt * v; if (C.stepT <= 0) { C.stepT = 2.2; opts.onStep(); } }
     }
   };
   return C;
@@ -439,3 +462,4 @@ export { createInput } from './input.js';
 export { run, createLoop, createBoot, clamp, lerp, smoothstep, TAU, store } from './core.js';
 export { rng, mulberry32, noise, Simplex } from './procgen/noise.js';
 export { setupCanvas, bake, Camera2D, drawSorted, ChunkCache } from './canvas2d.js';
+export * from './play.js';

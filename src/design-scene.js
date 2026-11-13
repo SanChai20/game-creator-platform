@@ -3,7 +3,8 @@
 // rules, no AI: the same description and seed always give the same plan. Nothing here is a house style: every choice
 // is an argument the caller can override, and the code it returns is ordinary code the agent keeps editing.
 
-import { write2d } from './design-scene-2d.js';
+import { write2d, PLAY_SYSTEMS, PLAY_INTERFACE } from './design-scene-2d.js';
+import { PLAY_IMPORTS, playBind, homesteadRules } from './design-scene-play.js';
 
 const K = (code, r = 0) => ({ code, r });   // a landmark: code of the kind, radius of its footprint (0 = walk through)
 
@@ -117,6 +118,7 @@ const PREDATORS = ['wolf', 'bear', 'boar', 'slime', 'ghost', 'bat'];
 const GOALS = {
   collect: { words: /collect|gather|find|pick up|hunt for|treasure|coins?|gems?|scaveng/, summary: 'Collect every pickup before the time runs out.' },
   survive: { words: /surviv|chase|hunted|enem|monster|attack|defend|escape from|avoid|flee|zombie|wolves|horde/, summary: 'Stay alive until the clock runs out while hunters chase the hero.' },
+  homestead: { words: /\bcraft(ing)?\b|\bbuild(ing)? (a |an |your |the |my )?(base|shelter|camp|home|house|hut|fire|farm)|base.?building|\bharvest|\bchop|\bmining\b|\bfarm(ing)?\b|homestead|survival (craft|game|sandbox|sim)|\binventory\b|gather (wood|resources|materials)|day.?night|\bhunger\b|\bsandbox\b/, summary: 'Gather wood and stone, craft tools, build a fire and live through the night: inventory, crafting, needs, a day clock, building, quests and saving.' },
   reach: { words: /reach|escape|portal|exit|gate|get to|find the way|unlock|keys?\b|deliver/, summary: 'Find the keys, then reach the portal before the time runs out.' },
 };
 // a flat world to walk around in (the planner writes it) against games that are not a world at all (it does not)
@@ -143,12 +145,15 @@ export function designScene(args, V) {
   const id = pick(args.setting, Object.keys(SETTINGS), ORDER.find((k) => SETTINGS[k].words.test(text)) || 'forest'), S = SETTINGS[id], notes = [];
   if (String(args.description || '').length > READ) notes.push(`The planner reads the first ${READ} characters of the description. Put the setting, the hero, the goal and the things you want in it first, or pass them as arguments.`);
   const fromWords = (table) => { const hit = table.find(([re]) => re.test(text)); return hit ? hit[1] : null; };
-  const mood = pick(args.mood, V.moods, fromWords(MOOD_WORDS) || S.mood);
+  let mood = pick(args.mood, V.moods, fromWords(MOOD_WORDS) || S.mood);
   const weather = args.weather === 'none' ? null : pick(args.weather, V.weather, fromWords(WEATHER_WORDS) || S.weather);
   const shape = pick(args.terrain, V.terrain_shapes, S.shape), flat = shape === 'flat';
   const palette = args.palette && V.terrain_palettes.includes(args.palette) ? q(args.palette) : S.flat ? S.palette : q(S.palette);
   const hero = pick(args.hero, V.humanoids, V.humanoids.find((h) => new RegExp(`\\b${h}`).test(text)) || S.hero);
-  const goal = pick(args.goal, Object.keys(GOALS), ['survive', 'reach', 'collect'].find((g) => GOALS[g].words.test(text)) || 'collect');
+  const goal = pick(args.goal, Object.keys(GOALS), ['homestead', 'survive', 'reach', 'collect'].find((g) => GOALS[g].words.test(text)) || 'collect');
+  // a homestead has its own day and night, so it starts in daylight whatever the description says about the dark
+  const DARK = ['night', 'neon-night', 'dusk', 'storm', 'indoor'], byDay = (m) => (goal === 'homestead' && !args.mood && DARK.includes(m) ? (DARK.includes(S.mood) ? 'clear-day' : S.mood) : m);
+  mood = byDay(mood);
   const camera = pick(args.camera, ['third', 'top', '2d'], WORLD_2D.test(text) && !explicit3d ? '2d' : /top.?down|bird'?s.?eye|overhead/.test(text) ? 'top' : 'third');
   const seed = String(args.seed || id).slice(0, 40), title = String(args.title || S.title).slice(0, 60);
   for (const [k, list] of [['setting', Object.keys(SETTINGS)], ['mood', V.moods], ['weather', [...V.weather, 'none']], ['terrain', V.terrain_shapes], ['palette', V.terrain_palettes], ['hero', V.humanoids], ['goal', Object.keys(GOALS)], ['camera', ['third', 'top', '2d']]]) {
@@ -163,15 +168,17 @@ export function designScene(args, V) {
   landmarks.slice(0, 4).forEach((p, i) => { camp[camp.length - 1 - i] = K(`'${p}'`, ['house', 'hut', 'tower', 'windmill', 'container'].includes(p) ? 3.5 : ['well', 'tent', 'boat', 'cart', 'stall', 'statue', 'ruin'].includes(p) ? 1.5 : 0); });
   const namedAnimals = named(V.animals).filter((a) => a !== 'fish');
   const foes = [...new Set([...namedAnimals.filter((a) => PREDATORS.includes(a)), ...S.foes])].slice(0, 3);
-  const animals = goal === 'survive' ? [...namedAnimals.filter((a) => !PREDATORS.includes(a)), ...S.animals.filter((a) => !foes.includes(a))].slice(0, 6)
+  const animals = goal === 'survive' || goal === 'homestead' ? [...namedAnimals.filter((a) => !PREDATORS.includes(a)), ...S.animals.filter((a) => !foes.includes(a))].slice(0, 6)
     : [...namedAnimals.flatMap((a) => [a, a]), ...S.animals].slice(0, 8);
   const pk = [...S.pickup]; const namedPickup = ['coin', 'gem', 'heart', 'star', 'key', 'orb', 'potion'].find((p) => new RegExp(`\\b${p}s?\\b`).test(text));
   if (namedPickup && goal === 'collect' && namedPickup !== pk[0]) { pk[0] = namedPickup; pk[2] = cap(namedPickup) + 's'; pk[3] = namedPickup + 's'; }
   const count = Math.max(3, Math.min(30, Math.round(Number(args.pickups) || 10)));
-  const time = Math.max(20, Math.min(1800, Math.round(Number(args.time_limit) || (goal === 'survive' ? 90 : 240))));
+  const time = Math.max(20, Math.min(1800, Math.round(Number(args.time_limit) || (goal === 'survive' ? 90 : goal === 'homestead' ? 300 : 240))));
   const drift = DRIFT[mood] || null, water = !flat, waterOpt = S.water && water ? `, color: ${S.water}` : '';
-  const objective = goal === 'collect' ? `Find the ${count} ${pk[3]} before time runs out` : goal === 'survive' ? `Stay alive for ${time} seconds` : 'Find the three keys, then reach the portal';
-  if (camera === '2d') return write2d({ args, V, id, S, mood: pick(args.mood, V.moods2d, fromWords(MOOD_WORDS) || S.mood), weather: weather && V.weather2d.includes(weather) ? weather : null, hero: pick(hero, V.actors2d, 'explorer'), goal, goalSummary: GOALS[goal].summary, seed, title, count, time, pk, objective, notes, drift, big, small, camp, animals, foes, planLine: `${PLAN_MARK}${JSON.stringify(planArgs(args))}` });
+  const objective = goal === 'homestead' ? 'Gather, craft and build a fire, then live through the night' : goal === 'collect' ? `Find the ${count} ${pk[3]} before time runs out` : goal === 'survive' ? `Stay alive for ${time} seconds` : 'Find the three keys, then reach the portal';
+  if (camera === '2d') return write2d({ args, V, id, S, mood: byDay(pick(args.mood, V.moods2d, fromWords(MOOD_WORDS) || S.mood)), weather: weather && V.weather2d.includes(weather) ? weather : null, hero: pick(hero, V.actors2d, 'explorer'), goal, goalSummary: GOALS[goal].summary, seed, title, count, time, pk, objective, notes, drift, big, small, camp, animals, foes, planLine: `${PLAN_MARK}${JSON.stringify(planArgs(args))}` });
+  const play = goal === 'homestead';
+  if (play) { if (!big.some((c) => c.startsWith('tree('))) big.push("tree({ species: 'oak' })"); if (!big.some((c) => c.startsWith('rock('))) big.push('rock()'); if (![...big, ...small].some((c) => c.startsWith('bush('))) big.push('bush({ berries: 0xd83a4a })'); }
   const moveHint = camera === 'top' ? 'WASD or arrows to move · Shift to run · Space to jump' : 'WASD or arrows to move · drag to look · Shift to run · Space to jump';
 
   const used = new Set(['run', 'createStage', 'terrain', 'scatter', 'place', 'prop', 'humanoid', 'animal', 'control', 'wander', 'createFx', 'createHud', 'createSound', 'createInput', 'rng']);
@@ -183,7 +190,8 @@ export function designScene(args, V) {
     '// Every call below is a building block from @gcp/craft.js; get_block {name} lists the options of any of them.',
     '// The numbered sections are independent: change the kinds, the counts, the seed and above all the rules in section 7.',
     `${PLAN_MARK}${JSON.stringify(planArgs(args))}`,
-    `import { ${order.filter((n) => used.has(n)).join(', ')} } from '@gcp/craft.js';`, '',
+    `import { ${order.filter((n) => used.has(n)).join(', ')} } from '@gcp/craft.js';`,
+    ...(play ? [`import { ${PLAY_IMPORTS.join(', ')} } from '@gcp/craft.js';`] : []), '',
     `const SEED = ${q(seed)};   // a different seed gives a different world with the same rules`, '',
     'run(async (boot) => {',
     '  // 1. Stage: the sky, sun, fog, shadows and weather all follow one mood.',
@@ -196,7 +204,7 @@ export function designScene(args, V) {
   L.push('', '  // 3. Scenery. scatter() draws hundreds of copies in a few draw calls and returns the solid ones for collision.',
     "  await boot.step(0.35, 'Growing the world');", '  const scenery = scatter([', ...big.map((c) => `    ${c},`),
     `  ], { count: ${S.bigCount || 380}, radius: 105, scale: [1.1, 1.9], heightAt: land.heightAt, where: open, minDistance: 4, avoid: [{ x: 0, z: 0, r: 11 }], seed: SEED });`,
-    '  scatter([', ...small.map((c) => `    ${c},`),
+    `  ${play ? 'const cover = ' : ''}scatter([`, ...small.map((c) => `    ${c},`),
     `  ], { count: ${S.smallCount || 520}, radius: 90, heightAt: land.heightAt, where: open, avoid: [{ x: 0, z: 0, r: 4 }], seed: SEED + '-cover' });`);
   if (S.grass != null) L.push(`  grassField({ land, radius: ${S.grassRadius || 48}, where: open${S.grassOpt || ''} });   // tufts take the colour of the ground they stand on`);
   L.push('', '  // 4. Landmarks around the start, placed by hand.', "  await boot.step(0.6, 'Building');",
@@ -211,13 +219,14 @@ export function designScene(args, V) {
       `  at(${grown(tall[0], 2.3, 11)}, 9.5, 4.5); at(${grown(tall[1], 2, 12)}, -11.5, 10, 2);`);
     solids.push('{ x: 9.5, z: 4.5, r: 0.9 }', '{ x: -11.5, z: 10, r: 0.8 }');
   }
-  camp.forEach((c, i) => { const [x, z, r] = CAMP_SPOTS[i]; L.push(`  at(${c.code}, ${x}, ${z}${r ? `, ${r}` : ''});`); if (c.r) solids.push(`{ x: ${x}, z: ${z}, r: ${c.r} }`); });
+  camp.forEach((c, i) => { if (play && /'(campfire|tent)'/.test(c.code)) return; const [x, z, r] = CAMP_SPOTS[i]; L.push(`  at(${c.code}, ${x}, ${z}${r ? `, ${r}` : ''});`); if (c.r) solids.push(`{ x: ${x}, z: ${z}, r: ${c.r} }`); });
   L.push(`  const solids = [...scenery.solids${solids.length ? ', ' + solids.join(', ') : ''}];`, '',
     '  // 5. The hero, input (keyboard, pointer and an on-screen stick on phones), sound, effects, interface, camera.',
     "  await boot.step(0.8, 'Waking the world');",
     `  const hero = humanoid({ preset: ${q(hero)} });`, '  stage.scene.add(hero);',
     `  const input = createInput(stage.renderer.domElement), sound = createSound(), fx = createFx(), hud = createHud({ accent: ${q(S.accent)} });`,
-    `  const player = control(hero, { input, mode: ${q(camera)}, heightAt: land.heightAt, solids, ${water ? 'minY: 0.3, ' : ''}bounds: 105,${camera === 'third' ? ' distance: 6.5, pitch: 0.2,' : ''}`,
+    ...(play ? playBind('3d') : []),
+    `  const player = control(hero, { input, mode: ${q(camera)}, heightAt: land.heightAt, solids, ${water ? 'minY: 0.3, ' : ''}bounds: 105,${camera === 'third' ? ' distance: 6.5, pitch: 0.2,' : ''}${play ? " canRun: () => needs.get('stamina') > 3," : ''}`,
     "    onStep: () => sound.play('step'), onJump: () => sound.play('jump'), onLand: () => sound.play('land') });", '',
     '  // 6. Life: creatures that wander on their own and run from the hero.',
     `  const rand = rng(SEED + '-life');`,
@@ -246,7 +255,8 @@ export function designScene(args, V) {
   const proofTop = ['  // 11. Proof. The verification browser runs this to check the rules work from start to end.', '  GCP.test.onAutostart(() => hud.start());', '  GCP.test.onPlaythrough(async (t) => {',
     "    t.step('start the game'); if (hud.screenOpen) hud.start(); await t.frames(3); t.assert(state.playing, 'the game is running');"];
 
-  if (goal === 'collect') {
+  if (play) L.push(...homesteadRules({ dim: '3d', n: 7, S, title, objective, day: time, foes: (foes.length ? foes : ['wolf']).slice(0, 3), water }));
+  else if (goal === 'collect') {
     L.push(`  // 7. Rules: collect every pickup before the time runs out. This is the part to make your own.`,
       `  const GOAL = ${count}, TIME = ${time}, state = { playing: false, over: false, found: 0 }, pickups = [];`,
       '  for (let i = 0; i < GOAL; i++) {',
@@ -360,10 +370,11 @@ export function designScene(args, V) {
       scenery: { block: 'scatter + grassField', large: big, small, grass: S.grass != null },
       landmarks: { block: 'place + prop', props: camp.map((c) => strip(c.code)) },
       hero: { block: 'humanoid + control + createInput', preset: hero },
-      creatures: { block: 'animal + wander', friendly: animals, hunters: goal === 'survive' ? foes : [] },
+      creatures: { block: 'animal + wander', friendly: animals, hunters: goal === 'survive' || play ? foes : [] },
+      ...(play ? { systems: PLAY_SYSTEMS, controls: 'input.bind: named actions for keyboard, mouse, touch buttons and gamepad', day_and_night: 'createClock drives stage.setTime' } : {}),
       sound: { block: 'createSound', ambience: S.ambience, music: goal === 'survive' ? 'tense' : S.music, effects: ['step', 'jump', 'land', 'pickup', 'win', 'lose'] },
-      interface: { block: 'createHud', widgets: goal === 'survive' ? ['bar', 'timer', 'objective', 'hint', 'toast', 'title', 'end'] : ['counter', 'timer', 'objective', 'hint', 'toast', 'title', 'end'] },
-      proof: 'GCP.test.onPlaythrough with five steps that play the rules to the end screen',
+      interface: play ? PLAY_INTERFACE : { block: 'createHud', widgets: goal === 'survive' ? ['bar', 'timer', 'objective', 'hint', 'toast', 'title', 'end'] : ['counter', 'timer', 'objective', 'hint', 'toast', 'title', 'end'] },
+      proof: play ? 'GCP.test.onPlaythrough with ten steps: gather, craft, build, eat, night, fight, cook, dawn, win' : 'GCP.test.onPlaythrough with five steps that play the rules to the end screen',
     },
     files: { 'index.html': html, 'src/main.js': L.join('\n') + '\n' },
     notes,
