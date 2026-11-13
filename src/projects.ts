@@ -225,6 +225,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
 
   const checkJs = (file: string, src: string, kind: 'module' | 'script', lineOffset: number, extraMap: string[]) => {
     if (/\bGCP\s*\.\s*ready\s*\(/.test(src) || /\bGCP\b/.test(src) && /\.\s*ready\s*\(\s*[^)]{0,80}\)/.test(src)) sawReady = true; // also matches an alias: const G = window.GCP; G.ready()
+    if (/@gcp\/craft(\.js|\/stage\.js)/.test(src) && /\.\s*run\s*\(/.test(src) && !/ready\s*:\s*false/.test(src)) sawReady = true;   // stage.run() from the craft blocks calls GCP.ready() after the first frames
     if (/navigator\s*\.\s*gpu\b|three\/webgpu|WebGPURenderer/.test(src)) usesGPU = true;
     let ast: unknown;
     try { ast = parse(src, { ecmaVersion: 'latest', sourceType: kind, locations: true, allowHashBang: true, allowAwaitOutsideFunction: kind === 'module', allowReturnOutsideFunction: kind === 'script' }); }
@@ -295,7 +296,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
     }
   }
 
-  if (files.length && !sawReady) err({ message: 'The game never calls GCP.ready().', hint: 'Call GCP.ready() once, right after the first playable frame is drawn. The platform uses it to know the game booted. See get_guide("platform-contract").' });
+  if (files.length && !sawReady) err({ message: 'The game never calls GCP.ready().', hint: 'Call GCP.ready() once, right after the first playable frame is drawn (stage.run() from @gcp/craft.js does it for you). The platform uses it to know the game booted. See get_guide("platform-contract").' });
 
   const server = files.filter((f) => f.path.startsWith('server/'));
   if (server.length) {

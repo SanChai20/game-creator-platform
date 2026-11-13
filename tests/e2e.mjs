@@ -101,7 +101,7 @@ async function main() {
   const tools = (await rpc('tools/list')).tools;
   assert.ok(tools.length >= 20 && tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   const started = await tool('get_started');
-  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 6);
+  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 10 && started.quality.target && started.building_blocks.tools.length === 3);
   const rec = await tool('recommend_pipeline', { description: 'An open world survival game on an island with torches at night', dynamic_lights: 3 });
   assert.match(rec.pipeline, /three-forward/);
   assert.equal((await tool('recommend_pipeline', { description: 'a top-down pixel puzzle' })).pipeline, 'canvas2d');
@@ -111,7 +111,37 @@ async function main() {
   const guides = (await tool('list_guides')).guides;
   if (guides.length) { const g = await tool('get_guide', { topic: guides[0].topic }); assert.ok(g.markdown.length > 500); }
   assert.ok((await tool('get_kit_file', { file: 'three-kit.js' })).source.includes('mergeParts'));
+  assert.ok((await tool('get_kit_file', { file: 'craft/props.js' })).source.includes('campfire') && (await tool('get_kit_file', { file: 'procgen/noise.js' })).source.includes('export function pcg'));
+  assert.equal((await rpc('tools/call', { name: 'get_kit_file', arguments: { file: '../sdk/gcp.js' } })).isError, true);
+  for (const topic of ['building-blocks', 'procedural-generation']) { const g = await tool('get_guide', { topic }); assert.ok(g.markdown.length > 3000 && !g.markdown.includes('{{'), topic); }
   ok(`${guides.length} guides and kit sources readable`);
+
+  // building blocks: the catalog, one block in full, and the scene planner
+  const blocks = await tool('list_blocks');
+  assert.ok(blocks.craft_blocks.length >= 8 && blocks.valid_names.props.includes('campfire') && blocks.valid_names.surfaces.length >= 39 && blocks.valid_names.moods.includes('golden-hour') && blocks.procedural_core.groups.length === 5);
+  assert.ok((await tool('list_blocks', { group: 'noise' })).blocks.some((b) => b.name === 'fbm2' && /GLSL/.test(b.doc)));
+  const sc = await tool('get_block', { name: 'scatter' });
+  assert.ok(/minDistance/.test(sc.doc) && sc.import.includes('@gcp/craft.js') && sc.valid_names.trees.includes('oak'));
+  assert.equal((await tool('get_block', { name: 'hud.title' })).name, 'createHud');
+  const camp = await tool('get_block', { name: 'campfire' });
+  assert.ok(camp.name === 'prop' && /lab\?kind=prop/.test(camp.preview) && camp.as_recipe.params.prop);
+  assert.equal((await rpc('tools/call', { name: 'get_block', arguments: { name: 'zzzz-nothing' } })).isError, true);
+  const flat = await tool('design_scene', { description: 'a match-3 puzzle with gems' });
+  assert.ok(flat.dimension === '2d' && !flat.files);
+  const same = await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' });
+  assert.ok(same.plan.setting === 'haunted' && same.plan.hero.preset === 'knight' && /^survive/.test(same.plan.goal) && same.plan.creatures.hunters.includes('ghost'));
+  assert.deepEqual(same.files, (await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' })).files);   // no randomness
+  const plan = await tool('design_scene', { description: 'a pirate collects doubloons on a tropical island', title: `Planned ${run}`, seed: 'e2e' });
+  assert.ok(plan.plan.setting === 'island' && plan.plan.hero.preset === 'pirate' && plan.files['index.html'] && plan.files['src/main.js'].includes("from '@gcp/craft.js'"));
+  const planned = await tool('create_project', { title: `Planned ${run}`, tagline: 'Built from blocks' });
+  await tool('put_files', { project: planned.project, files: Object.entries(plan.files).map(([path, content]) => ({ path, content })) });
+  const pc = await tool('check_project', { project: planned.project });
+  assert.equal(pc.ok, true, pc.errors.join('\n'));
+  let pd = await tool('deploy_preview', { project: planned.project, note: 'from design_scene' });
+  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(pd.status); i++) { await sleep(2000); pd = await tool('get_version', { project: planned.project, version: pd.version }); }
+  assert.equal(pd.status, 'verified', JSON.stringify(pd.report, null, 1).slice(0, 2000));
+  assert.ok(pd.report.playthrough.steps.length === 5 && pd.quality.craft_score >= pd.quality.target && pd.quality.meets_target && /craft score/.test(pd.next), JSON.stringify(pd.quality));
+  ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), ${pd.report.metrics.fps} fps`);
 
   // a broken game is caught statically, with a line number and a fix
   const bad = await tool('create_project', { title: `Broken ${run}` });

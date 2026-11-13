@@ -70,7 +70,7 @@ app.get('/:kind{sdk|kits|vendor|guides|templates}/*', async (c) => {
   h.set('cache-control', path.startsWith('/vendor/') ? 'public, max-age=31536000, immutable' : 'public, max-age=300');
   if (path.startsWith('/guides/') && path.endsWith('.md') && r.status === 200) { // readable in a browser tab, with the placeholders filled in
     h.set('content-type', 'text/plain; charset=utf-8'); h.delete('content-length'); h.delete('etag');
-    return new Response((await r.text()).replaceAll('{{ORIGIN}}', new URL(c.req.url).origin).replaceAll('{{THREE}}', THREE_VERSION), { headers: h });
+    return new Response((await r.text()).replaceAll('{{ORIGIN}}', new URL(c.req.url).origin).replaceAll('{{THREE}}', THREE_VERSION).replaceAll('{{TARGET}}', String((await getSettings(c.env)).craft_target)), { headers: h });
   }
   return new Response(r.body, { status: r.status, headers: h });
 });

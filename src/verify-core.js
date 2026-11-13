@@ -8,34 +8,13 @@
 //   4. draws something other than a flat colour                (picture)
 //   5. keeps rendering after keyboard, mouse and touch input   (input)
 //   6. throws no uncaught errors during all of the above       (clean)
-import { unzlibSync } from 'fflate';
+import { craftReview, decodePng, imageMetrics, motionBetween } from './craft-review.js';
 
-/** Decodes an 8-bit RGB/RGBA PNG and summarises it. */
+/** Decodes an 8-bit RGB/RGBA PNG and summarises it. `img` is the decoded picture, kept for the craft review. */
 export function pngStats(buf) {
-  const u = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
-  let p = 8, w = 0, h = 0, ctype = 0, depth = 0; const idat = [];
-  while (p < u.length) {
-    const len = dv.getUint32(p), type = String.fromCharCode(u[p + 4], u[p + 5], u[p + 6], u[p + 7]);
-    if (type === 'IHDR') { w = dv.getUint32(p + 8); h = dv.getUint32(p + 12); depth = u[p + 16]; ctype = u[p + 17]; }
-    else if (type === 'IDAT') idat.push(u.subarray(p + 8, p + 8 + len));
-    else if (type === 'IEND') break;
-    p += 12 + len;
-  }
-  if (depth !== 8 || (ctype !== 2 && ctype !== 6)) return { w, h, ok: false, top: 1, other: 0, colors: 0, hash: '' };
-  const bpp = ctype === 6 ? 4 : 3, stride = w * bpp;
-  const all = new Uint8Array(idat.reduce((a, c) => a + c.length, 0)); let o = 0; for (const c of idat) { all.set(c, o); o += c.length; }
-  const raw = unzlibSync(all), px = new Uint8Array(stride * h);
-  for (let y = 0; y < h; y++) {
-    const f = raw[y * (stride + 1)], src = y * (stride + 1) + 1, dst = y * stride;
-    for (let x = 0; x < stride; x++) {
-      const a = x >= bpp ? px[dst + x - bpp] : 0, b = y ? px[dst - stride + x] : 0, c = x >= bpp && y ? px[dst - stride + x - bpp] : 0;
-      let v = raw[src + x];
-      if (f === 1) v += a; else if (f === 2) v += b; else if (f === 3) v += (a + b) >> 1;
-      else if (f === 4) { const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
-      px[dst + x] = v;
-    }
-  }
+  const img = decodePng(buf);
+  if (!img) return { w: 0, h: 0, ok: false, top: 1, other: 0, colors: 0, hash: '', img: null };
+  const { w, h, bpp, stride, px } = img;
   // Share of the most common colour, number of distinct coarse colours, and a coarse layout hash.
   const counts = new Uint32Array(32768), cells = new Uint32Array(64), cellN = new Uint32Array(64), n = w * h;
   for (let y = 0; y < h; y++) {
@@ -48,7 +27,7 @@ export function pngStats(buf) {
   }
   let top = 0, colors = 0; for (let i = 0; i < 32768; i++) { if (counts[i]) colors++; if (counts[i] > top) top = counts[i]; }
   let hash = ''; for (let i = 0; i < 64; i++) hash += ((cells[i] / Math.max(1, cellN[i]) / 48) | 0).toString(16);
-  return { w, h, ok: true, top: top / n, other: n - top, colors, hash };
+  return { w, h, ok: true, top: top / n, other: n - top, colors, hash, img };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -59,6 +38,19 @@ const state = (page) => page.evaluate(() => {
     progress: s.progress, label: s.label, stats: s.stats, canvas: c ? { w: c.width, h: c.height } : null,
     caps: { webgl2: !!document.createElement('canvas').getContext('webgl2'), webgpu: !!navigator.gpu } };
 });
+
+/** Visible text elements on the page: the HUD, hints, menus. */
+const uiState = (page) => page.evaluate(() => {
+  let texts = 0, chars = 0; const seen = new Set(), w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (w.nextNode()) {
+    const t = w.currentNode.nodeValue.trim(), el = w.currentNode.parentElement;
+    if (!t || !el || seen.has(el) || /^(SCRIPT|STYLE|NOSCRIPT)$/.test(el.tagName)) continue;
+    const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    if (r.width < 2 || r.height < 2 || cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity < 0.05) continue;
+    seen.add(el); texts++; chars += t.length;
+  }
+  return { texts, chars };
+}).catch(() => ({ texts: 0, chars: 0 }));
 
 /** A touch tap that works in Puppeteer and, through a raw protocol session, in Playwright without touch emulation. */
 async function tap(page, x, y) {
@@ -115,7 +107,7 @@ export async function verifyPage(page, url, opts = {}) {
 
   const shots = [];
   const shoot = async () => { try { const b = await page.screenshot({ type: 'png' }); shots.push(b); return pngStats(b); } catch { return null; } };
-  let pic1 = null, pic2 = null, f1 = 0, f2 = 0;
+  let pic1 = null, pic2 = null, picIdle = null, f1 = 0, f2 = 0, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false;
   if (s.ready && !s.fatal) {
     // 3. renders
     const a = await state(page); await sleep(o.observeS * 1000); const b = await state(page);
@@ -127,6 +119,8 @@ export async function verifyPage(page, url, opts = {}) {
     const blank = !pic1 || !pic1.ok || pic1.other < 200 || pic1.colors < 2; // a flat screen; a sparse one (Pong) is fine
     add('picture', !blank, 'Something is drawn', pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background` : 'No screenshot',
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
+    // For the craft review: a second picture a moment later with nothing pressed (does anything move by itself?), and the HUD.
+    await sleep(700); picIdle = await shoot(); ui1 = await uiState(page);
     // 4b. play-through: if the game registered one, it plays itself to the end and every step is reported.
     let play = null;
     try {
@@ -145,6 +139,10 @@ export async function verifyPage(page, url, opts = {}) {
       report.notes.push('Only start-up, rendering and input were checked: this version registers no play-through, so nothing confirmed that it can be played to the end. Add GCP.test.onPlaythrough (see the platform-contract guide) to have the whole loop played and reported.');
     }
     // 5. input: click, keys, drag, touch. A marker on window tells us afterwards whether the page was reloaded.
+    // The probe is read here as well: a game may restart itself by reloading when its end screen is clicked, which resets it.
+    const readProbe = () => page.evaluate(() => (window.__GCP && window.__GCP.probe ? JSON.parse(JSON.stringify(window.__GCP.probe)) : null)).catch(() => null);
+    probeBeforeInput = await readProbe();
+    const where = () => { try { const u = new URL(page.url()); return u.origin + u.pathname; } catch { return ''; } }, home = where();
     await page.evaluate(() => { window.__gcpStay = 1; }).catch(() => {});
     try {
       const vp = page.viewport ? page.viewport() : page.viewportSize(); const cx = (vp?.width || 960) / 2, cy = (vp?.height || 540) / 2;
@@ -158,13 +156,22 @@ export async function verifyPage(page, url, opts = {}) {
     await sleep(300);
     let d = null;
     try { if (await page.evaluate(() => window.__gcpStay === 1)) { const c = await state(page); await sleep(1500); d = await state(page); f2 = d.frames - c.frames; } } catch { d = null; }
+    if (!d && where() === home) {
+      // Same address, new page: the game reloaded itself (the usual "Play again"). That is a restart, not a crash, as long as it boots again.
+      let back = null;
+      for (let i = 0; i < 40 && !(back && back.ready); i++) { await sleep(500); back = await state(page).catch(() => null); if (back && back.fatal) break; }
+      if (back && back.ready && !back.fatal) {
+        const c = await state(page); await sleep(1500); d = await state(page); f2 = d.frames - c.frames; restarted = true;
+        d = { ...d, loadMs: s.loadMs, errors: [...(s.errors || []), ...(d.errors || [])], warnings: [...(s.warnings || []), ...(d.warnings || [])], missing: [...(s.missing || []), ...(d.missing || [])] };
+      }
+    }
     if (!d) {
-      add('input', false, 'Survives keyboard, mouse and touch input', 'The page reloaded or navigated away when it received input.',
+      add('input', false, 'Survives keyboard, mouse and touch input', where() === home ? 'The page reloaded when it received input and did not boot again within 20 s.' : 'The page navigated away when it received input.',
         'Something reloads or leaves the page on a click, tap or key press. A common cause is a button or link that is invisible (opacity 0) but still clickable: hide inactive UI with display:none or visibility:hidden.');
     } else {
       s = d;
-      add('input', f2 >= Math.max(3, o.minFrames / 3), 'Survives keyboard, mouse and touch input', `${f2} frames in the 1.5s after input`, f2 >= 3 ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
-      pic2 = await shoot();
+      add('input', f2 >= Math.max(3, o.minFrames / 3), 'Survives keyboard, mouse and touch input', restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in 1.5s` : `${f2} frames in the 1.5s after input`, f2 >= 3 ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
+      pic2 = await shoot(); ui2 = await uiState(page);
     }
   }
   // 1b + 6
@@ -177,6 +184,18 @@ export async function verifyPage(page, url, opts = {}) {
   report.errors = errs; report.warnings.push(...(s.warnings || [])); report.missing = missing;
   report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / o.observeS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
+  // The craft review: not a pass/fail check, a measured account of how finished the game is and what to improve next.
+  if (pic1 && pic1.img) {
+    try {
+      const after = await page.evaluate(() => (window.__GCP && window.__GCP.probe ? JSON.parse(JSON.stringify(window.__GCP.probe)) : null)).catch(() => null);
+      const probe = restarted || !after ? probeBeforeInput || after : after;   // after a self-restart the fresh page has seen almost nothing
+      const ui = [ui1, ui2].filter(Boolean).sort((a, b) => b.texts - a.texts)[0] || { texts: 0, chars: 0 };
+      report.craft = craftReview({
+        stills: [pic1, pic2].filter((p) => p && p.img).map((p) => imageMetrics(p.img)), idleMotion: picIdle && picIdle.img ? motionBetween(pic1.img, picIdle.img) : 0,
+        inputChange: !!(pic1 && pic2 && pic1.hash !== pic2.hash), probe, ui, playthrough: report.playthrough, warnings: report.warnings.length,
+      });
+    } catch (e) { report.warnings.push('Craft review could not run: ' + String(e && e.message || e).slice(0, 200)); }
+  }
   const failed = checks.filter((c) => !c.ok);
   report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / o.observeS)} fps in the verification browser, no errors${report.playthrough ? `, play-through of ${report.playthrough.steps.length} step(s) passed` : '; no play-through registered, so only start-up, rendering and input were checked'}.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
   return { report, shots };

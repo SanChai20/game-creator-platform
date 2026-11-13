@@ -5,6 +5,7 @@ dist/
 web/public/vendor/
 web/public/templates/index.json
 web/public/kits/index.json
+web/public/kits/blocks.json
 src/generated/
 *.log
 smoke-state.json

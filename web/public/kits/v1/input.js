@@ -2,6 +2,17 @@
 // Conventions: read keys by physical code (KeyW, Space), clear state on blur so keys never stick,
 // touch-action none on the play surface, and a virtual stick that appears where the thumb lands.
 
+/**
+ * Keyboard, mouse and touch behind one object. target: the element that receives pointer input (usually the canvas).
+ *   input.move                 { x, y } in [-1, 1] from WASD, the arrow keys or the on-screen stick (appears under the left thumb on touch)
+ *   input.down('ShiftLeft')    true while a key is held (physical codes: KeyW, Space, ArrowUp, …)
+ *   input.pressed('Space')     true only on the frame it went down
+ *   input.takeLook()           { dx, dy } of dragging (or of the locked mouse) since the last call, for cameras
+ *   input.pointer              { x, y, down, clicked }
+ *   input.addButton(label, code, { right, bottom, size })   an on-screen button for touch that acts as that key
+ *   input.endFrame()           call once at the end of every frame
+ * Options: pointerLock (capture the mouse for first-person looking), sensitivity.
+ */
 export function createInput(target = document.body, { pointerLock = false, sensitivity = 0.0022 } = {}) {
   const keys = new Set(), fresh = new Set(), stick = { id: -1, x: 0, y: 0, ox: 0, oy: 0 }, ac = new AbortController(), on = { signal: ac.signal };
   const inp = {

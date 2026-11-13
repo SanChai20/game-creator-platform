@@ -205,6 +205,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .steps li::before { content: counter(s); width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line-2); display: grid; place-items: center; font: 600 12px var(--mono); color: var(--signal); }
 .check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
 .check:last-child { border-bottom: 0; }
+.craft { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 8px; }
+.craft-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.craft-score { font: 700 24px var(--mono); } .craft-score small { font-size: 13px; opacity: .6; margin-left: 2px; }
+.craft-row { display: grid; grid-template-columns: minmax(120px, 190px) 1fr 48px; gap: 4px 12px; align-items: center; font-size: 13.5px; }
+.craft-bar { height: 6px; border-radius: 3px; background: var(--ink-4); overflow: hidden; } .craft-bar i { display: block; height: 100%; background: var(--signal); border-radius: 3px; }
+.craft-m { grid-column: 1 / -1; font-size: 12.5px; margin-bottom: 4px; }
 .check i { width: 18px; height: 18px; border-radius: 50%; margin-top: 2px; display: grid; place-items: center; font: 700 11px var(--mono); font-style: normal; }
 .check i.ok { background: rgba(126, 214, 160, .16); color: var(--good); } .check i.no { background: rgba(255, 125, 104, .16); color: var(--bad); }
 .ver { border-bottom: 1px solid var(--line); }

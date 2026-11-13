@@ -2,7 +2,34 @@ import { useEffect, useState } from 'react';
 import { ago, api, Bars, bytes, dateTime, Fail, Link, Modal, num, playTime, series, Spinner, Stars, StatusBadge, t, usd, useAct, useApp, useData, count } from '../lib';
 import { Stage } from './Game';
 
-function Report({ v }: { v: any }) {
+const CRAFT_ZH: Record<string, string> = { surfaces: '表面细节', light: '光照与色彩', world: '场景丰富度', motion: '环境动态', sound: '声音', interface: '界面与输入', proof: '可完整游玩' };
+const LEVEL_ZH: Record<string, string> = { rich: '丰富', solid: '扎实', basic: '基础', bare: '简陋' };
+
+function Craft({ craft, target }: { craft: any; target: number }) {
+  const met = craft.score >= target;
+  return (
+    <div className="craft">
+      <div className="craft-head">
+        <b>{t('Craft score', '完成度评分')}</b>
+        <span className={`craft-score ${met ? 'good' : 'sig'}`}>{craft.score}<small>/100</small></span>
+        <span className="mute" style={{ fontSize: 13 }}>{t(craft.level, LEVEL_ZH[craft.level] || craft.level)} · {t(`a finished game reaches ${target}`, `完成品的目标是 ${target}`)}</span>
+      </div>
+      {(craft.dimensions || []).map((d: any) => (
+        <div className="craft-row" key={d.id}>
+          <span>{t(d.label, CRAFT_ZH[d.id] || d.label)}</span>
+          <div className="craft-bar"><i style={{ width: `${Math.round((d.score / d.max) * 100)}%` }} /></div>
+          <span className="mute">{d.score}/{d.max}</span>
+          <div className="mute craft-m">{d.measured}</div>
+        </div>
+      ))}
+      <p className="mute" style={{ fontSize: 13 }}>{met
+        ? t('Measured from the running game during the check. Publishing never depends on it.', '该分数在检查时从运行中的游戏实测得出，发布不受其限制。')
+        : t('Measured from the running game during the check. Publishing never depends on it, but your agent was told what to improve and which building blocks do it. Ask it to raise the score.', '该分数在检查时从运行中的游戏实测得出，发布不受其限制；系统已告诉你的智能体哪些地方需要改进、可以用哪些积木完成，可以让它继续提升分数。')}</p>
+    </div>
+  );
+}
+
+function Report({ v, target }: { v: any; target: number }) {
   const r = v.report;
   if (!r) return <p className="mute">{v.status === 'verified' || v.status === 'failed' ? t('No report was stored for this version.', '该版本没有保存报告。') : t('Working on it. This page refreshes by itself.', '处理中，页面会自动刷新。')}</p>;
   return (
@@ -13,6 +40,7 @@ function Report({ v }: { v: any }) {
       {r.playthrough === null && (r.checks || []).some((c: any) => c.id === 'input') && <p className="mute" style={{ fontSize: 13 }}>{t('Only start-up, rendering and input were checked. This version has no play-through script, so nothing confirmed that it can be played to the end. Ask your agent to add one.', '仅检查了启动、渲染与输入。该版本没有试玩脚本，因此无法确认游戏能否完整玩到结束。可以让你的智能体补上。')}</p>}
       {!!r.errors?.length && <div className="log">{r.errors.join('\n')}</div>}
       {!!r.missing?.length && <div className="log">{t('Files that failed to load', '加载失败的文件')}:{'\n'}{r.missing.join('\n')}</div>}
+      {r.craft && <Craft craft={r.craft} target={target} />}
       {r.browser === 'unavailable' && <p className="mute" style={{ fontSize: 13 }}>{t('The automatic browser check could not run for this version. Play the preview yourself for a short while to verify it.', '该版本无法进行自动浏览器检查。请亲自试玩预览版一小段时间来完成验证。')}</p>}
     </div>
   );
@@ -79,7 +107,7 @@ export function Project({ id }: { id: string }) {
                   </button>
                   {open === v.version && (
                     <div className="body">
-                      <div className="stack">{v.report?.summary && <p>{v.report.summary}</p>}<Report v={v} /></div>
+                      <div className="stack">{v.report?.summary && <p>{v.report.summary}</p>}<Report v={v} target={Number(s.craft_target) || 75} /></div>
                       <div className="stack">
                         {v.screenshot ? <a href={v.screenshot} target="_blank" rel="noreferrer"><img src={v.screenshot} alt={t('Verification screenshot', '验证截图')} style={{ borderRadius: 10, border: '1px solid var(--line-2)' }} /></a> : <div className="empty" style={{ padding: 24 }}>{t('No screenshot', '暂无截图')}</div>}
                         <dl className="kv">

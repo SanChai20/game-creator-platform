@@ -44,7 +44,7 @@ This check exists only when the game registered `GCP.test.onPlaythrough`. The re
 - **An assertion failed.** That is usually a real bug on that path: the pickup was not counted, the end screen did not open, the restart left old state behind. Fix the game, not the assertion.
 - **"Timed out waiting for …".** Either the thing never happens (a bug), or the script depends on speed. The verification browser may draw five frames a second, so a move that takes one second on a laptop can take several there. Wait with `t.until(() => state…)` and give slow steps a longer timeout; do not count on `t.wait(ms)`.
 - **"did not finish within 20 s".** The script is too long or waits on something that never resolves. Shorten the route: place the player next to the goal instead of walking across the map, shorten a timer by setting the remaining time.
-- **"The page reloaded or closed".** The game calls `location.reload()` on restart. Reset the state in place instead.
+- **"The page reloaded or closed".** Something reloaded the page while the play-through was still running, which ends the script. Do not press a reloading "Play again" button inside the play-through; end the script on the end screen.
 - **`t.key` does nothing.** The game listens on an element that does not have focus, or reads `event.keyCode`. Listen on `window` and use `event.code`.
 
 No play-through registered? The report says only start-up, rendering and input were checked. Add one (see the platform-contract guide); it is the only way the platform can tell that the game can actually be played to the end.
@@ -53,7 +53,7 @@ No play-through registered? The report says only start-up, rendering and input w
 
 An event handler threw. The verifier presses common keys (WASD, arrows, space, enter, escape), clicks, drags and sends touch events. Typical causes: reading a property of something that does not exist until the game has started, `requestPointerLock()` or `requestFullscreen()` rejecting without a `catch`, `audio.play()` rejecting, or Escape closing the game with no way back. Handle rejections: `canvas.requestPointerLock()?.catch?.(() => {})`.
 
-If the report says the page reloaded or navigated away, something calls `location.reload()` or follows a link on input. The usual culprit is a control that is invisible (`opacity: 0`) but still clickable, such as a "Play again" button on a hidden overlay. Hide inactive UI with `display: none` or `visibility: hidden`.
+A game may restart itself by reloading the page (a "Play again" button that calls `location.reload()`): the check waits for it to boot again and passes. It fails when the page leaves for another address, or reloads and does not come back within 20 seconds. If that happens without your intending it, the usual culprit is a control that is invisible (`opacity: 0`) but still clickable, or a link around the canvas: hide inactive UI with `display: none` or `visibility: hidden`.
 
 ## files: some requests failed
 

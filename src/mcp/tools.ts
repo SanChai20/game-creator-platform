@@ -10,6 +10,8 @@ import {
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
 } from '../projects';
 import { takeOffline } from '../routes/api';
+import { designSceneTool, getBlock, listBlocks } from './blocks';
+import { DESIGN_GOALS, DESIGN_SETTINGS } from '../design-scene.js';
 import { getSettings } from '../settings';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { addDays, cleanPath, dayOf, extOf, isText, now, parseJson, sha256, token as randomToken, unb64, usd } from '../util';
@@ -54,51 +56,74 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
   if (!v) throw bad(`Version ${n} does not exist. Call list_versions.`);
   const pub = publicVersion(v, c.origin), el = versionEligible(v, s.verify_browser_required);
   const running = ['queued', 'deploying', 'verifying'].includes(v.status);
+  const craft = (pub.report as any)?.craft as { score: number; level: string; summary: string; next: string[] } | undefined, target = s.craft_target;
+  const below = !!craft && craft.score < target;
   return {
     ...pub, can_publish: el.ok, eligibility: el.reason,
+    ...(craft ? { quality: {
+      craft_score: craft.score, level: craft.level, target, meets_target: !below, summary: craft.summary,
+      improve: below ? craft.next : [],
+      note: below ? 'The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste. Each line under improve names what was measured and the building block that fixes it; get_block {name} shows its options.' : 'Measured from the running game. Publishing never depends on it.',
+    } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} again in about 10 seconds.`
-      : el.ok ? `Verified. Tell the user they can try it at the preview page, then call publish {project, version: ${n}} when they are happy.`
-        : 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.',
+      : !el.ok ? 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.'
+        : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and a finished game reaches ${target}. Before telling the user it is done, apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
+          : `Verified${craft ? ` with a craft score of ${craft.score}/100` : ''}. Tell the user they can try it at the preview page, then call publish {project, version: ${n}} when they are happy.`,
   };
 }
 
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
-    description: 'Call this first. Returns the workflow, the three hard rules every game must follow, the account status, and which guides, kits and templates exist. Call it again whenever you are unsure what to do next.',
+    description: 'Call this first. Returns the workflow, the three hard rules every game must follow, how quality is measured, the account status, and which building blocks, guides, kits and templates exist. Call it again whenever you are unsure what to do next.',
     inputSchema: obj({}), annotations: { readOnlyHint: true },
-    run: async (_a, c) => ({
-      platform: (await getSettings(c.env)).brand_name,
-      account: await account(c),
-      workflow: [
-        '1. create_project (optionally with a template so you start from something that already runs)',
-        '2. write files: put_files for small text files, edit_file for changes, create_upload_url + curl for big or binary files or a whole folder',
-        '3. check_project: static checks (syntax, imports, missing files, the contract). Fix everything it reports.',
-        '4. deploy_preview: freezes a version, deploys it as its own Cloudflare Worker, and runs it in a real browser. Read the report. The browser only knows how to start the game and poke at it; register GCP.test.onPlaythrough (platform-contract guide) so it also plays your rules to the end and reports each step.',
-        '5. Repeat 2 to 4 until the version is verified. The user can play the preview from their console.',
-        '6. publish: makes that verified version live in the marketplace. Later: list_versions, rollback, unpublish, get_stats.',
-      ],
-      rules: [
-        'The game is a web page: index.html at the bundle root, plus any files it loads with relative paths. No build step is required.',
-        'Call GCP.ready() once, right after the first playable frame is drawn. `GCP` is injected by the platform; never bundle or import it.',
-        'It must run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
-      ],
-      freedom: 'Everything else is yours: genre, art direction, camera, rendering technique, engine or no engine. Guides and kits are advice and optional help, not a house style.',
-      imports_available_by_default: defaultImports(c.origin),
-      guides: (await guideIndex(c.env)).guides.map((g) => `${g.topic}: ${g.summary}`),
-      kits: (await kitIndex(c.env)).kits.map((k) => `@gcp/${k.file}: ${k.summary}`),
-      templates: (await assetJson<{ templates: { name: string; summary: string }[] }>(c.env, '/templates/index.json')).templates.map((t) => `${t.name}: ${t.summary}`),
-      what_to_read: {
-        always: ['platform-contract (10 minutes, before writing any code: the rules, the SDK, what verification checks, the play-through hook)'],
-        '3d_game_with_three_js': ['rendering-pipelines (renderer setup that works)', 'performance (read "The verification browser" before building the scene: it has no GPU)', 'loading', 'input', 'meshes and materials-textures when you build models and surfaces from code', 'animation when things move'],
-        '2d_game': ['rendering-pipelines (the canvas section)', 'input', 'performance (the 2D section)', 'loading'],
-        when_needed: ['saves: cloud saves, leaderboards, server code', 'multiplayer: rooms', 'audio: sound without files', 'troubleshooting: as soon as deploy_preview comes back not verified'],
-        note: 'Guides are short and contain working code. Reading the ones on this list for your kind of game first is cheaper than a failed preview.',
-      },
-      start_from: 'For Three.js from scratch use the template "three-blank" (renderer, lights, loop, input, GCP.ready() and a play-through, nothing else). "three-explorer" and "canvas2d-arcade" are complete small games to reshape. "blank" is a bare 2D canvas.',
-      tip: 'Not sure how to render the game? Call recommend_pipeline with a short description before writing code.',
-    }),
+    run: async (_a, c) => {
+      const s = await getSettings(c.env);
+      return {
+        platform: s.brand_name,
+        account: await account(c),
+        workflow: [
+          '1. Plan. For a 3D world call design_scene with one sentence about the game: it picks building blocks for the stage, ground, scenery, landmarks, hero, creatures, sound and interface, and returns a complete starting game made of them. For anything else call recommend_pipeline.',
+          '2. create_project, then write files: put_files for small text files, edit_file for changes, create_upload_url + curl for big or binary files or a whole folder.',
+          '3. Build the game. list_blocks shows every block (one call each: a textured material, a tree, a house, an animated character, a HUD, sound); get_block {name} shows its options and valid names. Blocks are optional and mix with your own code.',
+          '4. check_project: static checks (syntax, imports, missing files, the contract). Fix everything it reports.',
+          '5. deploy_preview: freezes a version, deploys it as its own Cloudflare Worker, runs it in a real browser, and returns a verification report with a craft score out of 100. Register GCP.test.onPlaythrough (platform-contract guide) so the browser also plays your rules to the end.',
+          `6. Repeat 3 to 5 until the version is verified and the craft score is ${s.craft_target} or more. The report lists what to improve and which block does it. The user can play the preview from their console.`,
+          '7. publish: makes that verified version live in the marketplace. Later: list_versions, rollback, unpublish, get_stats.',
+        ],
+        rules: [
+          'The game is a web page: index.html at the bundle root, plus any files it loads with relative paths. No build step is required.',
+          'Call GCP.ready() once, right after the first playable frame is drawn. `GCP` is injected by the platform; never bundle or import it. (stage.run() from the craft blocks calls it for you.)',
+          'It must run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
+        ],
+        quality: {
+          how_it_is_measured: 'After a version verifies, the same browser run measures seven things from the running game: surface detail (textures and shape instead of flat fills), light and colour, how furnished the world is, ambient motion, sound, interface and input, and a passing play-through. The result is report.quality with a score out of 100.',
+          target: `${s.craft_target} or more for a game you would call finished. Publishing never depends on the score; it tells you what a player would notice is missing.`,
+          why_blocks: 'A bare primitive with a flat colour, a silent scene and no interface is what scores low. Every block exists to remove one of those in one call, with nothing to download: surface(kind) paints a material, tree(), rock(), prop(kind), humanoid() and animal() build detailed models from parts, createStage() lights the scene, createHud() and createSound() give interface and sound.',
+        },
+        freedom: 'Everything else is yours: genre, art direction, camera, rendering technique, engine or no engine. Blocks, guides and kits are help, not a house style: a game made entirely of your own code is just as welcome and is measured the same way.',
+        imports_available_by_default: defaultImports(c.origin),
+        building_blocks: {
+          import: "import { createStage, terrain, tree, scatter, prop, place, humanoid, control, createHud, createSound } from '@gcp/craft.js'",
+          tools: ['design_scene: a description in, a block plan and a complete starting game out', 'list_blocks: every block with a one-line summary, and every valid name (moods, surfaces, trees, props, characters, animals, sounds)', 'get_block {name}: full options of one block'],
+          procedural_core: "@gcp/procgen.js is the layer underneath for making your own assets: seeded random numbers and noise that match between JavaScript and shaders, a mesh builder, a texture painter and recipes (seed + parameters as data). See the procedural-generation guide.",
+          preview: `${c.origin}/lab shows every block live.`,
+        },
+        guides: (await guideIndex(c.env)).guides.map((g) => `${g.topic}: ${g.summary}`),
+        kits: (await kitIndex(c.env)).kits.map((k) => `@gcp/${k.file}: ${k.summary}`),
+        templates: (await assetJson<{ templates: { name: string; summary: string }[] }>(c.env, '/templates/index.json')).templates.map((t) => `${t.name}: ${t.summary}`),
+        what_to_read: {
+          always: ['platform-contract (10 minutes, before writing any code: the rules, the SDK, what verification checks, the play-through hook)'],
+          '3d_game_with_three_js': ['building-blocks (how the blocks fit together, with a complete small game)', 'performance (read "The verification browser" before building the scene: it has no GPU)', 'rendering-pipelines when you set up your own renderer instead of createStage', 'procedural-generation, meshes and materials-textures when you make your own models and surfaces', 'animation when things move'],
+          '2d_game': ['rendering-pipelines (the canvas section)', 'input', 'performance (the 2D section)', 'loading', 'building-blocks (the parts that work in 2D: HUD, sound, noise, painted textures)'],
+          when_needed: ['saves: cloud saves, leaderboards, server code', 'multiplayer: rooms', 'audio: sound without files', 'troubleshooting: as soon as deploy_preview comes back not verified'],
+          note: 'Guides are short and contain working code. Reading the ones on this list for your kind of game first is cheaper than a failed preview.',
+        },
+        start_from: 'You do not need a template. For a 3D world, design_scene writes the starting files for your description. Templates remain for other cases: "three-blank" (your own renderer, lights, loop and input, nothing else), "canvas2d-arcade" (a complete small 2D game), "blank" (a bare 2D canvas).',
+        tip: 'Not sure how to render the game? Call recommend_pipeline with a short description before writing code.',
+      };
+    },
   },
   {
     name: 'get_account', title: 'Account status',
@@ -107,20 +132,52 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'list_guides', title: 'List authoring guides',
-    description: 'Lists the authoring guides: rendering pipelines, meshes, materials and textures, animation, loading, input, performance, audio, saves, multiplayer, and troubleshooting. They distil conventions verified in shipped games. Read the relevant ones before writing that part of the game.',
+    description: 'Lists the authoring guides: the platform contract, building blocks, procedural generation, rendering pipelines, meshes, materials and textures, animation, loading, input, performance, audio, saves, multiplayer, and troubleshooting. They distil conventions verified in shipped games. Read the relevant ones before writing that part of the game.',
     inputSchema: obj({}), annotations: { readOnlyHint: true }, run: async (_a, c) => guideIndex(c.env),
   },
   {
     name: 'get_guide', title: 'Read a guide',
-    description: 'Returns one authoring guide as Markdown with working code. Topics come from list_guides (for example "platform-contract", "rendering-pipelines", "meshes", "materials-textures", "loading", "performance", "troubleshooting").',
+    description: 'Returns one authoring guide as Markdown with working code. Topics come from list_guides (for example "platform-contract", "building-blocks", "procedural-generation", "rendering-pipelines", "meshes", "materials-textures", "loading", "performance", "troubleshooting").',
     inputSchema: obj({ topic: { type: 'string', description: 'Guide topic from list_guides.' } }, ['topic']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       const idx = await guideIndex(c.env), topic = String(a.topic || '').toLowerCase().trim();
       const g = idx.guides.find((x) => x.topic === topic) || idx.guides.find((x) => x.topic.includes(topic) || topic.includes(x.topic));
       const text = g && await assetText(c.env, `/guides/${g.topic}.md`);
       if (!text) throw bad(`No guide "${a.topic}".`, `Topics: ${idx.guides.map((x) => x.topic).join(', ')}`);
-      return { markdown: text.replaceAll('{{ORIGIN}}', c.origin).replaceAll('{{THREE}}', THREE_VERSION) };
+      return { markdown: text.replaceAll('{{ORIGIN}}', c.origin).replaceAll('{{THREE}}', THREE_VERSION).replaceAll('{{TARGET}}', String((await getSettings(c.env)).craft_target)) };
     },
+  },
+  {
+    name: 'design_scene', title: 'Plan a 3D game from a description',
+    description: 'Describe the game in a sentence and get (1) a plan that names a building block for every part of it: stage and mood, ground, scenery, landmarks, hero, creatures, sound, interface, and (2) a complete starting game (index.html + src/main.js) made only of those blocks, with a start screen, an end screen, touch input, sound and a play-through, that you then reshape into your game. Plain rules, no AI: the same description gives the same plan, and every choice can be overridden with an argument. Call it before writing a 3D game; it is the fastest way to a world that looks finished. For 2D games it returns the blocks that apply instead.',
+    inputSchema: obj({
+      description: { type: 'string', description: 'What the player sees and does, for example "a knight collects sunstones on a volcanic island at dusk while wolves chase him". Things you name (trees, animals, props, a character) are put in the plan.' },
+      setting: { type: 'string', enum: DESIGN_SETTINGS, description: 'The kind of world. Chosen from the description when omitted.' },
+      goal: { type: 'string', enum: DESIGN_GOALS, description: 'The rules the starting game ships with: collect every pickup, survive hunters until the clock runs out, or find keys and reach a portal. You will change them; this decides what is already wired up.' },
+      camera: { type: 'string', enum: ['third', 'top'], description: 'third: behind the hero with drag-to-look (default). top: a high camera looking down.' },
+      mood: { type: 'string', description: 'Light and sky, one of the moods in list_blocks (clear-day, golden-hour, misty-dawn, dusk, night, storm, …).' },
+      weather: { type: 'string', description: 'rain, snow, motes, fireflies, embers, leaves, dust, or none.' },
+      terrain: { type: 'string', description: 'island, hills, plains, valley, dunes, mountains or flat.' },
+      palette: { type: 'string', description: 'Ground colours: temperate, autumn, desert, snow, volcanic, alien or tropical.' },
+      hero: { type: 'string', description: 'The player character, one of the humanoids in list_blocks (explorer, knight, wizard, pirate, astronaut, robot, …).' },
+      title: { type: 'string', description: 'The name of the game.' },
+      seed: { type: 'string', description: 'Any word. The same seed always grows the same world; a different one gives a different world with the same rules.' },
+      pickups: { type: 'integer', description: 'How many things to collect (goal collect). Default 10.' },
+      time_limit: { type: 'integer', description: 'Seconds on the clock. Default 240, or 90 for survive.' },
+    }, ['description']), annotations: { readOnlyHint: true },
+    run: async (a, c) => designSceneTool(c.env, c.origin, a),
+  },
+  {
+    name: 'list_blocks', title: 'List building blocks',
+    description: 'Lists the building blocks the platform hosts: one-call functions that return something finished and are generated in code (nothing to download): a lit stage with sky and weather, 39 painted surface materials, terrain, water, trees, rocks, plants, grass, 46 props (buildings, furniture, lights, pickups), animated people and animals, player control with a camera, particle effects, a HUD and sound; plus the procedural core underneath (seeded noise that matches in JS and shaders, a mesh builder, a texture painter, recipes). Also returns every valid name: moods, surfaces, trees, props, characters, animals, sounds. Call it before building anything by hand, and pass `group` to read one group in full.',
+    inputSchema: obj({ group: { type: 'string', description: 'Optional. One of: stage, surfaces, nature, props, actors, fx, hud, sound, basics, noise, gpu-noise, mesh, texture, recipe. Returns that group with full documentation.' } }), annotations: { readOnlyHint: true },
+    run: async (a, c) => listBlocks(c.env, c.origin, a),
+  },
+  {
+    name: 'get_block', title: 'Read one building block',
+    description: 'Returns one building block in full: the import line, the signature, every option, the valid names it accepts, the same asset as a recipe, and a link that shows it live. Accepts a function name ("scatter", "createHud"), a method ("hud.title", "stage.setMood", "player.moveTo") or a value ("oak", "campfire", "golden-hour"). Call it right before you use a block for the first time.',
+    inputSchema: obj({ name: { type: 'string', description: 'Block name from list_blocks, e.g. "terrain", "prop", "humanoid", "createSound", "mergeParts".' } }, ['name']), annotations: { readOnlyHint: true },
+    run: async (a, c) => getBlock(c.env, c.origin, a),
   },
   {
     name: 'recommend_pipeline', title: 'Recommend a rendering approach',
@@ -139,24 +196,24 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'list_kits', title: 'List reusable kits',
-    description: 'Lists the optional reusable modules hosted by the platform (import them as "@gcp/<file>"): loop and seeded noise, input, Three.js helpers, 2D canvas helpers, audio, multiplayer. Using them is optional; they exist so you do not have to re-derive solved problems.',
+    description: 'Lists the module files hosted by the platform (import them as "@gcp/<file>"): the craft building blocks, the procedural generation core, HUD, sound, loop and input, Three.js helpers, 2D canvas helpers, multiplayer. For what the functions in them do, list_blocks is the better view; this one lists files and export names.',
     inputSchema: obj({}), annotations: { readOnlyHint: true },
     run: async (_a, c) => { const k = await kitIndex(c.env); return { three_version: k.three, import_prefix: '@gcp/', kits: k.kits.map((x) => ({ import: `@gcp/${x.file}`, summary: x.summary, exports: x.exports })), note: 'Read the source with get_kit_file to see exact signatures. You may also copy a kit into your bundle and change it.' }; },
   },
   {
     name: 'get_kit_file', title: 'Read kit source',
-    description: 'Returns the source of one kit module (for example "three-kit.js") so you can see exact function signatures or copy and adapt it.',
-    inputSchema: obj({ file: { type: 'string', description: 'File name from list_kits, e.g. "core.js".' } }, ['file']), annotations: { readOnlyHint: true },
+    description: 'Returns the source of one kit module (for example "hud.js", "craft/props.js" or "procgen/texture.js") so you can see exactly how something is built, or copy it into your bundle and change it. get_block is shorter when you only need the options.',
+    inputSchema: obj({ file: { type: 'string', description: 'File name from list_kits or the "source" of get_block, e.g. "core.js" or "craft/nature.js".' } }, ['file']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       const file = String(a.file || '').replace(/^@gcp\//, '');
-      const text = /^[a-z0-9\-]+\.js$/.test(file) ? await assetText(c.env, `/kits/v1/${file}`) : null;
-      if (!text) throw bad(`No kit file "${a.file}".`, 'Call list_kits for the file names.');
+      const text = /^((craft|procgen)\/)?[a-z0-9\-]+\.js$/.test(file) ? await assetText(c.env, `/kits/v1/${file}`) : null;
+      if (!text) throw bad(`No kit file "${a.file}".`, 'Call list_kits for the file names. The craft and procedural modules are split into parts: craft/stage.js, craft/surfaces.js, craft/nature.js, craft/props.js, craft/actors.js, craft/fx.js, procgen/noise.js, procgen/glsl.js, procgen/mesh.js, procgen/texture.js, procgen/recipe.js.');
       return { file, import: `@gcp/${file}`, source: text };
     },
   },
   {
     name: 'list_templates', title: 'List starter templates',
-    description: 'Lists starter games that already pass verification. Starting from one and reshaping it is the most reliable way to a working game; none of them limits what the final game looks or plays like.',
+    description: 'Lists starter projects that already pass verification. They are optional: for a 3D world, design_scene writes starting files that fit your description, and list_blocks gives you the parts. Use a template when you want a bare renderer ("three-blank"), a 2D starting point ("canvas2d-arcade", "blank") or an example to read.',
     inputSchema: obj({}), annotations: { readOnlyHint: true }, run: async (_a, c) => assetJson(c.env, '/templates/index.json'),
   },
   {
@@ -170,7 +227,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'create_project', title: 'Create a game project',
-    description: 'Creates a new game project. Pass `template` to start from a starter that already runs (recommended: "three-explorer" for 3D, "canvas2d-arcade" for 2D, "blank" for an empty page that satisfies the contract). Returns the project id used by every other tool.',
+    description: 'Creates a new game project. Templates are optional: for a 3D world leave `template` out and write the files design_scene returns; pass `template` for a bare starting point ("three-blank" for your own Three.js setup, "canvas2d-arcade" for 2D, "blank" for an empty page that satisfies the contract). Returns the project id used by every other tool.',
     inputSchema: obj({
       title: { type: 'string', description: 'Game title shown in the marketplace.' },
       template: { type: 'string', description: 'Optional starter template name from list_templates.' },
@@ -436,7 +493,7 @@ function recommend(a: Record<string, any>) {
   if (dim === '2d' || dim === '2.5d' && !has('3d model', 'rotate camera')) {
     out.pipeline = 'canvas2d';
     out.why = ['A 2D canvas draws thousands of pre-baked sprites per frame on any device, starts instantly, and has no shader or GPU-driver failure modes.', 'Depth is a sort by ground position; lighting is a multiply layer. Both are a few lines.'];
-    out.start_from = { template: 'canvas2d-arcade', kits: ['@gcp/core.js', '@gcp/canvas2d.js', '@gcp/input.js', '@gcp/audio.js'] };
+    out.start_from = { template: 'canvas2d-arcade', kits: ['@gcp/core.js', '@gcp/canvas2d.js', '@gcp/input.js'], blocks: "createHud from '@gcp/hud.js' (interface), createSound from '@gcp/sound.js' (effects, ambience, music), and from '@gcp/procgen.js': paint(kind).toCanvas() for tiles and patterns, noise() for maps and variation, rng(seed) for repeatable levels" };
     out.frame = ['update(dt) with dt clamped to 0.1 s', 'draw cached ground chunks', 'draw sprites sorted by y', 'draw lighting/fog overlay', 'DOM HUD on top'];
     out.avoid = ['Drawing vector paths every frame: bake each sprite once into an offscreen canvas and drawImage it.', 'Reading pixels back (getImageData) in the frame loop.', 'A canvas larger than devicePixelRatio 2: cap it.'];
     out.guides = ['platform-contract', 'rendering-pipelines', 'loading', 'input', 'performance'];
@@ -453,14 +510,15 @@ function recommend(a: Record<string, any>) {
     out.why = deferred
       ? ['More than about 8 moving lights, or effects that need depth and normals (SSAO, screen-space water), are what a G-buffer is for.', 'Build and ship the forward path first as the "low" tier: it is the fallback for phones and the path verification will exercise. Add the deferred path behind a quality setting once the game is playable.']
       : ['One forward pass with a shadowed sun, hemisphere ambient and fog renders stylised worlds well and runs everywhere, including the software GPU used by verification.', post ? 'Add bloom and tone mapping through EffectComposer on medium quality and above; keep "low" as the plain pass.' : 'Skip post-processing until the game is playable; it is easy to add later and costly on phones.'];
-    out.start_from = { template: 'three-explorer', or_from_scratch: 'three-blank (renderer, lights, loop, input and GCP.ready() in one file, no kits)', kits: ['@gcp/core.js', '@gcp/three-kit.js', '@gcp/input.js', '@gcp/audio.js'] };
+    out.start_from = { plan: 'design_scene {description}: picks building blocks for the whole game and returns starting files made of them', blocks: "@gcp/craft.js: createStage sets up this exact pipeline (shadowed sun, hemisphere light, fog, tone mapping, bloom on fast devices, a lighter profile on slow ones); surface, terrain, tree, prop, humanoid and the rest fill the world. list_blocks shows them all.", or_your_own_renderer: 'template three-blank (renderer, lights, loop, input and GCP.ready() in one file) with @gcp/core.js, @gcp/three-kit.js, @gcp/input.js; the blocks that do not need a stage still work there (surface, prop, tree, humanoid, createHud, createSound)' };
     out.frame = ['update(dt) with dt clamped to 0.1 s', world === 'open-world' ? 'stream chunks: build at most a few per frame from a queue, dispose far ones' : 'update animated objects', 'move the shadow camera with the player', post ? 'composer.render()' : 'renderer.render(scene, camera)', 'DOM HUD on top'];
     out.budget = { pixel_ratio: mobile ? 'min(devicePixelRatio, 1.5); 1 on low' : 'min(devicePixelRatio, 2)', draw_calls: mobile ? 'under 150' : 'under 400', shadow_map: mobile ? 1024 : 2048, lights: 'one shadow-casting directional light; up to 4 point lights without shadows' };
-    out.avoid = ['One Mesh per tree, rock or blade: use InstancedMesh, or merge static parts into one geometry with vertex colours.', 'New materials or textures per object: cache and share them.', 'Allocating vectors inside the frame loop.', 'Loading assets over the network when a canvas-painted texture or generated geometry will do.', 'Shadows on every light.'];
+    out.avoid = ['One Mesh per tree, rock or blade: use InstancedMesh, or merge static parts into one geometry with vertex colours.', 'New materials or textures per object: cache and share them.', 'Allocating vectors inside the frame loop.', 'Loading assets over the network when a painted texture (surface(kind)) or generated geometry will do.', 'Flat single-colour materials on bare primitives: they are the main thing that makes a game look unfinished. surface(kind) and the model blocks fix it in one call.', 'Shadows on every light.'];
     out.guides = ['platform-contract', 'rendering-pipelines', 'performance', 'loading', 'input', 'meshes', 'materials-textures', 'animation'];
     out.verification_browser = 'It has no GPU and draws 960x540 on the CPU. A forward pass with one shadowed light and simple materials runs at about 4 fps there, which passes (the floor is 2). Full-screen post-processing, several shadow lights or heavy fragment shaders at default quality can fail: start on the lowest quality when frames are slow. See the performance guide.';
   }
   out.multiplayer = a.multiplayer || has('multiplayer', 'co-op', 'coop', 'versus', 'pvp') ? { use: 'GCP.room(code) with one host that owns the world state; guests send inputs and render snapshots', kit: '@gcp/net.js', guide: 'multiplayer' } : undefined;
+  out.quality = 'deploy_preview returns a craft score out of 100 measured from the running game, with the specific things to improve.';
   out.always = ['Show a boot screen at once and report GCP.progress; call GCP.ready() after the first playable frame.', 'Offer quality levels and pick a low one automatically on touch devices or when frames are slow.', 'Wrap startup in try/catch and call GCP.fatal(error) so failures are reported instead of a blank page.', 'Register GCP.test.onPlaythrough with a short script that plays the core loop to its end (score, win or lose, restart). The verifier runs it, so bugs in the rules are caught before the user plays.'];
   out.note = 'This is a starting point chosen for reliability. Art direction, camera, mechanics and feel are entirely up to you.';
   return out;

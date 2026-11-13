@@ -72,6 +72,10 @@ if (window.GCP) GCP.test.onAutostart(() => startGame({ skipIntro: true }));
 
 A menu that renders and reacts is also a valid first playable frame. The hook only makes the report and the cover screenshot more useful.
 
+### The craft score
+
+A verified version also gets `report.quality`: a craft score out of 100 measured in the same browser run, with what was measured and what to improve. It looks at seven things a player notices: surface detail instead of flat fills, light and colour, how furnished the world is, ambient motion, sound, interface and input, and a passing play-through. Publishing never depends on it. Aim for {{TARGET}} or more before you call a game finished; the building-blocks guide lists which block raises which part.
+
 ## Prove the game can be played: the play-through
 
 The checks above only know how to start a game and poke at it. They cannot know your rules, so on their own they say nothing about whether a lantern can be collected, the timer ends the round, or the end screen appears. Register a play-through and the verifier plays the game your way and lists every step in the report:

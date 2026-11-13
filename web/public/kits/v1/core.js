@@ -9,43 +9,8 @@ export const clamp = (v, lo = 0, hi = 1) => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
-/** Deterministic PRNG. const rand = mulberry32(1234); rand() -> [0, 1) */
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
-/** Hash any string to a 32-bit seed. */
-export function strSeed(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
-
-/** Seeded simplex noise. n2/n3 return [-1, 1]; fbm2 layers octaves and returns roughly [-1, 1]. */
-export class Simplex {
-  constructor(seed = 1) {
-    const r = mulberry32(seed), p = new Uint8Array(256);
-    for (let i = 0; i < 256; i++) p[i] = i;
-    for (let i = 255; i > 0; i--) { const j = (r() * (i + 1)) | 0; const t = p[i]; p[i] = p[j]; p[j] = t; }
-    this.perm = new Uint8Array(512); for (let i = 0; i < 512; i++) this.perm[i] = p[i & 255];
-  }
-  n2(x, y) {
-    const F = 0.3660254037844386, G = 0.21132486540518713, P = this.perm;
-    const s = (x + y) * F, i = Math.floor(x + s), j = Math.floor(y + s), t = (i + j) * G;
-    const x0 = x - (i - t), y0 = y - (j - t), i1 = x0 > y0 ? 1 : 0, j1 = 1 - i1;
-    const x1 = x0 - i1 + G, y1 = y0 - j1 + G, x2 = x0 - 1 + 2 * G, y2 = y0 - 1 + 2 * G, ii = i & 255, jj = j & 255;
-    const g = (h, a, b) => { const u = h & 7, k = u < 4 ? a : b, l = u < 4 ? b : a; return ((u & 1) ? -k : k) + ((u & 2) ? -2 * l : 2 * l); };
-    let n = 0, a = 0.5 - x0 * x0 - y0 * y0;
-    if (a > 0) { a *= a; n += a * a * g(P[ii + P[jj]], x0, y0); }
-    a = 0.5 - x1 * x1 - y1 * y1; if (a > 0) { a *= a; n += a * a * g(P[ii + i1 + P[jj + j1]], x1, y1); }
-    a = 0.5 - x2 * x2 - y2 * y2; if (a > 0) { a *= a; n += a * a * g(P[ii + 1 + P[jj + 1]], x2, y2); }
-    return clamp(n * 38, -1, 1);
-  }
-  n3(x, y, z) { // cheap 3D: blend three 2D slices (smooth, fine for displacing shapes)
-    return (this.n2(x + z * 0.7, y - z * 0.4) + this.n2(y + 31.4, z + x * 0.6) + this.n2(z - 12.7, x + y * 0.5)) / 3;
-  }
-  fbm2(x, y, octaves = 4, lacunarity = 2, gain = 0.5) {
-    let amp = 1, freq = 1, sum = 0, norm = 0;
-    for (let o = 0; o < octaves; o++) { sum += amp * this.n2(x * freq, y * freq); norm += amp; amp *= gain; freq *= lacunarity; }
-    return sum / norm;
-  }
-}
+// Seeded randomness and simplex noise live in procgen/noise.js (one implementation, frozen per version).
+export { mulberry32, strSeed, Simplex, rng } from './procgen/noise.js';
 
 /**
  * Frame loop. update(dt, time) runs once per frame with dt clamped to maxDt (or in fixed steps when
@@ -116,7 +81,12 @@ export function backgroundTicker(fn, ms = 50) {
   } catch { return () => {}; }
 }
 
-/** Runs an async main(boot) with a boot screen; any error is shown and reported instead of leaving a blank page. */
+/**
+ * Runs an async main(boot) with a boot screen; any error is shown and reported instead of leaving a blank page.
+ *   run(async (boot) => { await boot.step(0.3, 'Growing the forest'); …build…; boot.done(); });
+ * boot.step(0..1, label) updates the bar (and GCP.progress) and lets the browser paint before the next heavy step;
+ * boot.done() fades the screen out once the game is running.
+ */
 export async function run(main, bootOptions) {
   const boot = createBoot(bootOptions);
   try { await main(boot); } catch (e) { console.error(e); boot.fail(e); }
