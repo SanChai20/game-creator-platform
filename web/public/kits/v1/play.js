@@ -228,6 +228,9 @@ export function createInteract({ nodes, input, hud, at, action = 'interact', inv
  *        up at most), or 0. In 3D give the controller heightAt: (x, z) => Math.max(land.heightAt(x, z), land.heightAt(x, z)
  *        + build.topAt(x, z, hero.position.y - land.heightAt(x, z))): the hero walks on floors and climbs storey by storey
  *   build.onChange(fn)      build.toJSON() / build.load(data)
+ * Stairs and ramps: give the piece top(dx, dy, piece) instead of height: the height of its surface at an offset from
+ * the cell centre, e.g. stairs that rise one storey towards +y: top: (dx, dy) => Math.max(0.05, (dy / grid + 0.5) * 3).
+ * The hero walks up them a little at a time and steps off onto the floor of the storey above.
  */
 export function createBuilder({ grid = 1, inventory, pieces = {}, canPlace, solids = [], levelHeight = 3 } = {}) {
   const ev = emitter(), placed = new Map(), snap = (x, y) => [Math.round(x / grid) * grid, Math.round(y / grid) * grid];
@@ -243,7 +246,7 @@ export function createBuilder({ grid = 1, inventory, pieces = {}, canPlace, soli
   const B = { pieces: [], solids, grid, levelHeight, snap, onChange: ev.on, defs: pieces,
     at: (x, y, layer, level = 0) => { [x, y] = snap(x, y); if (layer) return placed.get(key(x, y, layer, level)) || null; return B.pieces.find((p) => p.x === x && p.y === y && p.level === level) || null; },
     allAt: (x, y) => { [x, y] = snap(x, y); return B.pieces.filter((p) => p.x === x && p.y === y); },
-    topAt(x, y, fromY = Infinity) { let top = 0; for (const p of B.allAt(x, y)) { const h = pieces[p.kind].height || 0; if (!h) continue; const t = p.base + h; if (t > top && t <= fromY + 1.2) top = t; } return top; },
+    topAt(x, y, fromY = Infinity) { let top = 0; for (const p of B.allAt(x, y)) { const d = pieces[p.kind], h = d.top ? d.top(x - p.x, y - p.y, p) : d.height || 0; if (!h) continue; const t = p.base + h; if (t > top && t <= fromY + 1.2) top = t; } return top; },
     place: (kind, x, y, o) => put(kind, x, y, o),
     remove(x, y, o = {}) { const p = o.layer ? B.at(x, y, o.layer, o.level || 0) : B.allAt(x, y).filter((q) => o.level == null || q.level === o.level).sort((a, b) => b.base - a.base)[0]; if (!p) return null;
       placed.delete(key(p.x, p.y, p.layer, p.level)); B.pieces.splice(B.pieces.indexOf(p), 1); if (p.solid) solids.splice(solids.indexOf(p.solid), 1);
