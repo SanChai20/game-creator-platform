@@ -121,18 +121,18 @@ Nothing is all-or-nothing.
 
 ## The craft score
 
-After a version verifies, the same browser run measures seven things from the running game and returns them as `report.quality`: a score out of 100, what was measured, and what to improve. Nothing is judged by taste and publishing never depends on it. It tells you what a player would notice is missing.
+After a version verifies, the browser loads the game once more at full quality and takes its portrait (see the platform-contract guide). Seven things are then measured and returned as `quality`: a craft score out of 100, `look_score` for the picture alone, what was measured, and what to improve. Nothing is judged by taste and publishing never depends on it. The measures are calibrated on finished games: a hand-made open-world game with ambient occlusion, bloom and soft shadows measures look 93.
 
 | Measured | Points | What raises it |
 |---|---|---|
-| Surfaces have detail (fine detail in the picture, share of flat fills, textures in use) | 25 | `surface(kind)`, models made of parts (`tree`, `rock`, `prop`), `grassField` |
-| Light and colour (tonal range, colour families, a shadow pass) | 15 | `createStage({ mood })`, an accent colour for gameplay objects |
-| The world is furnished (different shapes and materials on screen) | 15 | more kinds, not more copies: several species, props that fit, `scatter` |
-| The world moves when the player does nothing | 12 | wind in trees and grass, `water()`, weather, bobbing pickups, idle animation |
-| Sound | 10 | `createSound()`: effects on actions, an ambience, music |
-| Interface and input (text on screen, loading progress, touch, keyboard, resize) | 13 | `createHud()`, `createInput()`, `run()` |
+| Surfaces have detail (fine detail, crisp edges, share of flat fills, textures in use) | 22 | `surface(kind)`, models made of parts (`tree`, `rock`, `prop`), `grassField({ land })`, faceted `terrain` |
+| Light and colour (tonal range, brightness, lighting and effect passes, colour families) | 22 | `createStage({ mood })`: shadows plus the finishing passes (ambient occlusion, bloom, colour grade, edge smoothing) |
+| The world is furnished (different shapes, triangles and materials on screen) | 18 | more kinds and more of them: several species, props that fit, `scatter` with a few hundred things |
+| The world moves when the player does nothing | 8 | wind in trees and grass, `water()`, weather, bobbing pickups, idle animation |
+| Sound | 8 | `createSound()`: effects on actions, an ambience, music |
+| Interface and input (text on screen, loading progress, touch, keyboard, resize) | 12 | `createHud()`, `createInput()`, `run()` |
 | Proven playable (a passing play-through, no console warnings) | 10 | `GCP.test.onPlaythrough` with five steps |
 
 ## On slow devices and in the verification browser
 
-The verification browser has no GPU. `createStage` detects a CPU renderer and switches to a lighter profile by itself: lower pixel ratio, a smaller shadow map refreshed every third frame, nearer fog, no point lights, sparser grass. On real devices it starts from a quality guess and `stage.run` adapts it to the measured frame rate. You do not need to write a second path. The numbers that keep a scene inside the budget: about 170 large scattered things, 280 small ones, 5,000 grass tufts, a handful of animated creatures, and at most a few props that carry a light.
+The verification browser has no GPU. `createStage` detects a CPU renderer and switches to a lighter profile by itself: lower pixel ratio, a smaller shadow map refreshed every third frame, nearer fog, no point lights, a fifth of the grass, no finishing passes. That profile is only for the checks. The picture of the game is taken separately at full quality (`GCP.portrait`), so a light profile costs nothing in how the game is shown or scored. On real devices the stage starts from a quality guess and `stage.run` adapts it to the measured frame rate: it drops ambient occlusion first, then the other finishing passes, then resolution. You do not need to write a second path. A scene that stays comfortable: a few hundred large scattered things, about five hundred small ones, grass over a 50 m radius, a handful of animated creatures, and at most a few props that carry a light.

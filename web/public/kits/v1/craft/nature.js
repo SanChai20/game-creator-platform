@@ -21,7 +21,7 @@ function tinted(detail, { sway = 0, swayBase = 0, stage, flat = true, emissive =
   const st = stage || currentStage(), key = `${detail}|${sway}|${swayBase}|${flat}|${emissive}|${st ? st.renderer.id || 1 : 0}`;
   let m = MATS.get(key);
   if (!m) {
-    const map = detail === 'foliage' ? surfaceTexture('leaves', { color: 0xd9e6d2, contrast: 0.7 }) : detail === 'stone' ? surfaceTexture('rock', { color: 0xdedbd6 }) : detail === 'bark' ? surfaceTexture('bark', { color: 0xd8d0c6 }) : null;
+    const map = detail === 'foliage' ? surfaceTexture('leaves', { color: 0xf1f5ec, contrast: 0.4 }) : detail === 'stone' ? surfaceTexture('rock', { color: 0xdedbd6 }) : detail === 'bark' ? surfaceTexture('bark', { color: 0xd8d0c6 }) : null;
     m = new THREE.MeshLambertMaterial({ vertexColors: true, map, flatShading: flat });
     if (emissive) { m.emissive = new THREE.Color(emissive); m.emissiveIntensity = 0.9; }
     if (sway && st) windSway(m, st, { amount: sway, base: swayBase });
@@ -32,7 +32,7 @@ function tinted(detail, { sway = 0, swayBase = 0, stage, flat = true, emissive =
 const shades = (base, n, r, spread = 0.07) => { const c = new THREE.Color(base), h = {}; c.getHSL(h); return Array.from({ length: n }, () => new THREE.Color().setHSL((h.h + (r() - 0.5) * 0.03 + 1) % 1, clamp(h.s + (r() - 0.5) * 0.1), clamp(h.l + (r() - 0.5) * spread * 2)).getHex()); };
 const pick = (v, r) => (Array.isArray(v) ? v[(r() * v.length) | 0] : v);
 
-const LEAF = { oak: 0x4f9a3a, birch: 0x9cc84a, pine: 0x2f6a3e, palm: 0x3f9a44, cypress: 0x2f6a4a, willow: 0x7aa84a, blossom: 0xf2a6c4, maple: 0xd9682a, mushroom: 0xc83a2a, dead: 0x7a6a58, cactus: 0x4f9a48 };
+const LEAF = { oak: 0x58ab3c, birch: 0xa6d24c, pine: 0x2f7a46, palm: 0x45a848, cypress: 0x2f7450, willow: 0x82b64c, blossom: 0xf2a6c4, maple: 0xd9682a, mushroom: 0xc83a2a, dead: 0x7a6a58, cactus: 0x4f9a48 };
 /** Every species tree() accepts. */
 export const TREES = Object.keys(LEAF);
 
@@ -205,22 +205,38 @@ export function scatter(scene, kinds, opts = {}) {
 }
 
 /**
- * A field of grass blades that sway in the wind: the cheapest way to make ground look alive.
- * Options: count (blade tufts, scaled down automatically on slow devices), radius or area, center, heightAt, where,
- * color (or a list), height (metres), seed, stage. Returns the instanced mesh.
+ * A field of grass tufts that sway in the wind: the cheapest way to make ground look alive.
+ * Options: land (the terrain: tufts stand on it and take its colour, so the grass grows out of the ground instead
+ * of sitting on it), count (tufts; default about two per square metre, scaled down automatically on slow devices),
+ * radius or area, center, where, color (a colour or a list, instead of the land's), height (metres), seed, stage.
+ * Without land pass heightAt. Returns the instanced mesh.
  */
 export function grassField(scene, opts = {}) {
   if (!scene || !scene.isObject3D) { opts = scene || {}; scene = (opts.stage || currentStage()).scene; }
-  const st = opts.stage || currentStage(), q = st ? st.quality : 'medium', { radius = 50, area, center = [0, 0], heightAt = () => 0, where, height = 0.55 } = opts, seed = sd(opts.seed);
-  const lite = !!(st && st.software), count = Math.round((opts.count ?? 6000) * (st ? st.density : 0.8)), r = mulberry32(seed * 8191), cols = (Array.isArray(opts.color) ? opts.color : shades(opts.color ?? 0x7ab84a, 4, r, 0.09)).map((c) => new THREE.Color(c));
-  const P = [], nb = lite ? 3 : 5; for (let i = 0; i < nb; i++) { const a = i / nb * TAU + 0.3, lean = 0.28; const b = new THREE.ConeGeometry(lite ? 0.075 : 0.055, 1, 3, lite ? 1 : 3, true).translate(0, 0.5, 0); const p = b.attributes.position; for (let k = 0; k < p.count; k++) { const t = p.getY(k); p.setX(k, p.getX(k) + t * t * 0.25); } P.push([b, 0xffffff, M4(Math.cos(a) * 0.09, 0, Math.sin(a) * 0.09, 1, 0.75 + (i % 3) * 0.2, 1, 0, a, lean * (i % 2 ? 1 : -1) * 0.4)]); }
-  const geo = mergeColoured(P, { jitter: 0.12 }); { const p = geo.attributes.position, c = geo.attributes.color; for (let i = 0; i < p.count; i++) { const k = 0.55 + p.getY(i) * 0.6; c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k); } }   // darker at the root: fake ambient occlusion
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); if (st) windSway(mat, st, { amount: 0.22, base: 0, speed: 1.9, flutter: 0.5 });
-  const mesh = new THREE.InstancedMesh(geo, mat, count), m4 = new THREE.Matrix4(), qq = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0); let n = 0;
+  const st = opts.stage || currentStage(), land = opts.land, { radius = 50, area, center = [0, 0], heightAt = land ? land.heightAt : () => 0, where, height = 0.5 } = opts, seed = sd(opts.seed);
+  const lite = !!(st && st.software), m2 = area ? area[0] * area[1] : Math.PI * radius * radius, count = Math.round((opts.count ?? Math.min(24000, m2 * 2)) * (st ? st.density : 0.8)), r = mulberry32(seed * 8191);
+  const fixed = opts.color != null || !land ? (Array.isArray(opts.color) ? opts.color : shades(opts.color ?? 0x6fb04a, 4, r, 0.06)).map((c) => new THREE.Color(c)) : null;
+  // one tuft: a few bent ribbons, dark at the root and light at the tip, all lit as if they faced the sky so the
+  // field shades like the ground under it. Each ribbon is built with both windings, so it needs no double-sided pass.
+  const nb = lite ? 3 : 6, pos = [], col = [], idx = [], tr = mulberry32(seed * 131 + 7);
+  for (let i = 0; i < nb; i++) {
+    const a = i / nb * TAU + tr() * 0.9, d = 0.05 + tr() * 0.2, w = 0.035 + tr() * 0.025, h = 0.65 + tr() * 0.5, bend = 0.12 + tr() * 0.28, ca = Math.cos(a), sa = Math.sin(a), o = pos.length / 3;
+    for (const [side, t] of [[-1, 0], [1, 0], [-0.65, 0.55], [0.65, 0.55], [0, 1]]) {
+      const out = d + t * t * bend, k = 0.6 + t * 0.62;
+      pos.push(ca * out - sa * side * w, t * h, sa * out + ca * side * w); col.push(k * (1 + t * 0.1), k * (1 + t * 0.08), k * (1 - t * 0.12));
+    }
+    idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2, o + 2, o + 3, o + 4, o, o + 2, o + 1, o + 1, o + 2, o + 3, o + 2, o + 4, o + 3);
+  }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(pos.length / 3).fill([0, 1, 0]).flat(), 3)); geo.setIndex(idx);
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true }); if (st) windSway(mat, st, { amount: 0.2, base: 0, speed: 1.9, flutter: 0.5 });
+  const mesh = new THREE.InstancedMesh(geo, mat, count), m4 = new THREE.Matrix4(), qq = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color(); let n = 0;
   for (let tries = 0; tries < count * 4 && n < count; tries++) {
     let x, z; if (area) { x = center[0] + (r() - 0.5) * area[0]; z = center[1] + (r() - 0.5) * area[1]; } else { const a = r() * TAU, d = Math.sqrt(r()) * radius; x = center[0] + Math.cos(a) * d; z = center[1] + Math.sin(a) * d; }
     const y = heightAt(x, z); if (where) { const slope = Math.abs(heightAt(x + 1, z) - y) + Math.abs(heightAt(x, z + 1) - y), ok = where(x, z, y, slope); if (!ok || (typeof ok === 'number' && r() > ok)) continue; }
-    const s = 0.7 + r() * 0.7; qq.setFromAxisAngle(up, r() * TAU); mesh.setMatrixAt(n, m4.compose(pv.set(x, y - 0.03, z), qq, sv.set(s, s * height / 0.55, s))); mesh.setColorAt(n, cols[(r() * cols.length) | 0]); n++;
+    const s = 0.75 + r() * 0.6; qq.setFromAxisAngle(up, r() * TAU); mesh.setMatrixAt(n, m4.compose(pv.set(x, y - 0.03, z), qq, sv.set(s, s * height / 0.6, s)));
+    if (fixed) c.copy(fixed[(r() * fixed.length) | 0]); else { land.colorAt(x, z, c, y); c.multiplyScalar(1.08 + r() * 0.14); }
+    mesh.setColorAt(n, c); n++;
   }
   mesh.count = n; mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.receiveShadow = true; mesh.castShadow = false; mesh.computeBoundingSphere(); scene.add(mesh);
   return mesh;
@@ -248,12 +264,16 @@ const SHAPES = {
 export const TERRAIN_SHAPES = Object.keys(SHAPES), TERRAIN_PALETTES = Object.keys(LANDS);
 
 /**
- * The ground (added to the stage's scene for you). Returns { mesh, heightAt(x, z), slopeAt(x, z), size, waterLevel, randomPoint(rand, { minHeight, maxSlope, minRadius, maxRadius }) }.
+ * The ground (added to the stage's scene for you). Returns { mesh, heightAt(x, z), slopeAt(x, z), colorAt(x, z), size, waterLevel, randomPoint(rand, { minHeight, maxSlope, minRadius, maxRadius }) }.
  * Options: shape ('island' | 'hills' | 'plains' | 'valley' | 'dunes' | 'mountains' | 'flat') or height (x, z) -> y of your own,
  *   size (metres, default 240), segments (default from quality), amplitude (metres of relief, default 12), seed,
  *   palette ('temperate' | 'autumn' | 'desert' | 'snow' | 'volcanic' | 'alien' | 'tropical', or { shore, low, high, steep, peak, detail }),
- *   waterLevel (heights near it get the shore colour), clearing { x, z, r } (a flat spot, e.g. the spawn), flatShading.
- * Colour comes from height and slope, multiplied by a painted detail texture, so it never reads as one flat fill.
+ *   waterLevel (heights near it get the shore colour), clearing { x, z, r } (a flat spot, e.g. the spawn),
+ *   style ('faceted': crisp low-poly facets, each with its own colour, the default for natural land · 'smooth':
+ *   rounded and multiplied by the palette's painted detail texture, the default for shape 'flat' and for palettes
+ *   that name a detail).
+ * Colour comes from height and slope and varies from facet to facet, so it never reads as one flat fill.
+ * Also returns colorAt(x, z): the ground colour at a point, which grassField({ land }) uses to blend in.
  */
 export function terrain(opts = {}) {
   const st = opts.stage || currentStage(), q = st ? st.quality : 'medium', { size = 240, amplitude = 12, waterLevel = 0, shape = 'island', clearing, flatShading = false } = opts, seed = sd(opts.seed);
@@ -261,22 +281,41 @@ export function terrain(opts = {}) {
   const base = opts.height || ((x, z) => (SHAPES[shape] || SHAPES.island)(noise, x, z, size, amplitude));
   const heightAt = clearing ? (x, z) => { const d = Math.hypot(x - clearing.x, z - clearing.z), t = smoothstep(clearing.r, clearing.r * 2.2, d); return lerp(clearing.y ?? Math.max(base(clearing.x, clearing.z), waterLevel + 1.2), base(x, z), t); } : base;
   const slopeAt = (x, z) => { const y = heightAt(x, z); return Math.abs(heightAt(x + 1, z) - y) + Math.abs(heightAt(x, z + 1) - y); };
-  const g = new THREE.PlaneGeometry(size, size, segments, segments).rotateX(-Math.PI / 2), p = g.attributes.position, uv = g.attributes.uv, col = new Float32Array(p.count * 3);
-  const C = Object.fromEntries(['shore', 'low', 'high', 'steep', 'peak'].map((k) => [k, new THREE.Color(pal[k])])), c = new THREE.Color();
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), z = p.getZ(i), y = heightAt(x, z); p.setY(i, y); uv.setXY(i, x / 6, z / 6);
+  const C = Object.fromEntries(['shore', 'low', 'high', 'steep', 'peak'].map((k) => [k, new THREE.Color(pal[k])]));
+  /** The ground colour at a point (a THREE.Color written into `out`): grass and anything else that should blend into the land reads it. */
+  const colorAt = (x, z, out = new THREE.Color(), y = heightAt(x, z)) => {
     const s = slopeAt(x, z), hN = clamp((y - waterLevel) / Math.max(amplitude, 1)), patch = noise.n2(x * 0.045 + 31, z * 0.045 - 17) * 0.5 + 0.5;
-    c.copy(C.low).lerp(C.high, clamp(hN * 1.1 + (patch - 0.5) * 0.7)).lerp(C.peak, smoothstep(0.82, 1.15, hN)).lerp(C.steep, smoothstep(0.55, 1.1, s)).lerp(C.shore, 1 - smoothstep(0.35, 1.3, y - waterLevel));
-    const v = 0.93 + noise.n2(x * 0.4, z * 0.4) * 0.07; col[i * 3] = c.r * v; col[i * 3 + 1] = c.g * v; col[i * 3 + 2] = c.b * v;
+    return out.copy(C.low).lerp(C.high, clamp(hN * 1.1 + (patch - 0.5) * 0.7)).lerp(C.peak, smoothstep(0.82, 1.15, hN)).lerp(C.steep, smoothstep(0.55, 1.1, s)).lerp(C.shore, 1 - smoothstep(0.35, 1.3, y - waterLevel));
+  };
+  const faceted = opts.style ? opts.style === 'faceted' : shape !== 'flat' && !(typeof opts.palette === 'object' && opts.palette.detail);
+  let g = new THREE.PlaneGeometry(size, size, segments, segments).rotateX(-Math.PI / 2); const c = new THREE.Color();
+  { const p = g.attributes.position, uv = g.attributes.uv; for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, heightAt(x, z)); uv.setXY(i, x / 6, z / 6); } }
+  let material;
+  if (faceted) {
+    // low-poly look: every triangle is one flat facet with its own colour, taken at its centre and nudged a little,
+    // so the ground reads as crisp planes at any distance and any angle (a stretched texture never does)
+    g = g.toNonIndexed(); const p = g.attributes.position, col = new Float32Array(p.count * 3), fr = mulberry32(seed * 7 + 5);
+    for (let i = 0; i < p.count; i += 3) {
+      const x = (p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3, z = (p.getZ(i) + p.getZ(i + 1) + p.getZ(i + 2)) / 3, y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
+      colorAt(x, z, c, y); const v = 0.95 + fr() * 0.1 + noise.n2(x * 0.11, z * 0.11) * 0.05;
+      for (let k = 0; k < 3; k++) { col[(i + k) * 3] = c.r * v; col[(i + k) * 3 + 1] = c.g * v; col[(i + k) * 3 + 2] = c.b * v; }
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.deleteAttribute('uv'); g.computeVertexNormals();
+    material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  } else {
+    const p = g.attributes.position, col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); colorAt(x, z, c, p.getY(i)); const v = 0.93 + noise.n2(x * 0.4, z * 0.4) * 0.07; col[i * 3] = c.r * v; col[i * 3 + 1] = c.g * v; col[i * 3 + 2] = c.b * v; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.computeVertexNormals();
+    material = new THREE.MeshLambertMaterial({ vertexColors: true, map: surfaceTexture(pal.detail || 'grass', { color: 0xd6dccf }), flatShading });
   }
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.computeVertexNormals(); g.computeBoundingSphere();
-  const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, map: surfaceTexture(pal.detail || 'grass', { color: 0xd6dccf }), flatShading })); mesh.receiveShadow = true;
+  g.computeBoundingSphere();
+  const mesh = new THREE.Mesh(g, material); mesh.receiveShadow = true;
   const randomPoint = (rand, { minHeight = waterLevel + 0.8, maxHeight = Infinity, maxSlope = 0.9, minRadius = 0, maxRadius = size * 0.42, tries = 300 } = {}) => {
     for (let i = 0; i < tries; i++) { const a = rand() * TAU, d = minRadius + Math.sqrt(rand()) * (maxRadius - minRadius), x = Math.cos(a) * d, z = Math.sin(a) * d, y = heightAt(x, z); if (y >= minHeight && y <= maxHeight && slopeAt(x, z) <= maxSlope) return new THREE.Vector3(x, y, z); }
     return new THREE.Vector3(0, heightAt(0, 0), 0);
   };
   if (st && opts.add !== false) st.scene.add(mesh);
-  return { mesh, heightAt, slopeAt, size, waterLevel, amplitude, randomPoint };
+  return { mesh, heightAt, slopeAt, colorAt, size, waterLevel, amplitude, randomPoint };
 }
 
 /**

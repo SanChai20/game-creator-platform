@@ -187,6 +187,27 @@ export async function verifyPage(page, url, opts = {}) {
   report.errors = errs; report.warnings.push(...(s.warnings || [])); report.missing = missing;
   report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / o.observeS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
+  // The portrait. The checks above ran on a CPU renderer, where a well-made game rightly draws less (lower resolution,
+  // sparser grass, no finishing passes). People judge the game by what a device with a graphics card draws, so the game
+  // is loaded once more with ?gcp_portrait=1, which asks it for exactly that, and one picture is taken. It is the
+  // version's screenshot and the picture the craft review reads. Slow is fine here: one frame is enough.
+  let portrait = null, portraitShot = null, portraitGl = null;
+  if (pic1 && pic1.img && report.ok && o.portrait !== false) {
+    try {
+      const tp = Date.now(); let ps = null;
+      await page.goto(url + (url.includes('?') ? '&' : '?') + 'gcp_portrait=1', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      while (Date.now() - tp < 30000) { ps = await state(page).catch(() => null); if (ps && (ps.ready || ps.fatal)) break; await sleep(250); }
+      if (ps && ps.ready && !ps.fatal) {
+        const f0 = ps.frames, tw = Date.now(); let fr = 0;
+        while (Date.now() - tw < 9000) { const c = await state(page).catch(() => null); fr = c ? c.frames - f0 : 0; if (fr >= 10) break; await sleep(300); }   // late passes and textures settle
+        portraitGl = await page.evaluate(() => (window.__GCP && window.__GCP.probe && window.__GCP.probe.gl ? JSON.parse(JSON.stringify(window.__GCP.probe.gl)) : null)).catch(() => null);
+        // a frame that takes a quarter of a second leaves the browser no room to take a picture: hold the loop on the frame it has drawn
+        await page.evaluate(() => { if (window.__GCP && window.__GCP.hold) window.__GCP.hold(true); }).catch(() => {}); await sleep(900);
+        const b = await page.screenshot({ type: 'png' }), st = pngStats(b);
+        if (st && st.ok && st.img && st.colors >= 2 && st.other >= 200) { portrait = st; portraitShot = b; report.portrait = { ms: Date.now() - tp, frames: fr }; }
+      }
+    } catch (e) { report.notes.push('The full-quality picture could not be taken: ' + String(e && e.message || e).slice(0, 160)); }
+  }
   // The craft review: not a pass/fail check, a measured account of how finished the game is and what to improve next.
   if (pic1 && pic1.img) {
     try {
@@ -195,12 +216,12 @@ export async function verifyPage(page, url, opts = {}) {
       if (restarted && probe && after && after.audio && probe.audio) probe = { ...probe, audio: { contexts: Math.max(probe.audio.contexts || 0, after.audio.contexts || 0), starts: Math.max(probe.audio.starts || 0, after.audio.starts || 0) } };
       const ui = [ui1, ui2].filter(Boolean).sort((a, b) => b.texts - a.texts)[0] || { texts: 0, chars: 0 };
       report.craft = craftReview({
-        stills: [pic1, pic2].filter((p) => p && p.img).map((p) => imageMetrics(p.img)), idleMotion: picIdle && picIdle.img ? motionBetween(pic1.img, picIdle.img) : 0,
+        stills: (portrait ? [portrait] : [pic1, pic2]).filter((p) => p && p.img).map((p) => imageMetrics(p.img)), portrait: !!portrait, look: portraitGl, idleMotion: picIdle && picIdle.img ? motionBetween(pic1.img, picIdle.img) : 0,
         inputChange: !!(pic1 && pic2 && pic1.hash !== pic2.hash), probe, ui, playthrough: report.playthrough, warnings: report.warnings.length,
       });
     } catch (e) { report.warnings.push('Craft review could not run: ' + String(e && e.message || e).slice(0, 200)); }
   }
   const failed = checks.filter((c) => !c.ok);
   report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / o.observeS)} fps in the verification browser, no errors${report.playthrough ? `, play-through of ${report.playthrough.steps.length} step(s) passed` : '; no play-through registered, so only start-up, rendering and input were checked'}.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
-  return { report, shots };
+  return { report, shots: portraitShot ? [portraitShot, ...shots] : shots };
 }

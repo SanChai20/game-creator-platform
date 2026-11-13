@@ -70,7 +70,7 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
       since = {
         version: prev.n, craft_score: was.score, change, moved,
         summary: moved.length ? `${change > 0 ? `Up ${change}` : change < 0 ? `Down ${-change}` : 'Same total'} against version ${prev.n}: ${moved.join('; ')}.`
-          : `Nothing the score measures moved since version ${prev.n}. That is expected after changes to rules, numbers or text. If you added things to raise the score, they are not on screen in the two pictures the check takes (the opening view and the view after its input): place them near the start, in front of the camera.`,
+          : `Nothing the score measures moved since version ${prev.n}. That is expected after changes to rules, numbers or text. If you added things to raise the score, they are not on screen in the portrait (the opening view, drawn at full quality): place them near the start, in front of the camera.`,
       };
     }
   }
@@ -78,11 +78,11 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
   return {
     ...pub, can_publish: el.ok, eligibility: el.reason,
     ...(craft ? { quality: {
-      craft_score: craft.score, level: craft.level, target, meets_target: !below, summary: craft.summary,
+      craft_score: craft.score, look_score: (craft as any).look ?? null, level: craft.level, target, meets_target: !below, summary: craft.summary,
       improve: craft.next,
       ...(since ? { since_previous: since } : {}),
       ...(own ? { own_work: own } : {}),
-      note: `The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste, so changing rules, numbers or text does not move it. The pictures are the opening view and the view after the check's input; scenery that is not on screen there is not counted. Each line under improve names the measurement that is short, the value that earns full marks and the building block that moves it; get_block {name} shows its options. ${below ? 'Start with the first line.' : 'The target is met, so these are optional.'} Publishing never depends on the score.`,
+      note: `The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste, so changing rules, numbers or text does not move it. look_score is the picture alone out of 100 (surfaces, light, world, motion): finished reference games measure 80 to 95 there. The picture is the portrait: the opening view drawn once more at full quality, as a device with a graphics card draws it (the screenshot of the version); scenery that is not on screen there is not counted. Each line under improve names the measurement that is short, the value that earns full marks and the building block that moves it; get_block {name} shows its options. ${below ? 'Start with the first line.' : 'The target is met, so these are optional.'} Publishing never depends on the score.`,
     } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} again in about 10 seconds.`
@@ -118,7 +118,8 @@ export const TOOLS: Tool[] = [
           'It must run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
         ],
         quality: {
-          how_it_is_measured: 'After a version verifies, the same browser run measures seven things from the running game: surface detail (textures and shape instead of flat fills), light and colour, how furnished the world is, ambient motion, sound, interface and input, and a passing play-through. The result is report.quality with a score out of 100.',
+          how_it_is_measured: 'After a version verifies, the browser loads the game once more at full quality (GCP.portrait is true: draw as on a device with a graphics card) and takes its portrait, which becomes the screenshot. Seven things are then measured: surface detail and crispness, light and colour (tonal range, brightness, lighting and effect passes), how furnished the world is (shapes, triangles, materials), ambient motion, sound, interface and input, and a passing play-through. The result is quality.craft_score out of 100, and quality.look_score for the picture alone.',
+          reference: 'The measures are calibrated on finished games. A hand-made open-world survival game with a deferred renderer (ambient occlusion, bloom, cascaded shadows, 350k triangles a frame) measures look 93. A scene of bare primitives measures under 35.',
           target: `${s.craft_target} or more for a game you would call finished. Publishing never depends on the score; it tells you what a player would notice is missing.`,
           why_blocks: 'A bare primitive with a flat colour, a silent scene and no interface is what scores low. Every block exists to remove one of those in one call, with nothing to download: surface(kind) paints a material, tree(), rock(), prop(kind), humanoid() and animal() build detailed models from parts, createStage() lights the scene, createHud() and createSound() give interface and sound.',
         },

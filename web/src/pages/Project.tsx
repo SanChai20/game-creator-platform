@@ -12,7 +12,7 @@ function Craft({ craft, target }: { craft: any; target: number }) {
       <div className="craft-head">
         <b>{t('Craft score', '完成度评分')}</b>
         <span className={`craft-score ${met ? 'good' : 'sig'}`}>{craft.score}<small>/100</small></span>
-        <span className="mute" style={{ fontSize: 13 }}>{t(craft.level, LEVEL_ZH[craft.level] || craft.level)} · {t(`a finished game reaches ${target}`, `完成品的目标是 ${target}`)}</span>
+        <span className="mute" style={{ fontSize: 13 }}>{t(craft.level, LEVEL_ZH[craft.level] || craft.level)} · {t(`a finished game reaches ${target}`, `完成品的目标是 ${target}`)}{craft.look != null && <> · {t(`picture alone ${craft.look}/100`, `仅画面 ${craft.look}/100`)}</>}</span>
       </div>
       {(craft.dimensions || []).map((d: any) => (
         <div className="craft-row" key={d.id}>

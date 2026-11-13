@@ -9,7 +9,7 @@ const K = (code, r = 0) => ({ code, r });   // a landmark: code of the kind, rad
 // like something a person would type.
 const SETTINGS = {
   forest: {
-    words: /forest|wood|grove|glade|ranger|camp|hike|trail|deer|ember/, title: 'Ember Wood', mood: 'golden-hour', weather: 'motes', shape: 'hills', palette: 'temperate', amplitude: 9,
+    words: /forest|wood|grove|glade|ranger|camp|hike|trail|deer|ember/, title: 'Ember Wood', mood: 'clear-day', weather: 'motes', shape: 'hills', palette: 'temperate', amplitude: 9,
     big: ["tree({ species: 'oak' })", "tree({ species: 'oak', seed: 2 })", "tree({ species: 'pine' })", "tree({ species: 'birch' })", "tree({ species: 'maple' })", 'rock()', 'rock({ seed: 3, moss: true })'],
     small: ['bush()', 'bush({ seed: 2, berries: 0xd83a4a })', "groundCover('fern')", "groundCover('flower')", "groundCover('flower', { seed: 2 })", "groundCover('mushrooms')", "groundCover('stones')", "groundCover('log')"],
     grass: '', camp: [K("prop('hut')", 3), K("'campfire'"), K("'tent'", 1.8), K("'signpost'"), K("'crate'"), K("'barrel'"), K("'bench'"), K("'lantern'")],
@@ -28,7 +28,7 @@ const SETTINGS = {
     words: /desert|dune|sand|oasis|canyon|mesa|cactus|pyramid|nomad|wasteland/, title: 'Sunken Dunes', mood: 'desert', weather: 'dust', shape: 'dunes', palette: 'desert', amplitude: 8,
     big: ["tree({ species: 'cactus' })", "tree({ species: 'cactus', seed: 2 })", "tree({ species: 'palm' })", "tree({ species: 'dead' })", 'rock({ color: 0xb8865a })', 'rock({ seed: 2, color: 0xa8754a, size: 1.6 })'],
     small: ["groundCover('stones')", "groundCover('stones', { seed: 2 })", "groundCover('tuft', { color: 0xb8a060 })", "groundCover('stump')", "groundCover('log')", 'bush({ color: 0x8a8a4a })', "groundCover('flower', { color: 0xff8a3a })"],
-    grass: ', color: 0xb8a060', grassCount: 1500, camp: [K("'ruin'", 2.5), K("'well'", 1.3), K("'tent'", 1.8), K("'pillar'", 0.6), K("'arch'", 0.8), K("'crate'"), K("'cart'", 1.2), K("'torch'")],
+    grass: '', grassOpt: ', count: 4500', camp: [K("'ruin'", 2.5), K("'well'", 1.3), K("'tent'", 1.8), K("'pillar'", 0.6), K("'arch'", 0.8), K("'crate'"), K("'cart'", 1.2), K("'torch'")],
     animals: ['goat', 'goat', 'horse', 'bird', 'bird', 'rabbit'], foes: ['wolf', 'wolf', 'boar', 'bat'], hero: 'explorer', pickup: ['orb', '0x40d0ff', 'Relics', 'water relics'],
     ambience: 'wind', music: 'mystery', accent: '#ffc46a',
   },
@@ -36,7 +36,7 @@ const SETTINGS = {
     words: /snow|ice\b|icy|arctic|winter|frozen|frost|tundra|glacier|blizzard|polar/, title: 'Frostfall', mood: 'arctic', weather: 'snow', shape: 'hills', palette: 'snow', amplitude: 9, water: '0x7fb4d6',
     big: ["tree({ species: 'pine', snow: true })", "tree({ species: 'pine', seed: 2, snow: true })", "tree({ species: 'pine', seed: 3, snow: true })", "tree({ species: 'dead' })", "tree({ species: 'birch', snow: true })", 'rock({ snow: true })', 'rock({ seed: 2, snow: true, size: 1.5 })'],
     small: ["groundCover('stones')", "groundCover('stump')", "groundCover('log')", 'bush({ color: 0x9ab8a8 })', "groundCover('crystal', { color: 0x9adfff })", "groundCover('tuft', { color: 0xc8d8dc })"],
-    grass: ', color: 0xc4d2cc', grassCount: 3000, smallCount: 380, camp: [K("prop('hut')", 3), K("'campfire'"), K("'lantern'"), K("'signpost'"), K("'crate'"), K("'barrel'"), K("'bench'"), K("'flag'")],
+    grass: '', grassOpt: ', count: 8000', smallCount: 380, camp: [K("prop('hut')", 3), K("'campfire'"), K("'lantern'"), K("'signpost'"), K("'crate'"), K("'barrel'"), K("'bench'"), K("'flag'")],
     animals: ['deer', 'rabbit', 'rabbit', 'fox', 'bird', 'goat'], foes: ['wolf', 'wolf', 'wolf', 'bear'], hero: 'explorer', pickup: ['star', '0xffe45a', 'Stars', 'fallen stars'],
     ambience: 'wind', music: 'calm', accent: '#8fd3ff',
   },
@@ -44,7 +44,7 @@ const SETTINGS = {
     words: /volcan|lava|magma|ash\b|ashen|inferno|hell|fire\s?land|scorch|dragon/, title: 'Cinder Reach', mood: 'volcanic', weather: 'embers', shape: 'hills', palette: 'volcanic', amplitude: 10, water: '0xd8431a',
     big: ["tree({ species: 'dead' })", "tree({ species: 'dead', seed: 2 })", "tree({ species: 'dead', seed: 3, size: 1.3 })", 'rock({ color: 0x5a4a42 })', 'rock({ seed: 2, color: 0x4a3e3a, ore: 0xff6a2a })', 'rock({ seed: 3, color: 0x6a5248, size: 1.8 })', "prop('torch')"],
     small: ["groundCover('stones', { color: 0x5a4a42 })", "groundCover('crystal', { color: 0xff6a2a })", "groundCover('stump')", "groundCover('log')", "groundCover('stones', { seed: 2 })", "groundCover('mushrooms', { color: 0xd8431a })"],
-    grass: ', color: 0x6a4630', grassCount: 2500, camp: [K("'ruin'", 2.5), K("'beacon'", 0.7), K("'pillar'", 0.6), K("'torch'"), K("'arch'", 0.8), K("'spikes'"), K("'statue'", 0.8), K("'torch'")],
+    grass: '', grassOpt: ', count: 6000', camp: [K("'ruin'", 2.5), K("'beacon'", 0.7), K("'pillar'", 0.6), K("'torch'"), K("'arch'", 0.8), K("'spikes'"), K("'statue'", 0.8), K("'torch'")],
     animals: ['bat', 'bat', 'goat', 'bird'], foes: ['slime', 'slime', 'bat', 'wolf'], hero: 'knight', pickup: ['gem', '0xffb03a', 'Sunstones', 'sunstones'],
     ambience: 'fire', music: 'tense', accent: '#ff8a3a',
   },
@@ -52,7 +52,7 @@ const SETTINGS = {
     words: /alien|planet|space|moon\b|mars|sci-?fi|astronaut|robot|colony|crater|nebula|station|future/, title: 'Violet Drift', mood: 'alien', weather: 'fireflies', shape: 'hills', palette: 'alien', amplitude: 9, water: '0x7a4ad8',
     big: ["tree({ species: 'mushroom' })", "tree({ species: 'mushroom', seed: 2, leaf: 0x6ad8c8 })", "tree({ species: 'mushroom', seed: 3, leaf: 0xc86ad8 })", "tree({ species: 'cypress', leaf: 0x5a3a9a })", 'rock({ color: 0x4a3a6a, ore: 0x6ef0ff })', 'rock({ seed: 2, color: 0x3a3a5a, size: 1.6 })'],
     small: ["groundCover('crystal', { color: 0x6ef0ff })", "groundCover('crystal', { seed: 2, color: 0xff6ad8 })", "groundCover('mushrooms', { color: 0x6ad8c8 })", "groundCover('fern', { color: 0x7a4aa8 })", "groundCover('stones', { color: 0x4a3a6a })", 'bush({ color: 0x3f9a8a, berries: 0xff6ad8 })'],
-    grass: ', color: 0x4ab8a0', camp: [K("'container'", 2.2), K("'antenna'", 0.6), K("'console'", 0.9), K("'beacon'", 0.7), K("'drum'", 0.5), K("'drum'", 0.5), K("'pipe'", 0.6), K("'barrier'", 0.9)],
+    grass: '', camp: [K("'container'", 2.2), K("'antenna'", 0.6), K("'console'", 0.9), K("'beacon'", 0.7), K("'drum'", 0.5), K("'drum'", 0.5), K("'pipe'", 0.6), K("'barrier'", 0.9)],
     animals: ['slime', 'slime', 'bird', 'bat', 'rabbit'], foes: ['slime', 'slime', 'ghost', 'bat'], hero: 'astronaut', pickup: ['orb', '0x6ef0ff', 'Cores', 'energy cores'],
     ambience: 'space', music: 'mystery', accent: '#6ef0ff',
   },
@@ -68,7 +68,7 @@ const SETTINGS = {
     words: /haunt|ghost|grave|cemetery|spooky|horror|witch|undead|zombie|skeleton|cursed|crypt|halloween|vampire/, title: 'Hollow Barrow', mood: 'night', weather: 'fireflies', shape: 'hills', palette: 'autumn', amplitude: 7, water: '0x2a3a4a',
     big: ["tree({ species: 'dead' })", "tree({ species: 'dead', seed: 2 })", "tree({ species: 'willow' })", "tree({ species: 'cypress' })", "prop('gravestone')", "prop('gravestone', { seed: 2 })", 'rock({ moss: true })'],
     small: ["groundCover('mushrooms')", "groundCover('stones')", "groundCover('stump')", "groundCover('log')", "groundCover('fern', { color: 0x4a6a4a })", "groundCover('tuft', { color: 0x6a7a4a })", 'bush({ color: 0x3a5a3a })'],
-    grass: ', color: 0x5a6a3a', grassCount: 3000, camp: [K("'ruin'", 2.5), K("'statue'", 0.8), K("'lantern'"), K("'gate'", 1), K("'gravestone'", 0.4), K("'gravestone'", 0.4), K("'torch'"), K("'well'", 1.3)],
+    grass: '', grassOpt: ', count: 8000', camp: [K("'ruin'", 2.5), K("'statue'", 0.8), K("'lantern'"), K("'gate'", 1), K("'gravestone'", 0.4), K("'gravestone'", 0.4), K("'torch'"), K("'well'", 1.3)],
     animals: ['bat', 'bat', 'cat', 'rabbit'], foes: ['ghost', 'ghost', 'wolf', 'bat'], hero: 'wizard', pickup: ['orb', '0x9affc8', 'Wisps', 'lost wisps'],
     ambience: 'night', music: 'mystery', accent: '#9affc8',
   },
@@ -76,7 +76,7 @@ const SETTINGS = {
     words: /autumn|fall\s|harvest|maple|orchard|october/, title: 'Russet Vale', mood: 'autumn', weather: 'leaves', shape: 'valley', palette: 'autumn', amplitude: 8,
     big: ["tree({ species: 'maple' })", "tree({ species: 'maple', seed: 2, leaf: 0xe8a82a })", "tree({ species: 'oak', leaf: 0xc8882a })", "tree({ species: 'birch', leaf: 0xe8c83a })", "tree({ species: 'pine' })", 'rock({ moss: true })', 'rock({ seed: 2 })'],
     small: ['bush({ color: 0xa86a2a })', 'bush({ seed: 2, berries: 0xd83a4a })', "groundCover('mushrooms')", "groundCover('log')", "groundCover('stump')", "groundCover('fern', { color: 0xa88a3a })", "groundCover('stones')", "groundCover('flower', { color: 0xe8882a })"],
-    grass: ', color: 0xa89a4a', camp: [K("prop('house', { roof: 'thatch' })", 4), K("'campfire'"), K("'haystack'", 1), K("'signpost'"), K("'cart'", 1.2), K("'barrel'"), K("'bench'"), K("'lantern'")],
+    grass: '', camp: [K("prop('house', { roof: 'thatch' })", 4), K("'campfire'"), K("'haystack'", 1), K("'signpost'"), K("'cart'", 1.2), K("'barrel'"), K("'bench'"), K("'lantern'")],
     animals: ['deer', 'deer', 'fox', 'rabbit', 'bird', 'bird', 'boar'], foes: ['wolf', 'wolf', 'boar', 'bear'], hero: 'farmer', pickup: ['gem', '0xe8882a', 'Acorns', 'golden acorns'],
     ambience: 'wind', music: 'calm', accent: '#e8a82a',
   },
@@ -92,7 +92,7 @@ const SETTINGS = {
     words: /swamp|marsh|bog|bayou|rain|storm|mud|mangrove|wetland/, title: 'Mirewater', mood: 'overcast', weather: 'rain', shape: 'plains', palette: 'temperate', amplitude: 9, water: '0x4a6a4a',
     big: ["tree({ species: 'willow' })", "tree({ species: 'willow', seed: 2 })", "tree({ species: 'cypress' })", "tree({ species: 'dead' })", "tree({ species: 'oak', leaf: 0x4a7a3a })", 'rock({ moss: true })', 'rock({ seed: 2, moss: true })'],
     small: ["groundCover('reeds')", "groundCover('reeds', { seed: 2 })", "groundCover('mushrooms')", "groundCover('fern')", "groundCover('log')", "groundCover('stump')", 'bush({ color: 0x3a6a3a })', "groundCover('stones')"],
-    grass: ', color: 0x5a8a3a', camp: [K("prop('hut')", 3), K("'boat'", 2), K("'lantern'"), K("'bridge'", 1), K("'crate'"), K("'barrel'"), K("'signpost'"), K("'torch'")],
+    grass: '', camp: [K("prop('hut')", 3), K("'boat'", 2), K("'lantern'"), K("'bridge'", 1), K("'crate'"), K("'barrel'"), K("'signpost'"), K("'torch'")],
     animals: ['bird', 'bird', 'rabbit', 'pig', 'bat'], foes: ['slime', 'slime', 'boar', 'wolf'], hero: 'explorer', pickup: ['potion', '0x6ad86a', 'Remedies', 'marsh remedies'],
     ambience: 'rain', music: 'mystery', accent: '#8ad86a',
   },
@@ -191,10 +191,10 @@ export function designScene(args, V) {
   else L.push('  const open = () => true;   // where things may stand');
   L.push('', '  // 3. Scenery. scatter() draws hundreds of copies in a few draw calls and returns the solid ones for collision.',
     "  await boot.step(0.35, 'Growing the world');", '  const scenery = scatter([', ...big.map((c) => `    ${c},`),
-    `  ], { count: ${S.bigCount || 170}, radius: 100, heightAt: land.heightAt, where: open, minDistance: 3.5, avoid: [{ x: 0, z: 0, r: 13 }], seed: SEED });`,
+    `  ], { count: ${S.bigCount || 380}, radius: 105, scale: [1.1, 1.9], heightAt: land.heightAt, where: open, minDistance: 4, avoid: [{ x: 0, z: 0, r: 11 }], seed: SEED });`,
     '  scatter([', ...small.map((c) => `    ${c},`),
-    `  ], { count: ${S.smallCount || 280}, radius: 100, heightAt: land.heightAt, where: open, avoid: [{ x: 0, z: 0, r: 4 }], seed: SEED + '-cover' });`);
-  if (S.grass != null) L.push(`  grassField({ count: ${S.grassCount || 5000}, radius: 55, heightAt: land.heightAt, where: open${S.grass} });`);
+    `  ], { count: ${S.smallCount || 520}, radius: 90, heightAt: land.heightAt, where: open, avoid: [{ x: 0, z: 0, r: 4 }], seed: SEED + '-cover' });`);
+  if (S.grass != null) L.push(`  grassField({ land, radius: ${S.grassRadius || 48}, where: open${S.grassOpt || ''} });   // tufts take the colour of the ground they stand on`);
   L.push('', '  // 4. Landmarks around the start, placed by hand.', "  await boot.step(0.6, 'Building');",
     '  const at = (kind, x, z, rotY = 0) => place(kind, x, land.heightAt(x, z), z, { rotY });');
   const solids = [];
@@ -204,7 +204,7 @@ export function designScene(args, V) {
     "  await boot.step(0.8, 'Waking the world');",
     `  const hero = humanoid({ preset: ${q(hero)} });`, '  stage.scene.add(hero);',
     `  const input = createInput(stage.renderer.domElement), sound = createSound(), fx = createFx(), hud = createHud({ accent: ${q(S.accent)} });`,
-    `  const player = control(hero, { input, mode: ${q(camera)}, heightAt: land.heightAt, solids, ${water ? 'minY: 0.3, ' : ''}bounds: 105,`,
+    `  const player = control(hero, { input, mode: ${q(camera)}, heightAt: land.heightAt, solids, ${water ? 'minY: 0.3, ' : ''}bounds: 105,${camera === 'third' ? ' distance: 6.5, pitch: 0.2,' : ''}`,
     "    onStep: () => sound.play('step'), onJump: () => sound.play('jump'), onLand: () => sound.play('land') });", '',
     '  // 6. Life: creatures that wander on their own and run from the hero.',
     `  const rand = rng(SEED + '-life');`,

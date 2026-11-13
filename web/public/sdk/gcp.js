@@ -31,9 +31,10 @@
   // ---- probes for the craft review. Only under verification (?gcp_autostart) or ?gcp_probe: players never pay for them. ----
   // They count what the page draws, plays and listens to, for any engine, without the game doing anything.
   var P = S.probe = { on: q.has('gcp_autostart') || q.has('gcp_probe'), gl: null, c2d: null, audio: { contexts: 0, starts: 0 }, listeners: {}, progress: 0, services: {} };
-  var frameHooks = [];
+  var frameHooks = [], glRef = null;
   if (P.on) (function () {
     function hookGL(gl) {
+      glRef = gl;
       var G = P.gl = P.gl || { calls: 0, tris: 0, passes: 0, programs: 0, textures: 0, targets: 0, texels: 0, frames: 0, sumCalls: 0, sumTris: 0, maxCalls: 0, maxTris: 0, maxPasses: 0, instanced: 0, kinds: 0 };
       var seen = [], vao = null, kinds = typeof Set === 'function' ? new Set() : null;
       function draw(name, countAt, instAt) {
@@ -90,8 +91,28 @@
   })();
 
   // Count frames for any engine by wrapping requestAnimationFrame. Frames are what "alive" means.
-  var raf = window.requestAnimationFrame.bind(window), lastT = -1, lastFrameAt = 0;
-  window.requestAnimationFrame = function (cb) { return raf(function (t) { if (t !== lastT) { lastT = t; S.frames++; lastFrameAt = performance.now(); for (var i = 0; i < frameHooks.length; i++) frameHooks[i](); } cb(t); }); };
+  var raf0 = window.requestAnimationFrame.bind(window), lastT = -1, lastFrameAt = 0;
+  // In the portrait pass frames are paced: a full-quality frame on a CPU renderer takes far longer to draw than to submit,
+  // and unpaced the browser falls many frames behind, so a picture would wait for all of them. Each frame ends with a
+  // fence; the next one is requested when the graphics side reports that fence passed (WebGL 2), or after a pause.
+  var fence = null;
+  function paced(cb) {
+    var t0 = performance.now();
+    (function wait() {
+      var gl = glRef, done = true;
+      if (gl && fence) { try { var r = gl.clientWaitSync(fence, 0, 0); done = r === gl.ALREADY_SIGNALED || r === gl.CONDITION_SATISFIED || r === gl.WAIT_FAILED; } catch (e) { done = true; } }
+      else if (!gl || !gl.fenceSync) done = performance.now() - t0 > 400;
+      if (!done && performance.now() - t0 < 10000) return setTimeout(wait, 40);
+      if (gl && fence) { try { gl.deleteSync(fence); } catch (e) { /* context lost */ } fence = null; }
+      raf0(function (t) { cb(t); var g = glRef; if (g && g.fenceSync && !fence) { try { fence = g.fenceSync(g.SYNC_GPU_COMMANDS_COMPLETE, 0); g.flush(); } catch (e) { fence = null; } } });
+    })();
+    return 0;
+  }
+  var raf = q.has('gcp_portrait') ? paced : raf0;
+  // The verifier can hold the frame loop still while it photographs a slow, full-quality frame (see the portrait pass).
+  var held = [];
+  S.hold = function (on) { S.held = !!on; if (!on) { var h = held; held = []; for (var i = 0; i < h.length; i++) window.requestAnimationFrame(h[i]); } };
+  window.requestAnimationFrame = function (cb) { if (S.held) { held.push(cb); return 0; } return raf(function (t) { if (t !== lastT) { lastT = t; S.frames++; lastFrameAt = performance.now(); for (var i = 0; i < frameHooks.length; i++) frameHooks[i](); } cb(t); }); };
 
   function api(path, body, method) {
     if (standalone) return Promise.reject(new Error('offline'));
@@ -222,6 +243,9 @@
       init = init || {}; var h = new Headers(init.headers || {}); if (cfg.token) h.set('x-gcp-token', cfg.token);
       return fetch((cfg.base || '') + '/api/' + String(path || '').replace(/^\/+/, ''), Object.assign({}, init, { headers: h }));
     },
+    /** True when the platform is taking the game's picture (?gcp_portrait=1): draw at full quality, as on a device with a
+        graphics card, even if this browser is slow. createStage() from the craft blocks does this by itself. */
+    portrait: q.has('gcp_portrait'),
     /** Hooks the verifier uses; games may use them for their own automated tests too. */
     test: {
       autostart: q.has('gcp_autostart'),

@@ -48,6 +48,9 @@ function lumaOf(img) {
  *  range   spread between the dark 5% and the bright 5% of the picture, 0..255
  *  hues    number of the 12 hue families that cover at least 3% of the coloured pixels
  *  sat     mean saturation of the picture, 0..1
+ *  edges   share of pixels where brightness steps sharply to the next pixel: crisp outlines and fine marks (a blurred or
+ *          low-resolution picture has few)
+ *  lum     mean brightness, 0..255
  */
 export function imageMetrics(img) {
   const { w, h, bpp, stride, px } = img, L = lumaOf(img), n = w * h;
@@ -70,7 +73,9 @@ export function imageMetrics(img) {
     }
   }
   let hues = 0; if (coloured > (n / 4) * 0.03) for (let i = 0; i < 12; i++) if (hue[i] / coloured >= 0.03) hues++;
-  return { w, h, detail: detail / blocks, flat: flat / blocks, range: pct(0.95) - pct(0.05), hues, sat: satSum / (n / 4) };
+  let sharp = 0, lumSum = 0;
+  for (let y = 0; y < h - 1; y++) { const row = y * w; for (let x = 0; x < w - 1; x++) { const v = L[row + x]; lumSum += v; if (Math.abs(L[row + x + 1] - v) > 24 || Math.abs(L[row + w + x] - v) > 24) sharp++; } }
+  return { w, h, detail: detail / blocks, flat: flat / blocks, range: pct(0.95) - pct(0.05), hues, sat: satSum / (n / 4), edges: sharp / ((w - 1) * (h - 1)), lum: lumSum / ((w - 1) * (h - 1)) };
 }
 
 /** Share of 16x16 blocks that changed between two screenshots of the same size. */
@@ -92,17 +97,22 @@ const pctText = (v) => `${Math.round(v * 100)}%`;
 const num = (v) => (v >= 10000 ? `${Math.round(v / 1000)}k` : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(Math.round(v)));
 
 /**
- * @param m  { stills: [imageMetrics…] (the game at rest and after input), idleMotion, inputChange (bool),
- *             probe (window.__GCP.probe), ui: { texts, chars }, playthrough: report.playthrough, warnings: n }
- * @returns { score, level, summary, dimensions: [{ id, label, score, max, measured, fix }], next: [string] }
+ * @param m  { stills: [imageMetrics…] (the full-quality portrait when there is one, else the game at rest and after
+ *             input), portrait (bool), idleMotion, inputChange (bool), probe (window.__GCP.probe of the checked run),
+ *             look (the probe's gl part from the portrait run, when there is one), ui: { texts, chars },
+ *             playthrough: report.playthrough, warnings: n }
+ * @returns { score, look, level, summary, dimensions: [{ id, label, score, max, measured, fix }], next: [string] }
+ *
+ * The weights and the "full marks from" values are calibrated on finished games: a hand-made open-world survival game
+ * with a deferred renderer (ambient occlusion, bloom, cascaded shadows, 390k triangles a frame) earns 94% of the
+ * picture points below; a scene of bare primitives earns under a third.
  */
-// said wherever advice depends on the pictures, so nobody adds detail where the check never looks
-const VIEWS = 'This is read from the two pictures the check takes, the opening view and the view after its input, so only what is on screen there counts.';
-
 export function craftReview(m) {
-  const P = m.probe || {}, gl = P.gl && P.gl.frames ? P.gl : null, c2 = P.c2d && P.c2d.frames ? P.c2d : null;
+  const P = m.probe || {}, glRun = P.gl && P.gl.frames ? P.gl : null, gl = m.look && m.look.frames ? m.look : glRun, c2 = P.c2d && P.c2d.frames ? P.c2d : null;
   const stills = (m.stills || []).filter(Boolean), dims = [];
-  const best = (k) => (stills.length ? Math.max(...stills.map((s) => s[k])) : 0), least = (k) => (stills.length ? Math.min(...stills.map((s) => s[k])) : 1);
+  const best = (k) => (stills.length ? Math.max(...stills.map((s) => s[k] || 0)) : 0), least = (k) => (stills.length ? Math.min(...stills.map((s) => s[k])) : 1);
+  const VIEWS = m.portrait ? 'This is read from the portrait: the opening view, drawn once more at full quality as a device with a graphics card draws it. Only what is on screen there counts.'
+    : 'This is read from the two pictures the check takes, the opening view and the view after its input, so only what is on screen there counts.';
   // A dimension is a weighted sum of parts: [weight, share 0..1, what to do when this part is short]. The advice a
   // creator gets is built from the parts that are actually short, largest loss first, so it names a number they can
   // move; `general` leads only when the whole dimension is weak.
@@ -113,46 +123,52 @@ export function craftReview(m) {
   };
   const is3d = !!gl;
 
-  // 1. surfaces: do things have texture and small-scale shape, or are they flat fills?
-  const detail = best('detail'), flat = least('flat');
-  const textures = gl ? gl.textures : c2 ? c2.baked : 0;
-  add('surfaces', 'Surfaces have detail', 25, [
-    [0.55, ramp(detail, 0.12, 0.45), `Fine detail covers ${pctText(detail)} of the picture; full marks from 45%. ${VIEWS} ${is3d
-      ? 'Open ground and large plain faces are what hold it down: cover the ground with grassField() and groundCover(), paint large faces with surface(kind, { relief: 2 }), and stand more shaped things (tree(), rock(), bush(), prop(kind)) close to the start, in front of the camera.'
+  // 1. surfaces: do things have texture, small-scale shape and crisp edges, or are they flat or blurred fills?
+  const detail = best('detail'), flat = least('flat'), edges = best('edges');
+  const textures = gl ? Math.max(gl.textures, glRun ? glRun.textures : 0) : c2 ? c2.baked : 0;
+  add('surfaces', 'Surfaces have detail', 22, [
+    [0.45, ramp(detail, 0.15, 0.5), `Fine detail covers ${pctText(detail)} of the picture; full marks from 50%. ${VIEWS} ${is3d
+      ? 'Open ground and large plain faces are what hold it down: cover the ground with grassField({ land }) and groundCover(), paint large faces with surface(kind, { relief: 2 }), and stand more shaped things (tree(), rock(), bush(), prop(kind)) close to the start, in front of the camera.'
       : 'Give tiles and sprites shading, outlines and small marks, and scatter ground details over open areas.'}`],
-    [0.25, ramp(textures, 0, 8), `${textures} ${is3d ? 'textures' : 'pre-painted sprites or tiles'} in use; full marks from 8. ${is3d ? 'surface(kind) paints one with nothing to download; list_blocks {group: "surfaces"} names every kind.' : 'bake() in @gcp/canvas2d.js paints one once on an off-screen canvas.'}`],
-    [0.2, 1 - ramp(flat, 0.3, 0.7), `${pctText(flat)} of the picture is a single flat colour; full marks under 30%. ${is3d ? 'That is usually an empty sky or a bare floor: createStage({ mood }) paints a sky gradient with clouds or stars, and a textured ground removes the rest.' : 'Paint a background layer instead of one fill.'}`],
+    [0.2, ramp(edges, 0.02, 0.055), `${(edges * 100).toFixed(1)}% of the pixels sit on a crisp edge; full marks from 5.5%. A soft or low-resolution picture scores low here. ${is3d
+      ? 'Draw at the full pixel ratio when GCP.portrait is true (createStage does), keep shapes faceted or outlined, and avoid one stretched texture over a large area.'
+      : 'Draw at the device pixel ratio and give sprites a darker outline.'}`],
+    [0.2, ramp(textures, 0, 8), `${textures} ${is3d ? 'textures' : 'pre-painted sprites or tiles'} in use; full marks from 8. ${is3d ? 'surface(kind) paints one with nothing to download; list_blocks {group: "surfaces"} names every kind.' : 'bake() in @gcp/canvas2d.js paints one once on an off-screen canvas.'}`],
+    [0.15, 1 - ramp(flat, 0.3, 0.7), `${pctText(flat)} of the picture is a single flat colour; full marks under 30%. ${is3d ? 'That is usually an empty sky or a bare floor: createStage({ mood }) paints a sky gradient with clouds or stars, and a faceted or textured ground removes the rest.' : 'Paint a background layer instead of one fill.'}`],
   ],
-    `${pctText(detail)} of the picture has fine detail, ${pctText(flat)} is flat single colour; ${textures} ${is3d ? 'painted or loaded textures in use' : 'pre-painted sprites or tiles'}`,
+    `${pctText(detail)} of the picture has fine detail, ${(edges * 100).toFixed(1)}% of its pixels are crisp edges, ${pctText(flat)} is flat single colour; ${textures} ${is3d ? 'painted or loaded textures in use' : 'pre-painted sprites or tiles'}`,
     is3d ? 'Most faces are an untextured flat colour. Give the ground, bark, stone, wood and metal a painted texture with surface(kind) from @gcp/craft.js, and build props from several shaped parts instead of one primitive (tree(), rock(), bush(), grassField()).'
       : 'Large areas are flat fills. Paint tiles and sprites once on off-screen canvases (bake() in @gcp/canvas2d.js) with shading, outlines and small marks, and scatter ground details.');
 
-  // 2. light and colour: tonal range, a palette with more than one family, shadows or other lighting passes
-  const range = best('range'), hues = best('hues'), passes = gl ? gl.maxPasses : 0;
-  add('light', 'Light and colour', 15, [
-    [is3d ? 0.45 : 0.65, ramp(range, 70, 160), `Tonal range is ${range} of 255; full marks from 160. The brightest and darkest parts of the picture are close together. ${is3d
+  // 2. light and colour: tonal range, exposure, a palette with more than one family, and how much lighting work a frame gets
+  const range = best('range'), hues = best('hues'), lum = best('lum'), passes = gl ? gl.maxPasses : 0;
+  add('light', 'Light and colour', 22, [
+    [is3d ? 0.3 : 0.45, ramp(range, 70, 165), `Tonal range is ${range} of 255; full marks from 165. The brightest and darkest parts of the picture are close together. ${is3d
       ? 'Widen it: a brighter mood or a stronger sun against deeper shadow, and in dark scenes things that give light (prop("lantern"), prop("campfire"), glowing pickups).'
       : 'Widen it: darken the edges, add a light gradient, and shade sprites from one light direction.'}`],
+    [is3d ? 0.3 : 0, passes >= 1 ? 0.4 + 0.6 * ramp(passes, 1, 7) : 0, passes
+      ? `${passes} lighting or effect pass${passes > 1 ? 'es' : ''} a frame; full marks from 7. Shadows alone are one. The finishing passes add the rest: ambient occlusion where things meet, bloom on bright things, a colour grade and edge smoothing (createStage does all of it by default on a graphics card; stage.enableFinish() for your own choices).`
+      : 'No shadow or effect pass was drawn. createStage() adds a shadow pass and the finishing passes (ambient occlusion, bloom, colour grade) by itself; with your own renderer turn on renderer.shadowMap, one shadow-casting light and an EffectComposer.'],
+    [is3d ? 0.15 : 0.2, ramp(lum, 35, 75), `Mean brightness is ${Math.round(lum)} of 255; full marks from 75. The picture is murky. Night and dusk scenes still need a readable middle: raise the ambient light or the exposure of the mood, or light the play area.`],
     [is3d ? 0.25 : 0.35, ramp(hues, 1, 3), `${hues} colour ${hues === 1 ? 'family' : 'families'} in the picture; full marks from 3. Give the things the player must notice (pickups, the hero, the goal) an accent colour that is not in the scenery.`],
-    ...(is3d ? [[0.3, passes > 0 ? 1 : 0, 'No shadow or effect pass was drawn. createStage() adds a shadow pass by itself; with your own renderer turn on renderer.shadowMap and one shadow-casting light.']] : []),
   ],
-    `tonal range ${range} of 255, ${hues} colour ${hues === 1 ? 'family' : 'families'}${is3d ? `, ${passes ? `${passes} extra render pass${passes > 1 ? 'es' : ''} (shadows or effects)` : 'no shadow or effect pass'}` : ''}`,
-    is3d ? 'The picture is tonally flat or nearly one colour. Use createStage({ mood }) from @gcp/craft.js for a sky gradient, a warm sun against cool ambient light, matching fog and a shadow pass.'
-      : 'The picture is tonally flat or nearly one colour.');
+    `tonal range ${range} of 255, mean brightness ${Math.round(lum)}, ${hues} colour ${hues === 1 ? 'family' : 'families'}${is3d ? `, ${passes ? `${passes} lighting or effect pass${passes > 1 ? 'es' : ''} a frame` : 'no shadow or effect pass'}` : ''}`,
+    is3d ? 'The picture is tonally flat, murky or nearly one colour. Use createStage({ mood }) from @gcp/craft.js for a sky gradient, a warm sun against cool ambient light, matching fog, a shadow pass and the finishing passes.'
+      : 'The picture is tonally flat, murky or nearly one colour.');
 
   // 3. world: how much is on screen
   if (is3d) {
     const tris = gl.sumTris / gl.frames, calls = gl.sumCalls / gl.frames, kinds = gl.kinds || Math.round(calls);
-    add('world', 'The world is furnished', 15, [
-      [0.5, logRamp(kinds, 6, 60), `${kinds} different shapes on screen; full marks from 60. This counts what is drawn in the frames of the check, so things far from the start or behind the camera do not count. Add more kinds, not more copies: several species from tree(), rock(), bush(), groundCover() and prop(kind), placed with scatter() (it instances, so hundreds of copies stay cheap).`],
-      [0.25, ramp(gl.programs, 3, 14), `${gl.programs} different materials; full marks from 14. Mix surfaces (wood, stone, metal, cloth), water() and things that glow.`],
-      [0.25, logRamp(tris, 3000, 100000), `${num(tris)} triangles a frame; full marks from 100k. Add shaped scenery only while the frame rate in this report stays healthy.`],
+    add('world', 'The world is furnished', 18, [
+      [0.45, logRamp(kinds, 6, 250), `${kinds} different shapes on screen; full marks from 250. This counts what is drawn in the frames of the check, so things far from the start or behind the camera do not count. Add more kinds and more of them: several species from tree(), rock(), bush(), groundCover() and prop(kind), placed with scatter() (it instances, so hundreds of copies stay cheap).`],
+      [0.35, logRamp(tris, 5000, 300000), `${num(tris)} triangles a frame; full marks from 300k. A dense, shaped world has many: more scenery near the start, grassField({ land }), models built from several parts.`],
+      [0.2, ramp(gl.programs, 3, 16), `${gl.programs} different materials; full marks from 16. Mix surfaces (wood, stone, metal, cloth), water() and things that glow.`],
     ],
       `${kinds} different shapes on screen, ${gl.programs} different materials, ${num(tris)} triangles in ${Math.round(calls)} draw calls a frame${gl.instanced ? ' (instancing in use)' : ''}`,
       'The scene is made of few kinds of things.');
   } else {
     const ops = c2 ? c2.sumOps / c2.frames : 0, images = c2 ? c2.sumImages / c2.frames : 0;
-    add('world', 'The world is furnished', 15, [
+    add('world', 'The world is furnished', 18, [
       [0.6, logRamp(images, 4, 80), `${Math.round(images)} sprites drawn a frame; full marks from 80. Add scenery layers (ground marks, plants, stones, shadows under things) and more than one kind of each.`],
       [0.4, logRamp(ops, 20, 300), `${Math.round(ops)} drawing operations a frame; full marks from 300. Put something in the background and in the foreground.`],
     ],
@@ -162,7 +178,7 @@ export function craftReview(m) {
 
   // 4. motion: is anything alive when the player does nothing, and does the picture answer input?
   const idle = m.idleMotion || 0;
-  add('motion', 'The world moves', 12, [
+  add('motion', 'The world moves', 8, [
     [0.6, ramp(idle, 0.004, 0.06), `${pctText(idle)} of the picture changes while nothing is pressed; full marks from 6%. ${is3d
       ? 'Add ambient motion: wind in foliage and grass (on by default in tree() and grassField()), moving water(), weather (createStage({ weather })), bobbing or spinning pickups, creatures that wander(), an idle animation on the character.'
       : 'Animate idle sprites, drift particles, sway plants, scroll a background layer.'}`],
@@ -173,7 +189,7 @@ export function craftReview(m) {
 
   // 5. sound
   const au = P.audio || { contexts: 0, starts: 0 };
-  add('sound', 'It has sound', 10, [
+  add('sound', 'It has sound', 8, [
     [1, au.starts >= 1 ? 1 : au.contexts ? 0.7 : 0, au.contexts
       ? 'A sound system exists but nothing played during the check. Play a sound on the first key or pointer press and on the events of the play-through (sound.play("pickup"), sound.ambience("wind")).'
       : 'Silent games feel unfinished. createSound() from @gcp/craft.js gives ready effects with no files (sound.play("pickup"), "jump", "hit", "step", "win", "lose", "click") and looping ambience (sound.ambience("wind")). Start sound on the first key or pointer press; browsers block it before that.'],
@@ -184,7 +200,7 @@ export function craftReview(m) {
   // 6. interface: a HUD, loading feedback, and input on every kind of device
   const Ls = P.listeners || {}, ui = m.ui || { texts: 0, chars: 0 };
   const touch = !!(Ls.touchstart || Ls.pointerdown), keys = !!Ls.keydown;
-  add('interface', 'Interface and input', 13, [
+  add('interface', 'Interface and input', 12, [
     [0.4, ramp(ui.texts, 0, 6), `${ui.texts} on-screen text elements; full marks from 6. Show the goal, the progress, the time and how to play: createHud() from @gcp/craft.js has counters, bars, a timer, hints, a title and an end screen.`],
     [0.25, touch ? 1 : 0, 'Nothing listens for touch or the pointer, so the game cannot be played on a phone. createInput() from @gcp/input.js adds an on-screen stick.'],
     [0.15, (P.progress || 0) >= 2 ? 1 : 0, 'Loading progress is not reported. Use run() from @gcp/core.js with boot.step(), or call GCP.progress(0..1) while loading.'],
@@ -205,12 +221,14 @@ export function craftReview(m) {
     '');
 
   const score = dims.reduce((a, d) => a + d.score, 0);
+  // the picture alone, out of 100: surfaces, light, world and motion. This is the number to hold against a reference game.
+  const LOOK = ['surfaces', 'light', 'world', 'motion'], lk = dims.filter((d) => LOOK.includes(d.id)), look = Math.round(100 * lk.reduce((a, d) => a + d.score, 0) / lk.reduce((a, d) => a + d.max, 0));
   const level = score >= 80 ? 'rich' : score >= 62 ? 'solid' : score >= 42 ? 'basic' : 'bare';
   // what to work on: every dimension that lost two points or more, largest loss first
   const weakest = dims.filter((d) => d.fix && d.max - d.score >= 2).sort((a, b) => (b.max - b.score) - (a.max - a.score)).slice(0, 3);
   return {
-    score, level, dimensions: dims,
-    summary: `Craft ${score}/100 (${level}). ${weakest.length ? `Weakest: ${weakest.map((d) => `${d.label.toLowerCase()} ${d.score}/${d.max}`).join(', ')}.` : 'Nothing stands out as weak.'}`,
+    score, look, level, dimensions: dims, portrait: !!m.portrait,
+    summary: `Craft ${score}/100 (${level}); the picture alone ${look}/100. ${weakest.length ? `Weakest: ${weakest.map((d) => `${d.label.toLowerCase()} ${d.score}/${d.max}`).join(', ')}.` : 'Nothing stands out as weak.'}`,
     next: weakest.map((d) => `${d.label} (${d.score}/${d.max}). ${d.fix}`),
   };
 }

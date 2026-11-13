@@ -8,7 +8,7 @@ import { pickQuality, store, createLoop } from '../core.js';
 
 /** Named moods. Pass one to createStage({ mood }), or your own object with any of these fields. */
 export const MOODS = {
-  'clear-day':   { top: 0x2a6fd0, horizon: 0xcfe7f7, sun: 0xfff1d8, sunPower: 2.7, elevation: 52, azimuth: 35, skyLight: 0xd3e8ff, groundLight: 0x6d7a52, ambient: 1.35, fog: [90, 340], exposure: 1.0, stars: 0, glow: 0xfff0c8, clouds: 0.35 },
+  'clear-day':   { top: 0x1f63cc, horizon: 0xa8d2f4, sun: 0xfff1d8, sunPower: 2.7, elevation: 52, azimuth: 35, skyLight: 0xd3e8ff, groundLight: 0x6d7a52, ambient: 1.35, fog: [90, 340], exposure: 1.0, stars: 0, glow: 0xfff0c8, clouds: 0.35 },
   'golden-hour': { top: 0x35549c, horizon: 0xffc58a, sun: 0xffab5e, sunPower: 2.6, elevation: 13, azimuth: 60, skyLight: 0xb9c4e8, groundLight: 0x7a5a3c, ambient: 1.05, fog: [60, 280], exposure: 1.05, stars: 0, glow: 0xff9a4a, clouds: 0.45 },
   'misty-dawn':  { top: 0x8fa9c4, horizon: 0xe9dfd2, sun: 0xffe2bf, sunPower: 1.5, elevation: 18, azimuth: -50, skyLight: 0xd9e2ea, groundLight: 0x76806c, ambient: 1.55, fog: [14, 120], exposure: 1.0, stars: 0, glow: 0xfff0d8, clouds: 0.2 },
   overcast:      { top: 0x7f8c9a, horizon: 0xc3cad0, sun: 0xe6ecf2, sunPower: 1.1, elevation: 62, azimuth: 20, skyLight: 0xdfe6ee, groundLight: 0x6a6f66, ambient: 1.9, fog: [50, 240], exposure: 0.95, stars: 0, glow: 0xffffff, clouds: 0.9 },
@@ -38,6 +38,13 @@ function mixMood(a, b, t) {
   for (const k of ['sunPower', 'elevation', 'azimuth', 'ambient', 'exposure', 'stars', 'clouds']) out[k] = a[k] + (b[k] - a[k]) * t;
   return out;
 }
+
+// the colour grade: runs on the finished picture (after tone mapping), so its numbers mean what they look like
+const GRADE = { uniforms: { tDiffuse: { value: null }, sat: { value: 1.14 }, contrast: { value: 0.22 }, vig: { value: 0.3 }, warmth: { value: 0 } }, vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float sat, contrast, vig, warmth; varying vec2 vUv;
+    void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb; float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      c = clamp(mix(vec3(l), c, sat), 0.0, 1.0); c = mix(c, c * c * (3.0 - 2.0 * c), contrast);
+      c *= vec3(1.0 + warmth * 0.06, 1.0, 1.0 - warmth * 0.06); vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q) * vig; gl_FragColor = vec4(c, 1.0); }` };
 
 let CURRENT = null;
 /** The stage made most recently. Building blocks use it when you do not pass one. */
@@ -115,7 +122,7 @@ function makeWeather(kind, quality) {
  * Sets up everything around the game objects. Returns a stage:
  *   stage.scene, stage.camera, stage.renderer, stage.sun, stage.quality ('low' | 'medium' | 'high')
  *   stage.update(dt)            call once per frame before render: clock, wind, weather, mood blends, shadow follow
- *   stage.render()              draws the frame (through bloom when it is on)
+ *   stage.render()              draws the frame (through the finishing passes when they are on)
  *   stage.focus = object3D      what the shadow box and the weather stay centred on (usually the player)
  *   stage.setMood(mood, secs)   change the mood, blending over `secs` seconds
  *   stage.setTime(hours)        0..24 on a day cycle: dawn, day, golden hour, dusk, starry night
@@ -124,14 +131,19 @@ function makeWeather(kind, quality) {
  *   stage.shake(amount)         a short camera shake (0..1)
  *   stage.onUpdate(fn)          run fn(dt, time) every frame (props with animation register themselves this way)
  * Options: mood (name or object), time (hours, instead of mood), weather, shadows, shadowArea, fov, near, far,
- * quality ('auto' or a level), bloom ('auto' | true | false | { strength, radius, threshold }), storageKey.
+ * quality ('auto' or a level), finish ('auto' | false | { ao, bloom, grade, aa }: the finishing passes, see
+ * stage.enableFinish), storageKey.
  */
 export function createStage(canvas, opts = {}) {
   const el = typeof canvas === 'string' ? document.querySelector(canvas) : canvas;
   const saved = opts.storageKey ? store.get(opts.storageKey) : null;
-  let quality = opts.quality && opts.quality !== 'auto' ? opts.quality : pickQuality(saved);
-  const renderer = createRenderer(el, { quality, shadows: opts.shadows !== false });
-  const software = isSoftwareRenderer(renderer);
+  // "portrait": the platform asks for the game as a player with a real graphics card sees it, whatever draws it now
+  const portrait = /[?&]gcp_portrait=1\b/.test(location.search);
+  let quality = portrait ? 'high' : opts.quality && opts.quality !== 'auto' ? opts.quality : pickQuality(saved);
+  // the finishing passes smooth edges themselves (and draw to their own buffer), so the canvas needs no multisampling under them
+  const renderer = createRenderer(el, { quality, shadows: opts.shadows !== false, antialias: opts.finish === false && quality !== 'low' });
+  if (portrait) renderer.setPixelRatio(1);
+  const software = !portrait && isSoftwareRenderer(renderer);
   if (software && (!opts.quality || opts.quality === 'auto')) { quality = 'low'; renderer.setPixelRatio(0.6); renderer.shadowMap.type = THREE.BasicShadowMap; renderer.shadowMap.autoUpdate = false; }
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
@@ -147,7 +159,7 @@ export function createStage(canvas, opts = {}) {
 
   const wind = { strength: opts.wind ?? 1, direction: new THREE.Vector2(1, 0.35).normalize(), uniforms: { uWindTime: { value: 0 }, uWind: { value: 1 }, uWindDir: { value: new THREE.Vector2(1, 0.35) } } };
   const updaters = [], dir = new THREE.Vector3(), tmp = new THREE.Vector3();
-  let mood = resolveMood(opts.mood || 'clear-day'), from = null, to = null, blend = 0, blendSecs = 0, weather = null, time = 0, shakeAmt = 0, composer = null, bloomPass = null, hours = null;
+  let mood = resolveMood(opts.mood || 'clear-day'), from = null, to = null, blend = 0, blendSecs = 0, weather = null, time = 0, shakeAmt = 0, composer = null, bloomPass = null, passes = null, hours = null;
 
   function apply(m) {
     skyU.top.value.copy(m.top); skyU.horizon.value.copy(m.horizon); skyU.glow.value.copy(m.glow); skyU.stars.value = m.stars; skyU.clouds.value = m.clouds;
@@ -203,32 +215,48 @@ export function createStage(canvas, opts = {}) {
       } });
       stage.loop = loop; return loop.start();
     },
-    /** Glow around bright things. Skipped on CPU renderers and low quality unless you pass force: true. */
-    async enableBloom({ strength = 0.45, radius = 0.6, threshold = 0.82, force = false } = {}) {
-      if ((software || quality === 'low') && !force) return false;
+    /**
+     * The finishing passes that turn a correct picture into a polished one: ambient occlusion (contact shade where
+     * things meet), bloom (glow around bright things), a colour grade (contrast, saturation, a soft vignette) and
+     * edge smoothing. On by default on medium and high quality; skipped on CPU renderers and low quality unless you
+     * pass force: true. Options: ao (true | false | { radius, intensity }), bloom (true | false | { strength, radius,
+     * threshold }), grade (true | false | { saturation, contrast, vignette, warmth }), aa (true | false).
+     */
+    async enableFinish(o = {}) {
+      if ((software || quality === 'low') && !o.force) return false;
+      const on = (v, d) => (v === undefined ? d : v), ao = on(o.ao, quality === 'high'), bl = on(o.bloom, true), gr = on(o.grade, true), aa = on(o.aa, true);
       try {
-        const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/RenderPass.js'), import('three/addons/postprocessing/UnrealBloomPass.js'), import('three/addons/postprocessing/OutputPass.js')]);
-        const size = renderer.getSize(new THREE.Vector2());
-        composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
-        bloomPass = new UnrealBloomPass(size.clone().multiplyScalar(0.5), strength, radius, threshold); composer.addPass(bloomPass); composer.addPass(new OutputPass());
-        composer.setSize(size.x, size.y); stage.bloom = bloomPass; return true;
-      } catch (e) { console.warn('Bloom is unavailable: ' + (e && e.message)); composer = null; return false; }
+        const P = 'three/addons/postprocessing/', [{ EffectComposer }, { RenderPass }, { OutputPass }, { ShaderPass }, B, G, F] = await Promise.all([import(P + 'EffectComposer.js'), import(P + 'RenderPass.js'), import(P + 'OutputPass.js'), import(P + 'ShaderPass.js'),
+          bl ? import(P + 'UnrealBloomPass.js') : null, ao ? import(P + 'GTAOPass.js') : null, aa ? import('three/addons/shaders/FXAAShader.js') : null]);
+        const px = renderer.getDrawingBufferSize(new THREE.Vector2()), css = renderer.getSize(new THREE.Vector2());
+        composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(px.x, px.y, { type: THREE.HalfFloatType }));
+        composer.addPass(new RenderPass(scene, camera)); passes = {};
+        if (ao) { const a = typeof ao === 'object' ? ao : {}, g = new G.GTAOPass(scene, camera, css.x, css.y); g.updateGtaoMaterial({ radius: a.radius ?? 1.1, distanceExponent: 1.3, thickness: 1.4, scale: 1.25, samples: 12 }); g.blendIntensity = a.intensity ?? 0.85; composer.addPass(g); passes.ao = g; }
+        if (bl) { const a = typeof bl === 'object' ? bl : {}; bloomPass = new B.UnrealBloomPass(css.clone().multiplyScalar(0.5), a.strength ?? 0.3, a.radius ?? 0.7, a.threshold ?? 1.0); composer.addPass(bloomPass); passes.bloom = bloomPass; stage.bloom = bloomPass; }
+        composer.addPass(new OutputPass());
+        if (gr) { const a = typeof gr === 'object' ? gr : {}, g = new ShaderPass(GRADE); g.uniforms.sat.value = a.saturation ?? 1.14; g.uniforms.contrast.value = a.contrast ?? 0.22; g.uniforms.vig.value = a.vignette ?? 0.3; g.uniforms.warmth.value = a.warmth ?? 0; composer.addPass(g); passes.grade = g; }
+        if (aa) { const g = new ShaderPass(F.FXAAShader); g.uniforms.resolution.value.set(1 / px.x, 1 / px.y); composer.addPass(g); passes.aa = g; }
+        composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(css.x, css.y); stage.finish = passes; return true;
+      } catch (e) { console.warn('Finishing passes are unavailable: ' + (e && e.message)); composer = null; return false; }
     },
+    /** Older name: bloom alone. enableFinish({ bloom }) adds the other finishing passes too. */
+    enableBloom(o = {}) { return stage.enableFinish({ ao: false, grade: false, aa: false, bloom: o, force: o.force }); },
     /** Lower the cost when frames are slow: call with a smoothed fps about once a second. Remembers the choice when storageKey is set. */
     adapt(fps) {
       if (software || fps > 26 || stage._adapted >= 3) return;   // a CPU renderer already runs the lightest profile
       stage._adapted = (stage._adapted || 0) + 1;
-      if (composer) { composer = null; } else if (renderer.getPixelRatio() > 1) renderer.setPixelRatio(1); else if (renderer.shadowMap.enabled && stage._adapted > 2) { renderer.shadowMap.enabled = false; sun.castShadow = false; scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; }); }
+      if (passes && passes.ao && passes.ao.enabled) { passes.ao.enabled = false; } else if (composer) { composer = null; } else if (renderer.getPixelRatio() > 1) renderer.setPixelRatio(1); else if (renderer.shadowMap.enabled && stage._adapted > 2) { renderer.shadowMap.enabled = false; sun.castShadow = false; scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; }); }
       resize(); if (opts.storageKey) store.set(opts.storageKey, 'low');
     },
   };
-  const resize = () => { const w = el.clientWidth || innerWidth, h = el.clientHeight || innerHeight; if (composer) composer.setSize(w, h); };
+  const resize = () => { const w = el.clientWidth || innerWidth, h = el.clientHeight || innerHeight; if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); if (passes && passes.aa) { const px = renderer.getDrawingBufferSize(new THREE.Vector2()); passes.aa.uniforms.resolution.value.set(1 / px.x, 1 / px.y); } } };
   stage.stopResize = fitRenderer(renderer, camera, resize);
   CURRENT = stage;
   if (opts.time != null) stage.setTime(opts.time); else apply(mood);
   if (opts.weather) stage.setWeather(opts.weather);
-  const bloom = opts.bloom ?? 'auto';
-  stage.ready = bloom && !(bloom === 'auto' && (software || quality === 'low')) ? stage.enableBloom(typeof bloom === 'object' ? bloom : {}) : Promise.resolve(false);
+  // finishing passes: on unless the device is slow; `bloom` is the older, narrower switch and still works
+  const fin = opts.finish ?? (opts.bloom === false ? { bloom: false } : typeof opts.bloom === 'object' ? { bloom: opts.bloom } : 'auto');
+  stage.ready = fin === false || ((fin === 'auto' || fin === true || !fin.force) && (software || quality === 'low')) ? Promise.resolve(false) : stage.enableFinish(typeof fin === 'object' ? fin : {});
   return stage;
 }
 

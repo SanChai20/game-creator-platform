@@ -24,7 +24,7 @@ export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: s
     const page = await browser.newPage();
     await page.setViewport({ width: 960, height: 540, deviceScaleFactor: 1 });
     const { report, shots } = await verifyPage(page, url, opts);
-    const shot: Uint8Array | null = shots.length ? new Uint8Array(shots[0]) : null;   // the first picture: the game in play, before the play-through reaches an end screen
+    const shot: Uint8Array | null = shots.length ? new Uint8Array(shots[0]) : null;   // the full-quality portrait when there is one, otherwise the first picture of the game in play
     return { report: { ...report, browser: 'cloudflare-browser-rendering' }, shot };
   } catch (e) {
     return { report: { ok: false, browser: 'unavailable', summary: `The verification browser could not run: ${(e as Error).message}`, checks: [], errors: [] }, shot: null };
