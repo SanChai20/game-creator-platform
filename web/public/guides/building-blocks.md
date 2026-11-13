@@ -187,7 +187,7 @@ For floors and stairs give a piece a `height` and the controller `heightAt: (x, 
 
 **Storeys and rooms.** Give pieces a `layer` ('floor', 'wall', 'roof') and a floor, a wall and a roof share one cell;
 `build.place(kind, x, z, { level: 1 })` builds a storey up (`levelHeight`, default 3). `build.topAt(x, z, fromY)` gives
-the highest top the hero can step onto from where it stands, so floors carry it; a stairs piece with `top: (dx, dz) => Math.max(0.05, (dz / grid + 0.5) * 3)` instead of `height` takes it up a storey. In a
+the highest top the hero can step onto from where it stands, so floors carry it; `stairsPiece({ grid, cost, make })` and `rampPiece()` are standard pieces that take it up (drawn in 3D with `prop('stairs')` and `prop('ramp')`; `build.place('stairs', x, z, { dir: 1 })` turns one). In a
 room where the host decides: pass `send(node, tool)` to `createInteract` so a guest's press goes to the host, which
 calls `nodes.useFor(nodes.byId(id), guestInventory, { tool })`; the host builds for a guest with
 `build.place(kind, x, z, { inventory: guestInventory })`. `createSave(key, parts, { cloud: false })` keeps a world on

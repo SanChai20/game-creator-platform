@@ -3,7 +3,7 @@
 //   stage     createStage: renderer, sky, sun, fog, tone mapping, weather, wind, day cycle, moods
 //   surfaces  surface(kind): 39 painted, tiling materials; block(), floor()
 //   nature    terrain, water, tree, rock, bush, groundCover, grassField, scatter, place
-//   props     prop(kind): 45 buildings, furniture, lights, pickups and machines
+//   props     prop(kind): 47 buildings, furniture, stairs, lights, pickups and machines
 //   actors    humanoid, animal, control (movement + camera), wander
 //   fx        createFx: particles, rings, floating text, pop
 //   hud       createHud: counters, bars, timer, objective, hints, start and end screens

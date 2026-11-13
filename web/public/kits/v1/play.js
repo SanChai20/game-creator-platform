@@ -218,7 +218,7 @@ export function createInteract({ nodes, input, hud, at, action = 'interact', inv
  * height of one storey, default 3: a piece on level 1 stands that much higher), canPlace(x, y, kind, level) (your own
  * rule: not on water), solids (the array your controller collides with: solid pieces on level 0 are added to it and
  * taken out again). y is z in 3D.
- *   build.place(kind, x, y, { level, inventory, free }) -> the piece, or { error: 'occupied' | 'cannot build here' | 'needs 2 wood' }
+ *   build.place(kind, x, y, { level, dir, inventory, free }) -> the piece, or { error: 'occupied' | 'cannot build here' | 'needs 2 wood' }
  *        level: the storey (0 is the ground); inventory: charge this one instead (a room's host charging a guest);
  *        free: charge nothing (the host already did)
  *   build.remove(x, y, { layer, level, inventory }) -> the piece taken away, or null (half the cost comes back)
@@ -228,7 +228,7 @@ export function createInteract({ nodes, input, hud, at, action = 'interact', inv
  *        up at most), or 0. In 3D give the controller heightAt: (x, z) => Math.max(land.heightAt(x, z), land.heightAt(x, z)
  *        + build.topAt(x, z, hero.position.y - land.heightAt(x, z))): the hero walks on floors and climbs storey by storey
  *   build.onChange(fn)      build.toJSON() / build.load(data)
- * Stairs and ramps: give the piece top(dx, dy, piece) instead of height: the height of its surface at an offset from
+ * Stairs and ramps: use stairsPiece() and rampPiece() below, or give your own piece top(dx, dy, piece) instead of height: the height of its surface at an offset from
  * the cell centre, e.g. stairs that rise one storey towards +y: top: (dx, dy) => Math.max(0.05, (dy / grid + 0.5) * 3).
  * The hero walks up them a little at a time and steps off onto the floor of the storey above.
  */
@@ -240,7 +240,7 @@ export function createBuilder({ grid = 1, inventory, pieces = {}, canPlace, soli
     const def = pieces[kind], level = o.level || 0, inv = o.inventory || inventory; if (!def) return { error: 'unknown piece ' + kind }; [x, y] = snap(x, y);
     if (placed.has(key(x, y, layerOf(kind), level))) return { error: 'occupied' }; if (canPlace && !canPlace(x, y, kind, level)) return { error: 'cannot build here' };
     if (!o.free && inv && def.cost) { const miss = Object.entries(def.cost).find(([id, n]) => !inv.has(id, n)); if (miss) return { error: `needs ${miss[1]} ${nice(miss[0]).toLowerCase()}` }; pay(inv, def.cost, 1); }
-    const base = level * levelHeight, p = { kind, x, y, level, layer: layerOf(kind), base, ref: null, solid: def.solid && !level ? { x, y, z: y, r: def.solid } : null };
+    const base = level * levelHeight, p = { kind, x, y, level, layer: layerOf(kind), base, dir: o.dir ?? def.dir ?? 0, ref: null, solid: def.solid && !level ? { x, y, z: y, r: def.solid } : null };
     p.ref = def.make ? def.make(x, y, p) : null; placed.set(key(x, y, p.layer, level), p); B.pieces.push(p); if (p.solid) solids.push(p.solid); ev.emit(B); return p;
   };
   const B = { pieces: [], solids, grid, levelHeight, snap, onChange: ev.on, defs: pieces,
@@ -253,10 +253,27 @@ export function createBuilder({ grid = 1, inventory, pieces = {}, canPlace, soli
       if (p.ref) { if (p.ref.remove) p.ref.remove(); else if (p.ref.removeFromParent) p.ref.removeFromParent(); else p.ref.visible = false; }
       const inv = o.inventory || inventory, c = pieces[p.kind].cost; if (inv && c && !o.free) pay(inv, c, -1); ev.emit(B); return p; },
     near(x, y, range = 3) { return [...new Set(B.pieces.filter((p) => pieces[p.kind].station && Math.hypot(p.x - x, p.y - y) <= range).map((p) => (pieces[p.kind].station === true ? p.kind : pieces[p.kind].station)))]; },
-    toJSON: () => B.pieces.map((p) => (p.level ? [p.kind, p.x, p.y, p.level] : [p.kind, p.x, p.y])),
-    load(d) { if (Array.isArray(d)) for (const [k, x, y, level] of d) put(k, x, y, { free: true, level }); return B; } };
+    toJSON: () => B.pieces.map((p) => (p.dir ? [p.kind, p.x, p.y, p.level, p.dir] : p.level ? [p.kind, p.x, p.y, p.level] : [p.kind, p.x, p.y])),
+    load(d) { if (Array.isArray(d)) for (const [k, x, y, level, dir] of d) put(k, x, y, { free: true, level, dir }); return B; } };
   return B;
 }
+
+const turn = (dx, dy, dir) => (dir === 1 ? dx : dir === 2 ? -dy : dir === 3 ? -dx : dy);   // distance along the way up
+/**
+ * A standard stairs piece for createBuilder: it rises `rise` (default 3, one storey) across one cell, so the hero walks
+ * up and steps onto a floor placed on level 1 next to it. Options: grid (the builder's cell size, default 1), rise,
+ * dir (which way it goes up: 0 towards +y, 1 +x, 2 -y, 3 -x; y is z in 3D), cost, layer (default 'floor'), make
+ * (x, y, piece) -> ref (draw it; piece.dir and piece.base are there). In 3D the stairs prop draws it:
+ *   pieces: { stairs: stairsPiece({ grid: 2, cost: { wood: 4 }, make: (x, z, p) => place(prop('stairs', { width: 2, depth: 2 }),
+ *             x, land.heightAt(x, z) + p.base, z, { rotY: p.dir * Math.PI / 2 }) }) }
+ * build.place('stairs', x, z, { dir: 1 }) turns one piece; otherwise the dir given here is used.
+ */
+export function stairsPiece({ grid = 1, rise = 3, dir = 0, cost, layer = 'floor', make, name } = {}) {
+  return { cost, layer, height: rise, dir, ramp: true, name, make,
+    top: (dx, dy, p) => Math.max(0.05, Math.min(rise, (turn(dx, dy, p && p.dir != null ? p.dir : dir) / grid + 0.5) * rise)) };
+}
+/** A ramp: the same as stairsPiece with a gentler default rise (1.5, half a storey). Draw it with prop('ramp') in 3D. */
+export function rampPiece(opts = {}) { return stairsPiece({ rise: 1.5, ...opts }); }
 
 /**
  * A list of steps. steps: [{ id, text: 'Gather 5 wood', done: () => inv.has('wood', 5), reward: () => {} }]. A step

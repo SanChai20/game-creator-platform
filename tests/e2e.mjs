@@ -165,7 +165,7 @@ async function main() {
   const p3d = await tool('design_scene', { description: 'A survival crafting game on an island: chop trees, craft tools, build a camp', camera: 'third', seed: 'e2e-home' });
   assert.ok(p3d.plan.camera === 'third' && p3d.plan.systems && /createBuilder/.test(p3d.files['src/main.js']) && /from '@gcp\/craft\.js'/.test(p3d.files['src/main.js']));
   const playBlocks = await tool('list_blocks', { group: 'play' });
-  assert.ok(['createInventory', 'createCrafting', 'createNeeds', 'createClock', 'createNodes', 'createInteract', 'createBuilder', 'createQuests', 'createSave', 'hotbarUI', 'inventoryUI', 'minimapUI', 'pauseMenu', 'lobbyUI'].every((n) => playBlocks.blocks.some((b) => b.name === n)), playBlocks.blocks.map((b) => b.name).join(','));
+  assert.ok(['createInventory', 'createCrafting', 'createNeeds', 'createClock', 'createNodes', 'createInteract', 'createBuilder', 'createQuests', 'createSave', 'hotbarUI', 'inventoryUI', 'minimapUI', 'pauseMenu', 'lobbyUI', 'stairsPiece', 'rampPiece'].every((n) => playBlocks.blocks.some((b) => b.name === n)), playBlocks.blocks.map((b) => b.name).join(','));
   const homeP = await tool('create_project', { title: `Homestead ${run}`, tagline: 'Gather, craft, build, survive' });
   await tool('put_files', { project: homeP.project, files: Object.entries(p3.files).map(([path, content]) => ({ path, content })) });
   let hd = await tool('deploy_preview', { project: homeP.project, note: 'homestead from design_scene' });
