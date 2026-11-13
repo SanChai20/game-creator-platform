@@ -185,6 +185,14 @@ plane is `x, y` in these systems; in a 3D game pass `z` as `y`. A harvested tree
 collision by itself and grows back after `respawn` seconds, because `scatter()` and `scatter2d()` items have `visible`.
 For floors and stairs give a piece a `height` and the controller `heightAt: (x, z) => land.heightAt(x, z) + build.topAt(x, z)`.
 
+**Storeys and rooms.** Give pieces a `layer` ('floor', 'wall', 'roof') and a floor, a wall and a roof share one cell;
+`build.place(kind, x, z, { level: 1 })` builds a storey up (`levelHeight`, default 3). `build.topAt(x, z, fromY)` gives
+the highest top the hero can step onto from where it stands, so stairs and floors carry it one storey at a time. In a
+room where the host decides: pass `send(node, tool)` to `createInteract` so a guest's press goes to the host, which
+calls `nodes.useFor(nodes.byId(id), guestInventory, { tool })`; the host builds for a guest with
+`build.place(kind, x, z, { inventory: guestInventory })`. `createSave(key, parts, { cloud: false })` keeps a world on
+the host's device only, and `lobbyUI()` returns a promise with `solo()`, `host(code)` and `join(code)` for tests.
+
 **Interface.** Panels for those systems, on the same `createHud()`:
 
 ```js

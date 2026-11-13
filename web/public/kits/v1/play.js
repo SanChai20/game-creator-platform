@@ -161,11 +161,15 @@ export function createClock({ dayLength = 300, hour = 8, stage } = {}) {
  *                                  nothing to skip it, e.g. (it) => it.type === 'tree' && { label: 'Chop the tree', hp: 3, drops: { wood: [2, 3] }, respawn: 90 }
  *   nodes.use(node, { tool, power, rand }) -> { ok: false, why: 'needs axe' } | { ok: true, done: false, hp } | { ok: true, done: true, drops: { wood: 3 } }
  *   nodes.update(dt) every frame (respawns)      nodes.list      nodes.onDeplete(fn(node, drops))
+ *   node.id (numbered in the order added, the same on every device that builds the same world)   nodes.byId(id)
+ *   nodes.useFor(node, inventory, opts)  use it and put the drops in that inventory: what a room's host calls for a guest
  */
 export function createNodes() {
-  const ev = emitter(), list = [], show = (n, on) => { if (n.ref) n.ref.visible = on; if (n.solid && typeof n.solid === 'object') n.solid.off = !on; };
+  let nextId = 1; const ev = emitter(), list = [], show = (n, on) => { if (n.ref) n.ref.visible = on; if (n.solid && typeof n.solid === 'object') n.solid.off = !on; };
   const N = { list, onDeplete: ev.on,
-    add(n) { const node = { r: 1.2, hp: 1, ...n, left: n.hp || 1, gone: false, timer: 0 }; list.push(node); return node; },
+    add(n) { const node = { r: 1.2, hp: 1, id: n.id ?? nextId++, ...n, left: n.hp || 1, gone: false, timer: 0 }; list.push(node); return node; },
+    byId: (id) => list.find((n) => n.id === id) || null,
+    useFor(n, inventory, opts) { const r = N.use(n, opts); if (r.ok && r.done && inventory) { r.left = {}; for (const id in r.drops) { const k = inventory.add(id, r.drops[id]); if (k) r.left[id] = k; } } return r; },
     fromScatter(items, rule) { const out = []; for (const it of items) { const d = rule(it); if (d) out.push(N.add({ x: it.x, y: it.z ?? it.y, ref: it, solid: it.circle || (it.solid === true ? it : null), kind: it.type, ...d })); } return out; },
     remove(n) { const i = list.indexOf(n); if (i >= 0) list.splice(i, 1); },
     nearest(x, y, range = 0) { let best = null, bd = Infinity; for (const n of list) { if (n.gone) continue; const d = Math.hypot(n.x - x, n.y - y) - (n.r + range); if (d < 0 && d < bd) { bd = d; best = n; } } return best; },
@@ -186,13 +190,15 @@ export function createNodes() {
  * Options: nodes, input, hud, at (() => ({ x, y }): where the player stands; y is z in 3D), action (the name bound
  * with input.bind, default 'interact'), inventory, tool (() => the kind in hand, e.g. () => inv.held && inv.held.def.tool),
  * power ((node, tool) => hits per press, e.g. 2 with the right tool), range (extra reach, default 0.3),
- * onHit(node, result) (every press: play a sound, shake the tree), onGet(node, drops) (when it is finished).
+ * onHit(node, result) (every press: play a sound, shake the tree), onGet(node, drops) (when it is finished),
+ * send(node, tool) (in a room where the host decides: called instead of using the node here; send node.id to the
+ * host, which calls nodes.useFor(nodes.byId(id), thatPlayersInventory, { tool }) and sends back the result).
  * Returns { update() every frame, target (the node in reach or null), use() (press it yourself), enabled }.
  */
-export function createInteract({ nodes, input, hud, at, action = 'interact', inventory, tool, power, range = 0.3, onHit, onGet } = {}) {
+export function createInteract({ nodes, input, hud, at, action = 'interact', inventory, tool, power, range = 0.3, onHit, onGet, send } = {}) {
   let shown = null, key = '';
   const I = { target: null, enabled: true,
-    use() { const n = I.target; if (!n) return null; const t = tool ? tool() : undefined, r = nodes.use(n, { tool: t, power: power ? power(n, t) : 1 });
+    use() { const n = I.target; if (!n) return null; if (send) { send(n, tool ? tool() : undefined); return { ok: true, sent: true }; } const t = tool ? tool() : undefined, r = nodes.use(n, { tool: t, power: power ? power(n, t) : 1 });
       if (r.ok && r.done && inventory) for (const id in r.drops) { const left = inventory.add(id, r.drops[id]); if (left && hud) hud.toast('The backpack is full'); }
       if (onHit) onHit(n, r); if (r.ok && r.done && onGet) onGet(n, r.drops); if (!r.ok && hud) hud.toast(nice(r.why)); shown = null; return r; },
     update() {
@@ -205,30 +211,47 @@ export function createInteract({ nodes, input, hud, at, action = 'interact', inv
 
 /**
  * Building on a grid. Options: grid (cell size, default 1), inventory (costs are taken from it), pieces
- * ({ wall: { cost: { wood: 2 }, solid: 0.5, station: false, height: 0, make(x, y, piece) -> ref } }: make puts the
- * thing in your scene and returns something with remove() or .visible; height is how far its top stands above the
- * ground, for floors, stairs and blocks the hero can stand on), canPlace(x, y, kind) (your own rule: not on water),
- * solids (the array your controller collides with: solid pieces are added to it and taken out again). y is z in 3D.
- *   build.place(kind, x, y) -> the piece, or { error: 'occupied' | 'cannot build here' | 'needs 2 wood' }
- *   build.remove(x, y) -> true (half the cost comes back)      build.at(x, y)      build.snap(x, y) -> [x, y]
- *   build.pieces (every placed piece: { kind, x, y, ref })      build.solids (for collision)      build.near(x, y, range) -> station names
- *   build.topAt(x, y) -> the height of the piece on that cell, or 0. In 3D give the controller
- *                        heightAt: (x, z) => land.heightAt(x, z) + build.topAt(x, z) and the hero walks on what was built
+ * ({ wall: { cost: { wood: 2 }, solid: 0.5, station: false, height: 0, layer: 'wall', make(x, y, piece) -> ref } }:
+ * make puts the thing in your scene and returns something with remove() or .visible; height is how far its top
+ * stands above its base, for floors, stairs and blocks the hero can stand on; layer lets pieces share a cell: a floor
+ * ('floor'), a wall ('wall') and a roof ('roof') can all stand on one cell, one of each per level), levelHeight (the
+ * height of one storey, default 3: a piece on level 1 stands that much higher), canPlace(x, y, kind, level) (your own
+ * rule: not on water), solids (the array your controller collides with: solid pieces on level 0 are added to it and
+ * taken out again). y is z in 3D.
+ *   build.place(kind, x, y, { level, inventory, free }) -> the piece, or { error: 'occupied' | 'cannot build here' | 'needs 2 wood' }
+ *        level: the storey (0 is the ground); inventory: charge this one instead (a room's host charging a guest);
+ *        free: charge nothing (the host already did)
+ *   build.remove(x, y, { layer, level, inventory }) -> the piece taken away, or null (half the cost comes back)
+ *   build.at(x, y, layer, level)   build.allAt(x, y) -> every piece on that cell   build.snap(x, y) -> [x, y]
+ *   build.pieces (every placed piece: { kind, x, y, level, layer, base, ref })      build.solids      build.near(x, y, range) -> station names
+ *   build.topAt(x, y, fromY) -> the highest top on that cell that the hero can step onto from height fromY (one step
+ *        up at most), or 0. In 3D give the controller heightAt: (x, z) => Math.max(land.heightAt(x, z), land.heightAt(x, z)
+ *        + build.topAt(x, z, hero.position.y - land.heightAt(x, z))): the hero walks on floors and climbs storey by storey
  *   build.onChange(fn)      build.toJSON() / build.load(data)
  */
-export function createBuilder({ grid = 1, inventory, pieces = {}, canPlace, solids = [] } = {}) {
-  const ev = emitter(), placed = new Map(), key = (x, y) => x + ',' + y, snap = (x, y) => [Math.round(x / grid) * grid, Math.round(y / grid) * grid];
-  const put = (kind, x, y, free) => {
-    const def = pieces[kind]; if (!def) return { error: 'unknown piece ' + kind }; [x, y] = snap(x, y); if (placed.has(key(x, y))) return { error: 'occupied' }; if (canPlace && !canPlace(x, y, kind)) return { error: 'cannot build here' };
-    if (!free && inventory && def.cost) { const miss = Object.entries(def.cost).find(([id, n]) => !inventory.has(id, n)); if (miss) return { error: `needs ${miss[1]} ${nice(miss[0]).toLowerCase()}` }; for (const id in def.cost) inventory.remove(id, def.cost[id]); }
-    const p = { kind, x, y, ref: null, solid: def.solid ? { x, y, z: y, r: def.solid } : null }; p.ref = def.make ? def.make(x, y, p) : null; placed.set(key(x, y), p); if (p.solid) solids.push(p.solid); ev.emit(B); return p;
+export function createBuilder({ grid = 1, inventory, pieces = {}, canPlace, solids = [], levelHeight = 3 } = {}) {
+  const ev = emitter(), placed = new Map(), snap = (x, y) => [Math.round(x / grid) * grid, Math.round(y / grid) * grid];
+  const layerOf = (kind) => (pieces[kind] && pieces[kind].layer) || 'ground', key = (x, y, layer, level) => x + ',' + y + ',' + layer + ',' + (level || 0);
+  const pay = (inv, cost, k) => { for (const id in cost) { if (k > 0) inv.remove(id, cost[id]); else inv.add(id, Math.ceil(cost[id] / 2)); } };
+  const put = (kind, x, y, o = {}) => {
+    const def = pieces[kind], level = o.level || 0, inv = o.inventory || inventory; if (!def) return { error: 'unknown piece ' + kind }; [x, y] = snap(x, y);
+    if (placed.has(key(x, y, layerOf(kind), level))) return { error: 'occupied' }; if (canPlace && !canPlace(x, y, kind, level)) return { error: 'cannot build here' };
+    if (!o.free && inv && def.cost) { const miss = Object.entries(def.cost).find(([id, n]) => !inv.has(id, n)); if (miss) return { error: `needs ${miss[1]} ${nice(miss[0]).toLowerCase()}` }; pay(inv, def.cost, 1); }
+    const base = level * levelHeight, p = { kind, x, y, level, layer: layerOf(kind), base, ref: null, solid: def.solid && !level ? { x, y, z: y, r: def.solid } : null };
+    p.ref = def.make ? def.make(x, y, p) : null; placed.set(key(x, y, p.layer, level), p); B.pieces.push(p); if (p.solid) solids.push(p.solid); ev.emit(B); return p;
   };
-  const B = { pieces: [], solids, grid, snap, onChange: ev.on, defs: pieces, at: (x, y) => placed.get(key(...snap(x, y))) || null,
-    topAt: (x, y) => { const p = placed.get(key(Math.round(x / grid) * grid, Math.round(y / grid) * grid)); return p ? pieces[p.kind].height || 0 : 0; },
-    place: (kind, x, y) => { const p = put(kind, x, y, false); if (!p.error) B.pieces.push(p); return p; },
-    remove(x, y) { const p = B.at(x, y); if (!p) return false; placed.delete(key(p.x, p.y)); B.pieces.splice(B.pieces.indexOf(p), 1); if (p.solid) solids.splice(solids.indexOf(p.solid), 1); if (p.ref) { if (p.ref.remove) p.ref.remove(); else if (p.ref.removeFromParent) p.ref.removeFromParent(); else p.ref.visible = false; } const c = pieces[p.kind].cost; if (inventory && c) for (const id in c) inventory.add(id, Math.ceil(c[id] / 2)); ev.emit(B); return true; },
+  const B = { pieces: [], solids, grid, levelHeight, snap, onChange: ev.on, defs: pieces,
+    at: (x, y, layer, level = 0) => { [x, y] = snap(x, y); if (layer) return placed.get(key(x, y, layer, level)) || null; return B.pieces.find((p) => p.x === x && p.y === y && p.level === level) || null; },
+    allAt: (x, y) => { [x, y] = snap(x, y); return B.pieces.filter((p) => p.x === x && p.y === y); },
+    topAt(x, y, fromY = Infinity) { let top = 0; for (const p of B.allAt(x, y)) { const h = pieces[p.kind].height || 0; if (!h) continue; const t = p.base + h; if (t > top && t <= fromY + 1.2) top = t; } return top; },
+    place: (kind, x, y, o) => put(kind, x, y, o),
+    remove(x, y, o = {}) { const p = o.layer ? B.at(x, y, o.layer, o.level || 0) : B.allAt(x, y).filter((q) => o.level == null || q.level === o.level).sort((a, b) => b.base - a.base)[0]; if (!p) return null;
+      placed.delete(key(p.x, p.y, p.layer, p.level)); B.pieces.splice(B.pieces.indexOf(p), 1); if (p.solid) solids.splice(solids.indexOf(p.solid), 1);
+      if (p.ref) { if (p.ref.remove) p.ref.remove(); else if (p.ref.removeFromParent) p.ref.removeFromParent(); else p.ref.visible = false; }
+      const inv = o.inventory || inventory, c = pieces[p.kind].cost; if (inv && c && !o.free) pay(inv, c, -1); ev.emit(B); return p; },
     near(x, y, range = 3) { return [...new Set(B.pieces.filter((p) => pieces[p.kind].station && Math.hypot(p.x - x, p.y - y) <= range).map((p) => (pieces[p.kind].station === true ? p.kind : pieces[p.kind].station)))]; },
-    toJSON: () => B.pieces.map((p) => [p.kind, p.x, p.y]), load(d) { if (Array.isArray(d)) for (const [k, x, y] of d) { const p = put(k, x, y, true); if (!p.error) B.pieces.push(p); } return B; } };
+    toJSON: () => B.pieces.map((p) => (p.level ? [p.kind, p.x, p.y, p.level] : [p.kind, p.x, p.y])),
+    load(d) { if (Array.isArray(d)) for (const [k, x, y, level] of d) put(k, x, y, { free: true, level }); return B; } };
   return B;
 }
 
@@ -236,26 +259,29 @@ export function createBuilder({ grid = 1, inventory, pieces = {}, canPlace, soli
  * A list of steps. steps: [{ id, text: 'Gather 5 wood', done: () => inv.has('wood', 5), reward: () => {} }]. A step
  * is finished when its done() returns true (checked by quests.update()) or when you call quests.complete(id).
  *   quests.update() every frame (cheap)      quests.current -> the first unfinished step or null      quests.finished
- *   quests.onStep(fn(step, index))      quests.onAll(fn)      quests.toJSON() / quests.load(data)
+ *   quests.onStep(fn(step, index))      quests.onAll(fn)      quests.onChange(fn) (any change, a load too)      quests.toJSON() / quests.load(data)
+ * Call quests.update() every frame: steps are checked in order, and only the current one counts.
  */
 export function createQuests(steps = []) {
-  const st = emitter(), all = emitter(), S = steps.map((s) => ({ ...s, complete: false }));
-  const finish = (s) => { if (s.complete) return; s.complete = true; if (s.reward) s.reward(); st.emit(s, S.indexOf(s)); if (S.every((x) => x.complete)) { Q.finished = true; all.emit(); } };
-  const Q = { steps: S, finished: false, onStep: st.on, onAll: all.on, get current() { return S.find((s) => !s.complete) || null; },
-    update() { const s = Q.current; if (s && s.done && s.done()) finish(s); }, complete(id) { const s = S.find((x) => x.id === id); if (s) finish(s); },
-    toJSON: () => S.filter((s) => s.complete).map((s) => s.id), load(d) { if (Array.isArray(d)) for (const s of S) if (d.includes(s.id)) s.complete = true; Q.finished = S.every((x) => x.complete); return Q; } };
+  const st = emitter(), all = emitter(), ch = emitter(), S = steps.map((s) => ({ ...s, complete: false }));
+  const finish = (s) => { if (s.complete) return; s.complete = true; if (s.reward) s.reward(); st.emit(s, S.indexOf(s)); ch.emit(Q); if (S.every((x) => x.complete)) { Q.finished = true; all.emit(); } };
+  const Q = { steps: S, finished: false, onStep: st.on, onAll: all.on, onChange: ch.on, get current() { return S.find((s) => !s.complete) || null; },
+    update() { for (let i = 0; i < S.length; i++) { const s = Q.current; if (s && s.done && s.done()) finish(s); else break; } },   // a step already met when it comes up is ticked at once
+    complete(id) { const s = S.find((x) => x.id === id); if (s) finish(s); },
+    toJSON: () => S.filter((s) => s.complete).map((s) => s.id), load(d) { if (Array.isArray(d)) for (const s of S) s.complete = d.includes(s.id); Q.finished = S.every((x) => x.complete); ch.emit(Q); return Q; } };
   return Q;
 }
 
 /**
  * Saving. parts: { inv, needs, clock, build, quests, ... }: anything with toJSON() and load(). The save lives in the
- * player's cloud save on the platform (GCP.save) and in localStorage when offline.
+ * player's cloud save on the platform (GCP.save) and in localStorage when offline; { cloud: false } keeps it on this
+ * device only (localStorage), e.g. a world a room's host keeps for everyone.
  *   await save.load() -> true if there was one (every part is restored)      save.now()      await save.clear()
  *   save.auto(seconds)  saves by itself, and when the tab is hidden      save.extra (your own plain data, saved along)
  * clear() also stops the autosave, so a finished game is not saved again: call it when the game ends.
  */
-export function createSave(key = 'save', parts = {}, { version = 1 } = {}) {
-  const G = () => window.GCP && window.GCP.save; let timer = 0, off = false;
+export function createSave(key = 'save', parts = {}, { version = 1, cloud = true } = {}) {
+  const G = () => cloud && window.GCP && window.GCP.save; let timer = 0, off = false;
   const S = { extra: {},
     async load() { let d = null; try { d = G() ? await G().get(key) : store.get(key); } catch { d = store.get(key); } if (!d || d.v !== version) return false; for (const k in parts) if (d.parts && d.parts[k] !== undefined) parts[k].load(d.parts[k]); S.extra = d.extra || {}; return true; },
     now() { if (off) return null; const d = { v: version, t: Date.now(), extra: S.extra, parts: {} }; for (const k in parts) d.parts[k] = parts[k].toJSON(); if (G()) G().set(key, d); else store.set(key, d); return d; },
@@ -379,7 +405,7 @@ export function questUI(hud, quests, { corner: at = 'tr', title = 'Quests', max 
     const head = el('span', 'gh-l', title + ' '); head.appendChild(el('b', null, n + ' / ' + S.length)); box.appendChild(head);
     const from = max ? Math.max(0, Math.min(i - 1, S.length - max)) : 0, to = max ? Math.min(S.length, from + max) : S.length;
     for (let k = from; k < to; k++) { const s = S[k], p = el('p', s.complete ? 'ok' : s === cur ? 'now' : ''); p.appendChild(el('span', null, s.complete ? '✔' : s === cur ? '▸' : '·')); p.appendChild(el('span', null, s.text)); box.appendChild(p); } };
-  quests.onStep(draw); draw(); return { el: box, refresh: draw, remove() { box.remove(); } };
+  const off = quests.onChange ? quests.onChange(draw) : quests.onStep(draw); draw(); return { el: box, refresh: draw, remove() { off(); box.remove(); } };
 }
 
 /**
@@ -418,14 +444,15 @@ export function pauseMenu(hud, { title = 'Paused', controls = [], buttons = [], 
 /**
  * The start screen of a multiplayer game: Host a room (a short code to share is made for you), Join one by its code,
  * or Play alone. Resolves with { mode: 'host' | 'join' | 'solo', code }; open the room with it:
- *   const { mode, code } = await lobbyUI(hud, { title: 'Wildstead' });
+ *   const lobby = lobbyUI(hud, { title: 'Wildstead' });  GCP.test.onAutostart(() => lobby.solo());
+ *   const { mode, code } = await lobby;   // lobby.solo(), lobby.host(code), lobby.join(code) settle it from code
  *   const room = mode === 'solo' ? null : GCP.room(code);        // or joinSession(code, …) from @gcp/net.js
  * Options: title, subtitle, solo (false hides Play alone), codeLength (default 4), code (prefilled, e.g. from GCP.test.param('room')).
  * A link that carries ?room=CODE fills the code in, so a host can share the page address with it.
  */
 export function lobbyUI(hud, { title = '', subtitle = 'Play together', solo = true, codeLength = 4, code = '' } = {}) {
   css(); const make = () => Array.from({ length: codeLength }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[(Math.random() * 24) | 0]).join('');
-  return new Promise((res) => {
+  let api = null; const out = new Promise((res) => {
     const win = el('div', 'gp-win'), box = el('div', 'gp-box'), m = el('div', 'gp-menu'), inp = el('input', 'gp-code'), err = el('small', 'gp-err', '');
     const done = (mode, c) => { win.remove(); res({ mode, code: c }); }, clean = () => inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
     const b = (label, fn, main) => { const x = el('button', main ? 'gh-b' : 'gh-sb', label); x.addEventListener('click', fn); m.appendChild(x); return x; };
@@ -436,5 +463,8 @@ export function lobbyUI(hud, { title = '', subtitle = 'Play together', solo = tr
     const jb = el('button', 'gp-btn', 'Join'); jb.addEventListener('click', join); row.appendChild(jb); inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.code === 'Enter') join(); }); m.appendChild(err);
     if (solo) b('Play alone', () => done('solo', ''));
     box.appendChild(m); win.appendChild(box); hud.el.appendChild(win);
+    api = { solo: () => done('solo', ''), host: (c) => done('host', c || make()), join: (c) => done('join', String(c).toUpperCase()) };
   });
+  // the promise can also be settled from code, e.g. GCP.test.onAutostart(() => lobby.solo())
+  return Object.assign(out, { solo: () => api.solo(), host: (c) => api.host(c), join: (c) => api.join(c) });
 }
