@@ -20,7 +20,7 @@ export const MOODS = {
   autumn:        { top: 0x4a7fc0, horizon: 0xf0d9b6, sun: 0xffd9a0, sunPower: 2.4, elevation: 30, azimuth: 45, skyLight: 0xd8dff0, groundLight: 0x80603a, ambient: 1.25, fog: [70, 300], exposure: 1.0, stars: 0, glow: 0xffd08a, clouds: 0.4 },
   volcanic:      { top: 0x1f1014, horizon: 0xc04a1c, sun: 0xffa060, sunPower: 2.5, elevation: 24, azimuth: 10, skyLight: 0xc8866a, groundLight: 0x7a3a22, ambient: 1.6, fog: [40, 200], exposure: 1.2, stars: 0.1, glow: 0xff5a1a, clouds: 0.8 },
   alien:         { top: 0x1c0f3f, horizon: 0x3fd6c0, sun: 0xd9ff9a, sunPower: 2.0, elevation: 35, azimuth: -60, skyLight: 0x8a7ad8, groundLight: 0x1f5a55, ambient: 1.2, fog: [50, 260], exposure: 1.05, stars: 0.6, glow: 0xb8ffd8, clouds: 0.3 },
-  'neon-night':  { top: 0x0a0718, horizon: 0x6a2490, sun: 0x9fc0ff, sunPower: 1.2, elevation: 50, azimuth: 0, skyLight: 0xa67af0, groundLight: 0x40306a, ambient: 1.7, fog: [30, 200], exposure: 1.2, stars: 0.5, glow: 0xff4ad8, clouds: 0.1, moon: true },
+  'neon-night':  { top: 0x0a0718, horizon: 0x7a2aa8, sun: 0xb4ccff, sunPower: 1.9, elevation: 38, azimuth: 0, skyLight: 0xb48cff, groundLight: 0x4a3a7a, ambient: 1.9, fog: [30, 200], exposure: 1.2, stars: 0.5, glow: 0xff4ad8, clouds: 0.1, moon: true },
   indoor:        { top: 0x16181c, horizon: 0x24272c, sun: 0xffe2b8, sunPower: 1.4, elevation: 70, azimuth: 30, skyLight: 0xbfc6d0, groundLight: 0x3a3630, ambient: 1.3, fog: [30, 140], exposure: 1.0, stars: 0, glow: 0x000000, clouds: 0 },
 };
 const MOOD_KEYS = ['top', 'horizon', 'sun', 'skyLight', 'groundLight', 'glow'];

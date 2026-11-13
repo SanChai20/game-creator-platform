@@ -97,8 +97,8 @@ const SETTINGS = {
     ambience: 'rain', music: 'mystery', accent: '#8ad86a',
   },
   city: {
-    words: /city|street|neon|cyber|urban|downtown|rooftop|alley|ninja|heist/, title: 'Neon Quarter', mood: 'neon-night', weather: null, shape: 'flat', palette: '{ low: 0x565a66, high: 0x6a6f7c, steep: 0x3a3d46, peak: 0x6a6f7c, shore: 0x565a66, detail: \'asphalt\' }', amplitude: 12, flat: true,
-    big: ["prop('container')", "prop('container', { color: 0x3a6ad8 })", "prop('barrier')", "prop('lamp')", "prop('drum')", "prop('antenna')", "prop('crate')"],
+    words: /city|street|neon|cyber|urban|downtown|rooftop|alley|ninja|heist/, title: 'Neon Quarter', mood: 'neon-night', weather: 'rain', shape: 'flat', palette: '{ low: 0x70758a, high: 0x8a90a4, steep: 0x4a4e5c, peak: 0x8a90a4, shore: 0x70758a, detail: \'asphalt\' }', amplitude: 12, flat: true,
+    big: ["prop('container')", "prop('container', { color: 0x3a6ad8 })", "prop('container', { color: 0xd8a83a })", "prop('barrier')", "prop('lamp')", "prop('drum')", "prop('antenna')", "prop('console')", "prop('beacon', { color: 0xff4ad8 })"],
     small: ["prop('barrel')", "prop('crate')", "prop('pipe')", "groundCover('stones', { color: 0x5a5e68 })", "prop('drum', { color: 0xd8a83a })", "prop('barrier', { seed: 2 })"],
     smallCount: 90, bigCount: 70, grass: null, camp: [K("prop('house', { walls: 'brick', roof: 'corrugated', seed: 2 })", 4), K("'lamp'"), K("prop('house', { walls: 'concrete', roof: 'metal', seed: 4 })", 4), K("'console'", 0.9), K("'stall'", 1.6), K("'beacon'", 0.7), K("'bench'"), K("'lamp'")],
     animals: ['cat', 'cat', 'dog', 'bird', 'bird'], foes: ['slime', 'slime', 'bat', 'wolf'], hero: 'ninja', pickup: ['orb', '0xff4ad8', 'Chips', 'data chips'],
