@@ -8,19 +8,19 @@ import { pickQuality, store, createLoop } from '../core.js';
 
 /** Named moods. Pass one to createStage({ mood }), or your own object with any of these fields. */
 export const MOODS = {
-  'clear-day':   { top: 0x1f63cc, horizon: 0xa8d2f4, sun: 0xfff1d8, sunPower: 2.7, elevation: 52, azimuth: 35, skyLight: 0xd3e8ff, groundLight: 0x6d7a52, ambient: 1.35, fog: [90, 340], exposure: 1.0, stars: 0, glow: 0xfff0c8, clouds: 0.35 },
-  'golden-hour': { top: 0x35549c, horizon: 0xffc58a, sun: 0xffab5e, sunPower: 2.6, elevation: 13, azimuth: 60, skyLight: 0xb9c4e8, groundLight: 0x7a5a3c, ambient: 1.05, fog: [60, 280], exposure: 1.05, stars: 0, glow: 0xff9a4a, clouds: 0.45 },
+  'clear-day':   { top: 0x1f63cc, horizon: 0xa8d2f4, sun: 0xffecc8, sunPower: 3.5, elevation: 36, azimuth: 112, skyLight: 0xb4d2ff, groundLight: 0x6c7c50, ambient: 1.0, fog: [90, 340], exposure: 1.0, stars: 0, glow: 0xfff0c8, clouds: 0.35 },
+  'golden-hour': { top: 0x35549c, horizon: 0xffc58a, sun: 0xffab5e, sunPower: 3.3, elevation: 13, azimuth: 40, skyLight: 0xa9b8ea, groundLight: 0x7a5a3c, ambient: 0.8, fog: [60, 280], exposure: 1.05, stars: 0, glow: 0xff9a4a, clouds: 0.45 },
   'misty-dawn':  { top: 0x8fa9c4, horizon: 0xe9dfd2, sun: 0xffe2bf, sunPower: 1.5, elevation: 18, azimuth: -50, skyLight: 0xd9e2ea, groundLight: 0x76806c, ambient: 1.55, fog: [14, 120], exposure: 1.0, stars: 0, glow: 0xfff0d8, clouds: 0.2 },
   overcast:      { top: 0x7f8c9a, horizon: 0xc3cad0, sun: 0xe6ecf2, sunPower: 1.1, elevation: 62, azimuth: 20, skyLight: 0xdfe6ee, groundLight: 0x6a6f66, ambient: 1.9, fog: [50, 240], exposure: 0.95, stars: 0, glow: 0xffffff, clouds: 0.9 },
   storm:         { top: 0x2c3540, horizon: 0x6f7b86, sun: 0xb8c6d6, sunPower: 0.8, elevation: 48, azimuth: -20, skyLight: 0xa9b6c4, groundLight: 0x3c4244, ambient: 1.5, fog: [28, 170], exposure: 0.9, stars: 0, glow: 0xdde8f5, clouds: 1 },
   dusk:          { top: 0x1c2452, horizon: 0xd9778a, sun: 0xff8f6a, sunPower: 1.4, elevation: 5, azimuth: 80, skyLight: 0x8f95cf, groundLight: 0x4a3a4a, ambient: 0.95, fog: [50, 240], exposure: 1.05, stars: 0.35, glow: 0xff7a5a, clouds: 0.4 },
-  night:         { top: 0x07102a, horizon: 0x2c4a7c, sun: 0xb4c8ff, sunPower: 1.9, elevation: 46, azimuth: -40, skyLight: 0x7f9ae0, groundLight: 0x34465e, ambient: 1.7, fog: [40, 220], exposure: 1.25, stars: 1, glow: 0xcfdcff, clouds: 0.15, moon: true },
-  desert:        { top: 0x2f7fd6, horizon: 0xf3dfb8, sun: 0xfff0cc, sunPower: 3.1, elevation: 64, azimuth: 15, skyLight: 0xe8ecf5, groundLight: 0xb08a55, ambient: 1.4, fog: [110, 420], exposure: 1.0, stars: 0, glow: 0xfff3d0, clouds: 0.05 },
-  arctic:        { top: 0x5f9ad8, horizon: 0xe6f1fa, sun: 0xfdf6ee, sunPower: 2.2, elevation: 22, azimuth: 30, skyLight: 0xe2eefc, groundLight: 0xa9bdd0, ambient: 1.7, fog: [70, 300], exposure: 0.95, stars: 0, glow: 0xffffff, clouds: 0.3 },
-  autumn:        { top: 0x4a7fc0, horizon: 0xf0d9b6, sun: 0xffd9a0, sunPower: 2.4, elevation: 30, azimuth: 45, skyLight: 0xd8dff0, groundLight: 0x80603a, ambient: 1.25, fog: [70, 300], exposure: 1.0, stars: 0, glow: 0xffd08a, clouds: 0.4 },
+  night:         { top: 0x07102a, horizon: 0x2c4a7c, sun: 0x8fb0ff, sunPower: 2.3, elevation: 40, azimuth: 115, skyLight: 0x5f7fe0, groundLight: 0x26344f, ambient: 1.15, fog: [40, 220], exposure: 1.25, stars: 1, glow: 0xcfdcff, clouds: 0.15, moon: true },
+  desert:        { top: 0x2f7fd6, horizon: 0xf3dfb8, sun: 0xfff0cc, sunPower: 3.6, elevation: 44, azimuth: 30, skyLight: 0xcfdcf5, groundLight: 0xb08a55, ambient: 0.95, fog: [110, 420], exposure: 1.0, stars: 0, glow: 0xfff3d0, clouds: 0.05 },
+  arctic:        { top: 0x5f9ad8, horizon: 0xe6f1fa, sun: 0xfdf6ee, sunPower: 2.7, elevation: 22, azimuth: 35, skyLight: 0xc4dcfc, groundLight: 0x9ab2cc, ambient: 1.15, fog: [70, 300], exposure: 0.95, stars: 0, glow: 0xffffff, clouds: 0.3 },
+  autumn:        { top: 0x4a7fc0, horizon: 0xf0d9b6, sun: 0xffd9a0, sunPower: 3.2, elevation: 28, azimuth: 40, skyLight: 0xbccdf0, groundLight: 0x80603a, ambient: 0.85, fog: [70, 300], exposure: 1.0, stars: 0, glow: 0xffd08a, clouds: 0.4 },
   volcanic:      { top: 0x1f1014, horizon: 0xc04a1c, sun: 0xffa060, sunPower: 2.5, elevation: 24, azimuth: 10, skyLight: 0xc8866a, groundLight: 0x7a3a22, ambient: 1.6, fog: [40, 200], exposure: 1.2, stars: 0.1, glow: 0xff5a1a, clouds: 0.8 },
   alien:         { top: 0x1c0f3f, horizon: 0x3fd6c0, sun: 0xd9ff9a, sunPower: 2.0, elevation: 35, azimuth: -60, skyLight: 0x8a7ad8, groundLight: 0x1f5a55, ambient: 1.2, fog: [50, 260], exposure: 1.05, stars: 0.6, glow: 0xb8ffd8, clouds: 0.3 },
-  'neon-night':  { top: 0x0a0718, horizon: 0x7a2aa8, sun: 0xb4ccff, sunPower: 1.9, elevation: 38, azimuth: 0, skyLight: 0xb48cff, groundLight: 0x4a3a7a, ambient: 1.9, fog: [30, 200], exposure: 1.2, stars: 0.5, glow: 0xff4ad8, clouds: 0.1, moon: true },
+  'neon-night':  { top: 0x0a0718, horizon: 0x7a2aa8, sun: 0x9fb4ff, sunPower: 1.7, elevation: 38, azimuth: 30, skyLight: 0x8f6cff, groundLight: 0x3a2a6a, ambient: 1.15, fog: [30, 200], exposure: 1.2, stars: 0.5, glow: 0xff4ad8, clouds: 0.1, moon: true },
   indoor:        { top: 0x16181c, horizon: 0x24272c, sun: 0xffe2b8, sunPower: 1.4, elevation: 70, azimuth: 30, skyLight: 0xbfc6d0, groundLight: 0x3a3630, ambient: 1.3, fog: [30, 140], exposure: 1.0, stars: 0, glow: 0x000000, clouds: 0 },
 };
 const MOOD_KEYS = ['top', 'horizon', 'sun', 'skyLight', 'groundLight', 'glow'];
@@ -46,6 +46,43 @@ const GRADE = { uniforms: { tDiffuse: { value: null }, sat: { value: 1.14 }, con
       c = clamp(mix(vec3(l), c, sat), 0.0, 1.0); c = mix(c, c * c * (3.0 - 2.0 * c), contrast);
       c *= vec3(1.0 + warmth * 0.06, 1.0, 1.0 - warmth * 0.06); vec2 q = vUv - 0.5; c *= 1.0 - dot(q, q) * vig; gl_FragColor = vec4(c, 1.0); }` };
 
+// light shafts: the sky near the sun is smeared towards the viewer, so light pours between trunks, roofs and clouds.
+// The sky writes alpha 0 and everything solid writes 1, which is all the pass needs to know what blocks the light.
+const SHAFTS = { uniforms: { tDiffuse: { value: null }, sun: { value: new THREE.Vector2(0.5, 0.8) }, amount: { value: 0 }, tint: { value: new THREE.Color(1, 0.9, 0.7) }, aspect: { value: 1.78 } }, vertexShader: GRADE.vertexShader,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 sun; uniform float amount, aspect; uniform vec3 tint; varying vec2 vUv;
+    void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb;
+      if (amount > 0.002) { vec2 d = (sun - vUv) * (0.9 / 26.0), p = vUv + d * fract(sin(dot(vUv, vec2(12.9898, 78.233))) * 43758.5453); float acc = 0.0, w = 1.0, tw = 0.0;
+        for (int i = 0; i < 26; i++) { p += d; vec2 in2 = step(vec2(0.0), p) * step(p, vec2(1.0)); vec4 s = texture2D(tDiffuse, p); vec2 q = (p - sun) * vec2(aspect, 1.0); acc += (1.0 - s.a) * in2.x * in2.y * exp(-dot(q, q) * 3.2) * w; tw += w; w *= 0.965; }
+        c += tint * (acc / tw) * amount; }
+      gl_FragColor = vec4(c, 1.0); }` };
+
+// low, faceted clouds that drift: a handful of lumps each, lit by the sun like everything else
+function makeClouds(n, seed = 7) {
+  let a = seed * 9301 + 49297; const r = () => ((a = (a * 233280 + 49297) % 2147483647) / 2147483647), items = [];
+  for (let i = 0; i < n; i++) {
+    const ang = (i / n) * Math.PI * 2 + r() * 0.5, dist = 170 + r() * 360, cx = Math.cos(ang) * dist, cz = Math.sin(ang) * dist, cy = 70 + r() * 70, big = 0.7 + r() * 0.9, lumps = 4 + Math.floor(r() * 4), turn = r() * Math.PI;
+    for (let k = 0; k < lumps; k++) { const t = (k / (lumps - 1) - 0.5) * 2, s = (13 + r() * 9) * big * (1 - Math.abs(t) * 0.45), ox = t * 20 * big, oz = (r() - 0.5) * 9 * big; items.push([cx + Math.cos(turn) * ox - Math.sin(turn) * oz, cy + (r() - 0.3) * 3 * big + s * 0.2, cz + Math.sin(turn) * ox + Math.cos(turn) * oz, s, r() * 6.28]); }
+  }
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, fog: false, emissive: 0xffffff, emissiveIntensity: 0.25 });
+  const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), mat, items.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+  items.forEach(([x, y, z, s, rot], i) => mesh.setMatrixAt(i, m.compose(new THREE.Vector3(x, y, z), q.setFromEuler(e.set(rot * 0.2, rot, 0)), new THREE.Vector3(s, s * 0.5, s * 0.8))));
+  mesh.frustumCulled = false; mesh.castShadow = false; mesh.receiveShadow = false; mesh.userData.clouds = true;
+  const g = new THREE.Group(); g.add(mesh); g.userData.material = mat; return g;
+}
+
+// what shiny things mirror: the sky of the mood as a small panorama (ground, horizon, zenith, a glow where the sun is),
+// blurred by roughness. Only 'standard' materials read it: metal, wet ground, anything with relief.
+function skyPanorama(m, dir) {
+  const W = 32, H = 16, d = new Uint16Array(W * H * 4), hf = THREE.DataUtils.toHalfFloat, c = new THREE.Color(), az = Math.atan2(dir.x, dir.z), el = Math.asin(THREE.MathUtils.clamp(dir.y, -1, 1));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const e = ((y + 0.5) / H - 0.5) * Math.PI, a = ((x + 0.5) / W) * Math.PI * 2 - Math.PI, up = Math.max(Math.sin(e), 0);
+    if (e >= 0) c.copy(m.horizon).lerp(m.top, 1 - Math.pow(1 - up, 3)); else c.copy(m.horizon).lerp(m.groundLight, Math.min(1, -e * 3)).multiplyScalar(0.75);
+    const da = Math.atan2(Math.sin(a - az), Math.cos(a - az)), g = Math.exp(-(da * da + (e - el) * (e - el)) * 7) * 1.6 * Math.min(1, m.sunPower / 2); c.r += m.glow.r * g; c.g += m.glow.g * g; c.b += m.glow.b * g;
+    const i = (y * W + x) * 4; d[i] = hf(c.r); d[i + 1] = hf(c.g); d[i + 2] = hf(c.b); d[i + 3] = hf(1);
+  }
+  const t = new THREE.DataTexture(d, W, H, THREE.RGBAFormat, THREE.HalfFloatType); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.LinearSRGBColorSpace; t.magFilter = t.minFilter = THREE.LinearFilter; t.needsUpdate = true; return t;
+}
+
 let CURRENT = null;
 /** The stage made most recently. Building blocks use it when you do not pass one. */
 export const currentStage = () => CURRENT;
@@ -56,7 +93,7 @@ export function isSoftwareRenderer(renderer) {
 }
 
 const SKY_VERT = 'varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }';
-const SKY_FRAG = `uniform vec3 top; uniform vec3 horizon; uniform vec3 glow; uniform vec3 sunDir; uniform float stars; uniform float clouds; uniform float time; uniform float disc; varying vec3 vDir;
+const SKY_FRAG = `uniform vec3 top; uniform vec3 horizon; uniform vec3 glow; uniform vec3 sunDir; uniform float stars; uniform float clouds; uniform float time; uniform float disc; uniform float alpha; varying vec3 vDir;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
 void main(){
@@ -80,7 +117,7 @@ void main(){
     float tw = 0.7 + 0.3 * sin(time * (1.0 + r * 3.0) + r * 60.0);
     c += vec3(0.9, 0.95, 1.0) * step(0.965, r) * smoothstep(0.42, 0.0, length(fract(g) - 0.5)) * stars * tw * smoothstep(0.0, 0.25, d.y);
   }
-  gl_FragColor = vec4(c, 1.0);
+  gl_FragColor = vec4(c, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -131,8 +168,9 @@ function makeWeather(kind, quality) {
  *   stage.shake(amount)         a short camera shake (0..1)
  *   stage.onUpdate(fn)          run fn(dt, time) every frame (props with animation register themselves this way)
  * Options: mood (name or object), time (hours, instead of mood), weather, shadows, shadowArea, fov, near, far,
- * quality ('auto' or a level), finish ('auto' | false | { ao, bloom, grade, aa }: the finishing passes, see
- * stage.enableFinish), storageKey.
+ * quality ('auto' or a level), finish ('auto' | false | { ao, bloom, shafts, grade, aa }: the finishing passes, see
+ * stage.enableFinish), clouds (false for a sky without the drifting faceted clouds), reflections (false: shiny 'standard' materials
+ * then mirror nothing; by default they mirror the sky of the mood), storageKey.
  */
 export function createStage(canvas, opts = {}) {
   const el = typeof canvas === 'string' ? document.querySelector(canvas) : canvas;
@@ -149,20 +187,23 @@ export function createStage(canvas, opts = {}) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(opts.fov || 60, 1, opts.near || 0.1, opts.far || 900);
   const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1); scene.add(hemi);
-  const sun = makeSun(scene, { area: software ? 24 : opts.shadowArea || 42, mapSize: software ? 512 : quality === 'low' ? 1024 : 2048, far: 260 });
+  const sun = makeSun(scene, { area: software ? 24 : opts.shadowArea || (quality === 'high' ? 52 : 42), mapSize: software ? 512 : quality === 'low' ? 1024 : quality === 'high' ? 4096 : 2048, far: 260 });
   sun.castShadow = opts.shadows !== false;
   scene.fog = new THREE.Fog(0xffffff, 80, 300);
 
-  const skyU = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, glow: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, stars: { value: 0 }, clouds: { value: 0 }, time: { value: 0 }, disc: { value: 0.9994 } };
+  const skyU = { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, glow: { value: new THREE.Color() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, stars: { value: 0 }, clouds: { value: 0 }, time: { value: 0 }, disc: { value: 0.9994 }, alpha: { value: 1 } };
   const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 16), new THREE.ShaderMaterial({ uniforms: skyU, vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, depthTest: true, fog: false, defines: software ? {} : { CLOUDS: 1 } }));
   sky.frustumCulled = false; sky.renderOrder = -10; sky.material.depthFunc = THREE.LessEqualDepth; scene.add(sky);
+  const clouds = software || opts.clouds === false ? null : makeClouds(quality === 'low' ? 10 : 22); if (clouds) scene.add(clouds);
 
   const wind = { strength: opts.wind ?? 1, direction: new THREE.Vector2(1, 0.35).normalize(), uniforms: { uWindTime: { value: 0 }, uWind: { value: 1 }, uWindDir: { value: new THREE.Vector2(1, 0.35) } } };
   const updaters = [], dir = new THREE.Vector3(), tmp = new THREE.Vector3();
+  let pmrem = null, envAt = -9, envDirty = !software && opts.reflections !== false;
   let mood = resolveMood(opts.mood || 'clear-day'), from = null, to = null, blend = 0, blendSecs = 0, weather = null, time = 0, shakeAmt = 0, composer = null, bloomPass = null, passes = null, hours = null;
 
   function apply(m) {
     skyU.top.value.copy(m.top); skyU.horizon.value.copy(m.horizon); skyU.glow.value.copy(m.glow); skyU.stars.value = m.stars; skyU.clouds.value = m.clouds;
+    if (clouds) { clouds.visible = m.clouds > 0.08 && m.clouds < 0.75; if (clouds.visible) skyU.clouds.value = m.clouds * 0.55; const cm = clouds.userData.material; cm.color.setRGB(1, 1, 1).lerp(m.horizon, 0.25); cm.emissive.copy(m.horizon); }
     const e = THREE.MathUtils.degToRad(m.elevation), a = THREE.MathUtils.degToRad(m.azimuth);
     dir.set(Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)).normalize(); skyU.sunDir.value.copy(dir);
     sun.color.copy(m.sun); sun.intensity = m.sunPower; sun.userData.dir = dir.clone();
@@ -170,7 +211,7 @@ export function createStage(canvas, opts = {}) {
     scene.fog.color.copy(m.horizon); scene.fog.near = m.fog[0]; scene.fog.far = m.fog[1];
     if (software) { scene.fog.far = Math.min(m.fog[1], 150); scene.fog.near = Math.min(m.fog[0], 50); camera.far = scene.fog.far * 1.02; camera.updateProjectionMatrix(); }   // nothing is drawn beyond the fog
     renderer.toneMappingExposure = m.exposure;
-    stage.mood = m;
+    stage.mood = m; if (!software && opts.reflections !== false) envDirty = true;
   }
   const stage = {
     renderer, scene, camera, sun, hemi, sky, wind, quality, software, focus: null, time: 0, mood,
@@ -193,12 +234,22 @@ export function createStage(canvas, opts = {}) {
       wind.uniforms.uWindTime.value = time; wind.uniforms.uWind.value = wind.strength; wind.uniforms.uWindDir.value.copy(wind.direction);
       const f = stage.focus ? (stage.focus.isObject3D ? stage.focus.position : stage.focus) : camera.position;
       if (sun.castShadow || true) { const d = sun.userData.dir || dir; const far = sun.shadow.camera.far; sun.target.position.copy(f); sun.position.set(f.x + d.x * far * 0.5, f.y + d.y * far * 0.5, f.z + d.z * far * 0.5); }
+      if (envDirty && time - envAt > 2) {   // the mirrored sky follows the mood, a couple of seconds behind at most
+        envDirty = false; envAt = time;
+        try { pmrem = pmrem || new THREE.PMREMGenerator(renderer); const pano = skyPanorama(stage.mood, sun.userData.dir || dir), rt = pmrem.fromEquirectangular(pano); pano.dispose(); if (stage._env) stage._env.dispose(); stage._env = rt; scene.environment = rt.texture; scene.environmentIntensity = 0.55; } catch (e) { console.warn('Reflections are unavailable: ' + (e && e.message)); }
+      }
+      if (clouds && clouds.visible) { clouds.position.set(camera.position.x, 0, camera.position.z); clouds.rotation.y += dt * 0.004 * wind.strength; }
       if (weather) { weather.material.uniforms.time.value = time; weather.material.uniforms.cam.value.copy(camera.position); weather.material.uniforms.scale.value = renderer.domElement.height * 0.87; }
       for (let i = 0; i < updaters.length; i++) updaters[i](dt, time);
       if (shakeAmt > 0.001) { camera.position.add(tmp.set((Math.random() - 0.5), (Math.random() - 0.5), (Math.random() - 0.5)).multiplyScalar(shakeAmt * 0.35)); shakeAmt *= Math.exp(-dt * 9); }
     },
     render() {
       sky.position.copy(camera.position); sky.scale.setScalar(camera.far * 0.9); sky.updateMatrixWorld();
+      if (composer && passes && passes.shafts) {
+        const u = passes.shafts.uniforms, d = sun.userData.dir || dir, m = stage.mood; camera.updateMatrixWorld(); camera.getWorldDirection(tmp); const facing = tmp.dot(d);
+        tmp.copy(camera.position).addScaledVector(d, 1000).project(camera); u.sun.value.set(tmp.x * 0.5 + 0.5, tmp.y * 0.5 + 0.5); u.aspect.value = camera.aspect;
+        u.amount.value = passes.shafts.strength * THREE.MathUtils.smoothstep(facing, 0.05, 0.55) * Math.min(1.2, m.sunPower / 2.6) * (1 - Math.min(0.8, m.clouds * 0.75));   // an overcast or ashen sky pours no shafts u.tint.value.copy(m.glow).lerp(m.sun, 0.5);
+      }
       if (composer) composer.render(); else renderer.render(scene, camera);
     },
     /**
@@ -220,17 +271,19 @@ export function createStage(canvas, opts = {}) {
      * things meet), bloom (glow around bright things), a colour grade (contrast, saturation, a soft vignette) and
      * edge smoothing. On by default on medium and high quality; skipped on CPU renderers and low quality unless you
      * pass force: true. Options: ao (true | false | { radius, intensity }), bloom (true | false | { strength, radius,
-     * threshold }), grade (true | false | { saturation, contrast, vignette, warmth }), aa (true | false).
+     * threshold }), shafts (light shafts from the sun or moon: true | false | { strength }), grade (true | false |
+     * { saturation, contrast, vignette, warmth }), aa (true | false).
      */
     async enableFinish(o = {}) {
       if ((software || quality === 'low') && !o.force) return false;
-      const on = (v, d) => (v === undefined ? d : v), ao = on(o.ao, quality === 'high'), bl = on(o.bloom, true), gr = on(o.grade, true), aa = on(o.aa, true);
+      const on = (v, d) => (v === undefined ? d : v), ao = on(o.ao, quality === 'high'), bl = on(o.bloom, true), gr = on(o.grade, true), aa = on(o.aa, true), sh = on(o.shafts, true);
       try {
         const P = 'three/addons/postprocessing/', [{ EffectComposer }, { RenderPass }, { OutputPass }, { ShaderPass }, B, G, F] = await Promise.all([import(P + 'EffectComposer.js'), import(P + 'RenderPass.js'), import(P + 'OutputPass.js'), import(P + 'ShaderPass.js'),
           bl ? import(P + 'UnrealBloomPass.js') : null, ao ? import(P + 'GTAOPass.js') : null, aa ? import('three/addons/shaders/FXAAShader.js') : null]);
         const px = renderer.getDrawingBufferSize(new THREE.Vector2()), css = renderer.getSize(new THREE.Vector2());
         composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(px.x, px.y, { type: THREE.HalfFloatType }));
         composer.addPass(new RenderPass(scene, camera)); passes = {};
+        if (sh) { const g = new ShaderPass(SHAFTS); g.strength = typeof sh === 'object' ? sh.strength ?? 0.7 : 0.7; composer.addPass(g); passes.shafts = g; skyU.alpha.value = 0; }
         if (ao) { const a = typeof ao === 'object' ? ao : {}, g = new G.GTAOPass(scene, camera, css.x, css.y); g.updateGtaoMaterial({ radius: a.radius ?? 1.1, distanceExponent: 1.3, thickness: 1.4, scale: 1.25, samples: 12 }); g.blendIntensity = a.intensity ?? 0.85; composer.addPass(g); passes.ao = g; }
         if (bl) { const a = typeof bl === 'object' ? bl : {}; bloomPass = new B.UnrealBloomPass(css.clone().multiplyScalar(0.5), a.strength ?? 0.3, a.radius ?? 0.7, a.threshold ?? 1.0); composer.addPass(bloomPass); passes.bloom = bloomPass; stage.bloom = bloomPass; }
         composer.addPass(new OutputPass());
@@ -245,7 +298,7 @@ export function createStage(canvas, opts = {}) {
     adapt(fps) {
       if (software || fps > 26 || stage._adapted >= 3) return;   // a CPU renderer already runs the lightest profile
       stage._adapted = (stage._adapted || 0) + 1;
-      if (passes && passes.ao && passes.ao.enabled) { passes.ao.enabled = false; } else if (composer) { composer = null; } else if (renderer.getPixelRatio() > 1) renderer.setPixelRatio(1); else if (renderer.shadowMap.enabled && stage._adapted > 2) { renderer.shadowMap.enabled = false; sun.castShadow = false; scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; }); }
+      if (passes && passes.ao && passes.ao.enabled) { passes.ao.enabled = false; } else if (composer) { composer = null; skyU.alpha.value = 1; } else if (renderer.getPixelRatio() > 1) renderer.setPixelRatio(1); else if (renderer.shadowMap.enabled && stage._adapted > 2) { renderer.shadowMap.enabled = false; sun.castShadow = false; scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; }); }
       resize(); if (opts.storageKey) store.set(opts.storageKey, 'low');
     },
   };

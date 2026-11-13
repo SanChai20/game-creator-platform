@@ -192,6 +192,8 @@ export async function verifyPage(page, url, opts = {}) {
   // is loaded once more with ?gcp_portrait=1, which asks it for exactly that, and one picture is taken. It is the
   // version's screenshot and the picture the craft review reads. Slow is fine here: one frame is enough.
   let portrait = null, portraitShot = null, portraitGl = null;
+  // what the checked run saw (sound, input, drawing) is read before the page is loaded again for the portrait
+  const runProbe = pic1 && pic1.img ? await page.evaluate(() => (window.__GCP && window.__GCP.probe ? JSON.parse(JSON.stringify(window.__GCP.probe)) : null)).catch(() => null) : null;
   if (pic1 && pic1.img && report.ok && o.portrait !== false) {
     try {
       const tp = Date.now(); let ps = null;
@@ -211,7 +213,7 @@ export async function verifyPage(page, url, opts = {}) {
   // The craft review: not a pass/fail check, a measured account of how finished the game is and what to improve next.
   if (pic1 && pic1.img) {
     try {
-      const after = await page.evaluate(() => (window.__GCP && window.__GCP.probe ? JSON.parse(JSON.stringify(window.__GCP.probe)) : null)).catch(() => null);
+      const after = runProbe;
       let probe = restarted || !after ? probeBeforeInput || after : after;   // after a self-restart the fresh page has seen almost nothing
       if (restarted && probe && after && after.audio && probe.audio) probe = { ...probe, audio: { contexts: Math.max(probe.audio.contexts || 0, after.audio.contexts || 0), starts: Math.max(probe.audio.starts || 0, after.audio.starts || 0) } };
       const ui = [ui1, ui2].filter(Boolean).sort((a, b) => b.texts - a.texts)[0] || { texts: 0, chars: 0 };

@@ -269,12 +269,12 @@
   {
    "vertices": 120,
    "triangles": 72,
-   "positions": "465dcd6f"
+   "positions": "57f3db7f"
   },
   {
-   "vertices": 285,
-   "triangles": 400,
-   "positions": "63e4a61f"
+   "vertices": 342,
+   "triangles": 480,
+   "positions": "f978db7a"
   }
  ],
  "tree_pine": [
@@ -353,7 +353,7 @@
   }
  ],
  "recipe": [
-  "{\"kind\":\"tree\",\"seed\":4,\"species\":\"oak\",\"v\":1}",
+  "{\"kind\":\"tree\",\"seed\":4,\"species\":\"oak\",\"v\":2}",
   [
    1,
    862406440,

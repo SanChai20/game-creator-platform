@@ -76,6 +76,7 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
   }
   const publish = `publish {project, version: ${n}}`;
   return {
+    ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}), so there is no report yet. This is normal: the check takes one to two minutes. Call get_version {project, version: ${n}}; it waits for the result. Do not call deploy_preview again for the same files.` } : {}),
     ...pub, can_publish: el.ok, eligibility: el.reason,
     ...(craft ? { quality: {
       craft_score: craft.score, look_score: (craft as any).look ?? null, level: craft.level, target, meets_target: !below, summary: craft.summary,
@@ -85,7 +86,7 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
       note: `The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste, so changing rules, numbers or text does not move it. look_score is the picture alone out of 100 (surfaces, light, world, motion): finished reference games measure 80 to 95 there. The picture is the portrait: the opening view drawn once more at full quality, as a device with a graphics card draws it (the screenshot of the version); scenery that is not on screen there is not counted. Each line under improve names the measurement that is short, the value that earns full marks and the building block that moves it; get_block {name} shows its options. ${below ? 'Start with the first line.' : 'The target is met, so these are optional.'} Publishing never depends on the score.`,
     } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
-    next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} again in about 10 seconds.`
+    next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} now; it waits up to 40 seconds for the report.`
       : !el.ok ? 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.'
         : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and the target is ${target}. Apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
           : asPlanned ? `Verified with a craft score of ${craft!.score}/100 (target ${target}). The source is still the design_scene starting point almost line for line (quality.own_work), so the next step is to make it your own game: pick from quality.own_work.ideas, change the files, then deploy_preview again. ${publish} is available whenever you decide it is finished.`
@@ -405,7 +406,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
-    description: 'Freezes the workspace as a new numbered version, deploys it as its own Cloudflare Worker (the preview), then opens it in a real browser and checks that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also runs that script and the report lists each step; without one, the report says that only start-up, rendering and input were checked. Returns the verification report; if it is still running after about 45 seconds, call get_version to see the result. The user can play the preview from their console.',
+    description: 'Freezes the workspace as a new numbered version, deploys it as its own Cloudflare Worker (the preview), then opens it in a real browser and checks that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also runs that script and the report lists each step; without one, the report says that only start-up, rendering and input were checked. Returns the verification report. The check takes one to two minutes; if it is still running after 80 seconds the answer says not_finished, and get_version returns the report (do not deploy again meanwhile). The user can play the preview from their console.',
     inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
@@ -416,7 +417,7 @@ export const TOOLS: Tool[] = [
       const v = await snapshot(c.env, p, check.manifest, String(a.note || ''));
       await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
-      const done = await waitVersion(c, p.id, v.n, 45000);
+      const done = await waitVersion(c, p.id, v.n, 80000);
       return { deployed: true, warnings: check.warnings.map(issueLine), ...(await versionReport(c, p, v.n, done)) };
     },
   },
@@ -428,7 +429,7 @@ export const TOOLS: Tool[] = [
       const p = await ownedProject(c.env, c.user, a.project);
       const n = Number(a.version) || (await c.env.DB.prepare('SELECT MAX(n) AS n FROM versions WHERE project_id = ?').bind(p.id).first<{ n: number }>())?.n || 0;
       if (!n) throw bad('This project has no versions yet.', 'Call deploy_preview first.');
-      return versionReport(c, p, n, await waitVersion(c, p.id, n, 20000));
+      return versionReport(c, p, n, await waitVersion(c, p.id, n, 40000));
     },
   },
   {

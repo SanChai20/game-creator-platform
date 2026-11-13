@@ -20,7 +20,7 @@ Three tools cover them:
 
 | Part of the game | Block | What it gives you |
 |---|---|---|
-| Frame around everything | `createStage(canvas, { mood, weather })` | renderer, sky gradient, sun with a shadow that follows the action, hemisphere light, matching fog, tone mapping, weather particles, wind, quality that adapts to the device; `stage.run(update)` is the frame loop and calls `GCP.ready()` |
+| Frame around everything | `createStage(canvas, { mood, weather })` | renderer, sky gradient with drifting faceted clouds, sun with a shadow that follows the action, a mirrored sky for shiny and wet surfaces, hemisphere light, matching fog, tone mapping, weather particles, wind, quality that adapts to the device; `stage.run(update)` is the frame loop and calls `GCP.ready()` |
 | Ground | `terrain({ shape, palette, seed })`, `water()` | a coloured, textured height field with `land.heightAt(x, z)` and `land.randomPoint(rand)`; moving water |
 | Surfaces | `surface(kind, { color, repeat, relief })`, `block()`, `floor()` | 39 painted, tiling materials (brick, planks, cobble, bark, metal, lava, ...) in any colour |
 | Scenery | `tree()`, `rock()`, `bush()`, `groundCover()`, `grassField()` | "kinds": shapes built from many parts, merged into one or two draw calls each |
@@ -126,7 +126,7 @@ After a version verifies, the browser loads the game once more at full quality a
 | Measured | Points | What raises it |
 |---|---|---|
 | Surfaces have detail (fine detail, crisp edges, share of flat fills, textures in use) | 22 | `surface(kind)`, models made of parts (`tree`, `rock`, `prop`), `grassField({ land })`, faceted `terrain` |
-| Light and colour (tonal range, brightness, lighting and effect passes, colour families) | 22 | `createStage({ mood })`: shadows plus the finishing passes (ambient occlusion, bloom, colour grade, edge smoothing) |
+| Light and colour (tonal range, brightness, lighting and effect passes, colour families) | 22 | `createStage({ mood })`: a strong sun against cool shade, shadows, plus the finishing passes (light shafts, ambient occlusion, bloom, colour grade, edge smoothing) |
 | The world is furnished (different shapes, triangles and materials on screen) | 18 | more kinds and more of them: several species, props that fit, `scatter` with a few hundred things |
 | The world moves when the player does nothing | 8 | wind in trees and grass, `water()`, weather, bobbing pickups, idle animation |
 | Sound | 8 | `createSound()`: effects on actions, an ambience, music |

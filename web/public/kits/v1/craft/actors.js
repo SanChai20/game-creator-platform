@@ -49,10 +49,10 @@ export const HUMANOIDS = Object.keys(PRESETS);
  */
 export function humanoid(opts = {}) {
   const o = { ...PRESETS.villager, ...(PRESETS[opts.preset] || {}), ...opts }, r = mulberry32(sd(o.seed) * 613 + 11), H = o.height ?? 1.75, s = H / 1.75;
-  const skin = o.skin ?? [0xf2c9a0, 0xe0ac7e, 0xc68a5a, 0x8d5a3a, 0xffd9b8][sd(o.seed) % 5], shirt = o.shirt, pants = o.pants, shoes = o.shoes ?? 0x3a2a20, th = (o.thin ?? 1) * (0.94 + r() * 0.12), hs = o.headScale ?? 1;
+  const skin = o.skin ?? [0xf2c9a0, 0xe0ac7e, 0xc68a5a, 0x8d5a3a, 0xffd9b8][sd(o.seed) % 5], shirt = o.shirt, pants = o.pants, shoes = o.shoes ?? 0x3a2a20, th = (o.thin ?? 1) * 1.2 * (0.94 + r() * 0.12), hs = (o.headScale ?? 1) * 1.17;   // sturdy, readable proportions: a figure seen from ten metres is mostly silhouette
   const actor = new THREE.Group(), body = new THREE.Group(); body.scale.setScalar(s); actor.add(body);
   const hips = joint(body, 0, 0.9, 0, [[cap(0.13 * th, 0.12), pants, M4(0, 0, 0, 1, 1, 0.8, 0, 0, Math.PI / 2)]]);
-  const tp = [[cyl(0.2 * th, 0.16 * th, 0.46, 10), shirt, M4(0, 0.31, 0, 1, 1, 0.66)], [ball(0.2 * th, 10, 6), shirt, M4(0, 0.52, 0, 1, 0.45, 0.66)], [cyl(0.165 * th, 0.165 * th, 0.06, 10), o.belt ?? 0x2a1c12, M4(0, 0.09, 0, 1, 1, 0.7)], [cyl(0.06, 0.07, 0.1, 8), skin, M4(0, 0.63, 0)]];
+  const tp = [[cyl(0.2 * th, 0.16 * th, 0.46, 10), shirt, M4(0, 0.31, 0, 1, 1, 0.66)], [ball(0.2 * th, 10, 6), shirt, M4(0, 0.52, 0, 1, 0.45, 0.66)], [cyl(0.165 * th, 0.165 * th, 0.06, 10), o.belt ?? 0x2a1c12, M4(0, 0.09, 0, 1, 1, 0.7)], [cyl(0.07, 0.085, 0.1, 8), skin, M4(0, 0.63, 0)]];
   if (o.robe) tp.push([cyl(0.18 * th, 0.3 * th, 0.62, 10, 1), shirt, M4(0, -0.2, 0, 1, 1, 0.75)]);
   if (o.backpack != null) tp.push([box(0.3, 0.36, 0.16), o.backpack, M4(0, 0.36, -0.2)], [box(0.26, 0.1, 0.14), o.backpack, M4(0, 0.58, -0.19)]);
   const torso = joint(hips, 0, 0.06, 0, tp);
@@ -71,8 +71,8 @@ export function humanoid(opts = {}) {
   if (hat === 'visor') hp.push([ball(0.27, 14, 10), 0xe8ecf0, M4(0, 0.2, -0.02)], [ball(0.2, 12, 8), 0x1c2a3a, M4(0, 0.21, 0.09, 1, 0.8, 1)]);
   if (hat === 'antenna') hp.push([cyl(0.012, 0.012, 0.22, 5), 0x4a5560, M4(0, 0.5, 0)], [ball(0.035, 6, 5), 0xff4040, M4(0, 0.62, 0)], [box(0.3, 0.07, 0.03), o.eyes ?? 0x40e0ff, M4(0, 0.22, 0.2)]);
   const head = joint(torso, 0, 0.66, 0, hp); head.scale.setScalar(hs);
-  const arm = (side) => { const a = joint(torso, side * 0.255 * th, 0.53, 0, [[cap(0.062 * th, 0.2), shirt, M4(0, -0.14, 0)], [ball(0.075 * th, 8, 6), shirt, M4(0, 0, 0)]]); const f = joint(a, 0, -0.29, 0, [[cap(0.052 * th, 0.18), o.sleeves ? shirt : skin, M4(0, -0.12, 0)], [ball(0.062, 8, 6), skin, M4(0, -0.27, 0)]]); return [a, f]; };
-  const leg = (side) => { const l = joint(hips, side * 0.095 * th, -0.03, 0, [[cap(0.082 * th, 0.26), pants, M4(0, -0.2, 0)]]); const sh = joint(l, 0, -0.42, 0, [[cap(0.068 * th, 0.26), o.shorts ? skin : pants, M4(0, -0.19, 0)], [box(0.12, 0.085, 0.25), shoes, M4(0, -0.41, 0.045)]]); return [l, sh]; };
+  const arm = (side) => { const a = joint(torso, side * 0.255 * th, 0.53, 0, [[cap(0.062 * th, 0.2), shirt, M4(0, -0.14, 0)], [ball(0.075 * th, 8, 6), shirt, M4(0, 0, 0)]]); const f = joint(a, 0, -0.29, 0, [[cap(0.052 * th, 0.18), o.sleeves ? shirt : skin, M4(0, -0.12, 0)], [ball(0.062 * th, 8, 6), skin, M4(0, -0.28, 0)]]); return [a, f]; };
+  const leg = (side) => { const l = joint(hips, side * 0.095 * th, -0.03, 0, [[cap(0.082 * th, 0.26), pants, M4(0, -0.2, 0)]]); const sh = joint(l, 0, -0.42, 0, [[cap(0.068 * th, 0.26), o.shorts ? skin : pants, M4(0, -0.19, 0)], [box(0.13 * th, 0.1, 0.27), shoes, M4(0, -0.405, 0.05)]]); return [l, sh]; };
   const [armL, foreL] = arm(1), [armR, foreR] = arm(-1), [legL, shinL] = leg(1), [legR, shinR] = leg(-1);
   const hand = joint(foreR, 0, -0.28, 0.02);
   const tool = o.tool, T = [];

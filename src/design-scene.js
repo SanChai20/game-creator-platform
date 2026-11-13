@@ -186,7 +186,7 @@ export function designScene(args, V) {
     "  await boot.step(0.1, 'Setting the stage');",
     `  const stage = createStage('#view', { mood: ${q(mood)}${weather ? `, weather: ${q(weather)}` : ''} });`, '',
     '  // 2. Ground. land.heightAt(x, z) is the height everything else stands on.',
-    `  const land = terrain({ shape: ${q(shape)}, palette: ${palette}, seed: SEED, size: 240, amplitude: ${S.amplitude}, ${flat ? 'waterLevel: -2' : 'clearing: { x: 0, z: 0, r: 10 }'} });`);
+    `  const land = terrain({ shape: ${q(shape)}, palette: ${palette}, seed: SEED, size: 240, amplitude: ${S.amplitude}, ${flat ? 'waterLevel: -2' : 'clearing: { x: 0, z: 0, r: 10 }'}${weather === 'rain' ? ', wet: 0.7' : ''} });`);
   if (water) L.push(`  water({ level: 0${waterOpt} });`, '  const open = (x, z, y, slope) => y > 1 && slope < 0.8;   // where things may stand: out of the water, off the cliffs');
   else L.push('  const open = () => true;   // where things may stand');
   L.push('', '  // 3. Scenery. scatter() draws hundreds of copies in a few draw calls and returns the solid ones for collision.',
@@ -198,6 +198,15 @@ export function designScene(args, V) {
   L.push('', '  // 4. Landmarks around the start, placed by hand.', "  await boot.step(0.6, 'Building');",
     '  const at = (kind, x, z, rotY = 0) => place(kind, x, land.heightAt(x, z), z, { rotY });');
   const solids = [];
+  // two tall trees over the start: the opening view gets a crown overhead and shade and light across the ground
+  const trees = big.filter((c) => c.startsWith('tree(')), good = trees.filter((c) => !/cactus|dead/.test(c)), kindOf = (c) => (/species: '(\w+)'/.exec(c) || [])[1];
+  const first = good[0] || trees[0], tall = first ? [first, good.find((c) => kindOf(c) !== kindOf(first)) || first] : [];
+  if (tall.length && camera === 'third') {   // from above they would only hide the play area
+    const grown = (c, size, sd) => c.replace(/,? ?seed: \d+/, '').replace(/,? ?size: [\d.]+/, '').replace(/\{\s*,\s*/, '{ ').replace(/ ?\}\)$/, `, size: ${size}, seed: ${sd} })`);
+    L.push('  // Tall trees stand over the start, so the opening view has a crown overhead and shade and light across the ground.',
+      `  at(${grown(tall[0], 2.3, 11)}, 9.5, 4.5); at(${grown(tall[1], 2, 12)}, -11.5, 10, 2);`);
+    solids.push('{ x: 9.5, z: 4.5, r: 0.9 }', '{ x: -11.5, z: 10, r: 0.8 }');
+  }
   camp.forEach((c, i) => { const [x, z, r] = CAMP_SPOTS[i]; L.push(`  at(${c.code}, ${x}, ${z}${r ? `, ${r}` : ''});`); if (c.r) solids.push(`{ x: ${x}, z: ${z}, r: ${c.r} }`); });
   L.push(`  const solids = [...scenery.solids${solids.length ? ', ' + solids.join(', ') : ''}];`, '',
     '  // 5. The hero, input (keyboard, pointer and an on-screen stick on phones), sound, effects, interface, camera.',

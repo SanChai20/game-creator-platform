@@ -16,12 +16,12 @@ const sd = (v) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 
 const leanM = (x, y, z, tilt, yaw) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, yaw, 0, 'YXZ')), new THREE.Vector3(1, 1, 1));
 
 const MATS = new Map();
-/** A vertex-coloured material multiplied by a pale detail texture: 'foliage' (leaf marks), 'stone' (mottle and cracks) or 'plain'. */
+/** A vertex-coloured, faceted material: 'foliage' and 'plain' are clean facets that take the light, 'stone' and 'bark' add a pale detail texture. */
 function tinted(detail, { sway = 0, swayBase = 0, stage, flat = true, emissive = 0 } = {}) {
   const st = stage || currentStage(), key = `${detail}|${sway}|${swayBase}|${flat}|${emissive}|${st ? st.renderer.id || 1 : 0}`;
   let m = MATS.get(key);
   if (!m) {
-    const map = detail === 'foliage' ? surfaceTexture('leaves', { color: 0xf1f5ec, contrast: 0.4 }) : detail === 'stone' ? surfaceTexture('rock', { color: 0xdedbd6 }) : detail === 'bark' ? surfaceTexture('bark', { color: 0xd8d0c6 }) : null;
+    const map = detail === 'stone' ? surfaceTexture('rock', { color: 0xdedbd6 }) : detail === 'bark' ? surfaceTexture('bark', { color: 0xd8d0c6 }) : null;
     m = new THREE.MeshLambertMaterial({ vertexColors: true, map, flatShading: flat });
     if (emissive) { m.emissive = new THREE.Color(emissive); m.emissiveIntensity = 0.9; }
     if (sway && st) windSway(m, st, { amount: sway, base: swayBase });
@@ -45,7 +45,7 @@ export function tree(opts = {}) {
   const { species = 'oak', size = 1, snow = false } = opts, seed = sd(opts.seed), r = mulberry32(seed * 9973 + species.length * 131), st = opts.stage || currentStage();
   const leaf = shades(pick(opts.leaf, r) ?? LEAF[species] ?? LEAF.oak, 4, r), crown = [], extra = [];
   const blob = (rad, det, k) => lumpy(new THREE.IcosahedronGeometry(rad, det), 0.2, seed * 31 + k, 1.4 / Math.max(rad, 0.4));
-  let trunkGeo, trunkMat = surface('bark', { color: opts.trunk }), swayBase = 2, height = 5, radius = 0.35;
+  let trunkGeo, trunkMat = surface('bark', { color: opts.trunk ?? 0x96603a }), swayBase = 2, height = 5, radius = 0.35;
   if (species === 'pine' || species === 'cypress') {
     const tiers = species === 'cypress' ? [[0.85, 2.6, 2.2], [0.7, 2.4, 3.6], [0.5, 2.2, 5.0], [0.3, 1.6, 6.2]] : [[1.75, 2.3, 2.3], [1.35, 2.1, 3.7], [0.95, 1.9, 5.0], [0.55, 1.4, 6.0]];
     trunkGeo = tiledCylinder(0.14, 0.3, 2.6, 7).translate(0, 1.3, 0); height = 7; swayBase = 1.6;
@@ -70,11 +70,12 @@ export function tree(opts = {}) {
     extra.push([new THREE.CylinderGeometry(1.42, 1.3, 0.12, 14), 0xf2e2c8, M4(0, 2.62, 0)]);
   } else {
     const slim = species === 'birch', h = slim ? 4.2 : 3.2 + r() * 0.6; height = h + 2.2; swayBase = h - 0.6;
-    const parts = [tiledCylinder(slim ? 0.11 : 0.17, slim ? 0.19 : 0.33, h, 8).translate(0, h / 2, 0)];
+    const old = opts.v === 1;   // recipes stored at version 1 keep the shape they were made with
+    const parts = [tiledCylinder(slim ? 0.11 : old ? 0.17 : 0.2, slim ? 0.19 : old ? 0.33 : 0.4, h, 8).translate(0, h / 2, 0)];
     for (let i = 0; i < (slim ? 1 : 2); i++) { const a = r() * TAU, l = 1 + r() * 0.5; parts.push(tiledCylinder(0.05, 0.11, l, 5, 1).applyMatrix4(M4(Math.cos(a) * 0.32, h * 0.72 + i * 0.3, Math.sin(a) * 0.32, 1, 1, 1, Math.sin(a) * 0.8, 0, -Math.cos(a) * 0.8))); }
     trunkGeo = mergeGeos(parts); if (slim) trunkMat = surface('birch', { color: opts.trunk });
-    const n = slim ? 4 : species === 'willow' ? 6 : 5;
-    for (let i = 0; i < n; i++) { const a = r() * TAU, d = i ? (slim ? 0.55 : 0.95) * (0.6 + r() * 0.6) : 0, rad = (slim ? 0.8 : 1.25) * (0.8 + r() * 0.45); crown.push([blob(rad, 1, i), leaf[i % 4], M4(Math.cos(a) * d, h + 0.35 + r() * 0.9 - (i ? 0.35 : 0), Math.sin(a) * d, 1, slim ? 1.25 : species === 'willow' ? 0.8 : 0.9, 1)]); }
+    const n = slim ? 4 : species === 'willow' || !old ? 6 : 5;
+    for (let i = 0; i < n; i++) { const a = old ? r() * TAU : i * 2.4 + r() * 0.8, d = old ? (i ? (slim ? 0.55 : 0.95) * (0.6 + r() * 0.6) : 0) : i ? (slim ? 0.55 : 1.2) * (0.65 + r() * 0.5) : 0, rad = old ? (slim ? 0.8 : 1.25) * (0.8 + r() * 0.45) : i ? (slim ? 0.8 : 1.35) * (0.8 + r() * 0.4) : (slim ? 0.95 : 1.75); crown.push([blob(rad, 1, i), leaf[i % 4], M4(Math.cos(a) * d, h + 0.35 + r() * 0.9 - (i ? 0.35 : 0), Math.sin(a) * d, 1, slim ? 1.25 : species === 'willow' ? 0.8 : 0.9, 1)]); }
     if (species === 'willow') for (let i = 0; i < 12; i++) { const a = i / 12 * TAU + r() * 0.3, d = 1.2 + r() * 0.5; crown.push([new THREE.ConeGeometry(0.2, 2.4 + r(), 4), leaf[(i + 1) % 4], M4(Math.cos(a) * d, h - 0.4, Math.sin(a) * d, 1, 1, 1, Math.PI, 0, 0)]); }
     if (snow) crown.push([blob(1.1, 1, 9), 0xf2f6f8, M4(0, h + 1.35, 0, 1, 0.45, 1)]);
   }
@@ -208,22 +209,24 @@ export function scatter(scene, kinds, opts = {}) {
  * A field of grass tufts that sway in the wind: the cheapest way to make ground look alive.
  * Options: land (the terrain: tufts stand on it and take its colour, so the grass grows out of the ground instead
  * of sitting on it), count (tufts; default about two per square metre, scaled down automatically on slow devices),
- * radius or area, center, where, color (a colour or a list, instead of the land's), height (metres), seed, stage.
- * Without land pass heightAt. Returns the instanced mesh.
+ * radius or area, center, where, color (a colour or a list, instead of the land's), height (metres), flowers (false,
+ * or a list of colours; by default drifts of small flowers grow where the land is green), seed, stage.
+ * The field thins into clearings and stands taller in drifts, so it never reads as a carpet. Without land pass heightAt.
+ * Returns the instanced mesh (mesh.userData.flowers is the flowers).
  */
 export function grassField(scene, opts = {}) {
   if (!scene || !scene.isObject3D) { opts = scene || {}; scene = (opts.stage || currentStage()).scene; }
   const st = opts.stage || currentStage(), land = opts.land, { radius = 50, area, center = [0, 0], heightAt = land ? land.heightAt : () => 0, where, height = 0.5 } = opts, seed = sd(opts.seed);
-  const lite = !!(st && st.software), m2 = area ? area[0] * area[1] : Math.PI * radius * radius, count = Math.round((opts.count ?? Math.min(24000, m2 * 2)) * (st ? st.density : 0.8)), r = mulberry32(seed * 8191);
+  const lite = !!(st && st.software), m2 = area ? area[0] * area[1] : Math.PI * radius * radius, count = Math.round((opts.count ?? Math.min(22000, m2 * 1.7)) * (st ? st.density : 0.8)), r = mulberry32(seed * 8191), nz = new Simplex(seed + 5);
   const fixed = opts.color != null || !land ? (Array.isArray(opts.color) ? opts.color : shades(opts.color ?? 0x6fb04a, 4, r, 0.06)).map((c) => new THREE.Color(c)) : null;
-  // one tuft: a few bent ribbons, dark at the root and light at the tip, all lit as if they faced the sky so the
-  // field shades like the ground under it. Each ribbon is built with both windings, so it needs no double-sided pass.
-  const nb = lite ? 3 : 6, pos = [], col = [], idx = [], tr = mulberry32(seed * 131 + 7);
+  // one tuft: a few bent, pointed blades, dark at the root and light at the tip, all lit as if they faced the sky so the
+  // field shades like the ground under it. Each blade is built with both windings, so it needs no double-sided pass.
+  const nb = lite ? 3 : 5, pos = [], col = [], idx = [], tr = mulberry32(seed * 131 + 7);
   for (let i = 0; i < nb; i++) {
-    const a = i / nb * TAU + tr() * 0.9, d = 0.05 + tr() * 0.2, w = 0.035 + tr() * 0.025, h = 0.65 + tr() * 0.5, bend = 0.12 + tr() * 0.28, ca = Math.cos(a), sa = Math.sin(a), o = pos.length / 3;
-    for (const [side, t] of [[-1, 0], [1, 0], [-0.65, 0.55], [0.65, 0.55], [0, 1]]) {
-      const out = d + t * t * bend, k = 0.6 + t * 0.62;
-      pos.push(ca * out - sa * side * w, t * h, sa * out + ca * side * w); col.push(k * (1 + t * 0.1), k * (1 + t * 0.08), k * (1 - t * 0.12));
+    const a = i / nb * TAU + tr() * 0.9, d = 0.04 + tr() * 0.2, w = 0.05 + tr() * 0.035, h = 0.55 + tr() * 0.75, bend = 0.1 + tr() * 0.34, ca = Math.cos(a), sa = Math.sin(a), o = pos.length / 3;
+    for (const [side, t] of [[-1, 0], [1, 0], [-0.7, 0.5], [0.7, 0.5], [0, 1]]) {
+      const out = d + t * t * bend, k = 0.4 + t * 0.66;
+      pos.push(ca * out - sa * side * w, t * h, sa * out + ca * side * w); col.push(k * (1 + t * 0.16), k * (1 + t * 0.1), k * (1 - t * 0.2));
     }
     idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2, o + 2, o + 3, o + 4, o, o + 2, o + 1, o + 1, o + 2, o + 3, o + 2, o + 4, o + 3);
   }
@@ -231,19 +234,32 @@ export function grassField(scene, opts = {}) {
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(pos.length / 3).fill([0, 1, 0]).flat(), 3)); geo.setIndex(idx);
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true }); if (st) windSway(mat, st, { amount: 0.2, base: 0, speed: 1.9, flutter: 0.5 });
   const mesh = new THREE.InstancedMesh(geo, mat, count), m4 = new THREE.Matrix4(), qq = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), c = new THREE.Color(); let n = 0;
-  for (let tries = 0; tries < count * 4 && n < count; tries++) {
+  // flowers: small bright heads on stems, in drifts, wherever the ground under them is green
+  const wantFl = opts.flowers ?? !fixed, flCols = (Array.isArray(opts.flowers) ? opts.flowers : [0xffffff, 0xffe066, 0xff9ac2, 0xc4a0ff, 0xff8a4a]).map((x) => new THREE.Color(x)), fl = [];
+  for (let tries = 0; tries < count * 5 && n < count; tries++) {
     let x, z; if (area) { x = center[0] + (r() - 0.5) * area[0]; z = center[1] + (r() - 0.5) * area[1]; } else { const a = r() * TAU, d = Math.sqrt(r()) * radius; x = center[0] + Math.cos(a) * d; z = center[1] + Math.sin(a) * d; }
+    // the field is not a carpet: it thins out into clearings, stands tall in drifts, and its colour wanders
+    const lush = nz.n2(x * 0.06, z * 0.06) * 0.7 + nz.n2(x * 0.21 + 9, z * 0.21) * 0.3; if (lush < -0.18 && r() < Math.min(0.92, (-0.18 - lush) * 4)) continue;
     const y = heightAt(x, z); if (where) { const slope = Math.abs(heightAt(x + 1, z) - y) + Math.abs(heightAt(x, z + 1) - y), ok = where(x, z, y, slope); if (!ok || (typeof ok === 'number' && r() > ok)) continue; }
-    const s = 0.75 + r() * 0.6; qq.setFromAxisAngle(up, r() * TAU); mesh.setMatrixAt(n, m4.compose(pv.set(x, y - 0.03, z), qq, sv.set(s, s * height / 0.6, s)));
-    if (fixed) c.copy(fixed[(r() * fixed.length) | 0]); else { land.colorAt(x, z, c, y); c.multiplyScalar(1.08 + r() * 0.14); }
+    const tall = 0.6 + Math.max(0, lush) * 1.1 + r() * 0.55, s = 0.8 + r() * 0.5; qq.setFromAxisAngle(up, r() * TAU); mesh.setMatrixAt(n, m4.compose(pv.set(x, y - 0.03, z), qq, sv.set(s, tall * height / 0.6, s)));
+    const dry = nz.n2(x * 0.045 + 31, z * 0.045 - 17) * 0.5 + 0.5;
+    if (fixed) c.copy(fixed[(r() * fixed.length) | 0]); else { land.colorAt(x, z, c, y); const v = 0.8 + r() * 0.28; c.setRGB(c.r * v * (1 + dry * 0.3), c.g * v * (1 + dry * 0.1), c.b * v * (1 - dry * 0.3)); }
     mesh.setColorAt(n, c); n++;
+    if (wantFl && !lite && r() < 0.05 && nz.n2(x * 0.09 - 40, z * 0.09 + 12) > 0.15) { if (!fixed) land.colorAt(x, z, c, y); if (fixed || (c.g > c.r * 1.1 && c.g > c.b * 1.1)) fl.push([x + (r() - 0.5) * 0.5, y, z + (r() - 0.5) * 0.5, 0.75 + r() * 0.7, (nz.n2(x * 0.03, z * 0.03 + 70) * 2.5 + 2.5 + r() * 1.2) | 0]); }
   }
   mesh.count = n; mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; mesh.receiveShadow = true; mesh.castShadow = false; mesh.computeBoundingSphere(); scene.add(mesh);
+  if (fl.length) {
+    const head = new THREE.IcosahedronGeometry(0.075, 0).scale(1, 0.55, 1).translate(0, 0.56, 0), stem = new THREE.CylinderGeometry(0.008, 0.012, 0.56, 3).translate(0, 0.28, 0);
+    const fg = mergeParts([[head, 0xffffff], [stem, 0x3c5c2c]], { jitter: 0 }), fm = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }); if (st) windSway(fm, st, { amount: 0.16, base: 0, speed: 1.9, flutter: 0.3 });
+    const flowers = new THREE.InstancedMesh(fg, fm, fl.length);
+    fl.forEach(([x, y, z, sc, ci], i) => { flowers.setMatrixAt(i, m4.compose(pv.set(x, y, z), qq.setFromAxisAngle(up, i), sv.set(sc, sc * height / 0.5, sc))); flowers.setColorAt(i, flCols[ci % flCols.length]); });
+    flowers.receiveShadow = true; flowers.castShadow = false; flowers.computeBoundingSphere(); scene.add(flowers); mesh.userData.flowers = flowers;
+  }
   return mesh;
 }
 
 const LANDS = {
-  temperate: { shore: 0xdcc890, low: 0x5c9a3c, high: 0x4a8a3a, steep: 0x8b8378, peak: 0x9a968c, detail: 'grass' },
+  temperate: { shore: 0xdcc890, low: 0x538c38, high: 0x447e38, steep: 0x8b8378, peak: 0x9a968c, detail: 'grass' },
   autumn:    { shore: 0xd8c79a, low: 0xa89a3c, high: 0xb8742c, steep: 0x7f776c, peak: 0x8f8a80, detail: 'grass' },
   desert:    { shore: 0xe6cf98, low: 0xdcb878, high: 0xc99a5c, steep: 0xa8754a, peak: 0xb8865a, detail: 'sand' },
   snow:      { shore: 0xb4c8dc, low: 0xf4f8fc, high: 0xcfdeec, steep: 0x7f8894, peak: 0xffffff, detail: 'snow' },
@@ -269,6 +285,7 @@ export const TERRAIN_SHAPES = Object.keys(SHAPES), TERRAIN_PALETTES = Object.key
  *   size (metres, default 240), segments (default from quality), amplitude (metres of relief, default 12), seed,
  *   palette ('temperate' | 'autumn' | 'desert' | 'snow' | 'volcanic' | 'alien' | 'tropical', or { shore, low, high, steep, peak, detail }),
  *   waterLevel (heights near it get the shore colour), clearing { x, z, r } (a flat spot, e.g. the spawn),
+ *   wet (0..1 or true: rain-wet ground, darker and smooth enough to mirror the sky and catch every light),
  *   style ('faceted': crisp low-poly facets, each with its own colour, the default for natural land · 'smooth':
  *   rounded and multiplied by the palette's painted detail texture, the default for shape 'flat' and for palettes
  *   that name a detail).
@@ -308,6 +325,9 @@ export function terrain(opts = {}) {
     g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.computeVertexNormals();
     material = new THREE.MeshLambertMaterial({ vertexColors: true, map: surfaceTexture(pal.detail || 'grass', { color: 0xd6dccf }), flatShading });
   }
+  // wet ground: darker, and smooth enough to mirror the sky and catch every light (rain, a shore, a city at night)
+  const wet = st && st.software ? 0 : clamp(opts.wet === true ? 0.7 : opts.wet || 0);
+  if (wet > 0) { const dry = material; material = new THREE.MeshStandardMaterial({ vertexColors: true, map: dry.map, flatShading: dry.flatShading, roughness: 1 - wet * 0.82, metalness: 0.05, color: new THREE.Color().setScalar(1 - wet * 0.3) }); dry.dispose(); }
   g.computeBoundingSphere();
   const mesh = new THREE.Mesh(g, material); mesh.receiveShadow = true;
   const randomPoint = (rand, { minHeight = waterLevel + 0.8, maxHeight = Infinity, maxSlope = 0.9, minRadius = 0, maxRadius = size * 0.42, tries = 300 } = {}) => {
@@ -325,21 +345,34 @@ export function terrain(opts = {}) {
 export function water(opts = {}) {
   const st = opts.stage || currentStage(), { level = 0, size = 900, color = 0x2f8fc4, opacity = 0.84, waves = 0.12 } = opts, low = st && st.quality === 'low';
   const tex = surfaceTexture('water', { color: 0xcfe9f5, seed: 4 }).clone(); tex.repeat.set(size / 14, size / 14); tex.needsUpdate = true;
-  const soft = !!(st && st.software), mat = soft ? new THREE.MeshLambertMaterial({ color, map: tex }) : new THREE.MeshPhongMaterial({ color, map: tex, transparent: true, opacity, shininess: 90, specular: 0x8fb8d8 }), U = { uWaterTime: { value: 0 }, uWaves: { value: waves } };
+  const soft = !!(st && st.software), mat = soft ? new THREE.MeshLambertMaterial({ color, map: tex }) : new THREE.MeshPhongMaterial({ color, map: tex, transparent: true, opacity, shininess: 90, specular: 0x8fb8d8 }), U = { uWaterTime: { value: 0 }, uWaves: { value: waves }, uSkyT: { value: new THREE.Color(0x3d7fd6) }, uSkyH: { value: new THREE.Color(0xcfe6ff) } };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uWaterTime, uWaves;')
       .replace('#include <beginnormal_vertex>', 'float wA = position.x * 0.31 + uWaterTime * 1.1, wB = position.z * 0.47 - uWaterTime * 1.4, wC = (position.x + position.z) * 0.9 + uWaterTime * 2.1;\nvec3 objectNormal = normalize(vec3(-(cos(wA) * 0.31 + cos(wC) * 0.27) * uWaves, 1.0, -(cos(wB) * 0.47 * 0.7 + cos(wC) * 0.27) * uWaves));')
-      .replace('#include <begin_vertex>', 'vec3 transformed = vec3(position); transformed.y += (sin(wA) + sin(wB) * 0.7 + sin(wC) * 0.3) * uWaves;');
+      .replace('#include <begin_vertex>', 'vec3 transformed = vec3(position); transformed.y += (sin(wA) + sin(wB) * 0.7 + sin(wC) * 0.3) * uWaves; vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;');
+    if (soft) return;
+    // the surface: small ripples that catch the sun, and the sky mirrored more strongly the flatter you look across it
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uWaterTime; uniform vec3 uSkyT, uSkyH; varying vec3 vWPos;')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        vec2 wp = vWPos.xz; float wt = uWaterTime;
+        vec3 rip = vec3(cos(wp.x * 2.3 + wt * 1.7) + cos((wp.x + wp.y) * 3.1 - wt * 2.2) * 0.6, 0.0, cos(wp.y * 2.7 - wt * 1.3) + cos((wp.x - wp.y) * 3.7 + wt * 1.9) * 0.6) * 0.055;
+        normal = normalize(normal + (viewMatrix * vec4(rip, 0.0)).xyz);`)
+      .replace('#include <opaque_fragment>', `float wFr = pow(1.0 - clamp(dot(normalize(vViewPosition), normal), 0.0, 1.0), 3.5);
+        vec3 wR = (vec4(reflect(-normalize(vViewPosition), normal), 0.0) * viewMatrix).xyz;
+        outgoingLight = mix(outgoingLight, mix(uSkyH, uSkyT, clamp(wR.y * 1.5, 0.0, 1.0)), wFr * 0.85); diffuseColor.a = mix(diffuseColor.a, 1.0, wFr);
+        #include <opaque_fragment>`);
   };
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size, st && st.software ? 20 : low ? 48 : 128, st && st.software ? 20 : low ? 48 : 128).rotateX(-Math.PI / 2), mat); mesh.position.y = level; mesh.receiveShadow = true; mesh.renderOrder = 2;
-  const tick = (dt, t) => { U.uWaterTime.value = t; tex.offset.set(t * 0.012, t * 0.008); };
+  const tick = (dt, t) => { U.uWaterTime.value = t; tex.offset.set(t * 0.012, t * 0.008); if (st && st.mood) { U.uSkyT.value.copy(st.mood.top); U.uSkyH.value.copy(st.mood.horizon); } };
   if (st) { st.onUpdate(tick); if (opts.add !== false) st.scene.add(mesh); } mesh.userData.update = tick;
   return mesh;
 }
 
-defineRecipe('tree', { summary: 'A tree kind (place or scatter it).', params: { species: TREES.join(' | '), seed: 'individual', size: '1 = about 5 m', leaf: 'colour or list', trunk: 'colour', snow: 'true for a snow cap' }, make: (p) => tree(p) });
+defineRecipe('tree', { v: 1, summary: 'A tree kind as first released.', make: (p) => tree(p) });
+defineRecipe('tree', { v: 2, summary: 'A tree kind (place or scatter it).', params: { species: TREES.join(' | '), seed: 'individual', size: '1 = about 5 m', leaf: 'colour or list', trunk: 'colour', snow: 'true for a snow cap' }, make: (p) => tree(p) });
 defineRecipe('rock', { summary: 'A boulder cluster kind.', params: { seed: 'shape', size: 'metres', color: 'stone colour', moss: 'true or colour', ore: 'crystal colour', snow: 'true for a snow cap' }, make: (p) => rock(p) });
 defineRecipe('bush', { summary: 'A bush kind.', params: { seed: 'shape', size: 'metres', color: 'leaf colour', berries: 'colour', flowers: 'colour' }, make: (p) => bush(p) });
 defineRecipe('cover', { summary: 'Small ground cover kind.', params: { type: 'flower | tuft | fern | reeds | mushrooms | stones | log | stump | crystal', seed: 'shape', size: 'scale', color: 'main colour', accent: 'second colour' }, make: (p) => groundCover(p.type, p) });
-defineRecipe('terrain', { summary: 'The ground: { mesh, heightAt, slopeAt, randomPoint }.', params: { shape: TERRAIN_SHAPES.join(' | '), palette: TERRAIN_PALETTES.join(' | '), seed: 'world', size: 'metres', amplitude: 'metres of relief', waterLevel: 'height of the shore', clearing: '{ x, z, r } flat spot' }, cache: false, make: (p) => terrain(p) });
+defineRecipe('terrain', { summary: 'The ground: { mesh, heightAt, slopeAt, randomPoint }.', params: { shape: TERRAIN_SHAPES.join(' | '), palette: TERRAIN_PALETTES.join(' | '), seed: 'world', size: 'metres', amplitude: 'metres of relief', waterLevel: 'height of the shore', clearing: '{ x, z, r } flat spot', wet: '0..1: rain-wet ground that mirrors the sky and lights' }, cache: false, make: (p) => terrain(p) });
