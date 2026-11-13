@@ -11,12 +11,12 @@ room.on('join', (peer) => {});                   // { id, name }
 room.on('leave', (id) => {});
 room.on('host', (hostId) => {});                 // the host left and someone else was promoted
 room.on('message', (data, from) => {});
-room.on('state', (data) => {});
+room.on('state', (data) => {});                  // every time the host calls setState, on every other player; never on the host itself
 room.on('close', (code) => {});                  // reconnects by itself a few times
 
 room.send({ type: 'wave' });                     // to everyone else
 room.send({ type: 'hit', dmg: 3 }, 'host');      // to the host only, or to one peer id
-room.setState({ round: 2 });                     // host only: kept for late joiners, up to 256 KB
+room.setState({ round: 2 });                     // host only: sent to everyone else at once and kept for late joiners (they get it in `open`), up to 256 KB
 room.isHost; room.id; room.peers; room.leave();
 ```
 

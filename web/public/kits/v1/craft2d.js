@@ -19,7 +19,7 @@ export const shade = (c, k) => { const [r, g, b] = rgb(c), f = (v) => Math.round
 
 /** Named moods, the same names as in 3D. ambient multiplies the whole picture (white = full daylight); lights cut through it. */
 export const MOODS2D = {
-  'clear-day': { ambient: 0xffffff, shadow: 0.38, vignette: 0.3 }, 'golden-hour': { ambient: 0xffd9a6, shadow: 0.34, vignette: 0.35 }, 'misty-dawn': { ambient: 0xdfe6ea, shadow: 0.16, vignette: 0.3, haze: 0xe9eef0 },
+  'clear-day': { ambient: 0xffffff, shadow: 0.38, vignette: 0.3 }, 'golden-hour': { ambient: 0xffd9a6, shadow: 0.34, vignette: 0.35 }, 'misty-dawn': { ambient: 0xcfd8de, shadow: 0.14, vignette: 0.35, haze: 0xe9eef0, mist: 0.6 },
   overcast: { ambient: 0xc9d0d6, shadow: 0.14, vignette: 0.3 }, storm: { ambient: 0x8a96a8, shadow: 0.1, vignette: 0.45 }, dusk: { ambient: 0xb88aa6, shadow: 0.22, vignette: 0.45 },
   night: { ambient: 0x3d4f8f, shadow: 0.2, vignette: 0.6 }, desert: { ambient: 0xfff2d6, shadow: 0.36, vignette: 0.22 }, arctic: { ambient: 0xe8f2ff, shadow: 0.22, vignette: 0.22 },
   autumn: { ambient: 0xffe6c2, shadow: 0.3, vignette: 0.3 }, volcanic: { ambient: 0xc8785a, shadow: 0.25, vignette: 0.5 }, alien: { ambient: 0x9a8ad8, shadow: 0.25, vignette: 0.45 },
@@ -50,7 +50,8 @@ export const currentStage2d = () => CURRENT;
  *   stage.fx                       burst(x, y, color), text(x, y, 'words', color), ring(x, y, color), confetti(x, y)
  *   stage.shake(amount), stage.onUpdate(fn), stage.run(update)  the frame loop; calls GCP.ready() after the first frames
  * Options: mood, weather, zoom (pixels per unit, default fits about 22 units across), ground (a ground2d, or set
- * stage.ground later), wind (0..2).
+ * stage.ground later), wind (0..2), mist (0..1: a veil with drifting banks over the picture; misty-dawn has 0.6).
+ * The loop is stage.run(update); pass { ready: false } as its second argument to call GCP.ready() yourself.
  */
 export function createStage2d(canvas, opts = {}) {
   const el = typeof canvas === 'string' ? document.querySelector(canvas) : canvas, view = setupCanvas(el, { maxDpr: 2 }), ctx = view.ctx, cam = new Camera2D();
@@ -114,7 +115,10 @@ export function createStage2d(canvas, opts = {}) {
           const gr = lctx.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, `rgba(${l.color[0]},${l.color[1]},${l.color[2]},0.95)`); gr.addColorStop(0.45, `rgba(${l.color[0]},${l.color[1]},${l.color[2]},0.4)`); gr.addColorStop(1, 'rgba(0,0,0,0)'); lctx.fillStyle = gr; lctx.fillRect(px - r, py - r, r * 2, r * 2); }
         ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(lightC, 0, 0, w, h); ctx.globalCompositeOperation = 'source-over';
       }
-      if (mood.haze) { ctx.fillStyle = hex(mood.haze); ctx.globalAlpha = 0.16; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1; }
+      const mist = opts.mist ?? mood.mist ?? 0;   // a veil over everything, thicker in slow drifting banks
+      if (mist > 0.01) { ctx.fillStyle = hex(mood.haze ?? 0xe9eef0); ctx.globalAlpha = mist * 0.3; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = mist * 0.28;
+        for (let i = 0; i < 7; i++) { const bx = ((i * 0.31 + time * 0.012 * (1 + i % 3)) % 1.4 - 0.2) * w, by = ((i * 0.47) % 1) * h + Math.sin(time * 0.2 + i) * 30, br = Math.max(w, h) * (0.22 + (i % 3) * 0.07); const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br); g2.addColorStop(0, hex(mood.haze ?? 0xe9eef0)); g2.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g2; ctx.fillRect(bx - br, by - br, br * 2, br * 2); }
+        ctx.globalAlpha = 1; }
       if (weather) { const W = weather; if (W.haze) { ctx.fillStyle = W.haze; ctx.fillRect(0, 0, w, h); } if (W.glow) ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = ctx.strokeStyle = W.color; ctx.lineWidth = W.w || 1; ctx.beginPath();
         for (const d of drops) { const sx = W.sway ? Math.sin(time * (0.6 + d.s) + d.s * 40) * W.sway : 0, x = (((d.x * w + time * W.vx * (0.7 + d.s * 0.6) + sx - cam.x * z) % w) + w) % w, y = (((d.y * h + time * W.vy * (0.7 + d.s * 0.6) - cam.y * z) % h) + h) % h;
           if (W.len) { ctx.moveTo(x, y); ctx.lineTo(x + W.vx / Math.hypot(W.vx, W.vy) * W.len, y + W.vy / Math.hypot(W.vx, W.vy) * W.len); } else { const r = W.r * (0.6 + d.s * 0.8) * (W.blink ? Math.max(0, Math.sin(time * (1 + d.s * 2) + d.s * 50)) : 1); ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, TAU); } }
