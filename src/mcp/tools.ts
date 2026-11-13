@@ -10,7 +10,7 @@ import {
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
 } from '../projects';
 import { takeOffline } from '../routes/api';
-import { designSceneTool, getBlock, listBlocks } from './blocks';
+import { designSceneTool, getBlock, listBlocks, ownWork } from './blocks';
 import { DESIGN_GOALS, DESIGN_SETTINGS } from '../design-scene.js';
 import { getSettings } from '../settings';
 import { THREE_VERSION } from '../generated/runtime-source';
@@ -58,18 +58,22 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
   const running = ['queued', 'deploying', 'verifying'].includes(v.status);
   const craft = (pub.report as any)?.craft as { score: number; level: string; summary: string; next: string[] } | undefined, target = s.craft_target;
   const below = !!craft && craft.score < target;
+  const own = craft && !running ? await ownWork(c.env, p.id, n) : null, asPlanned = !!own?.still_the_plan;
+  const publish = `publish {project, version: ${n}}`;
   return {
     ...pub, can_publish: el.ok, eligibility: el.reason,
     ...(craft ? { quality: {
       craft_score: craft.score, level: craft.level, target, meets_target: !below, summary: craft.summary,
-      improve: below ? craft.next : [],
-      note: below ? 'The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste. Each line under improve names what was measured and the building block that fixes it; get_block {name} shows its options.' : 'Measured from the running game. Publishing never depends on it.',
+      improve: craft.next,
+      ...(own ? { own_work: own } : {}),
+      note: `The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste, so changing rules, numbers or text does not move it. Each line under improve names the measurement that is short, the value that earns full marks and the building block that moves it; get_block {name} shows its options. ${below ? 'Start with the first line.' : 'The target is met, so these are optional.'} Publishing never depends on the score.`,
     } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} again in about 10 seconds.`
       : !el.ok ? 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.'
-        : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and a finished game reaches ${target}. Before telling the user it is done, apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
-          : `Verified${craft ? ` with a craft score of ${craft.score}/100` : ''}. Tell the user they can try it at the preview page, then call publish {project, version: ${n}} when they are happy.`,
+        : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and the target is ${target}. Apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
+          : asPlanned ? `Verified with a craft score of ${craft!.score}/100 (target ${target}). The source is still the design_scene starting point almost line for line (quality.own_work), so the next step is to make it your own game: pick from quality.own_work.ideas, change the files, then deploy_preview again. ${publish} is available whenever you decide it is finished.`
+            : `Verified${craft ? ` with a craft score of ${craft.score}/100 (target ${target})` : ''}. This version can go live: ${publish}. The preview page lets a person play it first; keep editing and call deploy_preview again if there is more to do.`,
   };
 }
 
@@ -89,7 +93,7 @@ export const TOOLS: Tool[] = [
           '3. Build the game. list_blocks shows every block (one call each: a textured material, a tree, a house, an animated character, a HUD, sound); get_block {name} shows its options and valid names. Blocks are optional and mix with your own code.',
           '4. check_project: static checks (syntax, imports, missing files, the contract). Fix everything it reports.',
           '5. deploy_preview: freezes a version, deploys it as its own Cloudflare Worker, runs it in a real browser, and returns a verification report with a craft score out of 100. Register GCP.test.onPlaythrough (platform-contract guide) so the browser also plays your rules to the end.',
-          `6. Repeat 3 to 5 until the version is verified and the craft score is ${s.craft_target} or more. The report lists what to improve and which block does it. The user can play the preview from their console.`,
+          `6. Repeat 3 to 5 until the version is verified, the craft score is ${s.craft_target} or more and the game is your own design. The report lists what to improve and which block does it (quality.improve) and, for a game that began as a design_scene plan, how much of it is still the plan (quality.own_work). A person can play every preview from the console.`,
           '7. publish: makes that verified version live in the marketplace. Later: list_versions, rollback, unpublish, get_stats.',
         ],
         rules: [
@@ -102,6 +106,7 @@ export const TOOLS: Tool[] = [
           target: `${s.craft_target} or more for a game you would call finished. Publishing never depends on the score; it tells you what a player would notice is missing.`,
           why_blocks: 'A bare primitive with a flat colour, a silent scene and no interface is what scores low. Every block exists to remove one of those in one call, with nothing to download: surface(kind) paints a material, tree(), rock(), prop(kind), humanoid() and animal() build detailed models from parts, createStage() lights the scene, createHud() and createSound() give interface and sound.',
         },
+        session: `The access token lasts ${Math.round(Math.max(60, s.oauth_access_ttl_s) / 60)} minutes. When a call answers 401, do not sign in again: POST ${c.origin}/oauth/token with grant_type=refresh_token, refresh_token and client_id, keep the new access_token and refresh_token from the answer, and repeat the call. The whole authorization ends after ${Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400))} days or when the user revokes it. Projects, files and versions stay as they are across all of that.`,
         freedom: 'Everything else is yours: genre, art direction, camera, rendering technique, engine or no engine. Blocks, guides and kits are help, not a house style: a game made entirely of your own code is just as welcome and is measured the same way.',
         imports_available_by_default: defaultImports(c.origin),
         building_blocks: {

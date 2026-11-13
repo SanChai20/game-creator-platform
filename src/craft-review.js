@@ -100,70 +100,114 @@ export function craftReview(m) {
   const P = m.probe || {}, gl = P.gl && P.gl.frames ? P.gl : null, c2 = P.c2d && P.c2d.frames ? P.c2d : null;
   const stills = (m.stills || []).filter(Boolean), dims = [];
   const best = (k) => (stills.length ? Math.max(...stills.map((s) => s[k])) : 0), least = (k) => (stills.length ? Math.min(...stills.map((s) => s[k])) : 1);
-  const add = (id, label, max, share, measured, fix) => dims.push({ id, label, max, score: Math.round(max * clamp01(share)), measured, fix: clamp01(share) >= 0.8 ? '' : fix });
+  // A dimension is a weighted sum of parts: [weight, share 0..1, what to do when this part is short]. The advice a
+  // creator gets is built from the parts that are actually short, largest loss first, so it names a number they can
+  // move; `general` leads only when the whole dimension is weak.
+  const add = (id, label, max, parts, measured, general) => {
+    const share = clamp01(parts.reduce((a, p) => a + p[0] * clamp01(+p[1]), 0)), score = Math.round(max * share);
+    const short = parts.filter((p) => clamp01(+p[1]) < 0.85 && p[2]).sort((a, b) => b[0] * (1 - clamp01(+b[1])) - a[0] * (1 - clamp01(+a[1]))).map((p) => p[2]);
+    dims.push({ id, label, max, score, measured, fix: score >= max ? '' : [share < 0.5 ? general : '', ...short].filter(Boolean).join(' ') });
+  };
   const is3d = !!gl;
 
   // 1. surfaces: do things have texture and small-scale shape, or are they flat fills?
   const detail = best('detail'), flat = least('flat');
   const textures = gl ? gl.textures : c2 ? c2.baked : 0;
-  const texShare = ramp(textures, 0, 8);
-  add('surfaces', 'Surfaces have detail', 25, 0.55 * ramp(detail, 0.12, 0.45) + 0.2 * (1 - ramp(flat, 0.3, 0.7)) + 0.25 * texShare,
+  add('surfaces', 'Surfaces have detail', 25, [
+    [0.55, ramp(detail, 0.12, 0.45), `Fine detail covers ${pctText(detail)} of the picture; full marks from 45%. ${is3d
+      ? 'Open ground and large plain faces are what hold it down: cover the ground with grassField() and groundCover(), paint large faces with surface(kind, { relief: 2 }), and stand more shaped things (tree(), rock(), bush(), prop(kind)) where the camera looks.'
+      : 'Give tiles and sprites shading, outlines and small marks, and scatter ground details over open areas.'}`],
+    [0.25, ramp(textures, 0, 8), `${textures} ${is3d ? 'textures' : 'pre-painted sprites or tiles'} in use; full marks from 8. ${is3d ? 'surface(kind) paints one with nothing to download; list_blocks {group: "surfaces"} names every kind.' : 'bake() in @gcp/canvas2d.js paints one once on an off-screen canvas.'}`],
+    [0.2, 1 - ramp(flat, 0.3, 0.7), `${pctText(flat)} of the picture is a single flat colour; full marks under 30%. ${is3d ? 'That is usually an empty sky or a bare floor: createStage({ mood }) paints a sky gradient with clouds or stars, and a textured ground removes the rest.' : 'Paint a background layer instead of one fill.'}`],
+  ],
     `${pctText(detail)} of the picture has fine detail, ${pctText(flat)} is flat single colour; ${textures} ${is3d ? 'painted or loaded textures in use' : 'pre-painted sprites or tiles'}`,
     is3d ? 'Most faces are an untextured flat colour. Give the ground, bark, stone, wood and metal a painted texture with surface(kind) from @gcp/craft.js, and build props from several shaped parts instead of one primitive (tree(), rock(), bush(), grassField()).'
       : 'Large areas are flat fills. Paint tiles and sprites once on off-screen canvases (bake() in @gcp/canvas2d.js) with shading, outlines and small marks, and scatter ground details.');
 
   // 2. light and colour: tonal range, a palette with more than one family, shadows or other lighting passes
   const range = best('range'), hues = best('hues'), passes = gl ? gl.maxPasses : 0;
-  add('light', 'Light and colour', 15, (is3d ? 0.45 : 0.65) * ramp(range, 70, 160) + (is3d ? 0.25 : 0.35) * ramp(hues, 1, 3) + (is3d ? 0.3 * (passes > 0 ? 1 : 0) : 0),
+  add('light', 'Light and colour', 15, [
+    [is3d ? 0.45 : 0.65, ramp(range, 70, 160), `Tonal range is ${range} of 255; full marks from 160. The brightest and darkest parts of the picture are close together. ${is3d
+      ? 'Widen it: a brighter mood or a stronger sun against deeper shadow, and in dark scenes things that give light (prop("lantern"), prop("campfire"), glowing pickups).'
+      : 'Widen it: darken the edges, add a light gradient, and shade sprites from one light direction.'}`],
+    [is3d ? 0.25 : 0.35, ramp(hues, 1, 3), `${hues} colour ${hues === 1 ? 'family' : 'families'} in the picture; full marks from 3. Give the things the player must notice (pickups, the hero, the goal) an accent colour that is not in the scenery.`],
+    ...(is3d ? [[0.3, passes > 0 ? 1 : 0, 'No shadow or effect pass was drawn. createStage() adds a shadow pass by itself; with your own renderer turn on renderer.shadowMap and one shadow-casting light.']] : []),
+  ],
     `tonal range ${range} of 255, ${hues} colour ${hues === 1 ? 'family' : 'families'}${is3d ? `, ${passes ? `${passes} extra render pass${passes > 1 ? 'es' : ''} (shadows or effects)` : 'no shadow or effect pass'}` : ''}`,
-    is3d ? 'The picture is tonally flat or nearly one colour. Use createStage({ mood }) from @gcp/craft.js for a sky gradient, a warm sun against cool ambient light, matching fog and a shadow pass, and give gameplay objects an accent colour that is not in the scenery.'
-      : 'The picture is tonally flat or nearly one colour. Darken the edges or add a light gradient, shade sprites from one light direction, and pick an accent colour for things the player must notice.');
+    is3d ? 'The picture is tonally flat or nearly one colour. Use createStage({ mood }) from @gcp/craft.js for a sky gradient, a warm sun against cool ambient light, matching fog and a shadow pass.'
+      : 'The picture is tonally flat or nearly one colour.');
 
   // 3. world: how much is on screen
   if (is3d) {
     const tris = gl.sumTris / gl.frames, calls = gl.sumCalls / gl.frames, kinds = gl.kinds || Math.round(calls);
-    add('world', 'The world is furnished', 15, 0.5 * logRamp(kinds, 6, 60) + 0.25 * ramp(gl.programs, 3, 14) + 0.25 * logRamp(tris, 3000, 100000),
+    add('world', 'The world is furnished', 15, [
+      [0.5, logRamp(kinds, 6, 60), `${kinds} different shapes on screen; full marks from 60. Add more kinds, not more copies: several species from tree(), rock(), bush(), groundCover() and prop(kind), placed with scatter() (it instances, so hundreds of copies stay cheap).`],
+      [0.25, ramp(gl.programs, 3, 14), `${gl.programs} different materials; full marks from 14. Mix surfaces (wood, stone, metal, cloth), water() and things that glow.`],
+      [0.25, logRamp(tris, 3000, 100000), `${num(tris)} triangles a frame; full marks from 100k. Add shaped scenery only while the frame rate in this report stays healthy.`],
+    ],
       `${kinds} different shapes on screen, ${gl.programs} different materials, ${num(tris)} triangles in ${Math.round(calls)} draw calls a frame${gl.instanced ? ' (instancing in use)' : ''}`,
-      'The scene is made of few kinds of things. Add more kinds, not more copies: several species from tree(), rock(), bush(), flowers and grassField(), props that fit the setting from prop(kind), water(), and scatter() to place them (it instances, so hundreds of copies stay cheap).');
+      'The scene is made of few kinds of things.');
   } else {
     const ops = c2 ? c2.sumOps / c2.frames : 0, images = c2 ? c2.sumImages / c2.frames : 0;
-    add('world', 'The world is furnished', 15, 0.6 * logRamp(images, 4, 80) + 0.4 * logRamp(ops, 20, 300),
+    add('world', 'The world is furnished', 15, [
+      [0.6, logRamp(images, 4, 80), `${Math.round(images)} sprites drawn a frame; full marks from 80. Add scenery layers (ground marks, plants, stones, shadows under things) and more than one kind of each.`],
+      [0.4, logRamp(ops, 20, 300), `${Math.round(ops)} drawing operations a frame; full marks from 300. Put something in the background and in the foreground.`],
+    ],
       `${Math.round(images)} sprites and ${Math.round(ops)} drawing operations a frame`,
-      'Little is drawn each frame. Add scenery layers (ground marks, plants, stones, shadows under things), more than one kind of each, and something in the background.');
+      'Little is drawn each frame.');
   }
 
   // 4. motion: is anything alive when the player does nothing, and does the picture answer input?
   const idle = m.idleMotion || 0;
-  add('motion', 'The world moves', 12, 0.6 * ramp(idle, 0.004, 0.06) + 0.4 * (m.inputChange ? 1 : 0),
+  add('motion', 'The world moves', 12, [
+    [0.6, ramp(idle, 0.004, 0.06), `${pctText(idle)} of the picture changes while nothing is pressed; full marks from 6%. ${is3d
+      ? 'Add ambient motion: wind in foliage and grass (on by default in tree() and grassField()), moving water(), weather (createStage({ weather })), bobbing or spinning pickups, creatures that wander(), an idle animation on the character.'
+      : 'Animate idle sprites, drift particles, sway plants, scroll a background layer.'}`],
+    [0.4, m.inputChange ? 1 : 0, 'The picture did not change after keys and pointer input. Make the hero or the camera answer the first press.'],
+  ],
     `${pctText(idle)} of the picture changes while nothing is pressed; the picture ${m.inputChange ? 'changes' : 'does not change'} after input`,
-    is3d ? 'The scene is a still image until the player acts. Add ambient motion: wind in foliage and grass (on by default in tree(), grassField()), moving water(), drifting motes or weather (createStage({ weather })), bobbing or spinning pickups, an idle animation on the character (actor.animate).'
-      : 'The scene is a still image until the player acts. Animate idle sprites, drift particles, sway plants, scroll a background layer.');
+    'The scene is a still image until the player acts.');
 
   // 5. sound
   const au = P.audio || { contexts: 0, starts: 0 };
-  add('sound', 'It has sound', 10, au.starts >= 1 ? 1 : au.contexts ? 0.7 : 0,
+  add('sound', 'It has sound', 10, [
+    [1, au.starts >= 1 ? 1 : au.contexts ? 0.7 : 0, au.contexts
+      ? 'A sound system exists but nothing played during the check. Play a sound on the first key or pointer press and on the events of the play-through (sound.play("pickup"), sound.ambience("wind")).'
+      : 'Silent games feel unfinished. createSound() from @gcp/craft.js gives ready effects with no files (sound.play("pickup"), "jump", "hit", "step", "win", "lose", "click") and looping ambience (sound.ambience("wind")). Start sound on the first key or pointer press; browsers block it before that.'],
+  ],
     au.starts ? `${au.starts} sounds played during the check` : au.contexts ? 'a sound system exists, but nothing played when keys were pressed, the pointer clicked or the play-through ran' : 'no sound at all',
-    'Silent games feel unfinished. createSound() from @gcp/craft.js gives ready effects with no files (sound.play("pickup"), "jump", "hit", "step", "win", "lose", "click") and looping ambience (sound.ambience("wind")). Start sound on the first key or pointer press; browsers block it before that.');
+    '');
 
   // 6. interface: a HUD, loading feedback, and input on every kind of device
   const Ls = P.listeners || {}, ui = m.ui || { texts: 0, chars: 0 };
   const touch = !!(Ls.touchstart || Ls.pointerdown), keys = !!Ls.keydown;
-  add('interface', 'Interface and input', 13, 0.4 * ramp(ui.texts, 0, 6) + 0.15 * ((P.progress || 0) >= 2 ? 1 : 0) + 0.25 * (touch ? 1 : 0) + 0.1 * (keys ? 1 : 0) + 0.1 * (Ls.resize ? 1 : 0),
+  add('interface', 'Interface and input', 13, [
+    [0.4, ramp(ui.texts, 0, 6), `${ui.texts} on-screen text elements; full marks from 6. Show the goal, the progress, the time and how to play: createHud() from @gcp/craft.js has counters, bars, a timer, hints, a title and an end screen.`],
+    [0.25, touch ? 1 : 0, 'Nothing listens for touch or the pointer, so the game cannot be played on a phone. createInput() from @gcp/input.js adds an on-screen stick.'],
+    [0.15, (P.progress || 0) >= 2 ? 1 : 0, 'Loading progress is not reported. Use run() from @gcp/core.js with boot.step(), or call GCP.progress(0..1) while loading.'],
+    [0.1, keys ? 1 : 0, 'Nothing listens for the keyboard.'],
+    [0.1, Ls.resize ? 1 : 0, 'Nothing listens for resize, so the picture will not follow the window.'],
+  ],
     `${ui.texts} on-screen text elements; loading progress ${(P.progress || 0) >= 2 ? 'reported' : 'not reported'}; listens for ${[keys && 'keyboard', (Ls.pointerdown || Ls.mousedown) && 'pointer', Ls.touchstart && 'touch', Ls.gamepadconnected && 'gamepad', Ls.resize && 'resize'].filter(Boolean).join(', ') || 'nothing'}`,
-    'Players need to see the goal, their progress and how to play, on a phone too. Use createHud() from @gcp/craft.js for counters, bars, a timer, hints, a title and an end screen; createInput() from @gcp/input.js for keyboard, pointer and an on-screen stick; and report loading with GCP.progress or run() from @gcp/core.js.');
+    'Players need to see the goal, their progress and how to play, on a phone too.');
 
   // 7. proof: the rules were actually played
-  const pt = m.playthrough;
-  add('proof', 'Proven playable to the end', 10, (pt && pt.ok ? 0.5 + 0.3 * ramp(pt.steps.length, 1, 5) : 0) + 0.2 * (m.warnings ? 0 : 1),
-    `${pt && pt.ok ? `play-through of ${pt.steps.length} steps passed` : 'no play-through registered'}; ${m.warnings || 0} console warnings`,
-    'Nothing has played the rules through. Register GCP.test.onPlaythrough with five or more steps (score, win or lose, the end screen, restart); see the platform-contract guide.');
+  const pt = m.playthrough, played = !!(pt && pt.ok);
+  add('proof', 'Proven playable to the end', 10, [
+    [0.5, played ? 1 : 0, 'Nothing has played the rules through. Register GCP.test.onPlaythrough with five or more steps (score, win or lose, the end screen, restart); see the platform-contract guide.'],
+    [0.3, played ? ramp(pt.steps.length, 1, 5) : 0, played ? `The play-through has ${pt.steps.length} step${pt.steps.length === 1 ? '' : 's'}; full marks from 5. Add steps for the parts it skips (scoring, winning, losing, the end screen, restart).` : ''],
+    [0.2, m.warnings ? 0 : 1, `${m.warnings || 0} console warnings during the run; the report lists them under warnings.`],
+  ],
+    `${played ? `play-through of ${pt.steps.length} steps passed` : 'no play-through registered'}; ${m.warnings || 0} console warnings`,
+    '');
 
   const score = dims.reduce((a, d) => a + d.score, 0);
   const level = score >= 80 ? 'rich' : score >= 62 ? 'solid' : score >= 42 ? 'basic' : 'bare';
-  const weakest = dims.filter((d) => d.fix).sort((a, b) => (b.max - b.score) - (a.max - a.score)).slice(0, 3);
+  // what to work on: every dimension that lost two points or more, largest loss first
+  const weakest = dims.filter((d) => d.fix && d.max - d.score >= 2).sort((a, b) => (b.max - b.score) - (a.max - a.score)).slice(0, 3);
   return {
     score, level, dimensions: dims,
     summary: `Craft ${score}/100 (${level}). ${weakest.length ? `Weakest: ${weakest.map((d) => `${d.label.toLowerCase()} ${d.score}/${d.max}`).join(', ')}.` : 'Nothing stands out as weak.'}`,
-    next: weakest.map((d) => `${d.label} (${d.score}/${d.max}; measured: ${d.measured}). ${d.fix}`),
+    next: weakest.map((d) => `${d.label} (${d.score}/${d.max}). ${d.fix}`),
   };
 }

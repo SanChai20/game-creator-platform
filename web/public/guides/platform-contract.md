@@ -78,6 +78,8 @@ Just before the play-through the browser clicks once in the top-left corner pixe
 
 A verified version also gets `report.quality`: a craft score out of 100 measured in the same browser run, with what was measured and what to improve. It looks at seven things a player notices: surface detail instead of flat fills, light and colour, how furnished the world is, ambient motion, sound, interface and input, and a passing play-through. Publishing never depends on it. Aim for {{TARGET}} or more before you call a game finished; the building-blocks guide lists which block raises which part.
 
+`quality.improve` names each measurement that is short, the value that earns full marks and the block that moves it. It is filled above the target too, where it is optional. The score reads the running picture, sound and interface, so changing rules or numbers does not move it. For a game that began as a `design_scene` plan the report also has `quality.own_work`: how many of the planned lines are still unchanged. A plan uploaded as it came is a starting point that already scores well, not yet a game of your own.
+
 ## Prove the game can be played: the play-through
 
 The checks above only know how to start a game and poke at it. They cannot know your rules, so on their own they say nothing about whether a lantern can be collected, the timer ends the round, or the end screen appears. Register a play-through and the verifier plays the game your way and lists every step in the report:

@@ -141,6 +141,10 @@ async function main() {
   for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(pd.status); i++) { await sleep(2000); pd = await tool('get_version', { project: planned.project, version: pd.version }); }
   assert.equal(pd.status, 'verified', JSON.stringify(pd.report, null, 1).slice(0, 2000));
   assert.ok(pd.report.playthrough.steps.length === 5 && pd.quality.craft_score >= pd.quality.target && pd.quality.meets_target && /craft score/.test(pd.next), JSON.stringify(pd.quality));
+  // an unedited plan is named as such, with ideas; the advice names a measured value even above the target
+  assert.ok(pd.quality.own_work.still_the_plan && pd.quality.own_work.unchanged === pd.quality.own_work.planned_lines && pd.quality.own_work.ideas.length && /own_work/.test(pd.next) && !/Tell the user/.test(pd.next), JSON.stringify(pd.quality.own_work));
+  assert.ok(Array.isArray(pd.quality.improve) && pd.quality.improve.every((l) => /full marks/.test(l) || /\d/.test(l)), JSON.stringify(pd.quality.improve));
+  assert.ok(/refresh_token/.test((await tool('get_started', {})).session));
   ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), ${pd.report.metrics.fps} fps`);
 
   // a broken game is caught statically, with a line number and a fix

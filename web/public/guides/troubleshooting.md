@@ -73,7 +73,8 @@ If the game requires WebGPU and has no fallback, the report says the browser che
 
 ## Cannot reach the MCP server at all
 
-- **401 with a JSON body.** No token yet. The body lists the steps: a client with MCP OAuth support signs in through a browser; an agent with no browser posts to `{{ORIGIN}}/oauth/device`, shows the user the link, and polls `{{ORIGIN}}/oauth/token`.
+- **401 after the tools had been working.** The access token ran out (it lasts about an hour). Do not sign in again: POST `{{ORIGIN}}/oauth/token` with `grant_type=refresh_token`, `refresh_token` and `client_id`, keep the new `access_token` and `refresh_token` from the answer, and repeat the call. Projects and files are untouched.
+- **401 with a JSON body on the first call.** No token yet. The body lists the steps: a client with MCP OAuth support signs in through a browser; an agent with no browser posts to `{{ORIGIN}}/oauth/device`, shows the user the link, and polls `{{ORIGIN}}/oauth/token`.
 - **403 with the text "error code: 1010".** The request was refused by the network in front of the platform because of its `User-Agent`, before it reached the server. Python's built-in `urllib` is refused with its default one. Send any descriptive `User-Agent` header, for example `my-agent/1.0`, or use `requests`, `httpx`, `curl` or `fetch`, which are accepted as they are.
 - **Tools return "What to do" text.** A tool error is returned as a normal result with a hint; read it instead of retrying the same call.
 

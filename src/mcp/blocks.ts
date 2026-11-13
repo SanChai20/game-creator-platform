@@ -2,9 +2,9 @@
 // description into a plan and a complete starting game made only of blocks (design_scene). The catalog is generated
 // at build time from the kit sources (scripts/blocks.mjs), so what the tools say is what the code does.
 import { bad, type Env } from '../env';
-import { assetJson } from '../projects';
+import { assetJson, verKey } from '../projects';
 import { getSettings } from '../settings';
-import { designScene, DESIGN_GOALS, DESIGN_SETTINGS } from '../design-scene.js';
+import { designScene, planDistance, DESIGN_GOALS, DESIGN_SETTINGS } from '../design-scene.js';
 
 interface Block { name: string; kind: string; signature: string; doc: string; from: string; source: string }
 interface Catalog { three: string; groups: { id: string; title: string; blocks: Block[] }[]; values: Record<string, any> }
@@ -89,12 +89,37 @@ export async function designSceneTool(env: Env, origin: string, a: Record<string
     ...(r.notes.length ? { notes: r.notes } : {}),
     how_to_use: [
       'create_project (no template), then put_files with the two files above exactly as returned. It already runs, has a start and an end screen, sound, touch input and a five-step play-through.',
-      'deploy_preview. The report includes a craft score out of 100 with what was measured.',
-      'Make it your game: section 7 of src/main.js is the rules, sections 3, 4 and 6 are the world. Swap kinds (valid names are in list_blocks), move landmarks, add your own mechanics, keep the play-through in step with the rules.',
+      'deploy_preview. The report includes a craft score out of 100 with what was measured. Uploaded unchanged, this starting point already scores well, because the blocks do; that is the floor to build on, not the finished game.',
+      'Make it your game: section 7 of src/main.js is the rules, sections 3, 4 and 6 are the world. Swap kinds (valid names are in list_blocks), move landmarks, add your own mechanics, keep the play-through in step with the rules. Leave the "Plan:" comment line in place: the report uses it to tell you how much of the file is still the plan (quality.own_work).',
       `Deploy again after each round of changes and keep the craft score at ${s.craft_target} or above.`,
     ],
     change_the_plan: `Call design_scene again with any of: setting (${DESIGN_SETTINGS.join(', ')}), mood, weather, terrain, palette, hero, goal (${DESIGN_GOALS.join(', ')}), camera (third, top), title, seed, pickups, time_limit.`,
     not_a_limit: 'This is a starting point made of ordinary calls, not a required structure. Blocks mix with your own Three.js meshes, materials and shaders; get_block {name} shows every option.',
     preview_blocks: `${origin}/lab`,
+  };
+}
+
+/**
+ * For a version that began as a design_scene plan: how much of the planned code is still there unchanged. A fact
+ * about the source, reported next to the craft score (which reads the running game and cannot tell a plan from a
+ * design). Null when the version has no plan line.
+ */
+export async function ownWork(env: Env, pid: string, n: number) {
+  const obj = await env.FILES.get(verKey(pid, n, 'src/main.js')).catch(() => null);
+  if (!obj || obj.size > 400_000) return null;
+  const d = planDistance(await obj.text(), (await catalog(env)).values) as { planned: number; kept: number; changed: number; added: number } | null;
+  if (!d || !d.planned) return null;
+  const share = d.kept / d.planned, as_planned = share >= 0.85 && d.added < d.planned * 0.25;
+  return {
+    planned_lines: d.planned, unchanged: d.kept, changed_or_removed: d.changed, added: d.added, still_the_plan: as_planned,
+    summary: as_planned
+      ? `src/main.js is still the starting point design_scene wrote: ${d.kept} of its ${d.planned} lines are unchanged and ${d.added} were added. The craft score above therefore measures the building blocks, not yet a game of your own design.`
+      : `${d.changed} of the ${d.planned} planned lines were changed or removed and ${d.added} lines were added since design_scene wrote the starting point.`,
+    ...(as_planned ? { ideas: [
+      'Rules (section 7): give the player a second thing to do or to avoid. For example hunters that chase (animal() with wander(), as the "survive" goal does), something to carry back to a landmark, a gate that opens when a count is reached, or a risk that grows with time.',
+      'World (sections 3, 4 and 6): swap in kinds this plan does not use (list_blocks prints every tree, prop, animal and surface), arrange landmarks into a place with a shape (a path, a ring, a walled yard built with block() and floor()), or build an asset of your own with @gcp/procgen.js.',
+      'Feel: answer every event with createFx() (fx.sparkle, fx.explosion, fx.confetti), a sound.play() and a hud.toast(), and let the mood or weather change with progress (stage.setMood).',
+      'Keep GCP.test.onPlaythrough in step with the new rules, so the report still proves the game can be played to its end.',
+    ] } : {}),
   };
 }

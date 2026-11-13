@@ -126,8 +126,12 @@ const pick = (v, list, fallback) => (v != null && list.includes(String(v)) ? Str
  * args: description (required), setting, mood, weather ('none' for clear air), terrain, palette, hero, goal, camera
  * ('third' | 'top'), title, seed, pickups, time_limit. values: the lists from the block catalog (moods, props, …).
  */
+const ARGS = ['description', 'setting', 'mood', 'weather', 'terrain', 'palette', 'hero', 'goal', 'camera', 'title', 'seed', 'pickups', 'time_limit'];
+const PLAN_MARK = '// Starting point written by design_scene. Plan: ';
+const planArgs = (args) => Object.fromEntries(ARGS.filter((k) => args[k] != null && args[k] !== '').map((k) => [k, typeof args[k] === 'number' ? args[k] : String(args[k]).slice(0, 1000)]));
+
 export function designScene(args, V) {
-  const text = String(args.description || '').toLowerCase();
+  const text = String(args.description || '').slice(0, 1000).toLowerCase();
   const explicit3d = /\b3d\b|three\.?js|third.?person|first.?person|open world/.test(text) || args.setting;
   if (TWO_D.test(text) && !explicit3d) return twoD(args);
 
@@ -171,6 +175,7 @@ export function designScene(args, V) {
   L.push(`// ${title}: ${objective.toLowerCase()}.`,
     '// Every call below is a building block from @gcp/craft.js; get_block {name} lists the options of any of them.',
     '// The numbered sections are independent: change the kinds, the counts, the seed and above all the rules in section 7.',
+    `${PLAN_MARK}${JSON.stringify(planArgs(args))}`,
     `import { ${order.filter((n) => used.has(n)).join(', ')} } from '@gcp/craft.js';`, '',
     `const SEED = ${q(seed)};   // a different seed gives a different world with the same rules`, '',
     'run(async (boot) => {',
@@ -365,6 +370,24 @@ function twoD(args) {
     files: null,
     notes: [args.description ? 'Pass setting (for example "forest") if you do want a 3D world for this idea.' : 'No description given.'],
   };
+}
+
+/**
+ * How far a game has moved from the starting point design_scene wrote for it. The generated file records the
+ * arguments of its plan in one comment line; the same arguments always give the same file, so the plan can be written
+ * again and compared line by line (comments and blank lines aside). Returns null when the file carries no plan line.
+ * @returns {{ planned: number, kept: number, changed: number, added: number } | null}
+ */
+export function planDistance(src, V) {
+  const at = src.indexOf(PLAN_MARK); if (at < 0) return null;
+  let r; try { r = designScene(JSON.parse(src.slice(at + PLAN_MARK.length).split('\n')[0]), V); } catch { return null; }
+  if (!r || !r.files) return null;
+  const code = (s) => s.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//'));
+  const planned = code(r.files['src/main.js']), mine = code(src), have = new Map();
+  for (const l of mine) have.set(l, (have.get(l) || 0) + 1);
+  let kept = 0;
+  for (const l of planned) { const n = have.get(l) || 0; if (n) { kept++; have.set(l, n - 1); } }
+  return { planned: planned.length, kept, changed: planned.length - kept, added: mine.length - kept };
 }
 
 export const DESIGN_SETTINGS = Object.keys(SETTINGS);

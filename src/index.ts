@@ -179,10 +179,12 @@ function provider(origin: string, accessTtl: number, grantTtl: number): OAuthPro
 }
 
 /** What an agent with no token is told, in words it can act on. The challenge header stays as the standard requires. */
-function accessHelp(origin: string) {
+function accessHelp(origin: string, hadToken: boolean, accessTtl: number) {
+  const refresh = `POST ${origin}/oauth/token with grant_type=refresh_token, refresh_token=<your refresh token> and client_id=<your client id>. The answer has a new access_token and a new refresh_token; keep both.`;
   return {
     error: 'invalid_token',
-    error_description: 'Sign-in is required. This server uses OAuth; there are no API keys. See how_to_connect.',
+    error_description: hadToken ? `This access token is not valid any more. Access tokens last ${Math.round(accessTtl / 60)} minutes; get a new one with your refresh token (see if_you_had_a_token) and repeat the call. Nothing in the project is lost.` : 'Sign-in is required. This server uses OAuth; there are no API keys. See how_to_connect.',
+    if_you_had_a_token: `${refresh} Only when that is refused too (the user revoked access, or the whole authorization reached its end) start again with how_to_connect.`,
     how_to_connect: {
       if_your_client_supports_mcp_oauth: `Add ${origin}/mcp as a remote MCP server (Streamable HTTP). The client discovers sign-in from ${origin}/.well-known/oauth-protected-resource/mcp and opens a browser for the user.`,
       if_you_cannot_open_a_browser: [
@@ -190,7 +192,7 @@ function accessHelp(origin: string) {
         '2. Show verification_uri_complete to your user and ask them to open it in any browser, sign in (or create an account) and choose Allow. They have 15 minutes.',
         `3. Every 5 seconds, POST ${origin}/oauth/token with grant_type=${DEVICE_GRANT} and device_code=<device_code>. It answers authorization_pending until the user approves, then access_token and refresh_token.`,
         `4. Call ${origin}/mcp with the header "Authorization: Bearer <access_token>". Start with initialize, then tools/list, then the get_started tool.`,
-        `5. When the access token expires, POST ${origin}/oauth/token with grant_type=refresh_token, refresh_token and client_id from step 3.`,
+        `5. The access token lasts ${Math.round(accessTtl / 60)} minutes. When a call answers 401, ${refresh}`,
       ],
       example: `curl -s -X POST ${origin}/oauth/device -d client_name=my-agent`,
       if_you_get_403_error_code_1010: "That answer comes from the network in front of this server and means your HTTP client's User-Agent was refused (Python urllib's default is). Send a descriptive User-Agent header such as my-agent/1.0.",
@@ -216,7 +218,7 @@ export default {
     if (url.pathname === '/mcp' && res.status === 401) {
       const h = new Headers(res.headers);
       h.set('content-type', 'application/json'); h.delete('content-length');
-      return new Response(JSON.stringify(accessHelp(origin), null, 2), { status: 401, headers: h });
+      return new Response(JSON.stringify(accessHelp(origin, /^bearer\s+\S/i.test(request.headers.get('authorization') || ''), Math.max(60, s.oauth_access_ttl_s)), null, 2), { status: 401, headers: h });
     }
     if (url.pathname === '/.well-known/oauth-authorization-server' && res.ok && request.method === 'GET') {
       const meta = await res.clone().json<Record<string, unknown>>().catch(() => null);
