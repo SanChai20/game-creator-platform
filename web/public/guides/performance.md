@@ -62,11 +62,12 @@ Measured there, for scale:
 
 | Scene | Frame rate in the verification browser |
 | --- | --- |
-| `blank` template (2D canvas, a few rectangles) | about 55 fps |
-| `canvas2d-arcade` template (cached ground chunks, about 60 sprites) | about 28 fps |
-| `three-explorer` template (35k-triangle terrain, 400 instanced props in 3 draw calls, one 2048 shadow map, Lambert materials, fog) | 5 to 10 fps |
+| `blank` template (2D canvas, a few rectangles) | about 60 fps |
+| `canvas2d-arcade` template (cached ground chunks, about 60 sprites) | about 60 fps |
+| `three-blank` template (one textured plane, two small meshes, two lights, no shadows) | about 14 fps |
+| `three-explorer` template (35k-triangle terrain, 400 instanced props in 3 draw calls, one 2048 shadow map, Lambert materials, fog) | about 4 fps |
 
-So a forward-rendered scene of that weight is fine, and a low number in the report is normal: 5 fps there is 60 fps on an ordinary laptop. What matters is the distance to the 2 fps floor. These are rules of thumb for staying clear of it, from most to least costly on a CPU renderer:
+A low number in the report is normal for 3D: 4 fps there is 60 fps on an ordinary laptop. What matters is the distance to the 2 fps floor, and the explorer template shows how close an ordinary forward-rendered scene with one shadow map already sits. Treat that template as the upper end of what to show by default, and anything heavier as something to switch on only when there is a GPU. These are rules of thumb, from most to least costly on a CPU renderer:
 
 1. **Full-screen passes.** Each post-processing pass (bloom, SSAO, depth of field, FXAA) shades half a million pixels again, and bloom is several passes. One cheap pass is usually survivable; a chain of them at default quality is the most common way to fail `renders`. Keep post-processing off on the lowest quality level.
 2. **Shadow maps.** Each shadow-casting light draws the scene again. One directional light at 1024 or 2048 is fine. Point-light shadows draw it six times each.
