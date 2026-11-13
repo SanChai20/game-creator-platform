@@ -24,9 +24,11 @@ try {
   const sun = new THREE.DirectionalLight(0xfff1d6, 1.8); sun.position.set(8, 14, 6); scene.add(sun);
 
   // ---- world: everything is made from code, so there is nothing to download ----
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x3f6b46 }));
-  const grid = new THREE.GridHelper(200, 100, 0x5c8a62, 0x4a7850); grid.position.y = 0.02;       // just above the ground, or the two flicker
-  scene.add(ground, grid);
+  const tile = document.createElement('canvas'); tile.width = tile.height = 64;         // a texture painted in code: a two-tone checker
+  const paint = tile.getContext('2d'); paint.fillStyle = '#3f6b46'; paint.fillRect(0, 0, 64, 64); paint.fillStyle = '#4a7a52'; paint.fillRect(0, 0, 32, 32); paint.fillRect(32, 32, 32, 32);
+  const checker = new THREE.CanvasTexture(tile); checker.colorSpace = THREE.SRGBColorSpace; checker.wrapS = checker.wrapT = THREE.RepeatWrapping; checker.repeat.set(50, 50);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ map: checker }));
+  scene.add(ground);
   const player = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: 0xffb347 }));
   const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(0.7), new THREE.MeshLambertMaterial({ color: 0x7fe3ff, emissive: 0x2aa6c8 }));
   scene.add(player, beacon);
