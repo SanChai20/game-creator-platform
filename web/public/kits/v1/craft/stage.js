@@ -86,6 +86,7 @@ const WEATHER = {
   embers:    { count: 260, box: [30, 16, 30], fall: -1.6, drift: 0.8, size: 0.08, color: 0xff8a3a, opacity: 0.9, streak: 0, sway: 1.5, glow: 1 },
   leaves:    { count: 160, box: [36, 16, 36], fall: 1.1, drift: 1.6, size: 0.16, color: 0xd98a3a, opacity: 0.95, streak: 0, sway: 2.5 },
   dust:      { count: 320, box: [34, 12, 34], fall: 0.05, drift: 1.8, size: 0.06, color: 0xe6d2a8, opacity: 0.45, streak: 0, sway: 1 },
+  sandstorm: { count: 2600, box: [34, 12, 34], fall: 0.3, drift: 11, size: 0.32, color: 0xd9b888, opacity: 0.38, streak: 0, sway: 1.4 },
 };
 /** Every weather kind createStage({ weather }) and stage.setWeather() accept. */
 export const WEATHERS = Object.keys(WEATHER);
@@ -118,7 +119,7 @@ function makeWeather(kind, quality) {
  *   stage.focus = object3D      what the shadow box and the weather stay centred on (usually the player)
  *   stage.setMood(mood, secs)   change the mood, blending over `secs` seconds
  *   stage.setTime(hours)        0..24 on a day cycle: dawn, day, golden hour, dusk, starry night
- *   stage.setWeather(kind)      'rain' | 'snow' | 'motes' | 'fireflies' | 'embers' | 'leaves' | 'dust' | null
+ *   stage.setWeather(kind)      'rain' | 'snow' | 'motes' | 'fireflies' | 'embers' | 'leaves' | 'dust' | 'sandstorm' | null
  *   stage.wind                  { strength, direction } read by everything from windSway()
  *   stage.shake(amount)         a short camera shake (0..1)
  *   stage.onUpdate(fn)          run fn(dt, time) every frame (props with animation register themselves this way)

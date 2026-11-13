@@ -131,6 +131,8 @@ async function main() {
   const same = await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' });
   assert.ok(same.plan.setting === 'haunted' && same.plan.hero.preset === 'knight' && /^survive/.test(same.plan.goal) && same.plan.creatures.hunters.includes('ghost'));
   assert.deepEqual(same.files, (await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' })).files);   // no randomness
+  const storm = await tool('design_scene', { description: 'a scout robot gathers water relics in a desert canyon before a sandstorm. ' + 'x'.repeat(400) });
+  assert.ok(storm.plan.stage.weather === 'sandstorm' && storm.notes.some((n) => /first 300 characters/.test(n)) && storm.files['src/main.js'].split('\n').find((l) => l.includes('Plan: ')).length < 420, storm.plan.stage.weather);
   const plan = await tool('design_scene', { description: 'a pirate collects doubloons on a tropical island', title: `Planned ${run}`, seed: 'e2e' });
   assert.ok(plan.plan.setting === 'island' && plan.plan.hero.preset === 'pirate' && plan.files['index.html'] && plan.files['src/main.js'].includes("from '@gcp/craft.js'"));
   const planned = await tool('create_project', { title: `Planned ${run}`, tagline: 'Built from blocks' });
@@ -306,6 +308,7 @@ async function main() {
   let d2 = await tool('deploy_preview', { project: pid, note: 'second' });
   for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(d2.status); i++) { await sleep(2000); d2 = await tool('get_version', { project: pid, version: d2.version }); }
   assert.equal(d2.status, 'verified'); assert.equal(d2.version, 2);
+  assert.ok(d2.quality.since_previous.version === 1 && typeof d2.quality.since_previous.change === 'number' && d2.quality.since_previous.summary, JSON.stringify(d2.quality.since_previous));   // a title change is not progress
   assert.equal((await tool('publish', { project: pid })).version, 2);
   assert.equal((await tool('rollback', { project: pid, version: 1 })).version, 1);
   const vs = await tool('list_versions', { project: pid });

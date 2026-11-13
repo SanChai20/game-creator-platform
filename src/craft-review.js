@@ -96,6 +96,9 @@ const num = (v) => (v >= 10000 ? `${Math.round(v / 1000)}k` : v >= 1000 ? `${(v 
  *             probe (window.__GCP.probe), ui: { texts, chars }, playthrough: report.playthrough, warnings: n }
  * @returns { score, level, summary, dimensions: [{ id, label, score, max, measured, fix }], next: [string] }
  */
+// said wherever advice depends on the pictures, so nobody adds detail where the check never looks
+const VIEWS = 'This is read from the two pictures the check takes, the opening view and the view after its input, so only what is on screen there counts.';
+
 export function craftReview(m) {
   const P = m.probe || {}, gl = P.gl && P.gl.frames ? P.gl : null, c2 = P.c2d && P.c2d.frames ? P.c2d : null;
   const stills = (m.stills || []).filter(Boolean), dims = [];
@@ -114,8 +117,8 @@ export function craftReview(m) {
   const detail = best('detail'), flat = least('flat');
   const textures = gl ? gl.textures : c2 ? c2.baked : 0;
   add('surfaces', 'Surfaces have detail', 25, [
-    [0.55, ramp(detail, 0.12, 0.45), `Fine detail covers ${pctText(detail)} of the picture; full marks from 45%. ${is3d
-      ? 'Open ground and large plain faces are what hold it down: cover the ground with grassField() and groundCover(), paint large faces with surface(kind, { relief: 2 }), and stand more shaped things (tree(), rock(), bush(), prop(kind)) where the camera looks.'
+    [0.55, ramp(detail, 0.12, 0.45), `Fine detail covers ${pctText(detail)} of the picture; full marks from 45%. ${VIEWS} ${is3d
+      ? 'Open ground and large plain faces are what hold it down: cover the ground with grassField() and groundCover(), paint large faces with surface(kind, { relief: 2 }), and stand more shaped things (tree(), rock(), bush(), prop(kind)) close to the start, in front of the camera.'
       : 'Give tiles and sprites shading, outlines and small marks, and scatter ground details over open areas.'}`],
     [0.25, ramp(textures, 0, 8), `${textures} ${is3d ? 'textures' : 'pre-painted sprites or tiles'} in use; full marks from 8. ${is3d ? 'surface(kind) paints one with nothing to download; list_blocks {group: "surfaces"} names every kind.' : 'bake() in @gcp/canvas2d.js paints one once on an off-screen canvas.'}`],
     [0.2, 1 - ramp(flat, 0.3, 0.7), `${pctText(flat)} of the picture is a single flat colour; full marks under 30%. ${is3d ? 'That is usually an empty sky or a bare floor: createStage({ mood }) paints a sky gradient with clouds or stars, and a textured ground removes the rest.' : 'Paint a background layer instead of one fill.'}`],
@@ -141,7 +144,7 @@ export function craftReview(m) {
   if (is3d) {
     const tris = gl.sumTris / gl.frames, calls = gl.sumCalls / gl.frames, kinds = gl.kinds || Math.round(calls);
     add('world', 'The world is furnished', 15, [
-      [0.5, logRamp(kinds, 6, 60), `${kinds} different shapes on screen; full marks from 60. Add more kinds, not more copies: several species from tree(), rock(), bush(), groundCover() and prop(kind), placed with scatter() (it instances, so hundreds of copies stay cheap).`],
+      [0.5, logRamp(kinds, 6, 60), `${kinds} different shapes on screen; full marks from 60. This counts what is drawn in the frames of the check, so things far from the start or behind the camera do not count. Add more kinds, not more copies: several species from tree(), rock(), bush(), groundCover() and prop(kind), placed with scatter() (it instances, so hundreds of copies stay cheap).`],
       [0.25, ramp(gl.programs, 3, 14), `${gl.programs} different materials; full marks from 14. Mix surfaces (wood, stone, metal, cloth), water() and things that glow.`],
       [0.25, logRamp(tris, 3000, 100000), `${num(tris)} triangles a frame; full marks from 100k. Add shaped scenery only while the frame rate in this report stays healthy.`],
     ],

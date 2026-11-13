@@ -108,7 +108,8 @@ const SETTINGS = {
 const ORDER = ['haunted', 'volcanic', 'snow', 'desert', 'alien', 'city', 'island', 'swamp', 'mountains', 'autumn', 'village', 'forest'];
 const CAMP_SPOTS = [[6, -6, -0.5], [-1.5, 2.5, 0], [-6.5, -3, 0.6], [2.5, 5.5, 0.4], [3.4, -1.2, 0.3], [4.4, 0.2, 0], [-3.5, 4.8, 2.2], [1, -8, 1]];
 const MOOD_WORDS = [[/\bnight|midnight|moonlit|dark\b/, 'night'], [/sunset|dusk|twilight|evening/, 'dusk'], [/dawn|sunrise|morning|mist|fog/, 'misty-dawn'], [/storm|thunder|lightning/, 'storm'], [/overcast|gloomy|grey sky|gray sky/, 'overcast'], [/golden|afternoon/, 'golden-hour'], [/noon|midday|sunny|bright day/, 'clear-day']];
-const WEATHER_WORDS = [[/rain|storm|drizzle/, 'rain'], [/snow|blizzard/, 'snow'], [/firefl/, 'fireflies'], [/ember|spark|ash\b/, 'embers'], [/falling leaves|leaf fall/, 'leaves'], [/dust|sandstorm/, 'dust']];
+// the first row that matches wins, so the specific storms come before the plain one
+const WEATHER_WORDS = [[/sand.?storm|dust.?storm/, 'sandstorm'], [/snow|blizzard/, 'snow'], [/dust/, 'dust'], [/firefl/, 'fireflies'], [/ember|spark|ash\b/, 'embers'], [/falling leaves|leaf fall/, 'leaves'], [/rain|storm|drizzle/, 'rain']];
 const DRIFT = { 'clear-day': 'golden-hour', 'golden-hour': 'dusk', 'misty-dawn': 'clear-day', dusk: 'night', autumn: 'dusk', desert: 'dusk', overcast: 'storm' };
 const PREDATORS = ['wolf', 'bear', 'boar', 'slime', 'ghost', 'bat'];
 const GOALS = {
@@ -127,15 +128,17 @@ const pick = (v, list, fallback) => (v != null && list.includes(String(v)) ? Str
  * ('third' | 'top'), title, seed, pickups, time_limit. values: the lists from the block catalog (moods, props, …).
  */
 const ARGS = ['description', 'setting', 'mood', 'weather', 'terrain', 'palette', 'hero', 'goal', 'camera', 'title', 'seed', 'pickups', 'time_limit'];
+const READ = 300;   // characters of the description the planner reads; it also bounds the plan line written into the game
 const PLAN_MARK = '// Starting point written by design_scene. Plan: ';
-const planArgs = (args) => Object.fromEntries(ARGS.filter((k) => args[k] != null && args[k] !== '').map((k) => [k, typeof args[k] === 'number' ? args[k] : String(args[k]).slice(0, 1000)]));
+const planArgs = (args) => Object.fromEntries(ARGS.filter((k) => args[k] != null && args[k] !== '').map((k) => [k, typeof args[k] === 'number' ? args[k] : String(args[k]).slice(0, k === 'description' ? READ : 60)]));
 
 export function designScene(args, V) {
-  const text = String(args.description || '').slice(0, 1000).toLowerCase();
+  const text = String(args.description || '').slice(0, READ).toLowerCase();
   const explicit3d = /\b3d\b|three\.?js|third.?person|first.?person|open world/.test(text) || args.setting;
   if (TWO_D.test(text) && !explicit3d) return twoD(args);
 
   const id = pick(args.setting, Object.keys(SETTINGS), ORDER.find((k) => SETTINGS[k].words.test(text)) || 'forest'), S = SETTINGS[id], notes = [];
+  if (String(args.description || '').length > READ) notes.push(`The planner reads the first ${READ} characters of the description. Put the setting, the hero, the goal and the things you want in it first, or pass them as arguments.`);
   const fromWords = (table) => { const hit = table.find(([re]) => re.test(text)); return hit ? hit[1] : null; };
   const mood = pick(args.mood, V.moods, fromWords(MOOD_WORDS) || S.mood);
   const weather = args.weather === 'none' ? null : pick(args.weather, V.weather, fromWords(WEATHER_WORDS) || S.weather);

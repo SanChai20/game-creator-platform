@@ -59,14 +59,30 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
   const craft = (pub.report as any)?.craft as { score: number; level: string; summary: string; next: string[] } | undefined, target = s.craft_target;
   const below = !!craft && craft.score < target;
   const own = craft && !running ? await ownWork(c.env, p.id, n) : null, asPlanned = !!own?.still_the_plan;
+  // the same measurements on the version before, so nobody reads an unchanged score as progress
+  let since: Record<string, unknown> | null = null;
+  if (craft && !running) {
+    const prev = await c.env.DB.prepare("SELECT n, report FROM versions WHERE project_id = ? AND n < ? AND status = 'verified' ORDER BY n DESC LIMIT 1").bind(p.id, n).first<{ n: number; report: string | null }>();
+    let was: any = null; try { was = prev?.report ? JSON.parse(prev.report).craft : null; } catch { /* an unreadable old report is no comparison */ }
+    if (prev && was && Array.isArray(was.dimensions)) {
+      const moved = ((craft as any).dimensions || []).flatMap((d: any) => { const o = was.dimensions.find((x: any) => x.id === d.id); return o && o.score !== d.score ? [`${d.label}: ${o.score} to ${d.score} of ${d.max}`] : []; });
+      const change = craft.score - was.score;
+      since = {
+        version: prev.n, craft_score: was.score, change, moved,
+        summary: moved.length ? `${change > 0 ? `Up ${change}` : change < 0 ? `Down ${-change}` : 'Same total'} against version ${prev.n}: ${moved.join('; ')}.`
+          : `Nothing the score measures moved since version ${prev.n}. That is expected after changes to rules, numbers or text. If you added things to raise the score, they are not on screen in the two pictures the check takes (the opening view and the view after its input): place them near the start, in front of the camera.`,
+      };
+    }
+  }
   const publish = `publish {project, version: ${n}}`;
   return {
     ...pub, can_publish: el.ok, eligibility: el.reason,
     ...(craft ? { quality: {
       craft_score: craft.score, level: craft.level, target, meets_target: !below, summary: craft.summary,
       improve: craft.next,
+      ...(since ? { since_previous: since } : {}),
       ...(own ? { own_work: own } : {}),
-      note: `The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste, so changing rules, numbers or text does not move it. Each line under improve names the measurement that is short, the value that earns full marks and the building block that moves it; get_block {name} shows its options. ${below ? 'Start with the first line.' : 'The target is met, so these are optional.'} Publishing never depends on the score.`,
+      note: `The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste, so changing rules, numbers or text does not move it. The pictures are the opening view and the view after the check's input; scenery that is not on screen there is not counted. Each line under improve names the measurement that is short, the value that earns full marks and the building block that moves it; get_block {name} shows its options. ${below ? 'Start with the first line.' : 'The target is met, so these are optional.'} Publishing never depends on the score.`,
     } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} again in about 10 seconds.`
