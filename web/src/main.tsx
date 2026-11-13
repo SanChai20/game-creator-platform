@@ -10,12 +10,14 @@ import { Console } from './pages/Console';
 import { Project } from './pages/Project';
 import { Earnings } from './pages/Earnings';
 import { Admin } from './pages/Admin';
+import { Device } from './pages/Device';
 
 function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogout: () => void }) {
   const loc = useLocation(), lang = useLang(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
   useEffect(() => { setOpen(false); }, [loc]);
   useEffect(() => { const f = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; addEventListener('mousedown', f); return () => removeEventListener('mousedown', f); }, []);
-  const path = loc.split('?')[0], on = (p: string) => 'nl' + ((p === '/' ? path === '/' || path.startsWith('/g/') : path.startsWith(p)) ? ' on' : '');
+  const path = loc.split('?')[0], onAuth = path === '/login' || path === '/signup', keep = onAuth && loc.includes('?') ? loc.slice(loc.indexOf('?')) : '';   // someone sent here to approve an agent keeps their place
+  const on = (p: string) => 'nl' + ((p === '/' ? path === '/' || path.startsWith('/g/') : path.startsWith(p)) ? ' on' : '');
   return (
     <nav className="nav">
       <div className="wrap">
@@ -41,8 +43,8 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
           </div>
         ) : (
           <>
-            <Link to={loginUrl()} className="nl">{t('Sign in', '登录')}</Link>
-            <Link to="/signup" className="btn pri sm">{t('Join', '注册')}</Link>
+            <Link to={onAuth ? '/login' + keep : loginUrl()} className="nl">{t('Sign in', '登录')}</Link>
+            <Link to={'/signup' + keep} className="btn pri sm">{t('Join', '注册')}</Link>
           </>
         )}
       </div>
@@ -56,7 +58,7 @@ function NotFound() {
 
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
-  const needUser = path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin';
+  const needUser = path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device';
   useEffect(() => { if (needUser && !user) navigate(loginUrl(), true); }, [needUser, user, loc]);
   if (needUser && !user) return <Spinner />;
   let m: RegExpMatchArray | null;
@@ -68,6 +70,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/console/earnings') return <Earnings />;
   if ((m = path.match(/^\/console\/p\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
   if (path === '/claim-admin') return <ClaimAdmin />;
+  if (path === '/device') return <Device />;
   if ((m = path.match(/^\/admin(?:\/([a-z]+))?$/))) return user?.role === 'admin' ? <Admin tab={m[1] || 'overview'} /> : <NotFound />;
   return <NotFound />;
 }

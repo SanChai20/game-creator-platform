@@ -291,6 +291,43 @@ async function main() {
   assert.equal(must(await C.get('/api/me')).user.creator, true);
   ok('creator license: $30 checkout, confirmed, account can publish');
 
+  // device sign-in: an agent with no browser and no token works out how to connect from the 401 alone
+  const agent = async (path, form) => { const r = await fetch(BASE + path, { method: 'POST', headers: form ? { 'content-type': 'application/x-www-form-urlencoded' } : { 'content-type': 'application/json' }, body: form ? new URLSearchParams(form).toString() : '{"jsonrpc":"2.0","id":1,"method":"initialize"}' }); return { status: r.status, headers: r.headers, json: await r.json().catch(() => null) }; };
+  const noTok = await agent('/mcp');
+  assert.equal(noTok.status, 401); assert.match(noTok.headers.get('www-authenticate'), /resource_metadata=/);
+  assert.match(noTok.json.how_to_connect.if_you_cannot_open_a_browser[0], /\/oauth\/device/);
+  const meta = must(await client().get('/.well-known/oauth-authorization-server'));
+  assert.equal(meta.device_authorization_endpoint, `${BASE}/oauth/device`); assert.ok(meta.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:device_code') && meta.grant_types_supported.includes('authorization_code'));
+  const GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+  const dev = (await agent('/oauth/device', { client_name: 'Headless <b>Agent</b>' })).json;
+  assert.match(dev.user_code, /^[B-DF-HJ-NP-TV-XZ]{4}-[B-DF-HJ-NP-TV-XZ]{4}$/); assert.equal(dev.verification_uri_complete, `${BASE}/device?code=${dev.user_code}`); assert.equal(dev.interval, 5);
+  const poll = () => agent('/oauth/token', { grant_type: GRANT, device_code: dev.device_code });
+  const p1 = await poll(); assert.equal(p1.status, 400); assert.equal(p1.json.error, 'authorization_pending');
+  assert.equal((await poll()).json.error, 'slow_down');
+  assert.equal((await agent('/oauth/token', { grant_type: GRANT, device_code: 'made-up' })).json.error, 'expired_token');
+  assert.equal((await client().get(`/api/device/${dev.user_code}`)).status, 401);                    // approving needs a signed-in person
+  assert.equal((await C.get('/api/device/BBBB-BBBB')).status, 404);
+  const seen = must(await C.get(`/api/device/${dev.user_code.replace('-', '').toLowerCase()}`));     // typed sloppily, still found
+  assert.equal(seen.client_name, 'Headless bAgent/b'); assert.equal(seen.grant_days, 30);
+  must(await C.post(`/api/device/${dev.user_code}`, { decision: 'approve' }));
+  assert.equal((await C.post(`/api/device/${dev.user_code}`, { decision: 'approve' })).status, 404);  // a code is decided once
+  const dtok = await poll(); assert.equal(dtok.status, 200, JSON.stringify(dtok.json));
+  assert.ok(dtok.json.access_token && dtok.json.refresh_token && dtok.json.client_id && dtok.json.expires_in <= 3600 && dtok.json.mcp_url === `${BASE}/mcp`);
+  assert.equal((await poll()).json.error, 'expired_token');                                          // and exchanged once
+  const drpc = async (bearer, method, params) => { const r = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${bearer}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }); return { status: r.status, json: await r.json().catch(() => null) }; };
+  const mine = await drpc(dtok.json.access_token, 'tools/call', { name: 'list_projects', arguments: {} });
+  assert.equal(mine.status, 200); assert.ok(!mine.json.result.isError, JSON.stringify(mine.json));
+  const fresh = await agent('/oauth/token', { grant_type: 'refresh_token', refresh_token: dtok.json.refresh_token, client_id: dtok.json.client_id });
+  assert.equal(fresh.status, 200, JSON.stringify(fresh.json)); assert.ok(fresh.json.access_token && fresh.json.access_token !== dtok.json.access_token);
+  const cAgents = must(await C.get('/api/console/agents')).agents;
+  assert.equal(cAgents.length, 1); assert.equal(cAgents[0].client, 'Headless bAgent/b');
+  must(await C.del(`/api/console/agents/${cAgents[0].id}`));
+  assert.equal((await drpc(fresh.json.access_token, 'ping')).status, 401);
+  const dev2 = (await agent('/oauth/device', { client_name: 'Unwanted' })).json;
+  must(await C.post(`/api/device/${dev2.user_code}`, { decision: 'deny' }));
+  assert.equal((await agent('/oauth/token', { grant_type: GRANT, device_code: dev2.device_code })).json.error, 'access_denied');
+  ok('device sign-in: 401 explains how to connect, code approved in the console, expiring tokens, refresh, single use, revoke, denial');
+
   // agents list + revoke ends access
   const agents = must(await A.get('/api/console/agents')).agents;
   assert.ok(agents.length >= 1 && agents[0].client === 'E2E Agent');

@@ -22,7 +22,7 @@ A platform where people make web games with their own AI agent (Claude, ChatGPT,
 
 ## How a game goes live
 
-1. The creator connects their agent to `https://<site>/mcp`. Sign-in is OAuth 2.1 with PKCE and dynamic client registration; no API keys exist. Access tokens last one hour and the grant thirty days by default (both adjustable), and a creator can revoke an agent from the console at any time.
+1. The creator connects their agent to `https://<site>/mcp`. Sign-in is OAuth 2.1 with PKCE and dynamic client registration; no API keys exist. Access tokens last one hour and the grant thirty days by default (both adjustable), and a creator can revoke an agent from the console at any time. An agent that cannot open a browser (a sandbox, a server, CI) uses device sign-in instead: it posts to `/oauth/device`, shows its user the link it gets back, and polls `/oauth/token` until the user has approved at `/device`. It receives the same expiring tokens. A request to `/mcp` without a token is answered with these steps, so an agent can work out how to connect by itself.
 2. The agent calls `get_started`, reads the guides it needs, creates a project and writes files.
 3. `check_project` runs static checks: JavaScript syntax, imports that resolve, files that exist, and the platform contract.
 4. `deploy_preview` freezes the files as a numbered version, deploys that version as its own Cloudflare Worker, and opens it in a real browser (Cloudflare Browser Rendering). The version is verified only if the game boots (`GCP.ready()`), keeps rendering frames, draws a non-blank picture, survives keyboard, mouse and touch input, serves every file it asks for and throws no uncaught errors. The report and a screenshot are stored with the version.

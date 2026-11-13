@@ -10,6 +10,7 @@ import { THREE_VERSION } from './generated/runtime-source';
 import { getProject, getVersion } from './projects';
 import { admin } from './routes/admin';
 import { api } from './routes/api';
+import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './routes/device';
 import { rt } from './routes/rt';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
@@ -47,8 +48,16 @@ app.use('/api/*', async (c, next) => {
   await next();
 });
 app.route('/api/admin', admin);
+app.route('/api/device', deviceApi);
 app.route('/api', api);
 app.all('/api/*', (c) => c.json({ error: 'Not found', code: 'not_found' }, 404));
+
+// Device sign-in for agents that cannot open a browser. Tokens come from the provider's own token endpoint.
+const exchange: TokenExchange = async (env, ctx, origin, form) => {
+  const s = await getSettings(env);
+  return provider(origin, s.oauth_access_ttl_s, s.oauth_grant_ttl_s).fetch(new Request(`${origin}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form.toString() }), env, ctx);
+};
+app.route('/oauth/device', deviceOAuth(exchange));
 
 // Platform-hosted modules that games import cross-origin.
 app.get('/:kind{sdk|kits|vendor|guides|templates}/*', async (c) => {
@@ -169,18 +178,61 @@ function provider(origin: string, accessTtl: number, grantTtl: number): OAuthPro
   return p;
 }
 
+/** What an agent with no token is told, in words it can act on. The challenge header stays as the standard requires. */
+function accessHelp(origin: string) {
+  return {
+    error: 'invalid_token',
+    error_description: 'Sign-in is required. This server uses OAuth; there are no API keys. See how_to_connect.',
+    how_to_connect: {
+      if_your_client_supports_mcp_oauth: `Add ${origin}/mcp as a remote MCP server (Streamable HTTP). The client discovers sign-in from ${origin}/.well-known/oauth-protected-resource/mcp and opens a browser for the user.`,
+      if_you_cannot_open_a_browser: [
+        `1. POST ${origin}/oauth/device with the form field client_name=<your agent's name>. No authentication is needed. The answer has device_code, user_code and verification_uri_complete.`,
+        '2. Show verification_uri_complete to your user and ask them to open it in any browser, sign in (or create an account) and choose Allow. They have 15 minutes.',
+        `3. Every 5 seconds, POST ${origin}/oauth/token with grant_type=${DEVICE_GRANT} and device_code=<device_code>. It answers authorization_pending until the user approves, then access_token and refresh_token.`,
+        `4. Call ${origin}/mcp with the header "Authorization: Bearer <access_token>". Start with initialize, then tools/list, then the get_started tool.`,
+        `5. When the access token expires, POST ${origin}/oauth/token with grant_type=refresh_token, refresh_token and client_id from step 3.`,
+      ],
+      example: `curl -s -X POST ${origin}/oauth/device -d client_name=my-agent`,
+      for_your_user: `Open ${origin}/create to see how to connect an agent.`,
+    },
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (!env.SESSION_SECRET) return new Response('Server is missing the SESSION_SECRET secret.', { status: 500 });
     let s;
     try { s = await getSettings(env); } catch { return new Response('Database is not initialised. Run the D1 migrations.', { status: 500 }); }
-    return provider(originOf(env, request), s.oauth_access_ttl_s, s.oauth_grant_ttl_s).fetch(request, env, ctx);
+    const origin = originOf(env, request), url = new URL(request.url), p = provider(origin, s.oauth_access_ttl_s, s.oauth_grant_ttl_s);
+
+    // Device-grant polls arrive at the standard token endpoint; the provider does not know that grant, so they are ours.
+    if (request.method === 'POST' && url.pathname === '/oauth/token') {
+      const body = await request.clone().text().catch(() => '');
+      if (body.includes('device_code')) return p.fetch(new Request(new URL('/oauth/device/token', url), { method: 'POST', headers: request.headers, body }), env, ctx);
+    }
+    const res = await p.fetch(request, env, ctx);
+
+    if (url.pathname === '/mcp' && res.status === 401) {
+      const h = new Headers(res.headers);
+      h.set('content-type', 'application/json'); h.delete('content-length');
+      return new Response(JSON.stringify(accessHelp(origin), null, 2), { status: 401, headers: h });
+    }
+    if (url.pathname === '/.well-known/oauth-authorization-server' && res.ok && request.method === 'GET') {
+      const meta = await res.clone().json<Record<string, unknown>>().catch(() => null);
+      if (meta) {
+        const grants = Array.isArray(meta.grant_types_supported) ? (meta.grant_types_supported as string[]) : [];
+        const h = new Headers(res.headers); h.delete('content-length');
+        return new Response(JSON.stringify({ ...meta, device_authorization_endpoint: `${origin}/oauth/device`, grant_types_supported: [...new Set([...grants, DEVICE_GRANT])] }), { status: 200, headers: h });
+      }
+    }
+    return res;
   },
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const t = now();
     ctx.waitUntil(env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM uploads WHERE expires_at < ?').bind(t),
+      env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
     ]));

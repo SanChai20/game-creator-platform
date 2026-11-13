@@ -10,7 +10,7 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
   const { user, refresh, config } = useApp(), next = safeNext(query().get('next'));
   const [email, setEmail] = useState(''), [name, setName] = useState(''), [password, setPassword] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false);
   useEffect(() => { if (user) go(next); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
-  const forAgent = next.startsWith('/authorize');
+  const forAgent = next.startsWith('/authorize') || next.startsWith('/device');
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true);
     try { await api(mode === 'login' ? '/auth/login' : '/auth/signup', { body: mode === 'login' ? { email, password } : { email, name, password } }); await refresh(); }
