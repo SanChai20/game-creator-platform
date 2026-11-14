@@ -178,38 +178,50 @@ export function place(kind, x = 0, y = 0, z = 0, { scale = 1, rotY = 0, shadow =
  *     ch.scatter([tree({ species: 'oak' }), rock()], { count: 40, minDistance: 4 });
  *   } });
  *   const player = control(hero, { input, heightAt: land.heightAt, solids: land.solids });
- * Options: the terrain() ones (shape, palette, seed, amplitude, waterLevel, height, wet, style) plus chunk (metres, default
+ * Options: the terrain() ones (shape, palette, seed, amplitude, waterLevel, height, wet, style, clearing { x, z, r, y }: a flat
+ * spot to start and build on) plus chunk (metres, default
  * 48), radius (chunks kept around the player, default 2), segments (per chunk), fill, stage, around (() => ({ x, z }); default
  * the stage's focus). The shape is used without its edge, so an island has no shore; pass height(x, z) for your own.
  * The chunk passed to fill: { cx, cz, x, z (its corner), size, rand, items, scatter(kinds, opts), place(kind, x, z, opts),
- * keep(object3D or anything with remove()) }.
+ * keep(object3D or anything with remove()), far }. place(kind, x, z, { key: 'chest' }) also lists the placed thing in
+ * chunk.items ({ x, y, z, r, type, key, object }), so it can become a node and be forgotten like a scattered one.
  * Returns { heightAt, slopeAt, colorAt, waterLevel, amplitude, solids (live: pass to control), chunks (Map),
- * items() (every scattered item loaded), onLoad(fn), onUnload(fn), forget(item) (gone for good: a felled tree stays
- * felled when its chunk comes back; toJSON/load keep the list), update() }. Items carry item.key, the same every time.
+ * items() (every item loaded), onLoad(fn), onUnload(fn), forget(item) (gone for good: a felled tree stays
+ * felled when its chunk comes back; toJSON/load keep the list; forgotten items are left out of chunk.items, and after
+ * load(data) item.gone is true on them and createNodes drops their nodes by itself),
+ * ensure(x, z, seconds = 30) -> chunk (keeps the chunk at that point loaded for a while although the player is far: a
+ * room's host answers for the land around a distant guest this way, and createWorldSync calls it for you. Such a chunk
+ * has chunk.far = true, so fill can skip grass and animals; it is filled again when the player arrives), update() }.
+ * Items carry item.key, the same every time.
  */
 export function terrainChunks(opts = {}) {
   const st = opts.stage || currentStage(), { chunk = 48, radius = 2, fill, around } = opts, seed = sd(opts.seed), q = st ? st.quality : 'medium';
   const segments = opts.segments ?? (st && st.software ? 16 : q === 'low' ? 18 : q === 'medium' ? 26 : 34);
-  const proto = terrain({ ...opts, size: chunk, worldSize: 1e6, segments, add: false, clearing: undefined }); proto.mesh.geometry.dispose(); proto.mesh.material.dispose();
-  const { heightAt, slopeAt, colorAt, waterLevel, amplitude } = proto, loaded = new Map(), solids = [], gone = new Set(), onL = [], onU = [];
-  const load = (cx, cz) => {
+  const proto = terrain({ ...opts, size: chunk, worldSize: 1e6, segments, add: false }); proto.mesh.geometry.dispose(); proto.mesh.material.dispose();   // its heightAt carries the clearing
+  const { heightAt, slopeAt, colorAt, waterLevel, amplitude } = proto, loaded = new Map(), solids = [], gone = new Set(), onL = [], onU = [], held = new Map();
+  const drop = (k, ch) => { for (const f of onU) f(ch); ch.unload(); loaded.delete(k); };
+  const load = (cx, cz, far = false) => {
     const x0 = cx * chunk, z0 = cz * chunk, t = terrain({ ...opts, size: chunk, worldSize: 1e6, segments, center: [x0 + chunk / 2, z0 + chunk / 2], height: heightAt, add: false, clearing: undefined });
-    st.scene.add(t.mesh); const objs = [t.mesh], mine = [], items = [], ch = { cx, cz, x: x0, z: z0, size: chunk, items, rand: mulberry32(((cx * 73856093) ^ (cz * 19349663) ^ seed) >>> 0), n: 0, mesh: t.mesh };
-    const track = (it) => { it.key = cx + ',' + cz + ',' + ch.n++; items.push(it); if (gone.has(it.key)) { it.visible = false; it.off = true; } else if (it.solid) { solids.push(it); mine.push(it); } return it; };
-    ch.scatter = (kinds, o = {}) => { const r = scatter(st.scene, kinds, { heightAt, count: 20, ...o, area: [chunk, chunk], center: [x0 + chunk / 2, z0 + chunk / 2], seed: (o.seed ?? 0) + '|' + cx + ',' + cz + '|' + seed, stage: st }); objs.push(...r.meshes); r.items.forEach(track); return r; };
-    ch.place = (kind, x, z, o = {}) => { const g = place(kind, x, heightAt(x, z), z, { ...o, stage: st }); objs.push(g); return g; };
+    st.scene.add(t.mesh); const objs = [t.mesh], mine = [], items = [], ch = { cx, cz, far, x: x0, z: z0, size: chunk, items, rand: mulberry32(((cx * 73856093) ^ (cz * 19349663) ^ seed) >>> 0), n: 0, mesh: t.mesh };
+    const track = (it) => { it.key = cx + ',' + cz + ',' + ch.n++; if (gone.has(it.key)) { it.visible = false; it.off = true; it.gone = true; return null; } items.push(it); if (it.solid) { solids.push(it); mine.push(it); } return it; };   // a forgotten thing is not listed
+    ch.scatter = (kinds, o = {}) => { const r = scatter(st.scene, kinds, { heightAt, count: 20, ...o, area: [chunk, chunk], center: [x0 + chunk / 2, z0 + chunk / 2], seed: (o.seed ?? 0) + '|' + cx + ',' + cz + '|' + seed, stage: st }); objs.push(...r.meshes); r.items = r.items.filter((it) => track(it)); r.solids = r.items.filter((i) => i.solid); return r; };
+    ch.place = (kind, x, z, o = {}) => { const y = heightAt(x, z), g = place(kind, x, y, z, { ...o, stage: st }); objs.push(g);
+      if (o.key != null) { const it = { x, y, z, r: o.r ?? 0.8, type: o.type || (typeof kind === 'string' ? kind : (kind && (kind.prop || kind.name)) || 'thing'), key: cx + ',' + cz + ',' + o.key, object: g, solid: false, get visible() { return g.visible; }, set visible(v) { g.visible = !!v; } }; g.item = it; if (gone.has(it.key)) { it.gone = true; g.visible = false; } else items.push(it); }
+      return g; };
     ch.keep = (thing) => { objs.push(thing); return thing; };
     ch.unload = () => { for (const o of objs) { if (o.removeFromParent) o.removeFromParent(); else if (o.remove) o.remove(); else if (o.stop) o.stop(); } t.mesh.geometry.dispose(); t.mesh.material.dispose(); for (const m of mine) { const i = solids.indexOf(m); if (i >= 0) solids.splice(i, 1); } };
     loaded.set(cx + ',' + cz, ch); if (fill) fill(ch); for (const f of onL) f(ch); return ch;
   };
   const W = { heightAt, slopeAt, colorAt, waterLevel, amplitude, solids, chunks: loaded, chunk, onLoad: (f) => onL.push(f), onUnload: (f) => onU.push(f), items: () => [...loaded.values()].flatMap((c) => c.items),
-    forget(it) { if (!it || !it.key) return; gone.add(it.key); it.visible = false; },
-    toJSON: () => [...gone], load(d) { if (Array.isArray(d)) for (const k of d) gone.add(k); for (const ch of loaded.values()) for (const it of ch.items) if (gone.has(it.key)) it.visible = false; return W; },
+    forget(it) { if (!it || !it.key) return; gone.add(it.key); it.gone = true; it.visible = false; },
+    ensure(x, z, secs = 30) { const cx = Math.floor(x / chunk), cz = Math.floor(z / chunk), k = cx + ',' + cz; if (!held.has(k) && held.size >= 12) held.delete(held.keys().next().value); held.set(k, Date.now() + secs * 1000); return loaded.get(k) || load(cx, cz, true); },
+    toJSON: () => [...gone], load(d) { if (Array.isArray(d)) for (const k of d) gone.add(k); for (const ch of loaded.values()) for (const it of ch.items) if (gone.has(it.key)) W.forget(it); return W; },
     randomPoint(rand, { minRadius = 0, maxRadius = chunk * radius, maxSlope = 0.9, minHeight = waterLevel + 0.8, tries = 200 } = {}) { const p = around ? around() : (st.focus && st.focus.position) || { x: 0, z: 0 }; for (let i = 0; i < tries; i++) { const a = rand() * TAU, d = minRadius + Math.sqrt(rand()) * (maxRadius - minRadius), x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d, y = heightAt(x, z); if (y >= minHeight && slopeAt(x, z) <= maxSlope) return new THREE.Vector3(x, y, z); } return new THREE.Vector3(p.x, heightAt(p.x, p.z), p.z); },
     update() {
       const p = around ? around() : (st.focus && st.focus.position) || { x: 0, z: 0 }, pcx = Math.floor(p.x / chunk), pcz = Math.floor(p.z / chunk); let made = 0;
-      for (let r = 0; r <= radius; r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) { if (Math.max(Math.abs(i), Math.abs(j)) !== r || loaded.has((pcx + i) + ',' + (pcz + j))) continue; if (made++ && r > 0 && loaded.size >= 9) continue; load(pcx + i, pcz + j); }   // nearest first, and at most one far chunk a frame
-      for (const [k, ch] of loaded) if (Math.abs(ch.cx - pcx) > radius + 1 || Math.abs(ch.cz - pcz) > radius + 1) { for (const f of onU) f(ch); ch.unload(); loaded.delete(k); }
+      for (let r = 0; r <= radius; r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) { if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue; const k = (pcx + i) + ',' + (pcz + j), ch = loaded.get(k); if (ch && !ch.far) continue; if (made++ && r > 0 && loaded.size >= 9) continue; if (ch) drop(k, ch); load(pcx + i, pcz + j); }   // nearest first, and at most one far chunk a frame; a chunk kept unseen is filled in full when the player arrives
+      const now = Date.now(); for (const [k, t] of held) if (t < now) held.delete(k);
+      for (const [k, ch] of loaded) if ((Math.abs(ch.cx - pcx) > radius + 1 || Math.abs(ch.cz - pcz) > radius + 1) && !held.has(k)) drop(k, ch);
     } };
   W.update(); if (st) st.onUpdate(() => W.update());
   return W;

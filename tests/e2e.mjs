@@ -101,7 +101,7 @@ async function main() {
   const tools = (await rpc('tools/list')).tools;
   assert.ok(tools.length >= 20 && tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   const started = await tool('get_started');
-  assert.ok(started.workflow.length >= 5 && started.templates.length === 4 && started.what_to_read.always.length === 1 && started.kits.length === 12 && started.quality.target && started.building_blocks.tools.length === 3);
+  assert.ok(started.workflow.length >= 5 && started.templates.length === 6 && started.what_to_read.always.length === 1 && started.kits.length === 12 && started.quality.target && started.building_blocks.tools.length === 3);
   const rec = await tool('recommend_pipeline', { description: 'An open world survival game on an island with torches at night', dynamic_lights: 3 });
   assert.match(rec.pipeline, /three-forward/);
   assert.equal((await tool('recommend_pipeline', { description: 'a top-down pixel puzzle' })).pipeline, 'canvas2d');
@@ -131,9 +131,9 @@ async function main() {
   const same = await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' });
   assert.ok(same.plan.setting === 'haunted' && same.plan.hero.preset === 'knight' && /^survive/.test(same.plan.goal) && same.plan.creatures.hunters.includes('ghost'));
   assert.deepEqual(same.files, (await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' })).files);   // no randomness
-  const storm = await tool('design_scene', { description: 'a scout robot gathers water relics in a desert canyon before a sandstorm. ' + 'x'.repeat(400) + ' Friends farm crops together.' });   // cues late in a long brief are read too
+  const storm = await tool('design_scene', { description: 'a scout robot gathers water relics in a desert canyon before a sandstorm. ' + 'x'.repeat(400) + ' Friends explore an endless desert together.' });   // cues late in a long brief are read too
   const cues = (storm.plan.read_from_brief || []).map((c) => c.cue).join('|');
-  assert.ok(storm.plan.stage.weather === 'sandstorm' && /farming/.test(cues) && /several players/.test(cues) && storm.files['src/main.js'].split('\n').find((l) => l.includes('Plan: ')).length < 4200, storm.plan.stage.weather + ' ' + cues);
+  assert.ok(storm.plan.stage.weather === 'sandstorm' && /a world that grows/.test(cues) && /several players/.test(cues) && storm.files['src/main.js'].split('\n').find((l) => l.includes('Plan: ')).length < 4200, storm.plan.stage.weather + ' ' + cues);
   const plan = await tool('design_scene', { description: 'a pirate collects doubloons on a tropical island', title: `Planned ${run}`, seed: 'e2e' });
   assert.ok(plan.plan.setting === 'island' && plan.plan.hero.preset === 'pirate' && plan.files['index.html'] && plan.files['src/main.js'].includes("from '@gcp/craft.js'"));
   const planned = await tool('create_project', { title: `Planned ${run}`, tagline: 'Built from blocks' });
@@ -173,6 +173,18 @@ async function main() {
   for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(hd.status); i++) { await sleep(2000); hd = await tool('get_version', { project: homeP.project, version: hd.version }); }
   assert.equal(hd.status, 'verified', JSON.stringify(hd.report, null, 1).slice(0, 2000));
   assert.ok(hd.report.playthrough.steps.length === 11 && hd.quality.measured_score >= hd.quality.target, JSON.stringify(hd.quality).slice(0, 1500));
+  // crops, an endless map and friends: design_scene hands over the hand-written template, which verifies as it is and counts as the template until it is changed
+  const farm = await tool('design_scene', { description: 'Fernreach: a cosy 2D farming game. Friends plant crops together and explore an endless valley that grows as they walk.' });
+  assert.ok(farm.plan.template === 'homestead-2d' && farm.plan.title === 'Fernreach' && /export const TITLE = 'Fernreach';/.test(farm.files['src/theme.js']) && farm.files['src/main.js'].includes('// Template: homestead-2d'), JSON.stringify(farm.plan).slice(0, 600));
+  const farm3 = await tool('design_scene', { description: 'A 3D homestead where players farm and explore an endless world together', camera: 'third' });
+  assert.ok(farm3.plan.template === 'homestead-3d' && /terrainChunks/.test(farm3.files['src/main.js']), JSON.stringify(farm3.plan).slice(0, 400));
+  const farmP = await tool('create_project', { title: `Fernreach ${run}`, tagline: 'Farm an endless valley with a friend' });
+  await tool('put_files', { project: farmP.project, files: Object.entries(farm.files).map(([path, content]) => ({ path, content })) });
+  let fv = await tool('deploy_preview', { project: farmP.project, note: 'the homestead-2d template' });
+  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(fv.status); i++) { await sleep(2000); fv = await tool('get_version', { project: farmP.project, version: fv.version }); }
+  assert.equal(fv.status, 'verified', JSON.stringify(fv.report, null, 1).slice(0, 2000));
+  assert.ok(fv.report.playthrough.steps.length >= 10 && fv.quality.own_work && fv.quality.own_work.template === 'homestead-2d' && fv.quality.own_work.still_the_plan && !fv.quality.meets_target, JSON.stringify(fv.quality).slice(0, 1500));
+  ok(`templates: crops, an endless map and two players get the homestead template; it verified with a ${fv.report.playthrough.steps.length}-step play-through (measured craft ${fv.quality.measured_score}/100) and counts as the template until changed`);
   ok(`depth: design_scene goal homestead writes a 2D and a 3D game on the play systems; the 2D one verified with an ${hd.report.playthrough.steps.length}-step play-through (gather, craft, build, eat, night, fight, cook, dawn), measured craft ${hd.quality.measured_score}/100`);
   ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its 2D game verified with measured craft ${fd.quality.measured_score}/100 (look ${fd.quality.look_score}); its 3D game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), look ${pd.quality.look_score}, portrait in ${pd.report.portrait.ms} ms, ${pd.report.metrics.fps} fps`);
 

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Highfallow</title>
+<style>
+/* The page: one canvas, nothing scrolls, nothing selects. The interface is made by createHud() in src/main.js;
+   the rules below only give it this game's voice (a serif title, warm parchment panels) and fit it to a phone. */
+html, body { height: 100%; margin: 0; background: #12100c; color: #f1e6cf; overflow: hidden; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.gh-t, .gp-menu h2 { font-family: Georgia, 'Songti SC', 'Noto Serif CJK SC', serif; color: #f6ecd4; text-shadow: 0 3px 0 #5a3d12, 0 6px 18px rgba(0, 0, 0, .6); letter-spacing: .02em; }
+.gp-menu small { max-width: 300px; margin: 0 auto 6px; font-weight: 500; opacity: .8; line-height: 1.4; }
+.gh .gp-box { background: rgba(26, 22, 16, .96); border-color: rgba(240, 220, 180, .18); }
+.gh .gp-slot { background: rgba(58, 48, 34, .88); border-color: rgba(0, 0, 0, .45); }
+.hf-pill { gap: 12px; font-variant-numeric: tabular-nums; font-size: 14px; }
+.hf-roster { font-size: 12px; font-weight: 600; max-width: 46vw; white-space: normal; text-align: right; }
+@media (max-width: 600px) { .gp-q { max-width: 44vw; font-size: 12px; } .hf-pill { gap: 8px; font-size: 12px; } }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

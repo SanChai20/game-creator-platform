@@ -2,7 +2,7 @@
 // description into a plan and a complete starting game made only of blocks (design_scene). The catalog is generated
 // at build time from the kit sources (scripts/blocks.mjs), so what the tools say is what the code does.
 import { bad, type Env } from '../env';
-import { assetJson, verKey } from '../projects';
+import { assetJson, assetText, verKey } from '../projects';
 import { getSettings } from '../settings';
 import { designScene, planDistance, DESIGN_GOALS, DESIGN_SETTINGS } from '../design-scene.js';
 
@@ -85,6 +85,8 @@ export async function getBlock(env: Env, origin: string, a: Record<string, any>)
 export async function designSceneTool(env: Env, origin: string, a: Record<string, any>) {
   if (!String(a.description || '').trim() && !a.setting) throw bad('Describe the game in a sentence.', 'Example: design_scene {description: "a knight collects sunstones on a volcanic island at dusk"}');
   const cat = await catalog(env), s = await getSettings(env), r = designScene(a, cat.values) as any;
+  const tpl = templateFor(r);
+  if (tpl) return templatePlan(env, r, tpl, s.craft_target);
   if (!r.files) return { ...r, next: 'Use list_blocks {group: "hud"}, {group: "sound"}, {group: "noise"} and {group: "texture"} for the blocks that fit a 2D game, and recommend_pipeline for the drawing approach.' };
   return {
     plan: r.plan,
@@ -107,10 +109,53 @@ export async function designSceneTool(env: Env, origin: string, a: Record<string
  * about the source, reported next to the craft score (which reads the running game and cannot tell a plan from a
  * design). Null when the version has no plan line.
  */
+// Briefs that ask for crops, a world that grows as you walk, or friends playing together get a hand-written template
+// (web/public/templates/homestead-2d and homestead-3d) instead of the generated starter: they have all three, done well.
+const TEMPLATE_CUES = ['farming', 'a world that grows', 'several players'];
+export const TEMPLATE_MARK = '// Template: ';
+function templateFor(r: any): string | null {
+  if (!r.files || !/^homestead/.test(String(r.plan?.goal || ''))) return null;
+  const cues = (r.plan.read_from_brief || []).map((c: any) => c.cue);
+  if (!TEMPLATE_CUES.some((c) => cues.includes(c))) return null;
+  return r.plan.camera === '2d' ? 'homestead-2d' : 'homestead-3d';
+}
+const jsString = (v: string) => `'${String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ')}'`;
+async function templateFiles(env: Env, name: string) {
+  const idx = await assetJson<{ templates: { name: string; files: { path: string }[] }[] }>(env, '/templates/index.json');
+  const t = idx.templates.find((x) => x.name === name); if (!t) return null;
+  const files: Record<string, string> = {};
+  for (const f of t.files) { const text = await assetText(env, `/templates/${name}/${f.path}`); if (text != null) files[f.path] = text; }
+  return files;
+}
+async function templatePlan(env: Env, r: any, name: string, target: number) {
+  const files = await templateFiles(env, name); if (!files || !files['src/theme.js']) return { plan: r.plan, files: r.files, notes: r.notes };
+  const slug = String(r.plan.title || 'homestead').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'homestead';
+  files['src/theme.js'] = files['src/theme.js']
+    .replace(/export const TITLE = '[^'\n]*';/, () => `export const TITLE = ${jsString(r.plan.title)};`)
+    .replace(/export const SEED = '[^'\n]*';/, () => `export const SEED = ${jsString(String(r.plan.seed ?? slug))};`)
+    .replace(/export const SAVE_KEY = '[^'\n]*';/, () => `export const SAVE_KEY = ${jsString(slug + '-1')};`);
+  if (files['index.html']) files['index.html'] = files['index.html'].replace(/<title>[^<]*<\/title>/, () => `<title>${String(r.plan.title).replace(/[<&]/g, '')}</title>`);
+  const plan = { ...r.plan, template: name };
+  return {
+    plan, files,
+    notes: [...(r.notes || []), `The brief asks for ${(r.plan.read_from_brief || []).filter((c: any) => TEMPLATE_CUES.includes(c.cue)).map((c: any) => c.cue).join(', ')}, so these files are the ${name} template: a complete game with an endless seeded map (${name === 'homestead-2d' ? 'chunks2d' : 'terrainChunks'}), crops (createCrops), two players in one shared world (lobbyUI, GCP.room, createWorldSync), building with stairs, crafting, needs, day and night, quests, a trading post and saving, with a play-through that checks all of it, a second player included (createLoopback). Only the title, seed and save key were filled in from the brief.`],
+    how_to_use: [
+      'create_project (no template), then put_files with every file above exactly as returned. It runs and verifies as it is.',
+      'src/theme.js is the game: its name, look, items, recipes, crops, buildable pieces, the regions the land passes through as the player walks outwards, and the quests that teach it. src/main.js is the engine and reads only from the theme. Rewrite the theme to fit the brief (setting, creatures, crops, what is worth walking far for), then change the engine wherever the brief asks for rules it does not have.',
+      `deploy_preview. A version whose src/main.js and src/theme.js are still the template almost line for line has its craft score counted below the target (${target}) whatever the blocks measure: quality.own_work says how much is still the template. Leave the "${TEMPLATE_MARK}${name}" line at the top of src/main.js in place.`,
+      'Keep GCP.test.onPlaythrough in step with what you change, so the report still proves the farm, the endless map and the second player work.',
+    ],
+    change_the_plan: 'Call design_scene again with camera "2d" for the painted top-down template or "third" for the 3D one, and any of title, seed. apply_template {template: "' + name + '"} gives the same files untouched.',
+    not_a_limit: 'The template is ordinary code on the kits: replace any part. get_block {name} shows every option of the blocks it uses, and the building-blocks guide has sections on farming, endless worlds and shared worlds.',
+  };
+}
+
 export async function ownWork(env: Env, pid: string, n: number) {
   const obj = await env.FILES.get(verKey(pid, n, 'src/main.js')).catch(() => null);
   if (!obj || obj.size > 400_000) return null;
-  const d = planDistance(await obj.text(), (await catalog(env)).values) as { planned: number; kept: number; changed: number; added: number } | null;
+  const src = await obj.text(), tm = src.indexOf(TEMPLATE_MARK), tname = tm >= 0 ? (src.slice(tm + TEMPLATE_MARK.length).match(/^[a-z0-9-]+/) || [''])[0] : '';
+  if (tname) return templateWork(env, pid, n, tname, src);
+  const d = planDistance(src, (await catalog(env)).values) as { planned: number; kept: number; changed: number; added: number } | null;
   if (!d || !d.planned) return null;
   const share = d.kept / d.planned, as_planned = share >= 0.85 && d.added < d.planned * 0.25;
   return {
@@ -123,6 +168,29 @@ export async function ownWork(env: Env, pid: string, n: number) {
       'World (sections 3, 4 and 6): swap in kinds this plan does not use (list_blocks prints every tree, prop, animal and surface), arrange landmarks into a place with a shape (a path, a ring, a walled yard built with block() and floor()), or build an asset of your own with @gcp/procgen.js.',
       'Feel: answer every event with createFx() (fx.sparkle, fx.explosion, fx.confetti), a sound.play() and a hud.toast(), and let the mood or weather change with progress (stage.setMood).',
       'Keep GCP.test.onPlaythrough in step with the new rules, so the report still proves the game can be played to its end.',
+    ] } : {}),
+  };
+}
+
+// how much of a game that began as a template is still the template: src/main.js and src/theme.js together, line by line
+async function templateWork(env: Env, pid: string, n: number, name: string, src: string) {
+  const tf = await templateFiles(env, name); if (!tf || !tf['src/main.js']) return null;
+  const theme = await env.FILES.get(verKey(pid, n, 'src/theme.js')).then((o) => (o ? o.text() : '')).catch(() => '');
+  const code = (s: string) => s.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//') && !/^export const (TITLE|SEED|SAVE_KEY) =/.test(l));
+  const planned = [...code(tf['src/main.js']), ...code(tf['src/theme.js'] || '')], mine = [...code(src), ...code(theme)], have = new Map<string, number>();
+  for (const l of mine) have.set(l, (have.get(l) || 0) + 1);
+  let kept = 0; for (const l of planned) { const k = have.get(l) || 0; if (k) { kept++; have.set(l, k - 1); } }
+  const changed = planned.length - kept, added = mine.length - kept, as_planned = kept / planned.length >= 0.85 && added < planned.length * 0.25;
+  return {
+    template: name, planned_lines: planned.length, unchanged: kept, changed_or_removed: changed, added, still_the_plan: as_planned,
+    summary: as_planned
+      ? `src/main.js and src/theme.js are still the ${name} template: ${kept} of its ${planned.length} lines are unchanged and ${added} were added. The craft score therefore measures the template, not yet a game of your own design.`
+      : `${changed} of the ${planned.length} template lines were changed or removed and ${added} lines were added since the ${name} template.`,
+    ...(as_planned ? { ideas: [
+      'Theme (src/theme.js): make the world the brief describes. Its items, crops and their prices, the regions the land passes through as the player walks out (each with its own trees, rocks, animals and a find worth the walk), the buildable pieces, the look and the quests.',
+      'Rules (src/main.js): add what the brief asks for that the template lacks. For example a threat at night, a season that changes what grows, animals to tend, a goal far out on the map, or a reason for two players to split the work.',
+      'Feel: answer every event with a sound, a toast and a puff of fx, and let the mood or weather change with progress.',
+      'Keep GCP.test.onPlaythrough in step with the new rules, so the report still proves the farm, the endless map and the second player work.',
     ] } : {}),
   };
 }

@@ -157,7 +157,8 @@ export function createClock({ dayLength = 300, hour = 8, stage } = {}) {
  * Things in the world the player can use. A node: { x, y, r (reach, default 1.2), label ('Chop the oak'), kind,
  * hp (hits to finish, default 1), tool (the item kind it needs in hand, optional), drops ({ wood: [2, 4] } or
  * { wood: 3 }), respawn (seconds; omit for never), ref (anything with .visible: it is hidden while the node is spent),
- * solid (its collision circle: switched off while it is spent), when(node) (usable only while it returns true: a ripe
+ * solid (its collision circle: switched off while it is spent; a node whose ref was taken out for good by chunks.forget()
+ * or chunks.load() is skipped and dropped by itself), when(node) (usable only while it returns true: a ripe
  * crop, a door with the key in hand; notYet is what it says otherwise), onUse(node) (for doors, chests, signs: called instead
  * of harvesting) }. y is the second ground axis: z in a 3D game.
  *   nodes.add(node) -> node      nodes.remove(node)      nodes.nearest(x, y, range) -> the closest usable node or null
@@ -173,20 +174,20 @@ export function createNodes() {
   let nextId = 1; const ev = emitter(), list = [], show = (n, on) => { if (n.ref) n.ref.visible = on; if (n.solid && typeof n.solid === 'object') n.solid.off = !on; };
   const N = { list, onDeplete: ev.on,
     add(n) { const node = { r: 1.2, hp: 1, id: n.id ?? nextId++, ...n, left: n.hp || 1, gone: false, timer: 0 }; list.push(node); return node; },
-    byId: (id) => list.find((n) => n.id === id) || null,
+    byId: (id) => { const n = list.find((n) => n.id === id); if (n && n.ref && n.ref.gone) { N.remove(n); return null; } return n || null; },   // a thing its chunks forgot is no node any more
     useFor(n, inventory, opts) { const r = N.use(n, opts); if (r.ok && r.done && inventory) { r.left = {}; for (const id in r.drops) { const k = inventory.add(id, r.drops[id]); if (k) r.left[id] = k; } } return r; },
-    fromScatter(items, rule) { const out = []; for (const it of items) { const d = rule(it); if (d) out.push(N.add({ x: it.x, y: it.z ?? it.y, ref: it, ...(it.key ? { id: it.key } : {}), solid: it.circle || (it.solid === true ? it : null), kind: it.type, ...d })); } return out; },
+    fromScatter(items, rule) { const out = []; for (const it of items) { if (it.gone) continue; const d = rule(it); if (d) out.push(N.add({ x: it.x, y: it.z ?? it.y, ref: it, ...(it.key ? { id: it.key } : {}), solid: it.circle || (it.solid === true ? it : null), kind: it.type, ...d })); } return out; },
     remove(n) { const i = list.indexOf(n); if (i >= 0) list.splice(i, 1); },
     removeWhere(fn) { for (let i = list.length - 1; i >= 0; i--) if (fn(list[i])) list.splice(i, 1); },
-    nearest(x, y, range = 0) { let best = null, bd = Infinity; for (const n of list) { if (n.gone || (n.when && !n.when(n))) continue; const d = Math.hypot(n.x - x, n.y - y) - (n.r + range); if (d < 0 && d < bd) { bd = d; best = n; } } return best; },
+    nearest(x, y, range = 0) { let best = null, bd = Infinity; for (const n of list) { if (n.gone || (n.ref && n.ref.gone) || (n.when && !n.when(n))) continue; const d = Math.hypot(n.x - x, n.y - y) - (n.r + range); if (d < 0 && d < bd) { bd = d; best = n; } } return best; },
     use(n, { tool, power = 1, rand = Math.random } = {}) {
-      if (!n || n.gone) return { ok: false, why: 'nothing here' }; if (n.when && !n.when(n)) return { ok: false, why: n.notYet || 'not ready yet' }; if (n.onUse) { n.onUse(n); return { ok: true, done: true, drops: {} }; }
+      if (n && n.ref && n.ref.gone) { N.remove(n); n = null; } if (!n || n.gone) return { ok: false, why: 'nothing here' }; if (n.when && !n.when(n)) return { ok: false, why: n.notYet || 'not ready yet' }; if (n.onUse) { n.onUse(n); return { ok: true, done: true, drops: {} }; }
       if (n.tool && n.tool !== tool) return { ok: false, why: 'needs ' + nice(n.tool).toLowerCase() };
       n.left -= power; if (n.left > 0) return { ok: true, done: false, hp: n.left };
       const drops = {}; for (const id in n.drops || {}) { const d = n.drops[id]; drops[id] = Array.isArray(d) ? d[0] + Math.floor(rand() * (d[1] - d[0] + 1)) : d; }
       n.gone = true; n.timer = n.respawn || 0; show(n, false); if (!n.respawn) N.remove(n); ev.emit(n, drops); return { ok: true, done: true, drops };
     },
-    update(dt) { for (const n of list) if (n.gone && n.respawn) { n.timer -= dt; if (n.timer <= 0) { n.gone = false; n.left = n.hp || 1; show(n, true); } } } };
+    update(dt) { for (let i = list.length - 1; i >= 0; i--) if (list[i].ref && list[i].ref.gone) list.splice(i, 1); for (const n of list) if (n.gone && n.respawn) { n.timer -= dt; if (n.timer <= 0) { n.gone = false; n.left = n.hp || 1; show(n, true); } } } };
   return N;
 }
 
@@ -197,14 +198,22 @@ export function createNodes() {
  * with input.bind, default 'interact'), inventory, tool (() => the kind in hand, e.g. () => inv.held && inv.held.def.tool),
  * power ((node, tool) => hits per press, e.g. 2 with the right tool), range (extra reach, default 0.3),
  * onHit(node, result) (every press: play a sound, shake the tree), onGet(node, drops) (when it is finished),
- * send(node, tool) (in a room where the host decides: called instead of using the node here; send node.id to the
- * host, which calls nodes.useFor(nodes.byId(id), thatPlayersInventory, { tool }) and sends back the result).
+ * send(node, tool, power) (in a room where the host decides: called instead of using the node here. Return the
+ * promise of the result, as createWorldSync's use does, and onHit, onGet and the toasts run when it arrives:
+ * send: (node, tool, power) => sync.use(node, { tool, power }). Without a world sync, send node.id to the host,
+ * which calls nodes.useFor(nodes.byId(id), thatPlayersInventory, { tool, power }) and sends back the result).
  * Returns { update() every frame, target (the node in reach or null), use() (press it yourself), enabled }.
  */
 export function createInteract({ nodes, input, hud, at, action = 'interact', inventory, tool, power, range = 0.3, onHit, onGet, send } = {}) {
   let shown = null, key = '';
   const I = { target: null, enabled: true,
-    use() { const n = I.target; if (!n) return null; if (send) { send(n, tool ? tool() : undefined); return { ok: true, sent: true }; } const t = tool ? tool() : undefined, r = nodes.use(n, { tool: t, power: power ? power(n, t) : 1 });
+    use() { const n = I.target; if (!n) return null; const t = tool ? tool() : undefined, pw = power ? power(n, t) : 1;
+      if (send) {   // the host decides: the feedback runs when its answer arrives
+        const p = send(n, t, pw); if (p && typeof p.then === 'function') p.then((r) => { r = r || {}; const ok = !!r.ok && !r.error;
+          if (ok && r.done && hud && r.left && typeof r.left === 'object' && Object.keys(r.left).length) hud.toast('The backpack is full');
+          if (onHit) onHit(n, r); if (ok && r.done && onGet) onGet(n, r.drops || {}); if (!ok && hud && (r.why || r.error)) hud.toast(nice(r.why || r.error)); shown = null; });
+        return { ok: true, sent: true }; }
+      const r = nodes.use(n, { tool: t, power: pw });
       if (r.ok && r.done && inventory) for (const id in r.drops) { const left = inventory.add(id, r.drops[id]); if (left && hud) hud.toast('The backpack is full'); }
       if (onHit) onHit(n, r); if (r.ok && r.done && onGet) onGet(n, r.drops); if (!r.ok && hud) hud.toast(nice(r.why)); shown = null; return r; },
     update() {
@@ -327,9 +336,13 @@ export function rampPiece(opts = {}) { return stairsPiece({ rise: 1.5, ...opts }
  * onChange(op) (after any change from anyone: a sound, a puff of dust).
  *   const sync = createWorldSync(room, { build, nodes, crops, inventory: inv });
  *   await sync.place('wall', x, y, { level: 1 })   -> the result ({ error } when the host refused)
- *   await sync.remove(x, y, { layer })   await sync.use(node, { tool })   await sync.plant('wheat', x, y)   await sync.water(x, y)
- *   createInteract({ ..., send: (node, tool) => sync.use(node, { tool }) })   routes the interact prompt through it
+ *   await sync.remove(x, y, { layer })   await sync.plant('wheat', x, y)   await sync.water(x, y)
+ *   await sync.use(node, { tool, power })   -> { ok, done, drops, hp (hits left), left ({ wood: 2 }: drops that did not
+ *                                              fit this player's backpack) } or { error }, the same for host and guest
+ *   createInteract({ ..., send: (node, tool, power) => sync.use(node, { tool, power }) })   routes the interact prompt through it
  * Alone (no room, or before it opens) every call applies at once, so the same code serves one player and many.
+ * On an endless map a guest may use a thing far from the host: with `chunks` given, the host loads that piece of land
+ * unseen for a while (chunks.ensure) and answers as for its own, so nothing more is needed in the game.
  */
 export function createWorldSync(room, { build, nodes, crops, chunks, inventory, onChange } = {}) {
   let seq = 0, timer = 0; const wait = new Map(), spent = new Set(), host = () => !room || !room.connected || room.isHost;
@@ -343,13 +356,15 @@ export function createWorldSync(room, { build, nodes, crops, chunks, inventory, 
     if (op === 'remove') { const p = build.remove(a.x, a.y, { layer: a.layer, level: a.level, free: !mine, inventory: mine ? inventory : undefined }); return p ? { ok: true, kind: p.kind } : { error: 'nothing there' }; }
     if (op === 'plant') { const c = crops.plant(a.type, a.x, a.y, { inventory: mine ? inventory : undefined }); return c.error ? { error: c.error } : { ok: true }; }
     if (op === 'water') return crops.water(a.x, a.y) ? { ok: true } : { error: 'nothing planted there' };
-    if (op === 'use') { const n = nodes.byId(a.id); if (!n) return { error: 'gone' }; if (a.left != null) { if (a.done) finishNode(n); else n.left = a.left; return { ok: true }; }
-      const own = !!n.onUse, r = mine ? nodes.useFor(n, inventory, { tool: a.tool }) : nodes.use(n, { tool: a.tool }); if (r.ok && r.done && chunks && n.ref && n.ref.key && !n.respawn) chunks.forget(n.ref); return r.ok ? { ok: true, done: r.done, drops: r.drops, left: n.left, local: own } : { error: r.why }; }
+    if (op === 'use') { let n = nodes.byId(a.id);
+      if (!n && a.left == null && a.x != null && chunks && chunks.ensure && host()) { chunks.ensure(a.x, a.y); n = nodes.byId(a.id); }   // a guest far from the host: load that land unseen
+      if (!n) return { error: 'gone' }; if (a.left != null) { if (a.done) finishNode(n); else n.left = a.left; return { ok: true }; }
+      const own = !!n.onUse, o = { tool: a.tool, power: Math.max(1, Math.min(20, Math.floor(a.power) || 1)) }, r = mine ? nodes.useFor(n, inventory, o) : nodes.use(n, o); if (r.ok && r.done && chunks && n.ref && n.ref.key && !n.respawn) chunks.forget(n.ref); return r.ok ? { ok: true, done: r.done, drops: r.drops, hp: Math.max(0, n.left), left: r.left, local: own } : { error: r.why }; }
     return { error: 'unknown change ' + op };
   };
   const decide = (op, a, from) => {   // host: check and apply, then tell everyone what happened
     let r; try { r = apply(op, a, !from); } catch (e) { r = { error: String(e.message || e) }; }
-    if (!r.error && !r.local && room && room.connected) { const out = op === 'use' ? { id: a.id, left: r.left, done: r.done } : a; room.send({ gcpWorld: 'op', op, a: out, by: from || room.id }); share(); }
+    if (!r.error && !r.local && room && room.connected) { const out = op === 'use' ? { id: a.id, left: r.hp, done: r.done } : a; room.send({ gcpWorld: 'op', op, a: out, by: from || room.id }); share(); }
     if (!r.error && onChange) onChange({ op, ...a, by: from || (room && room.id) });
     return r;
   };
@@ -390,7 +405,7 @@ export function createWorldSync(room, { build, nodes, crops, chunks, inventory, 
   const S = { get isHost() { return host(); }, snapshot,
     place: (kind, x, y, o = {}) => ask('place', { kind, x, y, level: o.level, dir: o.dir }),
     remove: (x, y, o = {}) => ask('remove', { x, y, layer: o.layer, level: o.level }),
-    use: (node, o = {}) => (node.onUse ? Promise.resolve(nodes.use(node, { tool: o.tool })) : ask('use', { id: node.id, tool: o.tool })),   // a bed or a door works on this device only
+    use: (node, o = {}) => (node.onUse ? Promise.resolve(nodes.use(node, { tool: o.tool })) : ask('use', { id: node.id, tool: o.tool, power: o.power, x: node.x, y: node.y })),   // a bed or a door works on this device only
     plant: (type, x, y) => ask('plant', { type, x, y }), water: (x, y) => ask('water', { x, y }) };
   return S;
 }
@@ -609,10 +624,11 @@ export function pauseMenu(hud, { title = 'Paused', controls = [], buttons = [], 
  *   const lobby = lobbyUI(hud, { title: 'Wildstead' });  GCP.test.onAutostart(() => lobby.solo());
  *   const { mode, code } = await lobby;   // lobby.solo(), lobby.host(code), lobby.join(code) settle it from code
  *   const room = mode === 'solo' ? null : GCP.room(code);        // or joinSession(code, …) from @gcp/net.js
- * Options: title, subtitle, solo (false hides Play alone), codeLength (default 4), code (prefilled, e.g. from GCP.test.param('room')).
+ * Options: title, subtitle, solo (false hides Play alone), codeLength (default 4), code (prefilled, e.g. from GCP.test.param('room')),
+ * hint (a small line under the buttons, e.g. the controls: 'WASD move · E use · F place').
  * A link that carries ?room=CODE fills the code in, so a host can share the page address with it.
  */
-export function lobbyUI(hud, { title = '', subtitle = 'Play together', solo = true, codeLength = 4, code = '' } = {}) {
+export function lobbyUI(hud, { title = '', subtitle = 'Play together', solo = true, codeLength = 4, code = '', hint = '' } = {}) {
   css(); const make = () => Array.from({ length: codeLength }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[(Math.random() * 24) | 0]).join('');
   let api = null; const out = new Promise((res) => {
     const win = el('div', 'gp-win'), box = el('div', 'gp-box'), m = el('div', 'gp-menu'), inp = el('input', 'gp-code'), err = el('small', 'gp-err', '');
@@ -623,7 +639,7 @@ export function lobbyUI(hud, { title = '', subtitle = 'Play together', solo = tr
     const row = el('div', 'gp-row'); inp.placeholder = 'ROOM CODE'; inp.maxLength = 8; inp.autocapitalize = 'characters'; inp.spellcheck = false; inp.value = code || new URLSearchParams(location.search).get('room') || ''; row.appendChild(inp); m.appendChild(row);
     const join = () => { const c = clean(); if (c.length < 2) { err.textContent = 'Type the code the host shared'; inp.focus(); return; } done('join', c); };
     const jb = el('button', 'gp-btn', 'Join'); jb.addEventListener('click', join); row.appendChild(jb); inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.code === 'Enter') join(); }); m.appendChild(err);
-    if (solo) b('Play alone', () => done('solo', ''));
+    if (solo) b('Play alone', () => done('solo', '')); if (hint) m.appendChild(el('small', 'gp-hint', hint));
     box.appendChild(m); win.appendChild(box); hud.el.appendChild(win);
     api = { solo: () => done('solo', ''), host: (c) => done('host', c || make()), join: (c) => done('join', String(c).toUpperCase()) };
   });

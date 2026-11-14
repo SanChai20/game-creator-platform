@@ -203,7 +203,7 @@ crops.plant('wheat', ...player.ahead(1), { inventory: inv });   // takes a seed;
 **A world that grows as the player explores.** `chunks2d` (2D, with `ground2d({ size: Infinity })`) and
 `terrainChunks` (3D: the land itself is cut into chunks) fill each chunk by your `fill(chunk)` the first time the
 player comes near and empty it when they walk away. A chunk always fills the same way, so the world is endless and
-the same on every visit and every device; `forget(item)` keeps a felled tree felled, and `toJSON()` saves that list.
+the same on every visit and every device; `forget(item)` keeps a felled tree felled, and `toJSON()` saves that list. `stage.add(soil, x, y, { flat: true })` draws a flat thing (a tilled plot, a rug) under everything that stands; `terrainChunks` takes a `clearing` and `ch.place(kind, x, z, { key })` lists a placed thing so it can be a node.
 
 ```js
 const world = chunks2d({ seed: SEED, chunk: 16, fill: (ch) => { nodes.fromScatter(ch.scatter([sprite2d('tree')], { count: 14 }).items, treeRule); } });
@@ -215,7 +215,7 @@ const land = terrainChunks({ shape: 'rolling', seed: SEED, fill: (ch) => ch.scat
 every change and send it to everyone, so all players see the same pieces, the same felled trees and the same crops;
 each keeps their own inventory, and a late joiner gets the whole world. Alone it applies at once, so one code path
 serves both. Route the prompt through it with `createInteract({ ..., send: (n, tool) => sync.use(n, { tool }) })`,
-and build with `await sync.place('wall', x, y, { level })`. `createLoopback(2)` gives two rooms that talk inside one
+and build with `await sync.place('wall', x, y, { level })`. `sync.use(node, { tool, power })` gives `{ ok, done, drops, hp, left }` on every side (`hp` hits left, `left` the drops that did not fit), and when `send` returns that promise the prompt's `onHit` and `onGet` run when the answer comes. On an endless map the host loads the land around a far guest by itself (`chunks.ensure(x, y)`; such a chunk has `far: true`, so `fill` can skip decoration). `createLoopback(2)` gives two rooms that talk inside one
 page: build two worlds from the same seed, one sync on each, act on both, and check they agree in a play-through.
 
 **Interface.** Panels for those systems, on the same `createHud()`:
@@ -231,6 +231,17 @@ const { mode, code } = await lobbyUI(hud, { title });   // host, join by code, o
 
 They fit a phone held upright, on-screen buttons step aside while a window is open, and item icons are painted in
 code (`ITEMS` lists the 32 built-in kinds; any other id gets a tile, or give it your own `icon`).
+
+## Templates for farming, endless maps and two players
+
+When a brief asks for crops, a world that grows as the player walks, or friends playing together, `design_scene`
+returns a hand-written template instead of the generated starter: `homestead-2d` (painted top-down) or `homestead-3d`
+(third person), also available through `apply_template`. Both have all three features plus crafting, building with
+stairs, needs, day and night, a trading post, quests and saving, and a play-through that checks it all with a second
+player in the same page. `src/theme.js` is the game (name, look, items, crops, pieces, the regions the land passes
+through, quests); `src/main.js` is the engine. Rewrite the theme for your brief and change the engine where the brief
+needs rules it lacks: until enough has changed the report counts it as the template (quality.own_work) and keeps the
+craft score below target.
 
 ## The craft score
 

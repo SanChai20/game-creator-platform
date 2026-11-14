@@ -270,12 +270,14 @@ export function wander(actor, opts = {}) {
  * if you bound one with input.bind; an action named 'jump' jumps as Space does.
  * Returns { position, velocity, grounded, moving, running, speedNow, yaw, enabled, update(dt), teleport(x, z),
  *   ahead(d) -> { x, z } (the point d metres in front of the hero: where to place or hit),
- *   moveTo(x, z) -> Promise (walks there by itself: useful for cut-scenes and for play-through scripts) }.
+ *   moveTo(x, z) -> Promise (walks there by itself: useful for cut-scenes and for play-through scripts),
+ *   addSolids(list) (more circles to bump into, kept by reference: control(hero, { input, solids: land.solids }).addSolids(build.solids)) }.
  */
 export function control(actor, opts = {}) {
   const st = opts.stage || currentStage(), cam = st.camera, input = opts.input, { mode = 'third', heightAt = () => 0, speed = 4.5, runSpeed = 7.5, jump = 7.5, gravity = 22, bounds = Infinity, minY = -Infinity } = opts;
   if (!input) throw new Error('control() needs { input }: const input = createInput(canvas) from "@gcp/input.js".');
-  const C = { position: actor.position, velocity: new THREE.Vector3(), grounded: true, moving: false, speedNow: 0, yaw: actor.rotation.y, camYaw: opts.camYaw ?? Math.PI, camPitch: opts.pitch ?? (mode === 'top' ? 1.0 : 0.35), distance: opts.distance ?? (mode === 'top' ? 16 : mode === 'side' ? 11 : 7), enabled: true, solids: opts.solids || [], target: null, stepT: 0 };
+  const C = { position: actor.position, velocity: new THREE.Vector3(), grounded: true, moving: false, speedNow: 0, yaw: actor.rotation.y, camYaw: opts.camYaw ?? Math.PI, camPitch: opts.pitch ?? (mode === 'top' ? 1.0 : 0.35), distance: opts.distance ?? (mode === 'top' ? 16 : mode === 'side' ? 11 : 7), enabled: true, solids: opts.solids || [], more: [], target: null, stepT: 0 };
+  C.addSolids = (list) => { if (list) C.more.push(list); return C; };
   const look = new THREE.Vector3(), want = new THREE.Vector3(); let camReady = false;
   if (st && !st.focus) st.focus = actor;
   actor.position.y = Math.max(heightAt(actor.position.x, actor.position.z), minY);
@@ -294,7 +296,7 @@ export function control(actor, opts = {}) {
     vel.x += ((go ? mx / len * sp : 0) - vel.x) * ease; vel.z += ((go ? mz / len * sp : 0) - vel.z) * ease;   // eases in and out instead of snapping
     const v = Math.hypot(vel.x, vel.z); C.moving = v > 0.4; C.speedNow = v; C.running = running && go;
     if (v > 0.02) { let x = p.x + vel.x * dt, z = p.z + vel.z * dt;
-      for (const s of C.solids) { if (s.off) continue; const dx = x - s.x, dz = z - s.z, rr = (s.r || 0.5) * 0.7 + 0.3, d2 = dx * dx + dz * dz; if (d2 < rr * rr && d2 > 1e-6) { const d = Math.sqrt(d2); x = s.x + dx / d * rr; z = s.z + dz / d * rr; } }
+      for (const list of [C.solids, ...C.more]) for (const s of list) { if (s.off) continue; const dx = x - s.x, dz = z - s.z, rr = (s.r || 0.5) * 0.7 + 0.3, d2 = dx * dx + dz * dz; if (d2 < rr * rr && d2 > 1e-6) { const d = Math.sqrt(d2); x = s.x + dx / d * rr; z = s.z + dz / d * rr; } }
       const d0 = Math.hypot(x, z); if (d0 > bounds) { x *= bounds / d0; z *= bounds / d0; }
       const gy = heightAt(x, z); if (!C.grounded || gy - p.y < 1.2) { p.x = x; p.z = z; } else { vel.x = vel.z = 0; }
       if (go) { let da = Math.atan2(mx, mz) - C.yaw; da = Math.atan2(Math.sin(da), Math.cos(da)); C.yaw += da * Math.min(1, dt * 12); actor.rotation.y = C.yaw; }

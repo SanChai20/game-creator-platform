@@ -13,7 +13,7 @@ import { setupCanvas, bake, Camera2D, ChunkCache } from './canvas2d.js';
 
 const sd = (v) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : toSeed(v ?? 1) % 99991);
 const hex = (c) => (typeof c === 'string' ? c : '#' + (c >>> 0).toString(16).padStart(6, '0'));
-const rgb = (c) => { if (typeof c === 'string') c = parseInt(c.slice(1), 16); return [(c >> 16) & 255, (c >> 8) & 255, c & 255]; };
+const rgb = (c) => { if (typeof c === 'string') { const m = c.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/); if (m) return [+m[1], +m[2], +m[3]]; let h = c.replace('#', ''); if (h.length === 3) h = h.replace(/./g, '$&$&'); c = parseInt(h, 16) || 0; } return [(c >> 16) & 255, (c >> 8) & 255, c & 255]; };
 /** A colour made lighter (k > 0) or darker (k < 0), as a CSS string. */
 export const shade = (c, k) => { const [r, g, b] = rgb(c), f = (v) => Math.round(clamp(k > 0 ? v + (255 - v) * k : v * (1 + k), 0, 255)); return `rgb(${f(r)},${f(g)},${f(b)})`; };
 
@@ -65,7 +65,7 @@ export function createStage2d(canvas, opts = {}) {
   const stage = {
     canvas: el, view, ctx, camera: cam, items, actors, lights, ground: opts.ground || null, focus: null, time: 0, wind: opts.wind ?? 1, mood, is2d: true,
     add(sprite, x, y, o = {}) {
-      const it = { sprite, x, y, visible: true, solid: o.solid ?? sprite.solid ?? 0, sway: o.sway ?? sprite.sway ?? false, bob: o.bob ? 1 : 0, flip: !!o.flip, scale: o.scale || 1, phase: hash2(Math.round(x * 7), Math.round(y * 7)) * TAU, light: null, remove() { const i = items.indexOf(it); if (i >= 0) items.splice(i, 1); if (it.light) it.light.on = false; } };
+      const it = { sprite, x, y, visible: true, flat: !!(o.flat ?? sprite.flat), solid: o.solid ?? sprite.solid ?? 0, sway: o.sway ?? sprite.sway ?? false, bob: o.bob ? 1 : 0, flip: !!o.flip, scale: o.scale || 1, phase: hash2(Math.round(x * 7), Math.round(y * 7)) * TAU, light: null, remove() { const i = items.indexOf(it); if (i >= 0) items.splice(i, 1); if (it.light) it.light.on = false; } };
       const L = o.light ?? sprite.light; if (L) it.light = stage.light(x, y - sprite.h * 0.5, L.r || 3, L.color || 0xffc070, L.flicker ?? true);
       items.push(it); return it;
     },
@@ -102,7 +102,7 @@ export function createStage2d(canvas, opts = {}) {
       if (g) { g.cache.scale = Math.round(Math.min(64, Math.max(32, z))); g.cache.draw(ctx, b); g.ripples(ctx, b, time); }
       // soft shadows first, then everything that stands up, sorted by its feet
       drawList.length = 0;
-      for (const it of items) if (it.visible && it.x > b.x0 && it.x < b.x1 && it.y > b.y0 && it.y < b.y1 + 4) drawList.push(it);
+      for (const it of items) if (it.visible && it.x > b.x0 && it.x < b.x1 && it.y > b.y0 && it.y < b.y1 + 4) { if (it.flat) { const s = it.sprite, sc = it.scale; ctx.drawImage(s.canvas, it.x - s.w * s.ax * sc, it.y - s.h * s.ay * sc, s.w * sc, s.h * sc); } else drawList.push(it); }   // flat things lie on the ground, under everything that stands
       for (const a of actors) if (a.visible !== false && a.x > b.x0 && a.x < b.x1 && a.y > b.y0 && a.y < b.y1 + 2) drawList.push(a);
       drawList.sort((p, q) => p.y - q.y);
       ctx.fillStyle = `rgba(10,20,30,${mood.shadow})`;
@@ -331,6 +331,8 @@ const BAKED = new Map();
  * rock { ore, moss, snow }, bush { berries }, house { walls, roof }, soil { wet } (a tilled plot), crop { type: wheat |
  * corn | carrot | pumpkin | berry, stage: 0 seeds, 1 sprout, 2 growing, 3 ripe, soil (on a tilled plot), wet, fruit } (createCrops draws them for you). Lights (campfire, lantern, torch, lamp, crystal,
  * portal) glow when the mood is dark. Returns the sprite ({ canvas, w, h, solid, shadow }).
+ * stage.add(sprite, x, y, { flat: true }) lays a thing on the ground (tilled soil, a rug, a marking): it is drawn under
+ * everything that stands, so it never covers the feet of someone walking over it.
  */
 export function sprite2d(kind, opts = {}) {
   const m = META[kind]; if (!m) throw new Error(`Unknown sprite2d kind "${kind}". Known kinds: ${SPRITES2D.join(', ')}.`);
@@ -500,13 +502,18 @@ export function wander2d(actor, opts = {}) {
  * Options: seed, chunk (size in units, default 16), radius (chunks kept around the player, default 2), fill, stage,
  * around (() => ({ x, y }): the point the world grows around; default the stage's focus).
  * Returns { solids (live: pass to control2d), chunks (Map), items() (every loaded item), onLoad(fn(chunk)), onUnload(fn(chunk)),
- * forget(item) (taken out for good: a chopped tree stays gone when its chunk comes back; saved with toJSON), toJSON(), load(data), update() }.
+ * forget(item) (taken out for good: a chopped tree stays gone when its chunk comes back; saved with toJSON), toJSON(),
+ * load(data) (after it, item.gone is true on every forgotten item and createNodes drops their nodes by itself),
+ * ensure(x, y, seconds = 30) -> chunk (keeps the chunk at that point loaded for a while although the player is far:
+ * a room's host answers for the land around a distant guest this way, and createWorldSync calls it for you. Such a
+ * chunk has chunk.far = true, so fill can skip animals and decoration; it is filled again when the player arrives), update() }.
  * Items carry item.key ('cx,cy,i'), the same every time their chunk is filled: keep harvested state by it.
  */
 export function chunks2d({ seed = 1, chunk = 16, radius = 2, fill, stage, around } = {}) {
-  const st = stage || CURRENT, loaded = new Map(), solids = [], gone = new Set(), onL = [], onU = [], base = sd(seed);
-  const load = (cx, cy) => {
-    const items = [], keeps = [], mine = [], ch = { cx, cy, x: cx * chunk, y: cy * chunk, size: chunk, items, rand: mulberry32(((cx * 73856093) ^ (cy * 19349663) ^ base) >>> 0), n: 0 };
+  const st = stage || CURRENT, loaded = new Map(), solids = [], gone = new Set(), onL = [], onU = [], base = sd(seed), held = new Map();
+  const drop = (k, ch) => { for (const f of onU) f(ch); ch.unload(); loaded.delete(k); };
+  const load = (cx, cy, far = false) => {
+    const items = [], keeps = [], mine = [], ch = { cx, cy, far, x: cx * chunk, y: cy * chunk, size: chunk, items, rand: mulberry32(((cx * 73856093) ^ (cy * 19349663) ^ base) >>> 0), n: 0 };
     const track = (it) => { it.key = cx + ',' + cy + ',' + ch.n++; if (gone.has(it.key)) { it.remove(); return null; } items.push(it); if (it.circle) { solids.push(it.circle); mine.push(it.circle); } return it; };
     ch.add = (sprite, x, y, o = {}) => { const it = st.add(sprite, x, y, o); it.type = sprite.kind; const so = o.solid ?? sprite.solid; if (so) it.circle = { x, y: y - 0.1, r: so * (o.scale || 1) }; return track(it); };
     ch.scatter = (kinds, o = {}) => { const r = scatter2d(kinds, { stage: st, count: 12, ...o, area: [ch.x, ch.y, chunk, chunk], seed: (o.seed ?? 0) + '|' + cx + ',' + cy + '|' + base }); return r.items.map(track).filter(Boolean); };
@@ -515,12 +522,14 @@ export function chunks2d({ seed = 1, chunk = 16, radius = 2, fill, stage, around
     loaded.set(cx + ',' + cy, ch); if (fill) fill(ch); for (const f of onL) f(ch); return ch;
   };
   const W = { solids, chunks: loaded, chunk, onLoad: (f) => onL.push(f), onUnload: (f) => onU.push(f), items: () => [...loaded.values()].flatMap((c) => c.items),
-    forget(it) { if (!it || !it.key) return; gone.add(it.key); it.visible = false; if (it.circle) it.circle.off = true; },
+    forget(it) { if (!it || !it.key) return; gone.add(it.key); it.gone = true; it.visible = false; if (it.circle) it.circle.off = true; },
+    ensure(x, y, secs = 30) { const cx = Math.floor(x / chunk), cy = Math.floor(y / chunk), k = cx + ',' + cy; if (!held.has(k) && held.size >= 18) held.delete(held.keys().next().value); held.set(k, Date.now() + secs * 1000); return loaded.get(k) || load(cx, cy, true); },
     toJSON: () => [...gone], load(d) { if (Array.isArray(d)) for (const k of d) gone.add(k); for (const ch of loaded.values()) for (const it of ch.items) if (gone.has(it.key)) W.forget(it); return W; },
     update() {
       const p = around ? around() : st.focus || { x: 0, y: 0 }, pcx = Math.floor(p.x / chunk), pcy = Math.floor(p.y / chunk);
-      for (let j = -radius; j <= radius; j++) for (let i = -radius; i <= radius; i++) if (!loaded.has((pcx + i) + ',' + (pcy + j))) load(pcx + i, pcy + j);
-      for (const [k, ch] of loaded) if (Math.abs(ch.cx - pcx) > radius + 1 || Math.abs(ch.cy - pcy) > radius + 1) { for (const f of onU) f(ch); ch.unload(); loaded.delete(k); }
+      for (let j = -radius; j <= radius; j++) for (let i = -radius; i <= radius; i++) { const k = (pcx + i) + ',' + (pcy + j), ch = loaded.get(k); if (ch && ch.far) drop(k, ch); if (!ch || ch.far) load(pcx + i, pcy + j); }   // a chunk kept unseen is filled in full when the player arrives
+      const now = Date.now(); for (const [k, t] of held) if (t < now) held.delete(k);
+      for (const [k, ch] of loaded) if ((Math.abs(ch.cx - pcx) > radius + 1 || Math.abs(ch.cy - pcy) > radius + 1) && !held.has(k)) drop(k, ch);
     } };
   st.onUpdate(() => W.update()); W.update();
   return W;
