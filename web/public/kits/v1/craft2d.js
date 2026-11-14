@@ -53,7 +53,7 @@ export const currentStage2d = () => CURRENT;
  *   stage.fx                       burst(x, y, color), text(x, y, 'words', color), ring(x, y, color), confetti(x, y)
  *   stage.shake(amount), stage.onUpdate(fn), stage.run(update)  the frame loop; calls GCP.ready() after the first frames
  * Options: mood, weather, zoom (pixels per unit, default fits about 22 units across), ground (a ground2d, or set
- * stage.ground later), wind (0..2), mist (0..1: a veil with drifting banks over the picture; misty-dawn has 0.6).
+ * stage.ground later), wind (0..2), mist (0..1: a veil with drifting banks over the picture; misty-dawn has 0.6; set stage.mist to change it later).
  * The loop is stage.run(update); pass { ready: false } as its second argument to call GCP.ready() yourself.
  */
 export function createStage2d(canvas, opts = {}) {
@@ -124,9 +124,11 @@ export function createStage2d(canvas, opts = {}) {
           const gr = lctx.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, `rgba(${l.color[0]},${l.color[1]},${l.color[2]},0.95)`); gr.addColorStop(0.45, `rgba(${l.color[0]},${l.color[1]},${l.color[2]},0.4)`); gr.addColorStop(1, 'rgba(0,0,0,0)'); lctx.fillStyle = gr; lctx.fillRect(px - r, py - r, r * 2, r * 2); }
         ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(lightC, 0, 0, w, h); ctx.globalCompositeOperation = 'source-over';
       }
-      const mist = opts.mist ?? mood.mist ?? 0;   // a veil over everything, thicker in slow drifting banks
-      if (mist > 0.01) { ctx.fillStyle = hex(mood.haze ?? 0xe9eef0); ctx.globalAlpha = mist * 0.3; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = mist * 0.28;
-        for (let i = 0; i < 7; i++) { const bx = ((i * 0.31 + time * 0.012 * (1 + i % 3)) % 1.4 - 0.2) * w, by = ((i * 0.47) % 1) * h + Math.sin(time * 0.2 + i) * 30, br = Math.max(w, h) * (0.22 + (i % 3) * 0.07); const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br); g2.addColorStop(0, hex(mood.haze ?? 0xe9eef0)); g2.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g2; ctx.fillRect(bx - br, by - br, br * 2, br * 2); }
+      const mist = stage.mist ?? opts.mist ?? mood.mist ?? 0;   // a veil over everything, thicker towards the top (farther away) and in slow drifting banks
+      if (mist > 0.01) { const hz = hex(mood.haze ?? 0xe9eef0), [hr, hg, hb] = rgb(mood.haze ?? 0xe9eef0), m = Math.min(1, mist);
+        const vg = ctx.createLinearGradient(0, 0, 0, h); vg.addColorStop(0, `rgba(${hr},${hg},${hb},${0.72 * m})`); vg.addColorStop(0.55, `rgba(${hr},${hg},${hb},${0.42 * m})`); vg.addColorStop(1, `rgba(${hr},${hg},${hb},${0.26 * m})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
+        ctx.globalAlpha = 0.5 * m;
+        for (let i = 0; i < 9; i++) { const bx = ((i * 0.31 + time * 0.012 * (1 + i % 3) - cam.x * z / w * 0.6) % 1.4 + 1.4) % 1.4 * w - 0.2 * w, by = ((i * 0.47 - cam.y * z / h * 0.6) % 1 + 1) % 1 * h + Math.sin(time * 0.2 + i) * 30, br = Math.max(w, h) * (0.24 + (i % 3) * 0.08); const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br); g2.addColorStop(0, hz); g2.addColorStop(1, `rgba(${hr},${hg},${hb},0)`); ctx.fillStyle = g2; ctx.fillRect(bx - br, by - br, br * 2, br * 2); }
         ctx.globalAlpha = 1; }
       if (weather) { const W = weather; if (W.haze) { ctx.fillStyle = W.haze; ctx.fillRect(0, 0, w, h); } if (W.glow) ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = ctx.strokeStyle = W.color; ctx.lineWidth = W.w || 1; ctx.beginPath();
         for (const d of drops) { const sx = W.sway ? Math.sin(time * (0.6 + d.s) + d.s * 40) * W.sway : 0, x = (((d.x * w + time * W.vx * (0.7 + d.s * 0.6) + sx - cam.x * z) % w) + w) % w, y = (((d.y * h + time * W.vy * (0.7 + d.s * 0.6) - cam.y * z) % h) + h) % h;
@@ -163,7 +165,8 @@ export const GROUND_PALETTES = Object.keys(LANDS2D);
 /**
  * The painted land (set as the stage's ground for you). Returns { kindAt(x, y), walkable(x, y), randomPoint(rand, { minRadius,
  * maxRadius }), mapColor(x, y) (for a minimap), size, deep }. kindAt gives 'water' | 'sand' | 'grass' | 'dirt' | 'stone'.
- * Options: seed, size (the land's radius in units, default 60; beyond it lies water, a natural edge), palette
+ * Options: seed, size (the land's radius in units, default 60; beyond it lies water, a natural edge; Infinity for land
+ * without end, painted wherever the camera goes: pair it with chunks2d to fill it), palette
  * (temperate, autumn, desert, snow, volcanic, alien, tropical, city, or your own colours), water (0..1: how much of
  * the land is lakes and coves, default 0.3), paths (false for no dirt paths), clearing ({ x, y, r }: dry open
  * ground, e.g. the spawn), stage.
@@ -173,7 +176,7 @@ export function ground2d(opts = {}) {
   const pal = typeof opts.palette === 'object' ? { ...LANDS2D.temperate, ...opts.palette } : LANDS2D[opts.palette] || LANDS2D.temperate;
   const C = { g0: rgb(pal.grass[0]), g1: rgb(pal.grass[1]), dirt: rgb(pal.dirt), sand: rgb(pal.sand), w0: rgb(pal.water[0]), w1: rgb(pal.water[1]), stone: rgb(pal.stone) };
   // height: rolling noise, pulled down at the rim (so the land ends in water) and up in the clearing
-  const H = (x, y) => { let h = nz.fbm2(x * 0.028, y * 0.028, 4) * 0.5 + 0.5 + (0.3 - wet) * 0.6; h -= smoothstep(size * 0.8, size * 1.05, Math.hypot(x, y)) * 1.2; if (clearing) h = lerp(Math.max(h, 0.62), h, smoothstep(clearing.r, clearing.r * 2.2, Math.hypot(x - clearing.x, y - clearing.y))); return h; };
+  const H = (x, y) => { let h = nz.fbm2(x * 0.028, y * 0.028, 4) * 0.5 + 0.5 + (0.3 - wet) * 0.6; if (size !== Infinity) h -= smoothstep(size * 0.8, size * 1.05, Math.hypot(x, y)) * 1.2; if (clearing) h = lerp(Math.max(h, 0.62), h, smoothstep(clearing.r, clearing.r * 2.2, Math.hypot(x - clearing.x, y - clearing.y))); return h; };
   const pathV = (x, y) => (paths ? Math.abs(n2.n2(x * 0.03, y * 0.03)) : 1), stoneV = (x, y) => n2.n2(x * 0.05 + 50, y * 0.05 - 20);
   const WATER = 0.36, SAND = 0.42;
   const kindAt = (x, y) => { const h = H(x, y); return h < WATER ? 'water' : h < SAND ? 'sand' : pathV(x, y) < 0.045 ? 'dirt' : stoneV(x, y) > 0.72 ? 'stone' : 'grass'; };
@@ -214,7 +217,7 @@ export function ground2d(opts = {}) {
       for (let y = Math.floor(b.y0 / 2) * 2; y < b.y1; y += 2) for (let x = Math.floor(b.x0 / 2) * 2; x < b.x1; x += 2) { const r = hash2(x, y, seed + 9); if (r > 0.5 || H(x + 1, y + 1) > WATER - 0.03) continue; const px = x + r * 3 + Math.sin(t * 0.6 + r * 40) * 0.3, py = y + r * 2.6, l = 0.25 + Math.sin(t * 1.4 + r * 30) * 0.15; ctx.moveTo(px - l, py); ctx.quadraticCurveTo(px, py - 0.08, px + l, py); }
       ctx.stroke();
     },
-    randomPoint(rand, { minRadius = 0, maxRadius = size * 0.8, kind, tries = 300 } = {}) { for (let i = 0; i < tries; i++) { const a = rand() * TAU, r = minRadius + Math.sqrt(rand()) * (maxRadius - minRadius), x = Math.cos(a) * r, y = Math.sin(a) * r; if (H(x, y) > SAND && (!kind || kindAt(x, y) === kind)) return { x, y }; } return { x: 0, y: 0 }; },
+    randomPoint(rand, { minRadius = 0, maxRadius = Number.isFinite(size) ? size * 0.8 : 60, kind, tries = 300 } = {}) { for (let i = 0; i < tries; i++) { const a = rand() * TAU, r = minRadius + Math.sqrt(rand()) * (maxRadius - minRadius), x = Math.cos(a) * r, y = Math.sin(a) * r; if (H(x, y) > SAND && (!kind || kindAt(x, y) === kind)) return { x, y }; } return { x: 0, y: 0 }; },
   };
   if (st && opts.add !== false) st.ground = land;
   return land;
@@ -255,6 +258,29 @@ const S2 = {
     if (o.fruit != null) for (let i = 0; i < 7; i++) ell(c, x - 0.8 + r() * 1.6, 0.8 + r() * 1.0, 0.07, 0.07, hex(o.fruit), 0.025);
   },
   rock(c, o, r) { const col = o.color ?? 0x8f8c86; for (const [x, y, s] of [[0.42, 0.62, 0.34], [0.86, 0.58, 0.42], [0.62, 0.74, 0.3]]) { const p = []; for (let i = 0; i < 7; i++) { const a = i / 7 * TAU, d = s * (0.8 + r() * 0.3); p.push([x + Math.cos(a) * d, y + Math.sin(a) * d * 0.78]); } poly(c, p, hex(col)); poly(c, p.slice(3, 7).map(([px, py]) => [px * 0.96 + x * 0.04, py * 0.9 + (y - s * 0.2) * 0.1]), shade(col, 0.22), 0); } if (o.ore != null) for (let i = 0; i < 5; i++) ell(c, 0.4 + r() * 0.6, 0.45 + r() * 0.35, 0.05, 0.05, hex(o.ore), 0.02); if (o.moss) ell(c, 0.8, 0.36, 0.3, 0.1, '#5a9a3e', 0.02); if (o.snow) ell(c, 0.8, 0.34, 0.32, 0.1, '#f4f8fb', 0.02); },
+  // farming: a tilled plot, and a crop on it in four stages (0 seeds, 1 sprout, 2 growing, 3 ripe)
+  soil(c, o) { const col = o.wet ? 0x5a3e28 : 0x8a6440; box(c, 0.08, 0.12, 0.94, 0.52, hex(col), 0.12); for (let i = 0; i < 3; i++) box(c, 0.16, 0.2 + i * 0.15, 0.78, 0.07, shade(col, i % 2 ? -0.25 : 0.18), 0.03, 0); },
+  crop(c, o, r) {
+    const type = o.type || 'wheat', st = Math.max(0, Math.min(3, o.stage | 0)), x = 0.5, base = 1.2, leaf = '#4f9e3c';
+    if (o.soil) { const sc = o.wet ? 0x5a3e28 : 0x8a6440; box(c, 0.03, base - 0.36, 0.94, 0.46, hex(sc), 0.1); for (let i = 0; i < 2; i++) box(c, 0.1, base - 0.26 + i * 0.17, 0.8, 0.06, shade(sc, i ? -0.25 : 0.18), 0.03, 0); }
+    ell(c, x, base - 0.05, 0.38, 0.1, o.wet ? '#4a3220' : '#6a4a2c', 0.035);
+    if (st === 0) { for (const dx of [-0.16, 0, 0.16]) ell(c, x + dx, base - 0.08, 0.04, 0.03, '#d8b878', 0.02); return; }
+    const stalk = (dx, h, col, w = 0.05) => { c.lineCap = 'round'; c.beginPath(); c.moveTo(x + dx, base - 0.06); c.quadraticCurveTo(x + dx * 1.3, base - h * 0.6, x + dx * 1.6, base - h); c.lineWidth = w + 0.05; c.strokeStyle = O; c.stroke(); c.lineWidth = w; c.strokeStyle = col; c.stroke(); };
+    const leaves = (h, n) => { for (let i = 0; i < n; i++) { const a = (i / (n - 1) - 0.5) * 1.6; poly(c, [[x, base - 0.08], [x + Math.sin(a) * h * 0.55 - 0.05, base - 0.08 - Math.cos(a) * h], [x + Math.sin(a) * h * 0.55 + 0.06, base - 0.1 - Math.cos(a) * h * 0.8]], i % 2 ? leaf : shade(leaf, 0.2), 0.03); } };
+    if (st === 1) { leaves(0.28, 3); return; }
+    if (type === 'wheat' || type === 'corn') {
+      const tall = type === 'corn' ? 1.05 : 0.8, ripe = st === 3, col = ripe ? (type === 'corn' ? '#8ab040' : '#d8b040') : '#7ab04a';
+      for (const dx of [-0.2, -0.07, 0.07, 0.2]) stalk(dx, tall * (st === 2 ? 0.65 : 1) * (0.9 + r() * 0.15), col, 0.045);
+      if (ripe && type === 'wheat') for (const dx of [-0.2, -0.07, 0.07, 0.2]) { const tx = x + dx * 1.6, ty = base - tall; for (let k = 0; k < 4; k++) { ell(c, tx - 0.04, ty + k * 0.07, 0.04, 0.05, '#f0c840', 0.02); ell(c, tx + 0.04, ty + k * 0.07 + 0.03, 0.04, 0.05, '#e8b830', 0.02); } }
+      if (ripe && type === 'corn') for (const dx of [-0.14, 0.14]) { ell(c, x + dx * 1.3, base - 0.6, 0.07, 0.17, '#f2d24a', 0.03); poly(c, [[x + dx * 1.3, base - 0.42], [x + dx * 1.3 - 0.08, base - 0.7], [x + dx * 1.3 + 0.08, base - 0.7]], '#8ab040', 0.03); }
+      return;
+    }
+    if (type === 'pumpkin') { leaves(0.36, 4); if (st === 3) { ell(c, x, base - 0.22, 0.32, 0.24, '#e8862a'); for (const dx of [-0.12, 0.12]) ell(c, x + dx, base - 0.22, 0.08, 0.22, '#d8741e', 0.025); box(c, x - 0.03, base - 0.5, 0.06, 0.1, '#5a7a2a', 0.02, 0.025); } else ell(c, x + 0.08, base - 0.14, 0.1, 0.08, '#9ab040', 0.025); return; }
+    if (type === 'carrot') { if (st === 3) for (const dx of [-0.16, 0.16]) poly(c, [[x + dx - 0.07, base - 0.12], [x + dx + 0.07, base - 0.12], [x + dx, base + 0.02]], '#f08a2a', 0.03); leaves(st === 3 ? 0.5 : 0.4, 5); return; }
+    // berry (and anything else): a little bush, fruit when ripe
+    puffs(c, [[x - 0.14, base - 0.3, 0.2], [x + 0.14, base - 0.32, 0.2], [x, base - 0.45, 0.22]].map(([a, b, s2]) => [a, b, s2 * (st === 2 ? 0.75 : 1)]), 0x4a9440, r);
+    if (st === 3) for (let i = 0; i < 7; i++) ell(c, x - 0.25 + r() * 0.5, base - 0.6 + r() * 0.35, 0.05, 0.05, hex(o.fruit ?? 0xd83a4a), 0.02);
+  },
   bush(c, o, r) { const col = o.color ?? 0x4a9440; puffs(c, [[0.4, 0.55, 0.3], [0.8, 0.5, 0.34], [0.6, 0.62, 0.3]], col, r); if (o.berries != null) for (let i = 0; i < 8; i++) ell(c, 0.25 + r() * 0.7, 0.35 + r() * 0.35, 0.05, 0.05, hex(o.berries), 0.02); },
   flower(c, o, r) { const col = o.color ?? [0xffffff, 0xffe066, 0xff9ac2, 0xc4a0ff][(r() * 4) | 0]; for (let i = 0; i < 3; i++) { const x = 0.15 + i * 0.15, y = 0.2 + r() * 0.12; c.strokeStyle = '#3c6c2c'; c.lineWidth = 0.03; c.beginPath(); c.moveTo(x, 0.5); c.lineTo(x, y); c.stroke(); ell(c, x, y, 0.07, 0.07, hex(col), 0.02); ell(c, x, y, 0.025, 0.025, '#f2b830', 0); } },
   reeds(c, o) { c.lineCap = 'round'; for (let i = 0; i < 6; i++) { const x = 0.12 + i * 0.1; c.strokeStyle = i % 2 ? '#5a8a3a' : '#7aa84a'; c.lineWidth = 0.04; c.beginPath(); c.moveTo(x, 0.9); c.quadraticCurveTo(x + 0.03, 0.5, x + (i - 3) * 0.03, 0.15 + (i % 3) * 0.1); c.stroke(); if (i % 2) ell(c, x + (i - 3) * 0.028, 0.24, 0.035, 0.09, hex(o.color ?? 0x7a4a2a), 0.015); } },
@@ -287,7 +313,7 @@ const S2 = {
   heart(c, o) { c.beginPath(); c.moveTo(0.3, 0.52); c.bezierCurveTo(-0.05, 0.3, 0.1, 0.02, 0.3, 0.2); c.bezierCurveTo(0.5, 0.02, 0.65, 0.3, 0.3, 0.52); c.fillStyle = hex(o.color ?? 0xff4a5a); c.fill(); c.lineWidth = 0.035; c.strokeStyle = O; c.stroke(); },
 };
 // size [w, h], shadow radius, collision radius, extras
-const META = { tree: [2.6, 3.3, 1.0, 0.35, { sway: true }], rock: [1.4, 1.1, 0.6, 0.5], bush: [1.2, 1.0, 0.5, 0], flower: [0.6, 0.55, 0, 0, { sway: true }], reeds: [0.8, 0.95, 0, 0, { sway: true }], mushrooms: [0.6, 0.55, 0, 0], log: [1.3, 0.75, 0.55, 0.4], stump: [0.8, 0.75, 0.35, 0.3], crystal: [1.0, 1.05, 0.4, 0.35, { light: { r: 2.4, color: 0x6ef0ff, flicker: false } }],
+const META = { tree: [2.6, 3.3, 1.0, 0.35, { sway: true }], rock: [1.4, 1.1, 0.6, 0.5], bush: [1.2, 1.0, 0.5, 0], flower: [0.6, 0.55, 0, 0, { sway: true }], soil: [1.1, 0.7, 0, 0], crop: [1.0, 1.3, 0.25, 0, { sway: true }], reeds: [0.8, 0.95, 0, 0, { sway: true }], mushrooms: [0.6, 0.55, 0, 0], log: [1.3, 0.75, 0.55, 0.4], stump: [0.8, 0.75, 0.35, 0.3], crystal: [1.0, 1.05, 0.4, 0.35, { light: { r: 2.4, color: 0x6ef0ff, flicker: false } }],
   house: [3.5, 3.2, 1.7, 1.5], hut: [2.4, 2.4, 1.1, 1.0], tent: [2.2, 1.6, 1.0, 0.8], campfire: [1.0, 0.85, 0.4, 0.35, { light: { r: 5, color: 0xffa040 } }], chest: [1.1, 1.0, 0.5, 0.4], crate: [0.9, 0.95, 0.42, 0.4], barrel: [0.8, 0.95, 0.36, 0.33], signpost: [0.9, 1.25, 0.2, 0.15], fence: [2.0, 0.95, 0.9, 0.7], well: [1.4, 1.45, 0.65, 0.6],
   lantern: [0.5, 1.3, 0.14, 0.12, { light: { r: 4.2, color: 0xffd080 } }], torch: [0.4, 1.1, 0.12, 0.1, { light: { r: 3.6, color: 0xff9a40 } }], gravestone: [0.75, 1.0, 0.34, 0.3], pillar: [0.72, 2.05, 0.34, 0.3], ruin: [2.4, 2.2, 1.2, 1.0], container: [2.8, 1.7, 1.4, 1.2], lamp: [0.95, 2.4, 0.16, 0.12, { light: { r: 5, color: 0xfff0b0, flicker: false } }], portal: [1.6, 1.95, 0.6, 0, { light: { r: 3.5, color: 0xa080ff, flicker: false } }],
   gem: [0.6, 0.62, 0.18, 0], coin: [0.6, 0.6, 0.18, 0], key: [0.72, 0.5, 0.18, 0], star: [0.6, 0.6, 0.18, 0], heart: [0.6, 0.6, 0.18, 0] };
@@ -300,9 +326,10 @@ const BAKED = new Map();
  * A painted thing for stage.add() or scatter2d(): outlined, shaded from the upper left, anchored at its feet.
  * kind: tree, rock, bush, flower, reeds, mushrooms, log, stump, crystal, house, hut, tent, campfire, chest, crate,
  * barrel, signpost, fence, well, lantern, torch, gravestone, pillar, ruin, container, lamp, portal, gem, coin, key,
- * star, heart. Options: seed (each seed is a different individual), size (scale), color, and per kind: tree
+ * star, heart, soil, crop. Options: seed (each seed is a different individual), size (scale), color, and per kind: tree
  * { species: oak | birch | pine | palm | maple | blossom | willow | dead | cactus | mushroom, leaf, trunk, snow, fruit },
- * rock { ore, moss, snow }, bush { berries }, house { walls, roof }. Lights (campfire, lantern, torch, lamp, crystal,
+ * rock { ore, moss, snow }, bush { berries }, house { walls, roof }, soil { wet } (a tilled plot), crop { type: wheat |
+ * corn | carrot | pumpkin | berry, stage: 0 seeds, 1 sprout, 2 growing, 3 ripe, soil (on a tilled plot), wet, fruit } (createCrops draws them for you). Lights (campfire, lantern, torch, lamp, crystal,
  * portal) glow when the mood is dark. Returns the sprite ({ canvas, w, h, solid, shadow }).
  */
 export function sprite2d(kind, opts = {}) {
@@ -315,14 +342,16 @@ export function sprite2d(kind, opts = {}) {
 /**
  * Places many sprites by rule. kinds: a list of sprite2d() results. Options: count, radius (around 0, 0), ground
  * (things stand only where they can: on land, off the paths), where (x, y, kind) => true | false | chance,
- * avoid [{ x, y, r }], minDistance, seed, stage. Returns { items, solids } where solids is [{ x, y, r }] for control2d.
+ * avoid [{ x, y, r }], minDistance, seed, stage, area ([x, y, width, height]: a rectangle instead of the disc, e.g. one
+ * chunk of chunks2d). Returns { items, solids } where solids is [{ x, y, r }] for control2d.
  * Each item is one thing in the world: { x, y, type ('tree', 'rock', 'bush', …), visible, circle (its solid, if any) }.
  * createNodes().fromScatter(items, rule) from this kit turns them into things the player can chop, mine and pick.
  */
 export function scatter2d(kinds, opts = {}) {
   const st = opts.stage || CURRENT, g = opts.ground || (st && st.ground), { count = 200, radius = 50, avoid = [], minDistance = 0, where } = opts, r = mulberry32(sd(opts.seed) * 5413 + 3), items = [], solids = [], cell = new Map(), md = minDistance;
   for (let tries = 0; tries < count * 12 && items.length < count; tries++) {
-    const a = r() * TAU, d = Math.sqrt(r()) * radius, x = Math.cos(a) * d, y = Math.sin(a) * d, k = g ? g.kindAt(x, y) : 'grass', s = kinds[(r() * kinds.length) | 0];
+    let x, y; if (opts.area) { x = opts.area[0] + r() * opts.area[2]; y = opts.area[1] + r() * opts.area[3]; } else { const a = r() * TAU, d = Math.sqrt(r()) * radius; x = Math.cos(a) * d; y = Math.sin(a) * d; }
+    const k = g ? g.kindAt(x, y) : 'grass', s = kinds[(r() * kinds.length) | 0];
     if (k === 'water' || (k === 'dirt' && s.solid) || (k === 'sand' && s.kind === 'tree' && r() < 0.8)) continue;
     if (where) { const ok = where(x, y, k); if (!ok || (typeof ok === 'number' && r() > ok)) continue; }
     if (avoid.some((v) => Math.hypot(x - v.x, y - v.y) < v.r)) continue;
@@ -455,6 +484,50 @@ export function wander2d(actor, opts = {}) {
   });
   return W;
 }
+
+/**
+ * A world that grows as the player explores: the land is cut into square chunks, and each chunk is filled by your
+ * fill(chunk) the first time the player comes near and emptied again when they are far away. The same chunk always
+ * fills the same way (its rand is seeded by the chunk), so a world can be endless and still the same on every visit
+ * and on every player's device. Use it with ground2d({ size: Infinity }).
+ *   const world = chunks2d({ seed: SEED, chunk: 16, radius: 2, fill: (ch) => {
+ *     ch.scatter([sprite2d('tree', { species: 'oak' }), sprite2d('rock')], { count: 18, minDistance: 1.8 });
+ *     if (ch.rand() < 0.2) ch.add(sprite2d('chest'), ch.x + 8, ch.y + 8, { solid: 0.4 });
+ *   } });
+ *   player = control2d(hero, { input }).addSolids(world.solids);
+ * The chunk passed to fill: { cx, cy, x, y (its top-left corner), size, rand, items, add(sprite, x, y, opts),
+ * scatter(kinds, opts) (scatter2d inside the chunk), keep(thing) (anything with remove(), unloaded with it) }.
+ * Options: seed, chunk (size in units, default 16), radius (chunks kept around the player, default 2), fill, stage,
+ * around (() => ({ x, y }): the point the world grows around; default the stage's focus).
+ * Returns { solids (live: pass to control2d), chunks (Map), items() (every loaded item), onLoad(fn(chunk)), onUnload(fn(chunk)),
+ * forget(item) (taken out for good: a chopped tree stays gone when its chunk comes back; saved with toJSON), toJSON(), load(data), update() }.
+ * Items carry item.key ('cx,cy,i'), the same every time their chunk is filled: keep harvested state by it.
+ */
+export function chunks2d({ seed = 1, chunk = 16, radius = 2, fill, stage, around } = {}) {
+  const st = stage || CURRENT, loaded = new Map(), solids = [], gone = new Set(), onL = [], onU = [], base = sd(seed);
+  const load = (cx, cy) => {
+    const items = [], keeps = [], mine = [], ch = { cx, cy, x: cx * chunk, y: cy * chunk, size: chunk, items, rand: mulberry32(((cx * 73856093) ^ (cy * 19349663) ^ base) >>> 0), n: 0 };
+    const track = (it) => { it.key = cx + ',' + cy + ',' + ch.n++; if (gone.has(it.key)) { it.remove(); return null; } items.push(it); if (it.circle) { solids.push(it.circle); mine.push(it.circle); } return it; };
+    ch.add = (sprite, x, y, o = {}) => { const it = st.add(sprite, x, y, o); it.type = sprite.kind; const so = o.solid ?? sprite.solid; if (so) it.circle = { x, y: y - 0.1, r: so * (o.scale || 1) }; return track(it); };
+    ch.scatter = (kinds, o = {}) => { const r = scatter2d(kinds, { stage: st, count: 12, ...o, area: [ch.x, ch.y, chunk, chunk], seed: (o.seed ?? 0) + '|' + cx + ',' + cy + '|' + base }); return r.items.map(track).filter(Boolean); };
+    ch.keep = (thing) => { keeps.push(thing); return thing; };
+    ch.unload = () => { for (const it of items) it.remove(); for (const k of keeps) (k.remove || k.stop || (() => {})).call(k); for (const c of mine) { const i = solids.indexOf(c); if (i >= 0) solids.splice(i, 1); } };
+    loaded.set(cx + ',' + cy, ch); if (fill) fill(ch); for (const f of onL) f(ch); return ch;
+  };
+  const W = { solids, chunks: loaded, chunk, onLoad: (f) => onL.push(f), onUnload: (f) => onU.push(f), items: () => [...loaded.values()].flatMap((c) => c.items),
+    forget(it) { if (!it || !it.key) return; gone.add(it.key); it.visible = false; if (it.circle) it.circle.off = true; },
+    toJSON: () => [...gone], load(d) { if (Array.isArray(d)) for (const k of d) gone.add(k); for (const ch of loaded.values()) for (const it of ch.items) if (gone.has(it.key)) W.forget(it); return W; },
+    update() {
+      const p = around ? around() : st.focus || { x: 0, y: 0 }, pcx = Math.floor(p.x / chunk), pcy = Math.floor(p.y / chunk);
+      for (let j = -radius; j <= radius; j++) for (let i = -radius; i <= radius; i++) if (!loaded.has((pcx + i) + ',' + (pcy + j))) load(pcx + i, pcy + j);
+      for (const [k, ch] of loaded) if (Math.abs(ch.cx - pcx) > radius + 1 || Math.abs(ch.cy - pcy) > radius + 1) { for (const f of onU) f(ch); ch.unload(); loaded.delete(k); }
+    } };
+  st.onUpdate(() => W.update()); W.update();
+  return W;
+}
+
+/** Draws createCrops() crops as sprites: createCrops({ nodes, types, make: cropSprites() }). Each crop stands on a tilled plot, darker while watered. */
+export function cropSprites(stage) { return (x, y, c) => (stage || CURRENT).add(sprite2d('crop', { type: c.type, stage: c.stage, soil: true, wet: c.watered, seed: 7 }), x, y + 0.15); }
 
 export { createHud } from './hud.js';
 export { createSound, SOUNDS, AMBIENCES, MUSIC } from './sound.js';

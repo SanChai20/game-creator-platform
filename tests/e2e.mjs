@@ -131,8 +131,9 @@ async function main() {
   const same = await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' });
   assert.ok(same.plan.setting === 'haunted' && same.plan.hero.preset === 'knight' && /^survive/.test(same.plan.goal) && same.plan.creatures.hunters.includes('ghost'));
   assert.deepEqual(same.files, (await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' })).files);   // no randomness
-  const storm = await tool('design_scene', { description: 'a scout robot gathers water relics in a desert canyon before a sandstorm. ' + 'x'.repeat(400) });
-  assert.ok(storm.plan.stage.weather === 'sandstorm' && storm.notes.some((n) => /first 300 characters/.test(n)) && storm.files['src/main.js'].split('\n').find((l) => l.includes('Plan: ')).length < 420, storm.plan.stage.weather);
+  const storm = await tool('design_scene', { description: 'a scout robot gathers water relics in a desert canyon before a sandstorm. ' + 'x'.repeat(400) + ' Friends farm crops together.' });   // cues late in a long brief are read too
+  const cues = (storm.plan.read_from_brief || []).map((c) => c.cue).join('|');
+  assert.ok(storm.plan.stage.weather === 'sandstorm' && /farming/.test(cues) && /several players/.test(cues) && storm.files['src/main.js'].split('\n').find((l) => l.includes('Plan: ')).length < 4200, storm.plan.stage.weather + ' ' + cues);
   const plan = await tool('design_scene', { description: 'a pirate collects doubloons on a tropical island', title: `Planned ${run}`, seed: 'e2e' });
   assert.ok(plan.plan.setting === 'island' && plan.plan.hero.preset === 'pirate' && plan.files['index.html'] && plan.files['src/main.js'].includes("from '@gcp/craft.js'"));
   const planned = await tool('create_project', { title: `Planned ${run}`, tagline: 'Built from blocks' });
@@ -142,7 +143,7 @@ async function main() {
   let pd = await tool('deploy_preview', { project: planned.project, note: 'from design_scene' });
   for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(pd.status); i++) { await sleep(2000); pd = await tool('get_version', { project: planned.project, version: pd.version }); }
   assert.equal(pd.status, 'verified', JSON.stringify(pd.report, null, 1).slice(0, 2000));
-  assert.ok(pd.report.playthrough.steps.length === 5 && pd.quality.craft_score >= pd.quality.target && pd.quality.meets_target && /craft score/.test(pd.next), JSON.stringify(pd.quality));
+  assert.ok(pd.report.playthrough.steps.length === 5 && pd.quality.measured_score >= pd.quality.target && !pd.quality.meets_target && pd.quality.craft_score < pd.quality.target && /starting point/.test(pd.next), JSON.stringify(pd.quality));
   // the picture is the full-quality portrait, and the picture alone is in the range of finished reference games
   assert.ok(pd.report.portrait && pd.report.craft.portrait && pd.quality.look_score >= 85, JSON.stringify({ portrait: pd.report.portrait, look: pd.quality.look_score, notes: pd.report.notes }));
   // an unedited plan is named as such, with ideas; the advice names a measured value even above the target
@@ -158,22 +159,22 @@ async function main() {
   let fd = await tool('deploy_preview', { project: flatP.project, note: '2d from design_scene' });
   for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(fd.status); i++) { await sleep(2000); fd = await tool('get_version', { project: flatP.project, version: fd.version }); }
   assert.equal(fd.status, 'verified', JSON.stringify(fd.report, null, 1).slice(0, 2000));
-  assert.ok(fd.report.playthrough.steps.length === 5 && fd.quality.craft_score >= fd.quality.target && fd.quality.own_work.still_the_plan, JSON.stringify(fd.quality).slice(0, 1500));
+  assert.ok(fd.report.playthrough.steps.length === 5 && fd.quality.measured_score >= fd.quality.target && fd.quality.own_work.still_the_plan && !fd.quality.meets_target, JSON.stringify(fd.quality).slice(0, 1500));
   // a game with depth: the homestead goal wires up the play systems (inventory, crafting, needs, clock, building, quests, save)
   const p3 = await tool('design_scene', { description: 'A 2.5D survival crafting game in a forest: chop trees, craft tools, build a camp and survive the night', seed: 'e2e-home', title: `Homestead ${run}` });
   assert.ok(p3.plan.camera === '2d' && /^homestead/.test(p3.plan.goal) && p3.plan.systems.inventory && /createInventory/.test(p3.files['src/main.js']) && /input\.bind/.test(p3.files['src/main.js']), JSON.stringify(p3.plan).slice(0, 600));
   const p3d = await tool('design_scene', { description: 'A survival crafting game on an island: chop trees, craft tools, build a camp', camera: 'third', seed: 'e2e-home' });
   assert.ok(p3d.plan.camera === 'third' && p3d.plan.systems && /createBuilder/.test(p3d.files['src/main.js']) && /from '@gcp\/craft\.js'/.test(p3d.files['src/main.js']));
   const playBlocks = await tool('list_blocks', { group: 'play' });
-  assert.ok(['createInventory', 'createCrafting', 'createNeeds', 'createClock', 'createNodes', 'createInteract', 'createBuilder', 'createQuests', 'createSave', 'hotbarUI', 'inventoryUI', 'minimapUI', 'pauseMenu', 'lobbyUI', 'stairsPiece', 'rampPiece'].every((n) => playBlocks.blocks.some((b) => b.name === n)), playBlocks.blocks.map((b) => b.name).join(','));
+  assert.ok(['createInventory', 'createCrafting', 'createNeeds', 'createClock', 'createNodes', 'createInteract', 'createBuilder', 'createQuests', 'createSave', 'hotbarUI', 'inventoryUI', 'minimapUI', 'pauseMenu', 'lobbyUI', 'stairsPiece', 'rampPiece', 'createCrops', 'createWorldSync', 'createLoopback'].every((n) => playBlocks.blocks.some((b) => b.name === n)), playBlocks.blocks.map((b) => b.name).join(','));
   const homeP = await tool('create_project', { title: `Homestead ${run}`, tagline: 'Gather, craft, build, survive' });
   await tool('put_files', { project: homeP.project, files: Object.entries(p3.files).map(([path, content]) => ({ path, content })) });
   let hd = await tool('deploy_preview', { project: homeP.project, note: 'homestead from design_scene' });
   for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(hd.status); i++) { await sleep(2000); hd = await tool('get_version', { project: homeP.project, version: hd.version }); }
   assert.equal(hd.status, 'verified', JSON.stringify(hd.report, null, 1).slice(0, 2000));
-  assert.ok(hd.report.playthrough.steps.length === 11 && hd.quality.craft_score >= hd.quality.target, JSON.stringify(hd.quality).slice(0, 1500));
-  ok(`depth: design_scene goal homestead writes a 2D and a 3D game on the play systems; the 2D one verified with an ${hd.report.playthrough.steps.length}-step play-through (gather, craft, build, eat, night, fight, cook, dawn), craft ${hd.quality.craft_score}/100`);
-  ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its 2D game verified with craft ${fd.quality.craft_score}/100 (look ${fd.quality.look_score}); its 3D game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), look ${pd.quality.look_score}, portrait in ${pd.report.portrait.ms} ms, ${pd.report.metrics.fps} fps`);
+  assert.ok(hd.report.playthrough.steps.length === 11 && hd.quality.measured_score >= hd.quality.target, JSON.stringify(hd.quality).slice(0, 1500));
+  ok(`depth: design_scene goal homestead writes a 2D and a 3D game on the play systems; the 2D one verified with an ${hd.report.playthrough.steps.length}-step play-through (gather, craft, build, eat, night, fight, cook, dawn), measured craft ${hd.quality.measured_score}/100`);
+  ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its 2D game verified with measured craft ${fd.quality.measured_score}/100 (look ${fd.quality.look_score}); its 3D game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), look ${pd.quality.look_score}, portrait in ${pd.report.portrait.ms} ms, ${pd.report.metrics.fps} fps`);
 
   // a broken game is caught statically, with a line number and a fix
   const bad = await tool('create_project', { title: `Broken ${run}` });

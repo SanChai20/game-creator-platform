@@ -187,11 +187,36 @@ For floors and stairs give a piece a `height` and the controller `heightAt: (x, 
 
 **Storeys and rooms.** Give pieces a `layer` ('floor', 'wall', 'roof') and a floor, a wall and a roof share one cell;
 `build.place(kind, x, z, { level: 1 })` builds a storey up (`levelHeight`, default 3). `build.topAt(x, z, fromY)` gives
-the highest top the hero can step onto from where it stands, so floors carry it; `stairsPiece({ grid, cost, make })` and `rampPiece()` are standard pieces that take it up (drawn in 3D with `prop('stairs')` and `prop('ramp')`; `build.place('stairs', x, z, { dir: 1 })` turns one). In a
-room where the host decides: pass `send(node, tool)` to `createInteract` so a guest's press goes to the host, which
-calls `nodes.useFor(nodes.byId(id), guestInventory, { tool })`; the host builds for a guest with
-`build.place(kind, x, z, { inventory: guestInventory })`. `createSave(key, parts, { cloud: false })` keeps a world on
+the highest top the hero can step onto from where it stands, so floors carry it; `stairsPiece({ grid, cost, make })` and `rampPiece()` are standard pieces that take it up (drawn in 3D with `prop('stairs')` and `prop('ramp')`; `build.place('stairs', x, z, { dir: 1 })` turns one).  In a
+room, `createWorldSync` below keeps every player's world the same. `createSave(key, parts, { cloud: false })` keeps a world on
 the host's device only, and `lobbyUI()` returns a promise with `solo()`, `host(code)` and `join(code)` for tests.
+
+**Farming.** `createCrops` plants on a grid; a crop grows through four stages and is harvested through the same
+nodes and prompt as a tree, so `createInteract` needs nothing new:
+
+```js
+const crops = createCrops({ nodes, grid: 1, water: true, make: cropSprites(),   // cropModels(land) in 3D
+  types: { wheat: { seed: 'seed', grow: 90, yields: { wheat: [2, 3], seed: [1, 2] } }, berry: { seed: 'berry', grow: 60, regrow: true } } });
+crops.plant('wheat', ...player.ahead(1), { inventory: inv });   // takes a seed;  crops.water(x, y);  crops.update(dt) every frame
+```
+
+**A world that grows as the player explores.** `chunks2d` (2D, with `ground2d({ size: Infinity })`) and
+`terrainChunks` (3D: the land itself is cut into chunks) fill each chunk by your `fill(chunk)` the first time the
+player comes near and empty it when they walk away. A chunk always fills the same way, so the world is endless and
+the same on every visit and every device; `forget(item)` keeps a felled tree felled, and `toJSON()` saves that list.
+
+```js
+const world = chunks2d({ seed: SEED, chunk: 16, fill: (ch) => { nodes.fromScatter(ch.scatter([sprite2d('tree')], { count: 14 }).items, treeRule); } });
+world.onUnload((ch) => nodes.removeWhere((n) => n.ref && ch.items.includes(n.ref)));
+const land = terrainChunks({ shape: 'rolling', seed: SEED, fill: (ch) => ch.scatter(['oak', 'rock'], { count: 30 }) });
+```
+
+**A shared world.** In a room, `createWorldSync(room, { build, nodes, crops, chunks, inventory })` makes the host decide
+every change and send it to everyone, so all players see the same pieces, the same felled trees and the same crops;
+each keeps their own inventory, and a late joiner gets the whole world. Alone it applies at once, so one code path
+serves both. Route the prompt through it with `createInteract({ ..., send: (n, tool) => sync.use(n, { tool }) })`,
+and build with `await sync.place('wall', x, y, { level })`. `createLoopback(2)` gives two rooms that talk inside one
+page: build two worlds from the same seed, one sync on each, act on both, and check they agree in a play-through.
 
 **Interface.** Panels for those systems, on the same `createHud()`:
 

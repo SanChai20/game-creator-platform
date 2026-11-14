@@ -57,8 +57,10 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
   const pub = publicVersion(v, c.origin), el = versionEligible(v, s.verify_browser_required);
   const running = ['queued', 'deploying', 'verifying'].includes(v.status);
   const craft = (pub.report as any)?.craft as { score: number; level: string; summary: string; next: string[] } | undefined, target = s.craft_target;
-  const below = !!craft && craft.score < target;
   const own = craft && !running ? await ownWork(c.env, p.id, n) : null, asPlanned = !!own?.still_the_plan;
+  // an untouched starter measures the building blocks, not a game: its own-work score is capped below the target
+  const STARTER_CAP = Math.max(0, target - 15), counted = craft ? (asPlanned ? Math.min(craft.score, STARTER_CAP) : craft.score) : 0;
+  const below = !!craft && counted < target;
   // the same measurements on the version before, so nobody reads an unchanged score as progress
   let since: Record<string, unknown> | null = null;
   if (craft && !running) {
@@ -79,7 +81,8 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
     ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}), so there is no report yet. This is normal: the check takes one to two minutes. Call get_version {project, version: ${n}}; it waits for the result. Do not call deploy_preview again for the same files.` } : {}),
     ...pub, can_publish: el.ok, eligibility: el.reason,
     ...(craft ? { quality: {
-      craft_score: craft.score, look_score: (craft as any).look ?? null, level: craft.level, target, meets_target: !below, summary: craft.summary,
+      craft_score: counted, ...(asPlanned ? { measured_score: craft.score, starter: `This is still the design_scene starting point (quality.own_work), so the craft score counts as ${counted} at most, below the target of ${target}, whatever the blocks measure (${craft.score}). It counts in full once the game is your own: change the rules, the world and the feel.` } : {}),
+      look_score: (craft as any).look ?? null, level: craft.level, target, meets_target: !below, summary: asPlanned ? `The untouched starting point: the blocks measure ${craft.score}, which says nothing about the game yet. ${craft.summary}` : craft.summary,
       improve: craft.next,
       ...(since ? { since_previous: since } : {}),
       ...(own ? { own_work: own } : {}),
@@ -88,6 +91,7 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} now; it waits up to 40 seconds for the report.`
       : !el.ok ? 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.'
+        : asPlanned ? `Verified, but this is still the design_scene starting point almost line for line (quality.own_work), so its craft score counts as ${counted}/100, below the target of ${target}. Make it your own game: pick from quality.own_work.ideas, change the files, then deploy_preview again.`
         : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and the target is ${target}. Apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
           : asPlanned ? `Verified with a craft score of ${craft!.score}/100 (target ${target}). The source is still the design_scene starting point almost line for line (quality.own_work), so the next step is to make it your own game: pick from quality.own_work.ideas, change the files, then deploy_preview again. ${publish} is available whenever you decide it is finished.`
             : `Verified${craft ? ` with a craft score of ${craft.score}/100 (target ${target})` : ''}. This version can go live: ${publish}. The preview page lets a person play it first; keep editing and call deploy_preview again if there is more to do.`,

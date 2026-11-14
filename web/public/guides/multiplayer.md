@@ -72,6 +72,14 @@ room.on('state', (g) => { game = g; redraw(); });
 
 For play that spans days, store the game in server code with `env.store` and fetch it on load; a room only lives while someone is connected.
 
+## Shared worlds for building and farming games
+
+For a world players change together, `createWorldSync(room, { build, nodes, crops, chunks, inventory })` from
+`@gcp/play.js` (also in craft.js and craft2d.js) does the host-authoritative model for you: a guest's request goes to
+the host, which checks it, applies it and sends it to everyone; the guest pays and collects on its own device when the
+host says yes; and a late joiner loads the world from the room state. `createLoopback(2)` gives two rooms in one page,
+so a single play-through can prove two players agree. See the building-blocks guide.
+
 ## Testing
 
 Open the preview in two browser windows signed in as different players. The verifier runs the game alone, so a multiplayer game must still boot, render and call `GCP.ready()` with nobody else in the room.

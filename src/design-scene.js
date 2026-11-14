@@ -133,11 +133,32 @@ const pick = (v, list, fallback) => (v != null && list.includes(String(v)) ? Str
  * ('third' | 'top' | '2d': a flat, painted top-down world), title, seed, pickups, time_limit. values: the lists from the block catalog (moods, props, …).
  */
 const ARGS = ['description', 'setting', 'mood', 'weather', 'terrain', 'palette', 'hero', 'goal', 'camera', 'title', 'seed', 'pickups', 'time_limit'];
-const READ = 300;   // characters of the description the planner reads; it also bounds the plan line written into the game
+const READ = 4000;   // characters of the description the planner reads (a whole brief); it also bounds the plan line written into the game
 const PLAN_MARK = '// Starting point written by design_scene. Plan: ';
 const planArgs = (args) => Object.fromEntries(ARGS.filter((k) => args[k] != null && args[k] !== '').map((k) => [k, typeof args[k] === 'number' ? args[k] : String(args[k]).slice(0, k === 'description' ? READ : 60)]));
 
+// Cues the planner looks for anywhere in the brief. Each says what it changed or which blocks cover it, and the plan
+// lists the ones it found (plan.read_from_brief), so an agent can see what was understood and what is still its to do.
+const CUES = [
+  ['2D or 2.5D', WORLD_2D, 'camera "2d": a painted top-down world on @gcp/craft2d.js'],
+  ['several players', /multi.?player|co-?op\b|\bonline\b|friends|\bplayers\b|\brooms?\b|\bhost(s|ed|ing)?\b|join|lobby|together/, 'lobbyUI (host, join by code, solo), GCP.room, and createWorldSync from @gcp/play.js: the host owns placed pieces, harvested nodes and crops and every client sees the same world. Rules in the multiplayer guide.'],
+  ['saves on the host', /host('s)? (device|machine|computer)|saved? (locally|on the host|on (the|their) device)|local save|no cloud/, "createSave(key, parts, { cloud: false }) keeps the world in the host's browser"],
+  ['farming', /\bfarm(s|ing)?\b|\bcrops?\b|\bplant(s|ing)?\b|\bseeds?\b|\bharvest|\btill/, 'createCrops from @gcp/play.js: plant seeds, crops grow in stages (watering optional) and are harvested through the same prompt as trees and rocks'],
+  ['a world that grows', /expand|endless|infinite|procedural(ly)? (map|world)|grows? in (random )?directions|unexplored|explore (further|beyond)|new (land|areas?) appears?|chunks?/, 'the world streams in chunks as the player explores: chunks2d({ fill }) with ground2d({ size: Infinity }) in 2D, terrainChunks({ fill }) in 3D'],
+  ['building', /\bbuild(s|ing)?\b|\bbase\b|\bwalls?\b|\bhouse\b|\bshelter|\bstor(e)?ys?\b|\bstairs/, 'createBuilder with layers, storeys, stairsPiece and rampPiece'],
+  ['crafting', /\bcraft/, 'createCrafting with stations, inventoryUI shows the recipes'],
+  ['day and night', /day.?night|\bnights?\b|\bdawn\b|\bdusk\b/, 'createClock({ stage }) drives the light; clock.onPhase for night events'],
+];
+const titleFrom = (raw) => { const m = /(?:called|titled|named)\s+["“'‘]?([A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){0,3})/.exec(raw) || /^\s*(?:#+\s*)?["“]?([A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){0,3})["”]?\s*(?:[:—–]|\s-\s|\n)/.exec(raw); return m ? m[1].trim() : null; };
+
 export function designScene(args, V) {
+  const r = planScene(args, V); if (!r || !r.plan) return r;
+  const text = String(args.description || '').slice(0, READ).toLowerCase(), found = CUES.filter(([, re]) => re.test(text)).map(([cue, , how]) => ({ cue, how }));
+  if (found.length) r.plan.read_from_brief = found;
+  return r;
+}
+
+function planScene(args, V) {
   const text = String(args.description || '').slice(0, READ).toLowerCase();
   const explicit3d = /\b3d\b|three\.?js|third.?person|first.?person/.test(text) || args.camera === 'third' || args.camera === 'top';
   if (NOT_A_WORLD.test(text) && !explicit3d && !args.setting && args.camera !== '2d') return twoD(args);
@@ -155,7 +176,7 @@ export function designScene(args, V) {
   const DARK = ['night', 'neon-night', 'dusk', 'storm', 'indoor'], byDay = (m) => (goal === 'homestead' && !args.mood && DARK.includes(m) ? (DARK.includes(S.mood) ? 'clear-day' : S.mood) : m);
   mood = byDay(mood);
   const camera = pick(args.camera, ['third', 'top', '2d'], WORLD_2D.test(text) && !explicit3d ? '2d' : /top.?down|bird'?s.?eye|overhead/.test(text) ? 'top' : 'third');
-  const seed = String(args.seed || id).slice(0, 40), title = String(args.title || S.title).slice(0, 60);
+  const seed = String(args.seed || id).slice(0, 40), title = String(args.title || titleFrom(String(args.description || '')) || S.title).slice(0, 60);
   for (const [k, list] of [['setting', Object.keys(SETTINGS)], ['mood', V.moods], ['weather', [...V.weather, 'none']], ['terrain', V.terrain_shapes], ['palette', V.terrain_palettes], ['hero', V.humanoids], ['goal', Object.keys(GOALS)], ['camera', ['third', 'top', '2d']]]) {
     if (args[k] != null && !list.includes(String(args[k]))) notes.push(`"${args[k]}" is not a ${k} this tool knows, so the default was used. Valid: ${list.join(', ')}.`);
   }

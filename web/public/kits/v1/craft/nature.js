@@ -170,6 +170,55 @@ export function place(kind, x = 0, y = 0, z = 0, { scale = 1, rotY = 0, shadow =
 }
 
 /**
+ * A world that grows as the player explores: the ground is made in square chunks around the player from one height
+ * function, so chunks meet without seams, and each chunk is filled by your fill(chunk) when the player comes near and
+ * emptied when they are far away. The same chunk always fills the same way (its rand is seeded by the chunk), so the
+ * world is endless and the same on every visit and every player's device.
+ *   const land = terrainChunks({ shape: 'hills', palette: 'temperate', seed: SEED, amplitude: 10, fill: (ch) => {
+ *     ch.scatter([tree({ species: 'oak' }), rock()], { count: 40, minDistance: 4 });
+ *   } });
+ *   const player = control(hero, { input, heightAt: land.heightAt, solids: land.solids });
+ * Options: the terrain() ones (shape, palette, seed, amplitude, waterLevel, height, wet, style) plus chunk (metres, default
+ * 48), radius (chunks kept around the player, default 2), segments (per chunk), fill, stage, around (() => ({ x, z }); default
+ * the stage's focus). The shape is used without its edge, so an island has no shore; pass height(x, z) for your own.
+ * The chunk passed to fill: { cx, cz, x, z (its corner), size, rand, items, scatter(kinds, opts), place(kind, x, z, opts),
+ * keep(object3D or anything with remove()) }.
+ * Returns { heightAt, slopeAt, colorAt, waterLevel, amplitude, solids (live: pass to control), chunks (Map),
+ * items() (every scattered item loaded), onLoad(fn), onUnload(fn), forget(item) (gone for good: a felled tree stays
+ * felled when its chunk comes back; toJSON/load keep the list), update() }. Items carry item.key, the same every time.
+ */
+export function terrainChunks(opts = {}) {
+  const st = opts.stage || currentStage(), { chunk = 48, radius = 2, fill, around } = opts, seed = sd(opts.seed), q = st ? st.quality : 'medium';
+  const segments = opts.segments ?? (st && st.software ? 16 : q === 'low' ? 18 : q === 'medium' ? 26 : 34);
+  const proto = terrain({ ...opts, size: chunk, worldSize: 1e6, segments, add: false, clearing: undefined }); proto.mesh.geometry.dispose(); proto.mesh.material.dispose();
+  const { heightAt, slopeAt, colorAt, waterLevel, amplitude } = proto, loaded = new Map(), solids = [], gone = new Set(), onL = [], onU = [];
+  const load = (cx, cz) => {
+    const x0 = cx * chunk, z0 = cz * chunk, t = terrain({ ...opts, size: chunk, worldSize: 1e6, segments, center: [x0 + chunk / 2, z0 + chunk / 2], height: heightAt, add: false, clearing: undefined });
+    st.scene.add(t.mesh); const objs = [t.mesh], mine = [], items = [], ch = { cx, cz, x: x0, z: z0, size: chunk, items, rand: mulberry32(((cx * 73856093) ^ (cz * 19349663) ^ seed) >>> 0), n: 0, mesh: t.mesh };
+    const track = (it) => { it.key = cx + ',' + cz + ',' + ch.n++; items.push(it); if (gone.has(it.key)) { it.visible = false; it.off = true; } else if (it.solid) { solids.push(it); mine.push(it); } return it; };
+    ch.scatter = (kinds, o = {}) => { const r = scatter(st.scene, kinds, { heightAt, count: 20, ...o, area: [chunk, chunk], center: [x0 + chunk / 2, z0 + chunk / 2], seed: (o.seed ?? 0) + '|' + cx + ',' + cz + '|' + seed, stage: st }); objs.push(...r.meshes); r.items.forEach(track); return r; };
+    ch.place = (kind, x, z, o = {}) => { const g = place(kind, x, heightAt(x, z), z, { ...o, stage: st }); objs.push(g); return g; };
+    ch.keep = (thing) => { objs.push(thing); return thing; };
+    ch.unload = () => { for (const o of objs) { if (o.removeFromParent) o.removeFromParent(); else if (o.remove) o.remove(); else if (o.stop) o.stop(); } t.mesh.geometry.dispose(); t.mesh.material.dispose(); for (const m of mine) { const i = solids.indexOf(m); if (i >= 0) solids.splice(i, 1); } };
+    loaded.set(cx + ',' + cz, ch); if (fill) fill(ch); for (const f of onL) f(ch); return ch;
+  };
+  const W = { heightAt, slopeAt, colorAt, waterLevel, amplitude, solids, chunks: loaded, chunk, onLoad: (f) => onL.push(f), onUnload: (f) => onU.push(f), items: () => [...loaded.values()].flatMap((c) => c.items),
+    forget(it) { if (!it || !it.key) return; gone.add(it.key); it.visible = false; },
+    toJSON: () => [...gone], load(d) { if (Array.isArray(d)) for (const k of d) gone.add(k); for (const ch of loaded.values()) for (const it of ch.items) if (gone.has(it.key)) it.visible = false; return W; },
+    randomPoint(rand, { minRadius = 0, maxRadius = chunk * radius, maxSlope = 0.9, minHeight = waterLevel + 0.8, tries = 200 } = {}) { const p = around ? around() : (st.focus && st.focus.position) || { x: 0, z: 0 }; for (let i = 0; i < tries; i++) { const a = rand() * TAU, d = minRadius + Math.sqrt(rand()) * (maxRadius - minRadius), x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d, y = heightAt(x, z); if (y >= minHeight && slopeAt(x, z) <= maxSlope) return new THREE.Vector3(x, y, z); } return new THREE.Vector3(p.x, heightAt(p.x, p.z), p.z); },
+    update() {
+      const p = around ? around() : (st.focus && st.focus.position) || { x: 0, z: 0 }, pcx = Math.floor(p.x / chunk), pcz = Math.floor(p.z / chunk); let made = 0;
+      for (let r = 0; r <= radius; r++) for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) { if (Math.max(Math.abs(i), Math.abs(j)) !== r || loaded.has((pcx + i) + ',' + (pcz + j))) continue; if (made++ && r > 0 && loaded.size >= 9) continue; load(pcx + i, pcz + j); }   // nearest first, and at most one far chunk a frame
+      for (const [k, ch] of loaded) if (Math.abs(ch.cx - pcx) > radius + 1 || Math.abs(ch.cz - pcz) > radius + 1) { for (const f of onU) f(ch); ch.unload(); loaded.delete(k); }
+    } };
+  W.update(); if (st) st.onUpdate(() => W.update());
+  return W;
+}
+
+/** Draws createCrops() crops as models on the land: createCrops({ nodes, types, grid: 2, make: cropModels(land) }). Each stands on a tilled plot, darker while watered. */
+export function cropModels(land, { stage } = {}) { return (x, z, c) => place({ kind: 'prop', prop: 'crop', type: c.type, stage: c.stage, wet: !!c.watered }, x, land ? land.heightAt(x, z) : 0, z, { stage }); }
+
+/**
  * Places many copies of one or more kinds as instanced meshes (hundreds cost a few draw calls).
  *   scatter(stage.scene, [tree({ species: 'oak' }), tree({ species: 'pine', seed: 2 }), rock()], { count: 200, radius: 90, heightAt: land.heightAt })
  * Options: count, radius (a disc) or area [width, depth], center [x, z], heightAt (x, z) -> y,
@@ -301,7 +350,8 @@ export const TERRAIN_SHAPES = Object.keys(SHAPES), TERRAIN_PALETTES = Object.key
 export function terrain(opts = {}) {
   const st = opts.stage || currentStage(), q = st ? st.quality : 'medium', { size = 240, amplitude = 12, waterLevel = 0, shape = 'island', clearing, flatShading = false } = opts, seed = sd(opts.seed);
   const segments = opts.segments ?? (st && st.software ? 56 : q === 'low' ? 72 : q === 'medium' ? 112 : 160), noise = new Simplex(seed), pal = typeof opts.palette === 'object' ? { ...LANDS.temperate, ...opts.palette } : LANDS[opts.palette] || LANDS.temperate;
-  const base = opts.height || ((x, z) => (SHAPES[shape] || SHAPES.island)(noise, x, z, size, amplitude));
+  const center = opts.center || [0, 0], world = opts.worldSize ?? size;
+  const base = opts.height || ((x, z) => (SHAPES[shape] || SHAPES.island)(noise, x, z, world, amplitude));
   const heightAt = clearing ? (x, z) => { const d = Math.hypot(x - clearing.x, z - clearing.z), t = smoothstep(clearing.r, clearing.r * 2.2, d); return lerp(clearing.y ?? Math.max(base(clearing.x, clearing.z), waterLevel + 1.2), base(x, z), t); } : base;
   const slopeAt = (x, z) => { const y = heightAt(x, z); return Math.abs(heightAt(x + 1, z) - y) + Math.abs(heightAt(x, z + 1) - y); };
   const C = Object.fromEntries(['shore', 'low', 'high', 'steep', 'peak'].map((k) => [k, new THREE.Color(pal[k])]));
@@ -311,7 +361,7 @@ export function terrain(opts = {}) {
     return out.copy(C.low).lerp(C.high, clamp(hN * 1.1 + (patch - 0.5) * 0.7)).lerp(C.peak, smoothstep(0.82, 1.15, hN)).lerp(C.steep, smoothstep(0.55, 1.1, s)).lerp(C.shore, 1 - smoothstep(0.35, 1.3, y - waterLevel));
   };
   const faceted = opts.style ? opts.style === 'faceted' : shape !== 'flat' && !(typeof opts.palette === 'object' && opts.palette.detail);
-  let g = new THREE.PlaneGeometry(size, size, segments, segments).rotateX(-Math.PI / 2); const c = new THREE.Color();
+  let g = new THREE.PlaneGeometry(size, size, segments, segments).rotateX(-Math.PI / 2).translate(center[0], 0, center[1]); const c = new THREE.Color();
   { const p = g.attributes.position, uv = g.attributes.uv; for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, heightAt(x, z)); uv.setXY(i, x / 6, z / 6); } }
   let material;
   if (faceted) {

@@ -55,6 +55,19 @@ const P = {
   // stairs and ramp rise `rise` metres towards +z across `depth`, so a hero can walk up a storey (see stairsPiece in play.js)
   stairs: (o, b) => { const w = o.width ?? 2, d = o.depth ?? 2, h = o.rise ?? 3, n = Math.max(3, Math.round(h / 0.25)); for (let i = 0; i < n; i++) { const t = (i + 1) * h / n; b.t(o.surface ?? 'planks', { color: o.color }, tbox(w, t, d / n, 1), M4(0, t / 2, -d / 2 + (i + 0.5) * d / n)); } for (const x of [-w / 2, w / 2]) { b.c(box(0.08, 0.08, Math.hypot(d, h)), o.trim ?? DARK, M4(x, h / 2 + 0.85, 0, 1, 1, 1, -Math.atan2(h, d), 0, 0)); b.c(box(0.08, 0.95, 0.08), o.trim ?? DARK, M4(x, h / n + 0.45, -d / 2 + 0.05)); b.c(box(0.08, 0.95, 0.08), o.trim ?? DARK, M4(x, h + 0.45, d / 2 - 0.05)); } return { radius: Math.max(w, d) / 2, height: h, solid: false }; },
   ramp: (o, b) => { const w = o.width ?? 2, d = o.depth ?? 2, h = o.rise ?? 1.5, L = Math.hypot(d, h), a = Math.atan2(h, d); b.t(o.surface ?? 'planks', { color: o.color, repeat: [1, L / 2] }, tbox(w, 0.12, L, 1), M4(0, h / 2, 0, 1, 1, 1, -a, 0, 0)); b.c(box(w * 0.98, h, 0.12), o.trim ?? DARK, M4(0, h / 2, d / 2 - 0.06)); return { radius: Math.max(w, d) / 2, height: h, solid: false }; },
+  // farming: crop { type: wheat | corn | carrot | pumpkin | berry, stage: 0..3, soil, wet }, as createCrops draws it through cropModels(land)
+  crop: (o, b) => { const st = Math.max(0, Math.min(3, o.stage | 0)), type = o.type || 'wheat', G = 0x4f9e3c, r = mulberry32(sd(o.seed) + 5);
+    if (o.soil !== false) { b.c(box(1.7, 0.16, 1.7), o.wet ? 0x4a3220 : 0x7a5434, M4(0, 0.06, 0)); for (const z of [-0.5, 0, 0.5]) b.c(box(1.6, 0.08, 0.22), o.wet ? 0x3a2618 : 0x6a4628, M4(0, 0.17, z)); }
+    if (st === 0) { for (const [x, z] of [[-0.4, -0.5], [0.3, 0], [-0.2, 0.5], [0.5, 0.5]]) b.c(ball(0.05, 5, 4), 0xd8b878, M4(x, 0.2, z)); return { radius: 0.85, height: 0.25, solid: false }; }
+    const spots = [[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45], [0, 0]], g = st / 3;
+    for (const [x, z] of spots) {
+      if (st === 1) { for (let i = 0; i < 3; i++) b.c(cone(0.06, 0.3, 4), G, M4(x + (r() - 0.5) * 0.12, 0.3, z + (r() - 0.5) * 0.12, 1, 1, 1, (r() - 0.5) * 0.6, 0, (r() - 0.5) * 0.6)); continue; }
+      if (type === 'wheat' || type === 'corn') { const h = (type === 'corn' ? 1.6 : 1.1) * g, col = st === 3 ? (type === 'corn' ? 0x8ab040 : 0xd8b040) : 0x7ab04a; for (let i = 0; i < 3; i++) { const dx = (r() - 0.5) * 0.25, dz = (r() - 0.5) * 0.25; b.c(cyl(0.025, 0.035, h, 4), col, M4(x + dx, 0.18 + h / 2, z + dz)); if (st === 3) b.c(cyl(0.06, 0.04, 0.26, 5), type === 'corn' ? 0xf2d24a : 0xf0c840, M4(x + dx, 0.18 + h * (type === 'corn' ? 0.6 : 1), z + dz)); } continue; }
+      if (type === 'pumpkin') { b.c(ball(0.18, 6, 4), G, M4(x, 0.25, z, 1.4, 0.4, 1.4)); if (st === 3) b.c(ball(0.24, 10, 7), 0xe8862a, M4(x + 0.1, 0.36, z, 1.15, 0.85, 1.15)); continue; }
+      if (type === 'carrot') { for (let i = 0; i < 4; i++) b.c(cone(0.05, 0.42 * g + 0.1, 4), G, M4(x + (r() - 0.5) * 0.15, 0.25 + 0.21 * g, z + (r() - 0.5) * 0.15, 1, 1, 1, (r() - 0.5) * 0.5, 0, (r() - 0.5) * 0.5)); if (st === 3) b.c(cone(0.07, 0.12, 5), 0xf08a2a, M4(x, 0.2, z)); continue; }
+      b.c(ball(0.24 * g + 0.08, 7, 5), 0x4a9440, M4(x, 0.2 + 0.2 * g, z)); if (st === 3) for (let i = 0; i < 4; i++) b.c(ball(0.05, 5, 4), o.fruit ?? 0xd83a4a, M4(x + (r() - 0.5) * 0.4, 0.3 + r() * 0.3, z + (r() - 0.5) * 0.4));
+    }
+    return { radius: 0.85, height: 0.4 + g, solid: false }; },
   table: (o, b) => { b.t('planks', { color: o.color }, tbox(1.6, 0.08, 0.9, 1), M4(0, 0.78, 0)); for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) b.c(box(0.09, 0.76, 0.09), o.color ?? WOOD, M4(x * 0.7, 0.38, z * 0.36)); return { radius: 0.9, height: 0.82 }; },
   bench: (o, b) => { b.t('planks', { color: o.color }, tbox(1.5, 0.07, 0.4, 1), M4(0, 0.45, 0)); b.t('planks', { color: o.color }, tbox(1.5, 0.3, 0.06, 1), M4(0, 0.78, -0.2)); for (const x of [-0.62, 0.62]) { b.c(box(0.08, 0.45, 0.36), DARK, M4(x, 0.22, 0)); b.c(box(0.07, 0.5, 0.06), DARK, M4(x, 0.68, -0.2)); } return { radius: 0.8, height: 0.95 }; },
   haystack: (o, b) => { b.t('thatch', { color: o.color }, lumpyRound(1.1, 0.9, sd(o.seed)), M4(0, 0.5, 0)); return { radius: 1.1, height: 1.3 }; },
@@ -122,7 +135,8 @@ export const PROPS = Object.keys(P);
 /**
  * A prop as a kind: use place(kind, x, y, z, { rotY, scale }) for one, scatter(scene, kind, …) for many.
  * kind — containers: crate, barrel, chest · furniture: table, bench, haystack, cart, stall · boundaries: fence, wall,
- * gate, pillar, arch, ruin, barrier · climbing: stairs, ramp { width, depth, rise: rising towards +z } · buildings: house, hut, tower, windmill, well, tent, bridge, boat ·
+ * gate, pillar, arch, ruin, barrier · climbing: stairs, ramp { width, depth, rise: rising towards +z } · farming: crop
+ * { type: wheat | corn | carrot | pumpkin | berry, stage: 0..3, soil, wet } · buildings: house, hut, tower, windmill, well, tent, bridge, boat ·
  * signs: signpost, gravestone, statue, flag · lights: lamp, torch, campfire, lantern, beacon, portal ·
  * pickups (they spin and bob): coin, gem, heart, star, key, orb, potion · machines: spikes, container, drum,
  * console, antenna, pipe.

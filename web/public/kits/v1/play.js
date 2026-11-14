@@ -6,8 +6,11 @@
 //   createClock       a day that passes: hour, day number, dawn / day / dusk / night; drives the stage's light
 //   createNodes       things in the world to use: trees to chop, rocks to mine, bushes to pick, doors, chests
 //   createInteract    finds the nearest one, shows "[E] Chop the oak", uses it on the action, fills the inventory
-//   createBuilder     pieces placed on a grid for a cost: walls, floors, fires, beds
+//   createBuilder     pieces placed on a grid for a cost: walls, floors, fires, beds, storeys, stairs
+//   createCrops       farming: plant, (water,) grow in four stages, harvest through the nodes
 //   createQuests      a list of steps the player ticks off, the spine of a tutorial or a campaign
+//   createWorldSync   one shared world in a room: the host decides, every player sees the same pieces, nodes and crops
+//   createLoopback    rooms that talk inside one page, to test a shared world with two players in one play-through
 //   createSave        the whole state in the player's cloud save (localStorage offline), with autosave
 //   hotbarUI, inventoryUI, needsUI, clockUI, questUI, minimapUI, pauseMenu      the panels for them, on a createHud()
 //   lobbyUI           the start screen of a game with rooms: host with a code, join with a code, or play alone
@@ -154,13 +157,15 @@ export function createClock({ dayLength = 300, hour = 8, stage } = {}) {
  * Things in the world the player can use. A node: { x, y, r (reach, default 1.2), label ('Chop the oak'), kind,
  * hp (hits to finish, default 1), tool (the item kind it needs in hand, optional), drops ({ wood: [2, 4] } or
  * { wood: 3 }), respawn (seconds; omit for never), ref (anything with .visible: it is hidden while the node is spent),
- * solid (its collision circle: switched off while it is spent), onUse(node) (for doors, chests, signs: called instead
+ * solid (its collision circle: switched off while it is spent), when(node) (usable only while it returns true: a ripe
+ * crop, a door with the key in hand; notYet is what it says otherwise), onUse(node) (for doors, chests, signs: called instead
  * of harvesting) }. y is the second ground axis: z in a 3D game.
  *   nodes.add(node) -> node      nodes.remove(node)      nodes.nearest(x, y, range) -> the closest usable node or null
  *   nodes.fromScatter(items, rule)  every scattered thing becomes a node: rule(item) returns the node's fields or
  *                                  nothing to skip it, e.g. (it) => it.type === 'tree' && { label: 'Chop the tree', hp: 3, drops: { wood: [2, 3] }, respawn: 90 }
  *   nodes.use(node, { tool, power, rand }) -> { ok: false, why: 'needs axe' } | { ok: true, done: false, hp } | { ok: true, done: true, drops: { wood: 3 } }
  *   nodes.update(dt) every frame (respawns)      nodes.list      nodes.onDeplete(fn(node, drops))
+ *   nodes.removeWhere(fn)  drop every node fn(node) is true for: e.g. the nodes of a chunk that unloads
  *   node.id (numbered in the order added, the same on every device that builds the same world)   nodes.byId(id)
  *   nodes.useFor(node, inventory, opts)  use it and put the drops in that inventory: what a room's host calls for a guest
  */
@@ -170,11 +175,12 @@ export function createNodes() {
     add(n) { const node = { r: 1.2, hp: 1, id: n.id ?? nextId++, ...n, left: n.hp || 1, gone: false, timer: 0 }; list.push(node); return node; },
     byId: (id) => list.find((n) => n.id === id) || null,
     useFor(n, inventory, opts) { const r = N.use(n, opts); if (r.ok && r.done && inventory) { r.left = {}; for (const id in r.drops) { const k = inventory.add(id, r.drops[id]); if (k) r.left[id] = k; } } return r; },
-    fromScatter(items, rule) { const out = []; for (const it of items) { const d = rule(it); if (d) out.push(N.add({ x: it.x, y: it.z ?? it.y, ref: it, solid: it.circle || (it.solid === true ? it : null), kind: it.type, ...d })); } return out; },
+    fromScatter(items, rule) { const out = []; for (const it of items) { const d = rule(it); if (d) out.push(N.add({ x: it.x, y: it.z ?? it.y, ref: it, ...(it.key ? { id: it.key } : {}), solid: it.circle || (it.solid === true ? it : null), kind: it.type, ...d })); } return out; },
     remove(n) { const i = list.indexOf(n); if (i >= 0) list.splice(i, 1); },
-    nearest(x, y, range = 0) { let best = null, bd = Infinity; for (const n of list) { if (n.gone) continue; const d = Math.hypot(n.x - x, n.y - y) - (n.r + range); if (d < 0 && d < bd) { bd = d; best = n; } } return best; },
+    removeWhere(fn) { for (let i = list.length - 1; i >= 0; i--) if (fn(list[i])) list.splice(i, 1); },
+    nearest(x, y, range = 0) { let best = null, bd = Infinity; for (const n of list) { if (n.gone || (n.when && !n.when(n))) continue; const d = Math.hypot(n.x - x, n.y - y) - (n.r + range); if (d < 0 && d < bd) { bd = d; best = n; } } return best; },
     use(n, { tool, power = 1, rand = Math.random } = {}) {
-      if (!n || n.gone) return { ok: false, why: 'nothing here' }; if (n.onUse) { n.onUse(n); return { ok: true, done: true, drops: {} }; }
+      if (!n || n.gone) return { ok: false, why: 'nothing here' }; if (n.when && !n.when(n)) return { ok: false, why: n.notYet || 'not ready yet' }; if (n.onUse) { n.onUse(n); return { ok: true, done: true, drops: {} }; }
       if (n.tool && n.tool !== tool) return { ok: false, why: 'needs ' + nice(n.tool).toLowerCase() };
       n.left -= power; if (n.left > 0) return { ok: true, done: false, hp: n.left };
       const drops = {}; for (const id in n.drops || {}) { const d = n.drops[id]; drops[id] = Array.isArray(d) ? d[0] + Math.floor(rand() * (d[1] - d[0] + 1)) : d; }
@@ -207,6 +213,43 @@ export function createInteract({ nodes, input, hud, at, action = 'interact', inv
       if (n && input && input.action(action)) I.use();
     } };
   return I;
+}
+
+/**
+ * Farming. Crops are planted on a grid, grow through four stages (0 seeds, 1 sprout, 2 growing, 3 ripe) and are
+ * harvested through the same nodes and prompt as trees and rocks. Options: nodes (a createNodes; required), types
+ * ({ wheat: { seed: 'seed', grow: 90, yields: { wheat: [2, 3], seed: [1, 2] }, regrow: false, label: 'Harvest the wheat' } }:
+ * grow is seconds from seed to ripe, regrow keeps the plant and grows the fruit again), grid (default 1), water
+ * (true: a crop grows only while watered, and each new stage dries it again), make (x, y, crop) -> ref (draw it; it is
+ * called again at every stage, the old ref removed): cropSprites() from @gcp/craft2d.js and cropModels(land) from
+ * @gcp/craft.js draw them for you.
+ *   crops.plant(type, x, y, { inventory }) -> the crop, or { error: 'occupied' | 'needs a seed' }   (takes one seed from inventory)
+ *   crops.water(x, y) -> true      crops.at(x, y)      crops.list ({ type, x, y, stage, t, watered })
+ *   crops.update(dt) every frame (or with the clock: crops.update(dt * speed))      crops.onRipe(fn(crop))      crops.onHarvest(fn(crop, drops))
+ *   crops.toJSON() / crops.load(data)   (the stage and the growth so far are kept)
+ */
+export function createCrops({ nodes, types = {}, grid = 1, water = false, make } = {}) {
+  if (!nodes) throw new Error('createCrops() needs { nodes } (a createNodes()): ripe crops are harvested through it.');
+  const ripe = emitter(), cut = emitter(), list = [], snap = (v) => Math.round(v / grid) * grid;
+  const draw = (c) => { if (c.ref) { if (c.ref.remove) c.ref.remove(); else if (c.ref.removeFromParent) c.ref.removeFromParent(); else c.ref.visible = false; } c.ref = make ? make(c.x, c.y, c) : null; };
+  const stageOf = (c) => Math.min(3, Math.floor(c.t / (types[c.type].grow || 60) * 3));
+  const sow = (type, x, y, t = 0, watered = false) => {
+    const d = types[type], c = { type, x, y, t, watered, stage: 0, ref: null, node: null }; c.stage = stageOf(c); list.push(c); draw(c);
+    c.node = nodes.add({ id: 'crop:' + x + ',' + y, x, y, r: grid * 0.75, kind: 'crop', crop: c, label: d.label || 'Harvest the ' + nice(type).toLowerCase(), drops: d.yields || { [type]: 1 }, when: () => c.stage === 3, notYet: 'not ripe yet' });
+    return c;
+  };
+  nodes.onDeplete((n, drops) => { const c = n.crop; if (!c || !list.includes(c)) return; cut.emit(c, drops);
+    if (types[c.type].regrow) { c.t = (types[c.type].grow || 60) * 2 / 3; c.stage = 2; draw(c); c.node = nodes.add({ id: n.id, x: n.x, y: n.y, r: n.r, kind: 'crop', crop: c, label: n.label, drops: n.drops, when: n.when, notYet: n.notYet }); }
+    else { list.splice(list.indexOf(c), 1); const make0 = make; make = null; draw(c); make = make0; } });
+  const C = { list, types, onRipe: ripe.on, onHarvest: cut.on,
+    at: (x, y) => list.find((c) => c.x === snap(x) && c.y === snap(y)) || null,
+    plant(type, x, y, { inventory } = {}) { const d = types[type]; if (!d) return { error: 'unknown crop ' + type }; x = snap(x); y = snap(y); if (C.at(x, y)) return { error: 'occupied' };
+      if (inventory && d.seed) { if (!inventory.has(d.seed)) return { error: 'needs a ' + nice(d.seed).toLowerCase() }; inventory.remove(d.seed, 1); } return sow(type, x, y); },
+    water(x, y) { const c = C.at(x, y); if (!c) return false; c.watered = true; if (make) draw(c); return true; },
+    update(dt) { for (const c of list) { if (c.stage >= 3 || (water && !c.watered)) continue; c.t += dt; const s = stageOf(c); if (s !== c.stage) { c.stage = s; if (water) c.watered = false; draw(c); if (s === 3) ripe.emit(c); } } },
+    toJSON: () => list.map((c) => [c.type, c.x, c.y, Math.round(c.t * 10) / 10, c.watered ? 1 : 0]),
+    load(d) { if (Array.isArray(d)) for (const [type, x, y, t, w] of d) if (types[type] && !C.at(x, y)) sow(type, x, y, t, !!w); return C; } };
+  return C;
 }
 
 /**
@@ -274,6 +317,105 @@ export function stairsPiece({ grid = 1, rise = 3, dir = 0, cost, layer = 'floor'
 }
 /** A ramp: the same as stairsPiece with a gentler default rise (1.5, half a storey). Draw it with prop('ramp') in 3D. */
 export function rampPiece(opts = {}) { return stairsPiece({ rise: 1.5, ...opts }); }
+
+/**
+ * One shared world in a room (GCP.room or a createLoopback room). The host decides every change: a guest's request
+ * goes to the host, which checks it, applies it and sends it to everyone, so every player sees the same placed pieces,
+ * the same felled trees and the same crops. Each player keeps their own inventory: a guest pays for a piece and gets
+ * the drops of a tree on their own device when the host says yes. A late joiner gets the whole world when it joins.
+ * Options: build, nodes, crops, chunks (chunks2d or terrainChunks: what is gone for good), inventory (this player's),
+ * onChange(op) (after any change from anyone: a sound, a puff of dust).
+ *   const sync = createWorldSync(room, { build, nodes, crops, inventory: inv });
+ *   await sync.place('wall', x, y, { level: 1 })   -> the result ({ error } when the host refused)
+ *   await sync.remove(x, y, { layer })   await sync.use(node, { tool })   await sync.plant('wheat', x, y)   await sync.water(x, y)
+ *   createInteract({ ..., send: (node, tool) => sync.use(node, { tool }) })   routes the interact prompt through it
+ * Alone (no room, or before it opens) every call applies at once, so the same code serves one player and many.
+ */
+export function createWorldSync(room, { build, nodes, crops, chunks, inventory, onChange } = {}) {
+  let seq = 0, timer = 0; const wait = new Map(), spent = new Set(), host = () => !room || !room.connected || room.isHost;
+  const snapshot = () => ({ build: build ? build.toJSON() : null, crops: crops ? crops.toJSON() : null, chunks: chunks ? chunks.toJSON() : null, spent: [...spent] });
+  const share = () => { if (!room || !room.isHost || timer) return; timer = setTimeout(() => { timer = 0; room.setState({ world: snapshot() }); }, 400); };
+  const finishNode = (n) => { if (!n || n.gone || n.onUse) return; const w = n.when; n.when = null; n.left = 0; nodes.use(n, { power: 1e9, tool: n.tool, rand: () => 0 }); n.when = w; if (chunks && n.ref && n.ref.key && !n.respawn) chunks.forget(n.ref); };
+  if (nodes) nodes.onDeplete((n) => { if (!n.respawn) spent.add(n.id); });
+  // apply a change everyone agreed on; `mine` marks the player who asked (they pay and they get the drops)
+  const apply = (op, a, mine) => {
+    if (op === 'place') { const p = build.place(a.kind, a.x, a.y, { level: a.level, dir: a.dir, free: !mine, inventory: mine ? inventory : undefined }); return p.error ? { error: p.error } : { ok: true, x: p.x, y: p.y }; }
+    if (op === 'remove') { const p = build.remove(a.x, a.y, { layer: a.layer, level: a.level, free: !mine, inventory: mine ? inventory : undefined }); return p ? { ok: true, kind: p.kind } : { error: 'nothing there' }; }
+    if (op === 'plant') { const c = crops.plant(a.type, a.x, a.y, { inventory: mine ? inventory : undefined }); return c.error ? { error: c.error } : { ok: true }; }
+    if (op === 'water') return crops.water(a.x, a.y) ? { ok: true } : { error: 'nothing planted there' };
+    if (op === 'use') { const n = nodes.byId(a.id); if (!n) return { error: 'gone' }; if (a.left != null) { if (a.done) finishNode(n); else n.left = a.left; return { ok: true }; }
+      const own = !!n.onUse, r = mine ? nodes.useFor(n, inventory, { tool: a.tool }) : nodes.use(n, { tool: a.tool }); if (r.ok && r.done && chunks && n.ref && n.ref.key && !n.respawn) chunks.forget(n.ref); return r.ok ? { ok: true, done: r.done, drops: r.drops, left: n.left, local: own } : { error: r.why }; }
+    return { error: 'unknown change ' + op };
+  };
+  const decide = (op, a, from) => {   // host: check and apply, then tell everyone what happened
+    let r; try { r = apply(op, a, !from); } catch (e) { r = { error: String(e.message || e) }; }
+    if (!r.error && !r.local && room && room.connected) { const out = op === 'use' ? { id: a.id, left: r.left, done: r.done } : a; room.send({ gcpWorld: 'op', op, a: out, by: from || room.id }); share(); }
+    if (!r.error && onChange) onChange({ op, ...a, by: from || (room && room.id) });
+    return r;
+  };
+  // a guest pays and collects on its own device, once the host has said yes (the world itself changes through the 'op' everyone gets)
+  const afford = (cost) => { if (!inventory || !cost) return null; const miss = Object.entries(cost).find(([id, n]) => !inventory.has(id, n)); return miss ? `needs ${miss[1]} ${String(miss[0]).replace(/[_-]/g, ' ')}` : null; };
+  const before = (op, a) => {
+    if (op === 'place') { const d = build && build.defs[a.kind]; if (!d) return 'unknown piece ' + a.kind; return afford(d.cost); }
+    if (op === 'plant') { const d = crops && crops.types[a.type]; if (!d) return 'unknown crop ' + a.type; return d.seed ? afford({ [d.seed]: 1 }) : null; }
+    return null;
+  };
+  const settle = (op, a, r) => {
+    if (!inventory || r.error) return r;
+    if (op === 'place') { const c = build.defs[a.kind].cost; for (const id in c || {}) inventory.remove(id, c[id]); }
+    if (op === 'remove' && r.kind) { const c = build.defs[r.kind].cost; for (const id in c || {}) inventory.add(id, Math.ceil(c[id] / 2)); }
+    if (op === 'plant') { const d = crops.types[a.type]; if (d.seed) inventory.remove(d.seed, 1); }
+    if (op === 'use' && r.done && r.drops) { r.left = {}; for (const id in r.drops) { const k = inventory.add(id, r.drops[id]); if (k) r.left[id] = k; } }
+    return r;
+  };
+  const ask = (op, a) => {
+    if (host()) return Promise.resolve(decide(op, a, null));
+    const no = before(op, a); if (no) return Promise.resolve({ error: no });
+    const id = ++seq; room.send({ gcpWorld: 'ask', id, op, a }, 'host');
+    return new Promise((res) => { wait.set(id, { op, a, res }); setTimeout(() => { if (wait.delete(id)) res({ error: 'the host did not answer' }); }, 8000); });
+  };
+  if (room) {
+    room.on('message', (m, from) => {
+      if (!m || !m.gcpWorld) return;
+      if (m.gcpWorld === 'ask' && room.isHost) room.send({ gcpWorld: 'reply', id: m.id, r: decide(m.op, m.a, from) }, from);
+      else if (m.gcpWorld === 'reply') { const w = wait.get(m.id); if (w) { wait.delete(m.id); w.res(settle(w.op, w.a, m.r)); } }
+      else if (m.gcpWorld === 'op' && !room.isHost) { apply(m.op, m.a, false); if (onChange) onChange({ op: m.op, ...m.a, by: m.by }); }   // every player's change, our own too
+    });
+    const take = (st) => { const w = st && st.world; if (!w) return; if (build && w.build && !build.pieces.length) build.load(w.build); if (crops && w.crops && !crops.list.length) crops.load(w.crops); if (chunks && w.chunks) chunks.load(w.chunks); for (const id of w.spent || []) { spent.add(id); finishNode(nodes && nodes.byId(id)); } };
+    room.on('open', (o) => { if (!room.isHost) take(o.state); else share(); });
+    room.on('state', take);
+    room.on('join', () => share());
+    if (chunks && nodes) chunks.onLoad(() => { for (const id of spent) finishNode(nodes.byId(id)); });
+  }
+  const S = { get isHost() { return host(); }, snapshot,
+    place: (kind, x, y, o = {}) => ask('place', { kind, x, y, level: o.level, dir: o.dir }),
+    remove: (x, y, o = {}) => ask('remove', { x, y, layer: o.layer, level: o.level }),
+    use: (node, o = {}) => (node.onUse ? Promise.resolve(nodes.use(node, { tool: o.tool })) : ask('use', { id: node.id, tool: o.tool })),   // a bed or a door works on this device only
+    plant: (type, x, y) => ask('plant', { type, x, y }), water: (x, y) => ask('water', { x, y }) };
+  return S;
+}
+
+/**
+ * Rooms that talk to each other inside one page, with the same API as GCP.room (on, send, setState, isHost, id,
+ * peers, connected). The first is the host. Use them to prove a shared world works with two players in one
+ * play-through: two worlds built from the same seed, one sync on each, and assert they agree.
+ *   const [a, b] = createLoopback(2);   const hostSync = createWorldSync(a, {...}), guestSync = createWorldSync(b, {...});
+ * Messages arrive on a later tick, as they would over a network; await sync calls, or t.frames(2), before checking.
+ */
+export function createLoopback(n = 2) {
+  const rooms = [], ids = Array.from({ length: n }, (_, i) => 'p' + (i + 1)); let state = null;
+  for (let i = 0; i < n; i++) {
+    const L = {}, id = ids[i], fire = (ev, ...a) => (L[ev] || []).forEach((f) => f(...a));
+    const R = { id, hostId: ids[0], connected: true, state: null, get isHost() { return id === ids[0]; }, get peers() { return ids.filter((x) => x !== id).map((x) => ({ id: x, name: x })); },
+      on(ev, f) { (L[ev] ||= []).push(f); return R; }, off(ev, f) { L[ev] = (L[ev] || []).filter((x) => x !== f); return R; }, fire,
+      send(data, to) { const copy = JSON.parse(JSON.stringify(data)); setTimeout(() => { for (const r of rooms) if (r !== R && (!to || to === r.id || (to === 'host' && r.isHost))) r.fire('message', copy, id); }, 0); },
+      setState(d) { if (!R.isHost) return; state = JSON.parse(JSON.stringify(d)); setTimeout(() => { for (const r of rooms) if (r !== R) { r.state = state; r.fire('state', state); } }, 0); },
+      leave() { R.connected = false; } };
+    rooms.push(R);
+  }
+  setTimeout(() => rooms.forEach((r) => r.fire('open', { id: r.id, host: r.isHost, peers: r.peers, state })), 0);
+  return rooms;
+}
 
 /**
  * A list of steps. steps: [{ id, text: 'Gather 5 wood', done: () => inv.has('wood', 5), reward: () => {} }]. A step
