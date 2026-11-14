@@ -37,6 +37,16 @@
 - A full-screen overlay (the boot screen, a menu background) was never removed.
 - A custom shader failed to compile. The error is in `warnings`; Three.js logs the GLSL line.
 
+## two_players: the two pages did not end up in one shared world
+
+This check exists only when the game registered `GCP.test.onTwoPlayers`. The verifier opened the game twice in one room
+(host first) and ran that function in both pages; the detail says which page failed and at which step, or shows the two
+`world` strings that differ.
+
+- **"the other player to appear" timed out.** On autostart the game must host or join `GCP.test.twoPlayers.code` instead of playing alone, and both pages must use the same room name.
+- **The worlds differ.** A change reached one side only. Route every change through the host (`createWorldSync`), and return a `world` string that leaves out per-player things and is sorted.
+- **Fine alone, fails here.** A guest starts from the host's world: do not load a local save over it.
+
 ## playthrough: the game's own play-through failed
 
 This check exists only when the game registered `GCP.test.onPlaythrough`. The report names the step that failed and the message.

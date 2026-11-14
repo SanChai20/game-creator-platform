@@ -53,13 +53,14 @@ export const currentStage2d = () => CURRENT;
  *   stage.fx                       burst(x, y, color), text(x, y, 'words', color), ring(x, y, color), confetti(x, y)
  *   stage.shake(amount), stage.onUpdate(fn), stage.run(update)  the frame loop; calls GCP.ready() after the first frames
  * Options: mood, weather, zoom (pixels per unit, default fits about 22 units across), ground (a ground2d, or set
- * stage.ground later), wind (0..2), mist (0..1: a veil with drifting banks over the picture; misty-dawn has 0.6; set stage.mist to change it later).
+ * stage.ground later), wind (0..2), mist (0..1: real mist. The air stays clear around the stage's focus and banks of drifting puffs close in with distance
+ * until the far land is hidden; 1 leaves only a few steps of sight. misty-dawn has 0.6; set stage.mist to change it later).
  * The loop is stage.run(update); pass { ready: false } as its second argument to call GCP.ready() yourself.
  */
 export function createStage2d(canvas, opts = {}) {
   const el = typeof canvas === 'string' ? document.querySelector(canvas) : canvas, view = setupCanvas(el, { maxDpr: 2 }), ctx = view.ctx, cam = new Camera2D();
   const items = [], actors = [], lights = [], updaters = [], parts = [], texts = [], drawList = [];
-  const lightC = document.createElement('canvas'), lctx = lightC.getContext('2d');
+  const lightC = document.createElement('canvas'), lctx = lightC.getContext('2d'); let puff = null, puffKey = '', mistC = null, mctx = null;
   let mood = { ...MOODS2D[opts.mood] || MOODS2D['clear-day'] }, from = null, to = null, blend = 0, secs = 0, weather = null, drops = [], time = 0, shakeAmt = 0, vig = null, vigKey = '';
   const amb = () => rgb(mood.ambient), NIGHT_C = [58, 76, 138]; let base = { ...mood };
   const stage = {
@@ -124,12 +125,20 @@ export function createStage2d(canvas, opts = {}) {
           const gr = lctx.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, `rgba(${l.color[0]},${l.color[1]},${l.color[2]},0.95)`); gr.addColorStop(0.45, `rgba(${l.color[0]},${l.color[1]},${l.color[2]},0.4)`); gr.addColorStop(1, 'rgba(0,0,0,0)'); lctx.fillStyle = gr; lctx.fillRect(px - r, py - r, r * 2, r * 2); }
         ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(lightC, 0, 0, w, h); ctx.globalCompositeOperation = 'source-over';
       }
-      const mist = stage.mist ?? opts.mist ?? mood.mist ?? 0;   // a veil over everything, thicker towards the top (farther away) and in slow drifting banks
-      if (mist > 0.01) { const hz = hex(mood.haze ?? 0xe9eef0), [hr, hg, hb] = rgb(mood.haze ?? 0xe9eef0), m = Math.min(1, mist);
-        const vg = ctx.createLinearGradient(0, 0, 0, h); vg.addColorStop(0, `rgba(${hr},${hg},${hb},${0.72 * m})`); vg.addColorStop(0.55, `rgba(${hr},${hg},${hb},${0.42 * m})`); vg.addColorStop(1, `rgba(${hr},${hg},${hb},${0.26 * m})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
-        ctx.globalAlpha = 0.5 * m;
-        for (let i = 0; i < 9; i++) { const bx = ((i * 0.31 + time * 0.012 * (1 + i % 3) - cam.x * z / w * 0.6) % 1.4 + 1.4) % 1.4 * w - 0.2 * w, by = ((i * 0.47 - cam.y * z / h * 0.6) % 1 + 1) % 1 * h + Math.sin(time * 0.2 + i) * 30, br = Math.max(w, h) * (0.24 + (i % 3) * 0.08); const g2 = ctx.createRadialGradient(bx, by, 0, bx, by, br); g2.addColorStop(0, hz); g2.addColorStop(1, `rgba(${hr},${hg},${hb},0)`); ctx.fillStyle = g2; ctx.fillRect(bx - br, by - br, br * 2, br * 2); }
-        ctx.globalAlpha = 1; }
+      // Mist: clear around the focus, then banks of soft puffs that close in with distance until the far land is gone,
+      // drifting slowly. The puffs are anchored to the world, so walking moves through them.
+      const mist = stage.mist ?? opts.mist ?? mood.mist ?? 0;
+      if (mist > 0.01) { const [hr, hg, hb] = rgb(mood.haze ?? 0xe9eef0).map((v, i) => Math.round(v * (0.42 + 0.58 * A[i] / 255))), m = Math.min(1, mist),   // the mist takes the light of the hour: grey-blue at night
+        f = stage.focus || cam, fx0 = f.x, fy0 = f.y - 0.6;
+        if (!puff || puffKey !== hr + ',' + hg + ',' + hb) { puffKey = hr + ',' + hg + ',' + hb; puff = document.createElement('canvas'); puff.width = puff.height = 48; const pc = puff.getContext('2d'), pg = pc.createRadialGradient(24, 24, 0, 24, 24, 24); pg.addColorStop(0, `rgba(${hr},${hg},${hb},1)`); pg.addColorStop(0.45, `rgba(${hr},${hg},${hb},0.72)`); pg.addColorStop(1, `rgba(${hr},${hg},${hb},0)`); pc.fillStyle = pg; pc.fillRect(0, 0, 48, 48); }
+        // drawn small and stretched once: soft shapes lose nothing, and a slow device fills a sixteenth of the pixels
+        const q = 4, mw = Math.ceil(w / q), mh = Math.ceil(h / q); if (!mistC) { mistC = document.createElement('canvas'); mctx = mistC.getContext('2d'); } if (mistC.width !== mw || mistC.height !== mh) { mistC.width = mw; mistC.height = mh; }
+        mctx.globalAlpha = 1; mctx.clearRect(0, 0, mw, mh); mctx.fillStyle = `rgba(${hr},${hg},${hb},${0.16 * m})`; mctx.fillRect(0, 0, mw, mh);   // a thin veil everywhere
+        const near = lerp(8.5, 3.6, m), far = near + lerp(7, 4.2, m), step = 1.7, ps = step * 2.9 * z / q, x0 = Math.floor((cam.x - w / 2 / z) / step) - 1, x1 = Math.ceil((cam.x + w / 2 / z) / step) + 1, y0 = Math.floor((cam.y - h / 2 / z) / step) - 1, y1 = Math.ceil((cam.y + h / 2 / z) / step) + 1;
+        for (let gy = y0; gy <= y1; gy++) for (let gx = x0; gx <= x1; gx++) { const hsh = hash2(gx, gy), wx = (gx + 0.5) * step + Math.sin(time * 0.3 + hsh * 9) * 0.55, wy = (gy + 0.5) * step + Math.cos(time * 0.24 + hsh * 7) * 0.45, d = Math.hypot(wx - fx0, (wy - fy0) * 1.25);
+          const a = smoothstep(near, far, d + (hsh - 0.5) * 2.2) * (0.62 + hsh * 0.3) * (0.55 + 0.45 * m); if (a < 0.02) continue;
+          mctx.globalAlpha = a; mctx.drawImage(puff, ((wx - cam.x) * z + w / 2) / q - ps / 2, ((wy - cam.y) * z + h / 2) / q - ps / 2, ps, ps); }
+        ctx.drawImage(mistC, 0, 0, w, h); }
       if (weather) { const W = weather; if (W.haze) { ctx.fillStyle = W.haze; ctx.fillRect(0, 0, w, h); } if (W.glow) ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = ctx.strokeStyle = W.color; ctx.lineWidth = W.w || 1; ctx.beginPath();
         for (const d of drops) { const sx = W.sway ? Math.sin(time * (0.6 + d.s) + d.s * 40) * W.sway : 0, x = (((d.x * w + time * W.vx * (0.7 + d.s * 0.6) + sx - cam.x * z) % w) + w) % w, y = (((d.y * h + time * W.vy * (0.7 + d.s * 0.6) - cam.y * z) % h) + h) % h;
           if (W.len) { ctx.moveTo(x, y); ctx.lineTo(x + W.vx / Math.hypot(W.vx, W.vy) * W.len, y + W.vy / Math.hypot(W.vx, W.vy) * W.len); } else { const r = W.r * (0.6 + d.s * 0.8) * (W.blink ? Math.max(0, Math.sin(time * (1 + d.s * 2) + d.s * 50)) : 1); ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, TAU); } }

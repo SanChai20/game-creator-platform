@@ -44,6 +44,8 @@ GCP.env           // 'preview' | 'live' | 'local'
 GCP.test.seed     // value of ?gcp_seed, or null
 GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the game
 GCP.test.onPlaythrough(fn) // fn(t) plays the game to its end; the verifier runs it and reports each step
+GCP.test.twoPlayers       // { role: 'host' | 'guest', code } when the verifier opened this page for the two-player check, else null
+GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages that share one room; return { players, world } (see the multiplayer guide)
 GCP.fullscreen()  // asks the platform page to toggle fullscreen
 ```
 

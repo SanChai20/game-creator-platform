@@ -52,7 +52,7 @@ const SETTINGS = {
     ambience: 'fire', music: 'tense', accent: '#ff8a3a',
   },
   alien: {
-    words: /alien|planet|space|moon\b|mars|sci-?fi|astronaut|robot|colony|crater|nebula|station|future/, title: 'Violet Drift', mood: 'alien', weather: 'fireflies', shape: 'hills', palette: 'alien', amplitude: 9, water: '0x7a4ad8',
+    words: /alien|planet|space|moon\b|mars|sci-?fi|astronaut|robot|colony|crater|nebula|space station|futur/, title: 'Violet Drift', mood: 'alien', weather: 'fireflies', shape: 'hills', palette: 'alien', amplitude: 9, water: '0x7a4ad8',
     big: ["tree({ species: 'mushroom' })", "tree({ species: 'mushroom', seed: 2, leaf: 0x6ad8c8 })", "tree({ species: 'mushroom', seed: 3, leaf: 0xc86ad8 })", "tree({ species: 'cypress', leaf: 0x5a3a9a })", 'rock({ color: 0x4a3a6a, ore: 0x6ef0ff })', 'rock({ seed: 2, color: 0x3a3a5a, size: 1.6 })'],
     small: ["groundCover('crystal', { color: 0x6ef0ff })", "groundCover('crystal', { seed: 2, color: 0xff6ad8 })", "groundCover('mushrooms', { color: 0x6ad8c8 })", "groundCover('fern', { color: 0x7a4aa8 })", "groundCover('stones', { color: 0x4a3a6a })", 'bush({ color: 0x3f9a8a, berries: 0xff6ad8 })'],
     grass: '', camp: [K("'container'", 2.2), K("'antenna'", 0.6), K("'console'", 0.9), K("'beacon'", 0.7), K("'drum'", 0.5), K("'drum'", 0.5), K("'pipe'", 0.6), K("'barrier'", 0.9)],
@@ -110,7 +110,8 @@ const SETTINGS = {
 };
 const ORDER = ['haunted', 'volcanic', 'snow', 'desert', 'alien', 'city', 'island', 'swamp', 'mountains', 'autumn', 'village', 'forest'];
 const CAMP_SPOTS = [[6, -6, -0.5], [-1.5, 2.5, 0], [-6.5, -3, 0.6], [2.5, 5.5, 0.4], [3.4, -1.2, 0.3], [4.4, 0.2, 0], [-3.5, 4.8, 2.2], [1, -8, 1]];
-const MOOD_WORDS = [[/\bnight|midnight|moonlit|dark\b/, 'night'], [/sunset|dusk|twilight|evening/, 'dusk'], [/dawn|sunrise|morning|mist|fog/, 'misty-dawn'], [/storm|thunder|lightning/, 'storm'], [/overcast|gloomy|grey sky|gray sky/, 'overcast'], [/golden|afternoon/, 'golden-hour'], [/noon|midday|sunny|bright day/, 'clear-day']];
+// every pattern below is matched at the start of a word (see startsWord), so "device" is not ice and "terrain" is not rain
+const MOOD_WORDS = [[/night|midnight|moonlit|dark\b/, 'night'], [/sunset|dusk|twilight|evening/, 'dusk'], [/dawn|sunrise|morning|mist|fog/, 'misty-dawn'], [/storm|thunder|lightning/, 'storm'], [/overcast|gloomy|grey sky|gray sky/, 'overcast'], [/golden|afternoon/, 'golden-hour'], [/noon|midday|sunny|bright day/, 'clear-day']];
 // the first row that matches wins, so the specific storms come before the plain one
 const WEATHER_WORDS = [[/sand.?storm|dust.?storm/, 'sandstorm'], [/snow|blizzard/, 'snow'], [/dust/, 'dust'], [/firefl/, 'fireflies'], [/ember|spark|ash\b/, 'embers'], [/falling leaves|leaf fall/, 'leaves'], [/rain|storm|drizzle/, 'rain']];
 const DRIFT = { 'clear-day': 'golden-hour', 'golden-hour': 'dusk', 'misty-dawn': 'clear-day', dusk: 'night', autumn: 'dusk', desert: 'dusk', overcast: 'storm' };
@@ -125,6 +126,9 @@ const GOALS = {
 const WORLD_2D = /(^|[^\w.])(2d|2-d|2\.5d|pixel|isometric|sprites?|stardew|zelda)\b/, NOT_A_WORLD = /\b(platformer|side.?scroll|puzzle|card|board|match.?3|tetris|snake|pong|breakout|chess|sudoku|word game|clicker|idle game|text adventure)\b/;
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const startsWord = (re) => new RegExp('\\b(?:' + re.source + ')');   // a cue counts only where a word begins
+for (const S of Object.values(SETTINGS)) S.words = startsWord(S.words);
+for (const row of [...MOOD_WORDS, ...WEATHER_WORDS]) row[0] = startsWord(row[0]);
 const q = (s) => `'${String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 const pick = (v, list, fallback) => (v != null && list.includes(String(v)) ? String(v) : fallback);
 
@@ -142,19 +146,33 @@ const planArgs = (args) => Object.fromEntries(ARGS.filter((k) => args[k] != null
 const CUES = [
   ['2D or 2.5D', WORLD_2D, 'camera "2d": a painted top-down world on @gcp/craft2d.js'],
   ['several players', /multi.?player|co-?op\b|\bonline\b|friends|\bplayers\b|\brooms?\b|\bhost(s|ed|ing)?\b|join|lobby|together/, 'lobbyUI (host, join by code, solo), GCP.room, and createWorldSync from @gcp/play.js: the host owns placed pieces, harvested nodes and crops and every client sees the same world. Rules in the multiplayer guide.'],
-  ['saves on the host', /host('s)? (device|machine|computer)|saved? (locally|on the host|on (the|their) device)|local save|no cloud/, "createSave(key, parts, { cloud: false }) keeps the world in the host's browser"],
+  ['saves on the host', /host(['’]s)? (own |local )?(device|machine|computer|browser)|saved? (automatically )?(locally|on the host|on (the|their) device)|local save|no cloud|(not?|n['’]t) (want )?(the )?(game )?(data )?(be )?stored on (my|the|a|our) server/, "createSave(key, parts, { cloud: false }) keeps the world in the host's browser"],
   ['farming', /\bfarm(s|ing)?\b|\bcrops?\b|\bplant(s|ing)?\b|\bseeds?\b|\bharvest|\btill/, 'createCrops from @gcp/play.js: plant seeds, crops grow in stages (watering optional) and are harvested through the same prompt as trees and rocks'],
   ['a world that grows', /expand|endless|infinite|procedural(ly)? (map|world)|grows? in (random )?directions|unexplored|explore (further|beyond)|new (land|areas?) appears?|chunks?/, 'the world streams in chunks as the player explores: chunks2d({ fill }) with ground2d({ size: Infinity }) in 2D, terrainChunks({ fill }) in 3D'],
   ['building', /\bbuild(s|ing)?\b|\bbase\b|\bwalls?\b|\bhouse\b|\bshelter|\bstor(e)?ys?\b|\bstairs/, 'createBuilder with layers, storeys, stairsPiece and rampPiece'],
   ['crafting', /\bcraft/, 'createCrafting with stations, inventoryUI shows the recipes'],
+  ['smelting', /\bsmelt|\bfurnace|\bforge\b|\bingots?\b|\bores?\b/, 'a furnace piece that is a crafting station, ore from rocks and ingot recipes with station: "furnace"'],
+  ['thirst', /\bthirst|\bdrink|food,? (and )?water\b|water,? (and )?food\b|\bhydrat/, 'a water need in createNeeds that drains like food and is filled by drinking at a well or a shore'],
+  ['combat', /\bcombat\b|\benem(y|ies)\b|\bmonsters?\b|\bfight|\bloot\b|\bweapons?\b|\bmobs?\b/, 'foes that come at night and chase the hero (wander with chase and onReach), a weapon in the hand, and loot when one falls'],
   ['day and night', /day.?night|\bnights?\b|\bdawn\b|\bdusk\b/, 'createClock({ stage }) drives the light; clock.onPhase for night events'],
 ];
-const titleFrom = (raw) => { const m = /(?:called|titled|named)\s+["“'‘]?([A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){0,3})/.exec(raw) || /^\s*(?:#+\s*)?["“]?([A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){0,3})["”]?\s*(?:[:—–]|\s-\s|\n)/.exec(raw); return m ? m[1].trim() : null; };
+// The game's name when the brief gives one: "called Mistbound", "Title: Mistbound", or a brief that opens with it ("Mistbound: a farm …",
+// "Mistbound (2.5D) …", "Mistbound is a …", "# Mistbound"). Otherwise null, and the title comes from the setting.
+const NAME = "([A-Z][\\w'’-]*(?:\\s+(?:(?:of|the|and)\\s+)?[A-Z][\\w'’-]*){0,3})", NOT_NAMES = /^(I|I'd|I’d|A|An|The|This|Make|Build|Create|Please|Game|My|We|It|In|You|Use|Using|Design)\b/;
+const titleFrom = (raw) => {
+  const m = new RegExp("(?:called|titled|named|\\b[Tt]itle\\s*[:=]|\\b[Nn]ame\\s*[:=])\\s+[\"“'‘]?" + NAME).exec(raw);
+  if (m) return m[1].trim();
+  const o = new RegExp('^\\s*(?:#+\\s*)?["“]?' + NAME + '["”]?\\s*(?:[:—–(]|\\s-\\s|\\n|,?\\s+is\\s+an?\\b|$)').exec(raw), t = o ? o[1].trim() : null;
+  return t && !NOT_NAMES.test(t) ? t : null;
+};
 
 export function designScene(args, V) {
   const r = planScene(args, V); if (!r || !r.plan) return r;
   const text = String(args.description || '').slice(0, READ).toLowerCase(), found = CUES.filter(([, re]) => re.test(text)).map(([cue, , how]) => ({ cue, how }));
   if (found.length) r.plan.read_from_brief = found;
+  // where the name and the place came from, so nobody mistakes a default for something the brief said
+  if (r.plan.title) r.plan.title_from = args.title ? 'argument' : titleFrom(String(args.description || '')) ? 'brief' : 'setting';
+  if (r.plan.setting) r.plan.setting_from = args.setting && SETTINGS[args.setting] ? 'argument' : ORDER.some((k) => SETTINGS[k].words.test(text)) ? 'brief' : 'default (nothing in the brief names a place)';
   return r;
 }
 

@@ -82,4 +82,27 @@ so a single play-through can prove two players agree. See the building-blocks gu
 
 ## Testing
 
-Open the preview in two browser windows signed in as different players. The verifier runs the game alone, so a multiplayer game must still boot, render and call `GCP.ready()` with nobody else in the room.
+Open the preview in two browser windows signed in as different players. The verifier first runs the game alone, so a multiplayer game must still boot, render and call `GCP.ready()` with nobody else in the room.
+
+### The two-player check
+
+A game that registers `GCP.test.onTwoPlayers` is then opened in two more pages of the verification browser, which meet in a
+real room: the first with `?gcp_two=host&gcp_room=CODE`, the second with `?gcp_two=guest` and the same code. The function runs
+in both pages at once. The check `two_players` passes when both finish, each sees two players, and both return the same
+`world` string. The report has it under `two_players`.
+
+```js
+const two = GCP.test.twoPlayers;                       // { role, code } in those two pages, null otherwise
+GCP.test.onAutostart(() => (two ? (two.role === 'host' ? lobby.host(two.code) : lobby.join(two.code)) : lobby.solo()));
+GCP.test.onTwoPlayers(async (t, role) => {
+  t.step('the other player appears'); await t.until(() => room.connected && peers.size >= 1, 30000, 'the other player');
+  t.step('each builds one piece');    const r = await sync.place(role === 'host' ? 'fence' : 'torch', role === 'host' ? 5 : -5, 3);
+  t.assert(!r.error, r.error);
+  t.step('both pieces stand in both worlds'); await t.until(() => build.at(5, 3) && build.at(-5, 3), 20000, 'the other piece');
+  return { players: peers.size + 1, world: JSON.stringify([build.toJSON(), crops.toJSON()]) };   // equal in both pages
+});
+```
+
+Make `world` a string of what must agree (pieces, crops, what was felled), sorted so order does not matter, and leave out
+what is each player's own (the backpack, the position). `createLoopback(2)` inside the play-through stays useful: it proves
+the rules of the shared world quickly; the two-player check proves them over the real room.

@@ -169,12 +169,17 @@
     connect();
   }
 
-  var autostartFns = [], playFn = null;
+  var autostartFns = [], playFn = null, pairFn = null;
   // The play-through a game may register: the verifier runs it and reports each step, so "playable" can mean
   // "the whole loop was played to the end" instead of only "it booted". Limits: 60 steps, one run at a time.
   S.playthrough = false;
-  S.runPlaythrough = function (limitMs) {
-    if (!playFn) return Promise.resolve({ ran: false });
+  S.runPlaythrough = function (limitMs) { return runScript(playFn, limitMs, 'play-through'); };
+  // The two-player check a multiplayer game may register (GCP.test.onTwoPlayers): the verifier opens the game twice in one
+  // room, runs this in both pages and compares what each returns, so "multiplayer" is proved across two real browsers.
+  S.twoPlayers = false;
+  S.runTwoPlayers = function (limitMs) { var two = GCP.test.twoPlayers; return runScript(pairFn, limitMs, 'two-player check', two ? two.role : 'host'); };
+  function runScript(fn, limitMs, what, arg) {
+    if (!fn) return Promise.resolve({ ran: false });
     var steps = [], t0 = performance.now(), frames0 = S.frames, over = false;
     var wait = function (ms) { return new Promise(function (r) { setTimeout(r, Math.max(0, +ms || 0)); }); };
     var until = function (fn, timeoutMs, label) {
@@ -203,11 +208,11 @@
         fire('keydown'); return wait(holdMs == null ? 120 : holdMs).then(function () { fire('keyup'); });
       },
     };
-    var out = function (ok, error) { over = true; return { ran: true, ok: ok, error: error || '', steps: steps, ms: Math.round(performance.now() - t0), frames: S.frames - frames0 }; };
-    var limit = new Promise(function (r) { setTimeout(function () { r(out(false, 'The play-through did not finish within ' + Math.round(limitMs / 1000) + ' s.')); }, limitMs); });
-    var run; try { run = Promise.resolve(playFn(t)); } catch (e) { run = Promise.reject(e); }
-    return Promise.race([limit, run.then(function () { return out(true); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400)); })]);
-  };
+    var out = function (ok, error, result) { over = true; return { ran: true, ok: ok, error: error || '', steps: steps, ms: Math.round(performance.now() - t0), frames: S.frames - frames0, result: result === undefined ? null : result }; };
+    var limit = new Promise(function (r) { setTimeout(function () { r(out(false, 'The ' + what + ' did not finish within ' + Math.round(limitMs / 1000) + ' s.')); }, limitMs); });
+    var run; try { run = Promise.resolve(fn(t, arg)); } catch (e) { run = Promise.reject(e); }
+    return Promise.race([limit, run.then(function (v) { return out(true, '', v); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400)); })]);
+  }
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
@@ -257,6 +262,13 @@
       /** Register one async function that plays the game to its end by itself: fn(t) with t.step, t.assert, t.wait, t.frames, t.until, t.key.
           The verifier runs it after the game is ready and fails the version if it throws. Optional, and worth having. */
       onPlaythrough: function (fn) { playFn = typeof fn === 'function' ? fn : null; S.playthrough = !!playFn; },
+      /** For a game with rooms. The verifier opens the game in two pages with ?gcp_two=host and ?gcp_two=guest and the same ?gcp_room=CODE;
+          GCP.test.twoPlayers is then { role, code } (otherwise null), so the autostart hook can host or join that room instead of playing alone.
+          Register one async function fn(t, role) that waits for the other player, changes the world a little and returns
+          { players: how many this page sees (itself included), world: a string that is equal in both pages when their worlds agree }.
+          The verifier runs it in both pages at once and fails the version if either throws, sees fewer than two players, or the worlds differ. */
+      twoPlayers: q.get('gcp_two') ? { role: q.get('gcp_two') === 'guest' ? 'guest' : 'host', code: String(q.get('gcp_room') || 'VERIFY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'VERIFY' } : null,
+      onTwoPlayers: function (fn) { pairFn = typeof fn === 'function' ? fn : null; S.twoPlayers = !!pairFn; },
     },
     /** Ask the platform page to toggle fullscreen (works inside the play frame). */
     fullscreen: function () { try { parent.postMessage({ gcp: 'fullscreen' }, '*'); } catch (e) { /* not framed */ } },

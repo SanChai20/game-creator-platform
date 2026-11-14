@@ -238,8 +238,14 @@ When a brief asks for crops, a world that grows as the player walks, or friends 
 returns a hand-written template instead of the generated starter: `homestead-2d` (painted top-down) or `homestead-3d`
 (third person), also available through `apply_template`. Both have all three features plus crafting, building with
 stairs, needs, day and night, a trading post, quests and saving, and a play-through that checks it all with a second
-player in the same page. `src/theme.js` is the game (name, look, items, crops, pieces, the regions the land passes
-through, quests); `src/main.js` is the engine. Rewrite the theme for your brief and change the engine where the brief
+player in the same page and a two-player check over a real room (`GCP.test.onTwoPlayers`). `src/theme.js` is the game
+(name, look, items, crops, pieces, the regions the land passes through, foes, quests); `src/main.js` is the engine.
+
+`design_scene` writes `src/theme.js` for the brief, so the files are already that brief's game: its title (from the
+brief, otherwise from the setting; `plan.title_from` says which), the setting's palette, mood, regions, trees and
+animals, and the features the brief names: thirst ("food and water"), smelting (ore rock, a furnace, ingots), combat
+(foes at night, a sword, loot), corn, saving on the host's device, up to four players. The result lists what is
+`already_in_the_theme` and what is `left_for_you`. Start from `left_for_you`, then change the engine where the brief
 needs rules it lacks: until enough has changed the report counts it as the template (quality.own_work) and keeps the
 craft score below target.
 

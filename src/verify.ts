@@ -23,7 +23,9 @@ export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: s
     browser = await puppeteer.launch(env.BROWSER as any, { keep_alive: 60000 });
     const page = await browser.newPage();
     await page.setViewport({ width: 960, height: 540, deviceScaleFactor: 1 });
-    const { report, shots } = await verifyPage(page, url, opts);
+    // a game with rooms is opened in two more pages of this browser, which meet in one room (GCP.test.onTwoPlayers)
+    const openPage = async () => { const p = await browser!.newPage(); await p.setViewport({ width: 960, height: 540, deviceScaleFactor: 1 }); return p; };
+    const { report, shots } = await verifyPage(page, url, { ...opts, openPage });
     const shot: Uint8Array | null = shots.length ? new Uint8Array(shots[0]) : null;   // the full-quality portrait when there is one, otherwise the first picture of the game in play
     return { report: { ...report, browser: 'cloudflare-browser-rendering' }, shot };
   } catch (e) {

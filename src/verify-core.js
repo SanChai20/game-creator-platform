@@ -68,6 +68,35 @@ async function tap(page, x, y) {
  * @param url    game URL including the play token
  * @param opts   { readyTimeoutS, minFrames, observeS, usesWebGPU, log }
  */
+/**
+ * Opens the game in two more pages that meet in one room (host first, then guest) and runs the function the game gave to
+ * GCP.test.onTwoPlayers in both at once. Passes when both finish, each sees at least two players and both return the same
+ * world string. openPage() -> a new page of the same browser. Returns { ok, detail, host, guest } or { skipped: why }.
+ */
+export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS = 30 } = {}) {
+  const code = 'V' + Array.from({ length: 5 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join(''), pages = [];
+  const addr = (role) => url + (url.includes('?') ? '&' : '?') + (/[?&]gcp_autostart=/.test(url) ? '' : 'gcp_autostart=1&') + 'gcp_two=' + role + '&gcp_room=' + code;
+  const boot = async (role) => { const p = await openPage(); pages.push(p); p.on('dialog', (d) => { d.dismiss().catch(() => {}); }); await p.goto(addr(role), { waitUntil: 'domcontentloaded', timeout: 45000 });
+    const t0 = Date.now(); let s = null; while (Date.now() - t0 < readyTimeoutS * 1000) { s = await state(p).catch(() => null); if (s && (s.ready || s.fatal)) break; await sleep(250); }
+    if (!s || !s.ready || s.fatal) throw new Error(`the ${role} page did not start` + (s && s.fatal ? ': ' + String(s.fatal).slice(0, 160) : '')); return p; };
+  try {
+    let host, guest;
+    try { host = await boot('host'); await sleep(1200); guest = await boot('guest'); } catch (e) { return { skipped: String(e && e.message || e).slice(0, 240) }; }
+    const run = (p, role) => Promise.race([
+      p.evaluate((ms) => window.__GCP.runTwoPlayers(ms), limitS * 1000).catch((e) => ({ ran: true, ok: false, error: `The ${role} page reloaded or closed: ` + String(e && e.message || e).slice(0, 160), steps: [], result: null })),
+      sleep(limitS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The ${role} did not finish within ${limitS} s.`, steps: [], result: null })),
+    ]);
+    const [a, b] = await Promise.all([run(host, 'host'), run(guest, 'guest')]);
+    const brief = (r) => ({ ok: !!r.ok, error: r.error || '', steps: r.steps || [], players: r.result && r.result.players, world: r.result && typeof r.result.world === 'string' ? r.result.world.slice(0, 2000) : null });
+    const H = brief(a), G = brief(b), saw = H.players >= 2 && G.players >= 2, same = H.world != null && H.world === G.world, ok = H.ok && G.ok && saw && same;
+    const last = (r) => (r.steps.length ? ` (during "${r.steps[r.steps.length - 1]}")` : '');
+    const detail = ok ? `Host and guest met in one room, each saw ${Math.min(H.players, G.players)} players, and their worlds agree after both changed it.`
+      : !H.ok ? `The host failed: ${H.error}${last(H)}` : !G.ok ? `The guest failed: ${G.error}${last(G)}` : !saw ? `The host saw ${H.players || 0} player(s) and the guest ${G.players || 0}: each must see both.`
+        : H.world == null || G.world == null ? 'The function must return { players, world } with world a string.' : 'The two worlds differ. Host: ' + H.world.slice(0, 200) + ' · Guest: ' + G.world.slice(0, 200);
+    return { ok, detail, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players } };
+  } finally { for (const p of pages) { try { await p.close(); } catch { /* gone */ } } }
+}
+
 export async function verifyPage(page, url, opts = {}) {
   const o = { readyTimeoutS: 30, minFrames: 6, observeS: 3, playthroughS: 30, usesWebGPU: false, ...opts };
   const checks = [], pageErrors = [], badResponses = [];
@@ -140,6 +169,12 @@ export async function verifyPage(page, url, opts = {}) {
     } else {
       report.playthrough = null;
       report.notes.push('Only start-up, rendering and input were checked: this version registers no play-through, so nothing confirmed that it can be played to the end. Add GCP.test.onPlaythrough (see the platform-contract guide) to have the whole loop played and reported.');
+    }
+    // 4c. two players: a game that registered GCP.test.onTwoPlayers is opened twice more, in one room, and both pages must agree
+    if (o.openPage && await page.evaluate(() => !!(window.__GCP && window.__GCP.twoPlayers)).catch(() => false)) {
+      const two = await twoPlayerCheck(o.openPage, url, { limitS: o.twoPlayersS || 45, readyTimeoutS: o.readyTimeoutS });
+      if (two.skipped) report.notes.push('The two-player check could not be run: ' + two.skipped);
+      else { add('two_players', two.ok, 'Two players share one world', two.detail, two.ok ? '' : 'The function given to GCP.test.onTwoPlayers ran in two pages that joined the same room (the first as host). Each must see the other and return the same world string. Check that the game hosts or joins GCP.test.twoPlayers.code on autostart, and that every change to the world reaches the other player.'); report.two_players = two; }
     }
     // 5. input: click, keys, drag, touch. A marker on window tells us afterwards whether the page was reloaded.
     // The probe is read here as well: a game may restart itself by reloading when its end screen is clicked, which resets it.

@@ -15,12 +15,13 @@ import { run, createStage2d, ground2d, sprite2d, chunks2d, actor2d, control2d, w
 import * as T from './theme.js';
 
 const GCP = window.GCP, CHUNK = 16, LEVEL = 2, RISE = 0.55;   // chunk size; height of one storey; how far one unit of height lifts a thing in the picture
-const r2 = (v) => Math.round(v * 100) / 100, cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1), el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const r2 = (v) => Math.round(v * 100) / 100, pickOf = (list) => list[Math.floor(Math.random() * list.length)], cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1), el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
 run(async (boot) => {
   /* ===== 1. stage and land: the canvas, camera, depth sorting, light; ground without an edge, painted where the camera goes ===== */
   await boot.step(0.1, 'Unrolling the map');
-  const stage = createStage2d('#view', { mood: T.LOOK.mood, weather: 'motes' }), fx = stage.fx;
+  const AIR = T.LOOK.weather === undefined ? 'motes' : T.LOOK.weather;   // what drifts in the air by day
+  const stage = createStage2d('#view', { mood: T.LOOK.mood, weather: AIR }), fx = stage.fx;
   const land = ground2d({ seed: T.SEED, size: Infinity, palette: T.LOOK.palette, water: T.LOOK.water, clearing: { x: 0, y: 0, r: 9 } });
 
   /* ===== 2. art drawn here: the few things the kit has no sprite for. Raised things are anchored at the far edge of
@@ -38,13 +39,16 @@ run(async (boot) => {
     c.fillStyle = shade(WOOD, 0.08); c.beginPath(); c.rect(0, U - L, 1, 1); c.fill(); c.stroke(); c.strokeStyle = shade(WOOD, -0.3); for (let i = 1; i < 4; i++) { c.beginPath(); c.moveTo(0.02, U - L + i * 0.25); c.lineTo(0.98, U - L + i * 0.25); c.stroke(); }
     c.strokeStyle = INK; c.fillStyle = shade(WOOD, -0.3); c.beginPath(); c.rect(0, U + 1 - L, 1, 0.13); c.fill(); c.stroke(); });
   const drySoil = sprite2d('soil'), wetSoil = sprite2d('soil', { wet: true }), FLAT = { flat: true };   // flat: it lies on the ground, drawn under whoever stands there
+  const furnaceArt = bake(1.2, 1.5, (c) => { const box = (x, y, w, h, col) => { c.fillStyle = col; c.strokeStyle = INK; c.lineWidth = 0.04; c.beginPath(); c.roundRect(x, y, w, h, 0.06); c.fill(); c.stroke(); };   // a stone furnace with a lit mouth
+    box(0.44, 0.02, 0.32, 0.5, '#6f6a64'); box(0.1, 0.42, 1, 1.02, '#8c867e'); box(0.1, 0.42, 1, 0.2, '#a39d94'); for (const [x, y] of [[0.2, 0.74], [0.82, 0.86], [0.24, 1.18], [0.86, 1.2]]) { c.fillStyle = '#77716a'; c.fillRect(x, y, 0.14, 0.07); }
+    c.fillStyle = '#2a1a12'; c.beginPath(); c.roundRect(0.36, 0.84, 0.48, 0.46, [0.22, 0.22, 0.04, 0.04]); c.fill(); c.stroke(); c.fillStyle = '#ff9a3a'; c.beginPath(); c.ellipse(0.6, 1.2, 0.17, 0.12, 0, 0, 6.2832); c.fill(); c.fillStyle = '#ffe08a'; c.beginPath(); c.ellipse(0.6, 1.23, 0.09, 0.06, 0, 0, 6.2832); c.fill(); }, { scale: 64 }); furnaceArt.shadow = 0.5;
   const aimArt = bake(1, 1, (c) => { c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = 0.05; c.setLineDash([0.2, 0.12]); c.beginPath(); c.roundRect(0.06, 0.06, 0.88, 0.88, 0.14); c.stroke(); c.fillStyle = 'rgba(255,255,255,.1)'; c.fill(); }, { scale: 64, ay: 0 }); aimArt.shadow = 0;
   const nameTag = (name) => { const s = bake(4, 0.46, (c) => { c.font = '700 0.26px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; const w = Math.min(3.8, c.measureText(name).width + 0.3); c.fillStyle = 'rgba(16,14,10,.62)'; c.beginPath(); c.roundRect(2 - w / 2, 0.04, w, 0.38, 0.12); c.fill(); c.fillStyle = '#fff'; c.fillText(name, 2, 0.25); }, { scale: 72 }); s.ay = 5.3; s.shadow = 0; return s; };
   const lifted = (a, lift) => { const draw = a.draw; a.draw = (c, t) => { const l = lift(); if (l > 0.01) { c.save(); c.translate(0, -l); draw(c, t); c.restore(); } else draw(c, t); }; return a; };   // an actor standing on stairs or a deck
 
   /* ===== 3. hero, input, sound, interface layer ===== */
   await boot.step(0.3, 'Waking the farmer');
-  const state = { playing: false, busy: false, speed: 1, elev: 0, px: 0, py: 0, pail: 0, tilled: 0, planted: 0, watered: 0, harvested: 0, meals: 0, cooked: 0, sold: 0, climbed: 0, charted: 0, region: '' };
+  const state = { playing: false, busy: false, speed: 1, elev: 0, px: 0, py: 0, pail: 0, tilled: 0, planted: 0, watered: 0, harvested: 0, meals: 0, cooked: 0, sold: 0, climbed: 0, drinks: 0, slain: 0, charted: 0, region: '' };
   const net = { room: null, code: '', t: 0, peers: new Map() };   // the room, if any, and the other players in it (section 10)
   const hero = lifted(actor2d(T.HERO), () => state.elev * RISE), me = (GCP.player && GCP.player.name) || 'Farmer';
   const input = createInput(stage.canvas), sound = createSound(), hud = createHud({ accent: T.LOOK.accent, ink: T.LOOK.ink, panel: T.LOOK.panel });
@@ -83,15 +87,17 @@ run(async (boot) => {
   /* ===== 5. systems: backpack, recipes, needs, the day, building, crops, quests, saving ===== */
   await boot.step(0.7, 'Stocking the shed');
   const inv = createInventory({ slots: 24, hotbar: 8, items: T.ITEMS, start: T.START });
-  const craft = createCrafting(inv, T.RECIPES); craft.onCraft((r) => { sound.play('build'); if (r.station) state.cooked++; });
-  const needs = createNeeds({ health: { max: 100 }, food: { max: 100, drain: 100 / (T.DAY * 1.4), empty: { health: -2.5 }, full: { health: 0.5 } }, stamina: { max: 100, regen: 16 } });
+  const craft = createCrafting(inv, T.RECIPES); craft.onCraft((r) => { sound.play('build'); if (r.station && inv.def(r.makes).food) state.cooked++; });
+  // Needs. T.NEEDS says how many days a full bar lasts; water is there only when the theme asks for thirst.
+  const NEED = T.NEEDS || {}, thirst = NEED.water > 0, slow = (days) => ({ max: 100, drain: 100 / (T.DAY * days), empty: { health: -2.5 } });
+  const needs = createNeeds({ health: { max: 100 }, food: { ...slow(NEED.food || 1.4), full: { health: 0.5 } }, ...(thirst ? { water: { ...slow(NEED.water), color: '#5ab0e8' } } : {}), stamina: { max: 100, regen: 16 } });
   const clock = createClock({ dayLength: T.DAY, hour: 8, stage });   // the light of the stage follows the hour
 
   // Building. A piece is drawn by its sprite; a tilled plot, stairs and a deck are drawn by section 2. A campfire and a
   // bedroll also add something to do beside them. pieceDefs(false) is the same set for a world nobody looks at.
   const USES = { cook: () => bag.open(), sleep: () => sleep() }, shapeKind = (shape) => Object.keys(T.PIECES).find((k) => T.PIECES[k].shape === shape);
   const drawPiece = (kind) => (x, y, p) => {
-    const d = T.PIECES[kind], it = d.shape === 'plot' ? stage.add(drySoil, x, y + 0.28, FLAT) : d.shape === 'stairs' ? stage.add(stairsArt[p.dir], x, y - 0.5) : d.shape === 'deck' ? stage.add(deckArt, x, y - 0.5) : stage.add(sprite2d(d.sprite), x, y + 0.2);
+    const d = T.PIECES[kind], it = d.shape === 'plot' ? stage.add(drySoil, x, y + 0.28, FLAT) : d.shape === 'stairs' ? stage.add(stairsArt[p.dir], x, y - 0.5) : d.shape === 'deck' ? stage.add(deckArt, x, y - 0.5) : d.shape === 'furnace' ? stage.add(furnaceArt, x, y + 0.3, { light: { r: 2.6, color: 0xff9a4a } }) : stage.add(sprite2d(d.sprite), x, y + 0.2);
     const node = d.use ? nodes.add({ x, y, r: 1.6, label: d.label, onUse: () => USES[d.use](p) }) : null;
     return { remove() { it.remove(); if (node) nodes.remove(node); } };
   };
@@ -108,16 +114,16 @@ run(async (boot) => {
 
   const quests = createQuests(T.STEPS.map((s) => ({ id: s.id, text: s.text, done: () => s.when(state, inv) })));
   // What is saved: the backpack, the needs, the day, what was built and planted, which trees are gone, the quests and where you stand.
-  const mine = { toJSON: () => ({ x: r2(hero.x), y: r2(hero.y), pail: state.pail, charted: [...charted], n: [state.tilled, state.planted, state.watered, state.harvested, state.meals, state.cooked, state.sold, state.climbed] }),
-    load(d) { if (!d) return; player.teleport(+d.x || 0, +d.y || 0); state.pail = clamp(d.pail | 0, 0, T.PAIL); for (const k of d.charted || []) charted.add(k); state.charted = Math.max(0, charted.size - 25); [state.tilled, state.planted, state.watered, state.harvested, state.meals, state.cooked, state.sold, state.climbed] = (d.n || []).map((v) => v | 0).concat([0, 0, 0, 0, 0, 0, 0, 0]); } };
-  const save = createSave(T.SAVE_KEY, { inv, needs, clock, build, crops, world, quests, mine });             // the host's or the lone player's: the whole world
-  const guestSave = createSave(T.SAVE_KEY + '-guest', { inv, needs, quests });                                  // a guest keeps only what they carry
+  const mine = { toJSON: () => ({ x: r2(hero.x), y: r2(hero.y), pail: state.pail, charted: [...charted], n: [state.tilled, state.planted, state.watered, state.harvested, state.meals, state.cooked, state.sold, state.climbed, state.drinks, state.slain] }),
+    load(d) { if (!d) return; player.teleport(+d.x || 0, +d.y || 0); state.pail = clamp(d.pail | 0, 0, T.PAIL); for (const k of d.charted || []) charted.add(k); state.charted = Math.max(0, charted.size - 25); [state.tilled, state.planted, state.watered, state.harvested, state.meals, state.cooked, state.sold, state.climbed, state.drinks, state.slain] = (d.n || []).map((v) => v | 0).concat([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]); } };
+  const save = createSave(T.SAVE_KEY, { inv, needs, clock, build, crops, world, quests, mine }, T.SAVE);             // the host's or the lone player's: the whole world
+  const guestSave = createSave(T.SAVE_KEY + '-guest', { inv, needs, quests }, T.SAVE);                                  // a guest keeps only what they carry
 
   /* ===== 6. home: the well and the trading post stand at the start for every player ===== */
   const putHome = (kind, x, y) => { const s = sprite2d(kind), it = stage.add(s, x, y); if (s.solid) solids.push({ x, y: y - 0.1, r: s.solid }); return it; };
   const [wx, wy] = T.HOME.well, [tx, ty] = T.HOME.post;
   putHome('well', wx, wy); putHome('signpost', tx, ty); for (const [kind, x, y] of T.HOME.decor) putHome(kind, x, y);
-  const well = nodes.add({ x: wx, y: wy, r: 1.7, label: 'Fill the pail', onUse: () => fillPail() });
+  const well = nodes.add({ x: wx, y: wy, r: 1.7, label: thirst ? 'Drink, and fill the pail' : 'Fill the pail', onUse: () => { if (thirst) drink(); if (!thirst || inv.has('pail')) fillPail(); } });
   const post = nodes.add({ x: tx, y: ty, r: 1.7, label: 'Trade at the post', onUse: () => shop.open() });
 
   /* ===== 7. using what you hold. One button: food is eaten, a hoe tills, seeds are sown, the pail waters, a piece is
@@ -128,10 +134,13 @@ run(async (boot) => {
   const say = (x, y, text, color = T.LOOK.accent) => fx.text(x, y - 0.5, text, color), no = (why) => { hud.toast(cap(why)); sound.play('error'); return false; };
   const wobbles = [], wobble = (ref) => { if (ref && ref.sprite && !wobbles.some((w) => w.ref === ref)) wobbles.push({ ref, x: ref.x, t: 0.28 }); };
   function fillPail() { if (!inv.has('pail')) return no('You need a pail'); state.pail = T.PAIL; sound.play('splash'); say(hero.x, hero.y, 'Pail filled', '#8fd0ff'); drawPill(); return true; }
-  function eat(id) { const d = inv.def(id); if (!inv.remove(id, 1)) return false; needs.add('food', d.food || 0); needs.add('health', d.heal || 0); state.meals++; sound.play('heal'); hero.play('cheer'); say(hero.x, hero.y, '+' + (d.food || d.heal) + (d.food ? ' food' : ' health')); return true; }
+  function drink() { needs.set('water', 100); state.drinks++; sound.play('splash'); say(hero.x, hero.y - 0.4, 'Refreshed', '#8fd0ff'); return true; }
+  function eat(id) { const d = inv.def(id); if (!inv.remove(id, 1)) return false; needs.add('food', d.food || 0); needs.add('health', d.heal || 0); if (thirst && d.drink) needs.add('water', d.drink); state.meals++; sound.play('heal'); hero.play('cheer'); say(hero.x, hero.y, '+' + (d.food || d.heal) + (d.food ? ' food' : ' health')); return true; }
   async function useHeld(slot = inv.selected) {
     const s = inv.slots[slot]; if (!s || !state.playing || state.busy) return false;
     const d = inv.def(s.id); let [x, y] = aim();
+    if (foes.length && strike()) return true;   // a foe in reach comes first, whatever is in the hand
+    if (d.weapon) return no('Nothing to strike');
     if (d.food || d.heal) return eat(s.id);
     if (d.tool === 'hoe') {
       if (build.at(x, y, 'ground')) return no('Something is already there');
@@ -144,7 +153,7 @@ run(async (boot) => {
       state.planted++; sound.play('pop'); fx.burst(x, y, 0x8fd16a, 6); return true;
     }
     if (d.tool === 'pail') {
-      const a = player.ahead(1.2); if (land.kindAt(a.x, a.y) === 'water' || Math.hypot(well.x - hero.x, well.y - hero.y) < 2) return fillPail();
+      const a = player.ahead(1.2); if (land.kindAt(a.x, a.y) === 'water' || Math.hypot(well.x - hero.x, well.y - hero.y) < 2) { if (thirst) drink(); return fillPail(); }
       const c = crops.at(x, y); if (!c) return no('Nothing is planted there'); if (c.watered || c.stage >= 3) return no(c.stage >= 3 ? 'It is ripe: harvest it' : 'The soil is still wet');
       if (state.pail <= 0) return no('The pail is empty: fill it at the well or a shore');
       const r = await sync.water(x, y); if (r.error) return no(r.error);
@@ -176,11 +185,37 @@ run(async (boot) => {
     const secs = ((30 - clock.hour) % 24) / 24 * T.DAY; if (clock.hour >= 12) clock.day++; clock.set(6); for (let i = 0; i < 24; i++) crops.update(secs / 24);
     needs.add('health', 40); needs.set('stamina', 100); needs.add('food', -12); sound.play('bell'); hud.toast('Dawn of day ' + clock.day);
   }
-  needs.onDeath(() => { needs.load({ health: 60, food: 45, stamina: 100 }); player.teleport(0, 1); state.elev = 0; hud.flash('#000', 1.2); hud.toast('You wake by the well, hungry but alive'); sound.play('lose'); });
+  needs.onDeath(() => { for (const f of [...foes]) dropFoe(f); needs.load({ health: 60, food: 45, stamina: 100, ...(thirst ? { water: 60 } : {}) }); player.teleport(0, 1); state.elev = 0; hud.flash('#000', 1.2); hud.toast('You wake by the well, hungry but alive'); sound.play('lose'); });
   clock.onPhase((phase) => {
-    if (phase === 'dusk') { hud.toast('The light is going: a bedroll lets you sleep'); sound.play('bell'); stage.setWeather('fireflies'); sound.ambience(T.SOUND.nightAmbience); }
-    if (phase === 'dawn') { stage.setWeather('motes'); sound.ambience(T.SOUND.ambience); if (state.playing) hud.toast('Day ' + clock.day); }
+    if (phase === 'dusk') { hud.toast('The light is going: a bedroll lets you sleep'); sound.play('bell'); stage.setWeather(AIR && AIR !== 'motes' ? AIR : 'fireflies'); sound.ambience(T.SOUND.nightAmbience); }
+    if (phase === 'dawn' || phase === 'day') for (const f of [...foes]) { fx.burst(f.actor.x, f.actor.y - 0.4, 0x2a2a3a, 10); dropFoe(f); }   // what came in the dark goes with it
+    if (phase === 'dawn') { stage.setWeather(AIR); sound.ambience(T.SOUND.ambience); if (state.playing) hud.toast('Day ' + clock.day); }
   });
+
+  /* ===== foes (only when the theme has T.FOES). After dark they come out of the land around the player and give chase;
+     the use button strikes one in reach (a weapon counts for more), and one that falls leaves its loot. They go at dawn.
+     Each player meets their own: foes are not shared in a room. ===== */
+  const FOE = T.FOES, foes = []; let foeTimer = 3;
+  function spawnFoe(x, y) {
+    const a = actor2d(pickOf(FOE.kinds), { x, y }), f = { actor: a, hp: FOE.hp, cool: 0.6 };
+    f.brain = wander2d(a, { chase: hero, sight: 13, speed: FOE.speed || 1.25, radius: 5, onReach: () => { if (f.cool > 0 || !state.playing || state.busy) return; f.cool = 1.1; needs.add('health', -FOE.hit); sound.play('hurt'); stage.shake(0.3); say(hero.x, hero.y - 0.6, '-' + FOE.hit, '#ff6a5a'); } });
+    foes.push(f); return f;
+  }
+  function dropFoe(f) { f.brain.stop(); const i = stage.actors.indexOf(f.actor); if (i >= 0) stage.actors.splice(i, 1); foes.splice(foes.indexOf(f), 1); }
+  function strike() {
+    const f = foes.filter((q) => Math.hypot(q.actor.x - hero.x, q.actor.y - hero.y) < 1.9).sort((p, q) => Math.hypot(p.actor.x - hero.x, p.actor.y - hero.y) - Math.hypot(q.actor.x - hero.x, q.actor.y - hero.y))[0]; if (!f) return false;
+    const a = f.actor, dx = a.x - hero.x, dy = a.y - hero.y, d = Math.hypot(dx, dy) || 1, hit = (inv.held && inv.held.def.weapon) || 1;
+    f.hp -= hit; f.cool = 0.7; hero.play('attack'); sound.play('hit'); stage.shake(0.12); fx.burst(a.x, a.y - 0.5, 0xffe0b0, 6); if (land.walkable(a.x + dx / d * 1.1, a.y + dy / d * 1.1)) { a.x += dx / d * 1.1; a.y += dy / d * 1.1; }
+    if (f.hp > 0) return true;
+    const got = []; for (const id in FOE.loot) { const [lo, hi] = [].concat(FOE.loot[id], FOE.loot[id]), n = lo + Math.floor(Math.random() * (hi - lo + 1)); if (n > 0 && !inv.add(id, n)) got.push('+' + n + ' ' + inv.def(id).name.toLowerCase()); }
+    state.slain++; sound.play('pickup'); fx.burst(a.x, a.y - 0.4, 0x2a2a3a, 12); say(a.x, a.y, got.join('  ')); dropFoe(f); return true;
+  }
+  function tickFoes(dt) {
+    if (!FOE) return; for (const f of foes) f.cool -= dt;
+    for (const f of [...foes]) if (Math.hypot(f.actor.x - hero.x, f.actor.y - hero.y) > 30) dropFoe(f);
+    foeTimer -= dt; if (foeTimer > 0 || !clock.isNight || foes.length >= FOE.count) return; foeTimer = FOE.every || 6;
+    const t = Math.random() * 6.2832, x = hero.x + Math.cos(t) * 11, y = hero.y + Math.sin(t) * 9; if (land.walkable(x, y) && Math.hypot(x, y) > T.HOME.clear + 4) spawnFoe(x, y);   // never in the yard itself
+  }
 
   /* ===== 8. interface: needs and the almanac top left; the clock, the map and the purse top right; the hotbar at the
      bottom; the backpack with crafting on Tab; the trading post; a pause menu on Escape ===== */
@@ -235,7 +270,8 @@ run(async (boot) => {
       // the cell that the thing in hand will act on
       const d = inv.held && inv.held.def, [ax, ay] = aim(); aimMark.visible = !open && !!d && !!(d.tool === 'hoe' || d.tool === 'pail' || d.plant || d.place); aimMark.x = ax; aimMark.y = ay - 0.5;
       const R = world.chunks.get(Math.floor(hero.x / CHUNK) + ',' + Math.floor(hero.y / CHUNK)); if (R && R.region && R.region.name !== state.region) { if (state.region) hud.toast(R.region.name, { color: T.LOOK.accent }); state.region = R.region.name; }
-      if (!open) { interact.update(); if (input.action('use')) useHeld(); if (input.action('take')) takeBack(); }
+      tickFoes(dt);
+      if (!open) { interact.update(); if (input.action('use')) useHeld(); if (input.action('take')) takeBack(); if (foes.length && !interact.target && input.action('interact')) strike(); }
       if (input.action('bag') && !shop.isOpen) bag.toggle(); if (input.action('mute')) sound.mute();
       for (let i = wobbles.length - 1; i >= 0; i--) { const w = wobbles[i]; w.t -= dt; w.ref.x = w.t > 0 ? w.x + Math.sin(w.t * 60) * 0.07 * (w.t / 0.28) : w.x; if (w.t <= 0) wobbles.splice(i, 1); }
       tickRoom(dt);
@@ -271,7 +307,7 @@ run(async (boot) => {
     for (const p of net.peers.values()) {   // between the two reports on either side of "a moment ago"
       const b = p.buf, a = p.actor; let i = 0; while (i < b.length - 1 && b[i + 1].t <= at) i++; const A = b[i], B = b[i + 1] || A, k = B === A ? 1 : clamp((at - A.t) / (B.t - A.t), 0, 1), x = lerp(A.x, B.x, k), y = lerp(A.y, B.y, k);
       a.moving = Math.hypot(x - a.x, y - a.y) > 0.25 * dt; a.x = x; a.y = y; a.facing = p.f; p.tag.x = x; p.tag.y = y + 0.02;
-      if (now - p.seen > 8000) dropPeer(p.id);
+      if (now - p.seen > 8000 && !(net.room && net.room.peers.some((q) => q.id === p.id))) dropPeer(p.id);   // quiet (a hidden tab draws no frames) but still in the room: keep them
     }
   }
 
@@ -295,8 +331,18 @@ run(async (boot) => {
   /* ===== 12. proof. The verification browser plays the game through here: the map grows, a tree stays felled, a crop
      is tilled, sown, watered, grown and harvested, bread is baked, a harvest sold, a lookout climbed, and a second
      player in a second world (rooms that talk inside this page) ends up with the same world. ===== */
-  const test = GCP.test; test.onAutostart(() => lobby.solo());
-  window.G = { state, hero, player, inv, craft, needs, clock, nodes, build, crops, quests, world, bag, shop, menu, stage, hud, net, useHeld, openRoom };
+  const test = GCP.test, two = test.twoPlayers;   // the verifier opens the game twice in one room: host or join it instead of playing alone
+  test.onAutostart(() => (two ? (two.role === 'host' ? lobby.host(two.code) : lobby.join(two.code)) : lobby.solo()));
+  // Two real browsers, one room. Each page waits for the other player, builds one piece, waits until both pieces stand
+  // in its own world and reports what it sees; the verifier compares the two reports.
+  test.onTwoPlayers(async (t, role) => {
+    t.step('the room opens'); await t.until(() => state.playing && net.room && net.room.connected, 20000, 'the room to open');
+    t.step('the other player appears'); await t.until(() => net.peers.size >= 1, 30000, 'the other player to appear'); t.assert(net.room.isHost === (role === 'host'), 'the first one in is the host');
+    t.step('each builds one piece'); const mine = role === 'host' ? ['fence', 5, 3] : ['torch', -5, 3]; inv.add(mine[0], 1); const r = await sync.place(...mine); t.assert(!r.error, 'the ' + role + ' builds a ' + mine[0] + ': ' + r.error);
+    t.step('both pieces stand in both worlds'); await t.until(() => build.at(5, 3) && build.at(-5, 3), 20000, 'the other player\'s piece to arrive'); await t.wait(900);
+    return { players: net.peers.size + 1, world: JSON.stringify([build.toJSON().map((p) => p.slice(0, 3).join()).sort(), crops.toJSON().map((c) => c.slice(0, 3).join()).sort(), world.toJSON().sort()]) };
+  });
+  window.G = { state, hero, player, inv, craft, needs, clock, nodes, build, crops, quests, world, bag, shop, menu, stage, hud, net, useHeld, openRoom, spawnFoe, foes };
   test.onPlaythrough(async (t) => {
     const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y), nearest = (kind) => nodes.list.filter((n) => n.kind === kind && !n.gone && n.ref && n.ref.key && dist(n, hero) < 14).sort((a, b) => dist(a, hero) - dist(b, hero))[0];
     const hold = (id) => { let i = inv.slots.findIndex((s) => s && s.id === id); t.assert(i >= 0, id + ' is in the backpack'); if (i >= inv.hotbar) { inv.move(i, inv.hotbar - 1); i = inv.hotbar - 1; } inv.select(i); };
@@ -331,6 +377,15 @@ run(async (boot) => {
 
     t.step('sell the harvest at the trading post'); player.teleport(post.x, post.y + 1.3); await t.frames(2); t.assert(interact.target === post, 'the post offers trade'); interact.use(); t.assert(shop.isOpen, 'the trade window opens');
     const wheat = inv.count('wheat'); shop.sell('wheat'); t.assert(wheat > 0 && inv.count('coin') === wheat * T.ITEMS.wheat.sell && state.sold === wheat, 'wheat became coins'); t.assert(shop.buy('carrot_seed') && inv.has('carrot_seed'), 'coins became new seeds'); shop.close();
+
+    // what the theme may add: thirst, a furnace, foes at night. Each is proved only when the theme has it.
+    const give = (cost) => { for (const id in cost) inv.add(id, cost[id]); }, recipe = (find) => T.RECIPES.find(find);
+    if (thirst) { t.step('drink at the well'); needs.set('water', 20); player.teleport(well.x, well.y + 1.3); await t.frames(2); t.assert(interact.target === well, 'the well offers a drink'); interact.use(); t.assert(needs.get('water') > 95 && state.drinks > 0, 'the water bar is full again'); }
+    if (T.PIECES.furnace) { t.step('smelt at a furnace'); const smelt = recipe((r) => r.station === 'furnace'); give(recipe((r) => r.makes === 'furnace').needs); give(smelt.needs); t.assert(craft.make('furnace'), 'a furnace can be crafted'); hold('furnace'); face(3, 5); t.assert(await useHeld() && build.at(3, 5), 'the furnace is placed');
+      t.assert(!craft.can(smelt.makes, []), 'smelting needs the furnace'); player.teleport(3, 6.2); t.assert(craft.make(smelt.makes, build.near(hero.x, hero.y, 3.5)) && inv.has(smelt.makes), 'ore becomes ' + smelt.makes + ' beside it'); }
+    if (FOE) { t.step('a foe comes at night, is fought off and leaves loot'); const armed = Object.keys(T.ITEMS).find((id) => T.ITEMS[id].weapon); if (armed) { inv.add(armed, 1); hold(armed); } clock.set(23); player.teleport(1, 6); await t.frames(2);
+      const f = spawnFoe(hero.x + 4, hero.y), h0 = needs.get('health'); await t.until(() => needs.get('health') < h0, 8000, 'the foe to reach the hero and hurt them'); const n0 = state.slain; for (let i = 0; i < 40 && state.slain === n0; i++) { await useHeld(); await t.frames(3); }
+      t.assert(state.slain === n0 + 1 && !foes.includes(f), 'the foe falls'); t.assert(Object.keys(FOE.loot).some((id) => inv.has(id)), 'its loot is in the backpack'); spawnFoe(hero.x + 6, hero.y); clock.set(6); await t.until(() => !foes.length, 6000, 'the dawn to clear the foes'); clock.set(10); needs.set('health', 100); }
 
     t.step('build stairs and a lookout deck, and climb up'); t.assert(craft.make('stairs') && craft.make('deck'), 'both can be crafted'); hold('stairs'); face(-2, 5, -1); t.assert(await useHeld(), 'the stairs are placed');
     const steps = build.at(-2, 5, 'floor'); t.assert(steps && steps.dir === 2, 'they rise the way the hero faces'); hold('deck'); t.assert(await useHeld() && build.at(-2, 4, 'floor', 1), 'the deck goes where the stairs lead');
