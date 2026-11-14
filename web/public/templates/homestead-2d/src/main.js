@@ -337,10 +337,10 @@ run(async (boot) => {
   // in its own world and reports what it sees; the verifier compares the two reports.
   test.onTwoPlayers(async (t, role) => {
     t.step('the room opens'); await t.until(() => state.playing && net.room && net.room.connected, 20000, 'the room to open');
-    t.step('the other player appears'); await t.until(() => net.peers.size >= 1, 30000, 'the other player to appear'); t.assert(net.room.isHost === (role === 'host'), 'the first one in is the host');
+    t.step('the other player appears'); await t.until(() => net.room.peers.some((q) => q.id !== net.room.id), 30000, 'the other player to join the room');   // membership, not poses: a page in the background draws no frames and sends none t.assert(net.room.isHost === (role === 'host'), 'the first one in is the host');
     t.step('each builds one piece'); const mine = role === 'host' ? ['fence', 5, 3] : ['torch', -5, 3]; inv.add(mine[0], 1); const r = await sync.place(...mine); t.assert(!r.error, 'the ' + role + ' builds a ' + mine[0] + ': ' + r.error);
     t.step('both pieces stand in both worlds'); await t.until(() => build.at(5, 3) && build.at(-5, 3), 20000, 'the other player\'s piece to arrive'); await t.wait(900);
-    return { players: net.peers.size + 1, world: JSON.stringify([build.toJSON().map((p) => p.slice(0, 3).join()).sort(), crops.toJSON().map((c) => c.slice(0, 3).join()).sort(), world.toJSON().sort()]) };
+    return { players: new Set([net.room.id, ...net.room.peers.map((q) => q.id)]).size, world: JSON.stringify([build.toJSON().map((p) => p.slice(0, 3).join()).sort(), crops.toJSON().map((c) => c.slice(0, 3).join()).sort(), world.toJSON().sort()]) };
   });
   window.G = { state, hero, player, inv, craft, needs, clock, nodes, build, crops, quests, world, bag, shop, menu, stage, hud, net, useHeld, openRoom, spawnFoe, foes };
   test.onPlaythrough(async (t) => {

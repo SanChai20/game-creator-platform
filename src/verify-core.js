@@ -86,7 +86,10 @@ export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS
       p.evaluate((ms) => window.__GCP.runTwoPlayers(ms), limitS * 1000).catch((e) => ({ ran: true, ok: false, error: `The ${role} page reloaded or closed: ` + String(e && e.message || e).slice(0, 160), steps: [], result: null })),
       sleep(limitS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The ${role} did not finish within ${limitS} s.`, steps: [], result: null })),
     ]);
-    const [a, b] = await Promise.all([run(host, 'host'), run(guest, 'guest')]);
+    // only one page of a browser is in front, and a page behind draws no frames: keep both awake and take turns in front
+    for (const p of pages) { try { const cdp = p.createCDPSession ? await p.createCDPSession() : await p.context().newCDPSession(p); await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }); } catch { /* not every browser */ } }
+    let turn = 0; const swap = setInterval(() => { const p = pages[turn++ % pages.length]; if (p && p.bringToFront) p.bringToFront().catch(() => {}); }, 700);
+    const [a, b] = await Promise.all([run(host, 'host'), run(guest, 'guest')]).finally(() => clearInterval(swap));
     const brief = (r) => ({ ok: !!r.ok, error: r.error || '', steps: r.steps || [], players: r.result && r.result.players, world: r.result && typeof r.result.world === 'string' ? r.result.world.slice(0, 2000) : null });
     const H = brief(a), G = brief(b), saw = H.players >= 2 && G.players >= 2, same = H.world != null && H.world === G.world, ok = H.ok && G.ok && saw && same;
     const last = (r) => (r.steps.length ? ` (during "${r.steps[r.steps.length - 1]}")` : '');
