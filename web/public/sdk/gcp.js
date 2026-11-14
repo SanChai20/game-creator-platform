@@ -52,9 +52,17 @@
       var tex = gl.texImage2D; gl.texImage2D = function (target, level) {
         if (level === 0 && target === 3553) {
           var a = arguments, src = a.length <= 6 ? a[5] : a[8], w = a.length <= 6 ? (src && (src.videoWidth || src.width)) || 0 : a[3], h = a.length <= 6 ? (src && (src.videoHeight || src.height)) || 0 : a[4];
-          if (src == null) G.targets++; else if (w * h >= 256) { G.textures++; G.texels += w * h; }
+          if (src == null) { G.targets++; if (bound && tmap) tmap.set(bound, w * h); } else if (w * h >= 256) { G.textures++; G.texels += w * h; }
         }
         return tex.apply(gl, arguments);
+      };
+      // a texture painted on the GPU (drawn into a render target, then given mipmaps to be sampled as a surface) is a texture too
+      var bound = null, unit = 0, units = {}, tmap = typeof WeakMap === 'function' ? new WeakMap() : null;
+      var at = gl.activeTexture; gl.activeTexture = function (u) { unit = u; bound = units[u] || null; return at.apply(gl, arguments); };
+      var bt = gl.bindTexture; gl.bindTexture = function (target, t) { if (target === 3553) bound = units[unit] = t; return bt.apply(gl, arguments); };
+      var mip = gl.generateMipmap; gl.generateMipmap = function (target) {
+        if (target === 3553 && bound && tmap) { var n = tmap.get(bound); if (n >= 256) { G.textures++; G.texels += n; tmap.set(bound, 0); } }
+        return mip.apply(gl, arguments);
       };
       var sto = gl.texStorage2D; if (sto) gl.texStorage2D = function (target, levels, fmt, w, h) { if (target === 3553 && w * h >= 256) { G.textures++; G.texels += w * h; } return sto.apply(gl, arguments); };
       var bind = gl.bindFramebuffer; gl.bindFramebuffer = function (t, fb) { if (fb && seen.indexOf(fb) < 0) { seen.push(fb); G.passes++; } return bind.apply(gl, arguments); };

@@ -137,6 +137,7 @@ export const TOOLS: Tool[] = [
         building_blocks: {
           import: "import { createStage, terrain, tree, scatter, prop, place, humanoid, control, createHud, createSound } from '@gcp/craft.js'",
           tools: ['design_scene: a description in, a block plan and a complete starting game out', 'list_blocks: every block with a one-line summary, and every valid name (moods, surfaces, trees, props, characters, animals, sounds)', 'get_block {name}: full options of one block'],
+          realistic: "For a realistic (PBR) look instead of the painted low-poly one, @gcp/materials.js: material('steel_rusty') or material({ base: 'metal', paint: '#b8322a', chips: 0.5, rust: 0.3 }) paints textures on the GPU at load; model('crate'), model('container'), model('cabin') … are ready props for place(); parts() builds your own models from bevelled boxes, cylinders, tubes and labels in metres. list_blocks shows the names; the realistic-materials guide has a complete scene.",
           procedural_core: "@gcp/procgen.js is the layer underneath for making your own assets: seeded random numbers and noise that match between JavaScript and shaders, a mesh builder, a texture painter and recipes (seed + parameters as data). See the procedural-generation guide.",
           preview: `${c.origin}/lab shows every block live.`,
         },
@@ -145,7 +146,7 @@ export const TOOLS: Tool[] = [
         templates: (await assetJson<{ templates: { name: string; summary: string }[] }>(c.env, '/templates/index.json')).templates.map((t) => `${t.name}: ${t.summary}`),
         what_to_read: {
           always: ['platform-contract (10 minutes, before writing any code: the rules, the SDK, what verification checks, the play-through hook)'],
-          '3d_game_with_three_js': ['building-blocks (how the blocks fit together, with a complete small game)', 'performance (read "The verification browser" before building the scene: it has no GPU)', 'rendering-pipelines when you set up your own renderer instead of createStage', 'procedural-generation, meshes and materials-textures when you make your own models and surfaces', 'animation when things move'],
+          '3d_game_with_three_js': ['building-blocks (how the blocks fit together, with a complete small game)', 'performance (read "The verification browser" before building the scene: it has no GPU)', 'rendering-pipelines when you set up your own renderer instead of createStage', 'procedural-generation, meshes and materials-textures when you make your own models and surfaces', 'realistic-materials when the game should look realistic rather than low-poly (PBR materials and models made in code)', 'animation when things move'],
           '2d_game': ['rendering-pipelines (the canvas section)', 'input', 'performance (the 2D section)', 'loading', 'building-blocks (the parts that work in 2D: HUD, sound, noise, painted textures)'],
           when_needed: ['saves: cloud saves, leaderboards, server code', 'multiplayer: rooms', 'audio: sound without files', 'troubleshooting: as soon as deploy_preview comes back not verified'],
           note: 'Guides are short and contain working code. Reading the ones on this list for your kind of game first is cheaper than a failed preview.',

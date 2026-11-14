@@ -17,6 +17,8 @@ const GROUPS = [
   { id: 'hud', title: 'HUD: counters, bars, timer, objective, title and end screens (plain DOM, any engine)', files: ['hud.js'], from: '@gcp/craft.js' },
   { id: 'sound', title: 'Sound: synthesised effects, ambience and music with no audio files (any engine)', files: ['sound.js'], from: '@gcp/craft.js' },
   { id: 'basics', title: 'Basics: boot screen + loop in one call, input for keyboard, pointer and touch, safe storage, math', files: ['core.js', 'input.js'], from: '@gcp/craft.js' },
+  { id: 'materials', title: 'Realistic materials (opt-in, @gcp/materials.js): PBR texture sets painted on the GPU from a name or plain data, with weathering layers (paint chips, rust, dirt, moss, leaks), rain and snow, and 2D canvases', files: ['materials/material.js', 'materials/bases.js', 'materials/bake.js'], from: '@gcp/materials.js' },
+  { id: 'models', title: 'Realistic models (opt-in, @gcp/materials.js): a parts builder in metres (bevelled boxes, cylinders, lathes, tubes, bars, beams, extrusions, text labels) and ready props made with it', files: ['materials/models.js', 'materials/parts.js'], from: '@gcp/materials.js' },
   { id: 'noise', title: 'Procedural core 1: seeded random numbers, hashes and noise (pure JS, any engine)', files: ['procgen/noise.js'], from: '@gcp/procgen.js' },
   { id: 'gpu-noise', title: 'Procedural core 2: the same noise in shaders, bit-identical to the JS', files: ['procgen/glsl.js'], from: '@gcp/procgen.js' },
   { id: 'mesh', title: 'Procedural core 3: mesh builder (tiled UVs, merged parts, displacement, welding, LOD)', files: ['procgen/mesh.js'], from: '@gcp/procgen.js' },
@@ -45,12 +47,13 @@ function parse(src) {
 
 export async function buildBlocks(pub) {
   const kits = join(pub, 'kits/v1');
+  const mats = await import(pathToFileURL(join(kits, 'materials.js')).href);
   const craft = await import(pathToFileURL(join(kits, 'craft.js')).href), flat = await import(pathToFileURL(join(kits, 'craft2d.js')).href), procgen = await import(pathToFileURL(join(kits, 'procgen.js')).href);
   const groups = [], missing = [];
   for (const g of GROUPS) {
     const blocks = [];
     for (const f of g.files) for (const b of parse(readFileSync(join(kits, f), 'utf8'))) {
-      const from = b.name in craft ? '@gcp/craft.js' : b.name in procgen ? '@gcp/procgen.js' : `@gcp/${f}`;
+      const from = f.startsWith('materials/') ? '@gcp/materials.js' : b.name in craft ? '@gcp/craft.js' : b.name in procgen ? '@gcp/procgen.js' : `@gcp/${f}`;
       blocks.push({ ...b, from, source: f });
     }
     groups.push({ id: g.id, title: g.title, blocks });
@@ -61,6 +64,8 @@ export async function buildBlocks(pub) {
     terrain_shapes: list(craft.TERRAIN_SHAPES), terrain_palettes: list(craft.TERRAIN_PALETTES), props: list(craft.PROPS), humanoids: list(craft.HUMANOIDS), animals: list(craft.ANIMALS_LIST),
     moods2d: list(flat.MOODS2D), weather2d: list(flat.WEATHERS2D), sprites2d: list(flat.SPRITES2D), trees2d: list(flat.TREES2D), actors2d: list(flat.ACTORS2D), ground_palettes: list(flat.GROUND_PALETTES),
     items: list(craft.ITEMS), sounds: list(craft.SOUNDS), ambiences: list(craft.AMBIENCES), music: list(craft.MUSIC), recipe_kinds: craft.recipeKinds(), algorithms: procgen.ALGO,
+    materials: list(mats.MATERIAL_NAMES), material_bases: list(mats.BASE_NAMES), models: list(mats.MODELS), model_info: mats.MODEL_INFO,
+    material_base_info: Object.fromEntries(Object.entries(mats.BASES).map(([k, b]) => [k, b.use])),
   };
   for (const [k, v] of Object.entries(values)) if (Array.isArray(v) && !v.length) throw new Error(`blocks: no values for ${k}`);
   return { groups, values, missing };
