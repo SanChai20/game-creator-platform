@@ -11,7 +11,7 @@
 //   2 models built here      5 home                      8 the frame loop            11 proof (the play-through)
 //   3 the world that grows   6 using what you hold       9 two players
 import * as THREE from 'three';
-import { run, createStage, terrainChunks, water, tree, rock, bush, groundCover, prop, place, grassField, humanoid, animal, control, wander, createFx, surface, tbox, Simplex, toSeed, rng, clamp, lerp, smoothstep, createHud, createSound, createInput,
+import { run, createStage, terrainChunks, water, tree, rock, bush, groundCover, prop, place, grassField, scatter, humanoid, animal, control, wander, createFx, surface, tbox, Simplex, toSeed, rng, clamp, lerp, smoothstep, createHud, createSound, createInput,
   createInventory, createCrafting, createNeeds, createClock, createNodes, createInteract, createBuilder, stairsPiece, createCrops, createQuests, createSave,
   createWorldSync, createLoopback, itemIcon, hotbarUI, inventoryUI, needsUI, clockUI, questUI, minimapUI, pauseMenu, lobbyUI } from '@gcp/craft.js';
 import * as T from './theme.js';
@@ -26,7 +26,7 @@ run(async (boot) => {
   const stage = createStage('#view', { mood: T.LOOK.mood, weather: AIR }), fx = createFx(), SEEN = stage.software ? 1 : 2;   // chunks kept around the player
   const state = { playing: false, busy: false, speed: 1, pail: 0, tilled: 0, planted: 0, watered: 0, harvested: 0, meals: 0, cooked: 0, sold: 0, climbed: 0, drinks: 0, slain: 0, charted: 0, region: '' };
   const net = { room: null, code: '', t: 0, peers: new Map() };   // the room, if any, and the other players in it (section 9)
-  const hero = humanoid({ preset: T.HERO }), me = (GCP.player && GCP.player.name) || 'Farmer'; stage.scene.add(hero); hero.position.set(0, 0, 2);
+  const hero = humanoid({ preset: T.HERO }), me = (GCP.player && GCP.player.name) || 'Farmer'; stage.scene.add(hero); hero.position.set(0, 0, 2); hero.rotation.y = Math.PI;   // the first thing you see is your yard: the well, the post, the house
   const input = createInput(stage.renderer.domElement), sound = createSound(), hud = createHud({ accent: T.LOOK.accent, ink: T.LOOK.ink, panel: T.LOOK.panel });
   // Actions are named once; the keyboard, the mouse, on-screen buttons on phones and a gamepad all trigger them.
   input.bind({ interact: ['KeyE'], use: ['KeyF', 'Mouse2'], bag: ['Tab', 'KeyI'], take: ['KeyX'], run: ['ShiftLeft', 'ShiftRight'], jump: ['Space'], mute: ['KeyM'] },
@@ -86,7 +86,7 @@ run(async (boot) => {
     for (const kind of stage.software ? [] : ch.region.animals || []) { const x = ch.x + Math.random() * CHUNK, z = ch.z + Math.random() * CHUNK; if (Math.random() < 0.5 && height(x, z) > 1 && Math.hypot(x, z) > 14) { const a = animal(kind); a.position.set(x, height(x, z), z); stage.scene.add(a); const brain = wander(a, { heightAt: height, flee: a.flies ? null : hero, radius: 12 }); ch.keep({ remove() { brain.stop(); a.removeFromParent(); } }); } }
   };
   for (const ch of land.chunks.values()) dress(ch); land.onLoad(dress);
-  for (const k of land.chunks.keys()) charted.add(k); const FIRST = (SEEN * 2 + 1) ** 2;
+  for (let i = -SEEN; i <= SEEN; i++) for (let j = -SEEN; j <= SEEN; j++) charted.add(i + ',' + j); const FIRST = (SEEN * 2 + 1) ** 2;
   land.onLoad((ch) => { const k = ch.cx + ',' + ch.cz; if (!ch.far && !charted.has(k)) { charted.add(k); state.charted++; } });
   const lake = water({ level: 0, size: 720, ...(T.LOOK.sea ? { color: T.LOOK.sea } : {}) });
 
@@ -102,11 +102,13 @@ run(async (boot) => {
   // Building. A piece is a prop; a tilled plot and a deck are the models of section 2, stairs are the kit's. A campfire
   // and a bedroll also add something to do beside them. pieceDefs(false) is the same set for a world nobody looks at.
   const at3 = (x, z, up = 1) => ({ x, y: land.heightAt(x, z) + up, z }), USES = { cook: () => bag.open(), sleep: () => sleep() }, shapeKind = (shape) => Object.keys(T.PIECES).find((k) => T.PIECES[k].shape === shape);
+  const yard = [];   // the low cover of the yard (section 5): what a new piece stands on is put away, and comes back when the piece is taken
   const drawPiece = (kind) => (x, z, p) => {
     const d = T.PIECES[kind], y = land.heightAt(x, z) + p.base, turn = p.dir * Math.PI / 2;
-    const g = d.shape === 'plot' ? plotModel(x, y, z) : d.shape === 'stairs' ? place(prop('stairs', { width: GRID, depth: GRID, rise: LEVEL }), x, y, z, { rotY: turn }) : d.shape === 'deck' ? deckModel(x, y, z, p.base) : d.shape === 'furnace' ? furnaceModel(x, y, z) : place(prop(d.model), x, y, z, { rotY: turn });
+    const g = d.shape === 'plot' ? plotModel(x, y, z) : d.shape === 'stairs' ? place(prop('stairs', { width: GRID, depth: GRID, rise: LEVEL }), x, y, z, { rotY: turn }) : d.shape === 'deck' ? deckModel(x, y, z, p.base) : d.shape === 'furnace' ? furnaceModel(x, y, z) : place(prop(...[].concat(d.model)), x, y, z, { rotY: turn });
     const node = d.use ? nodes.add({ x, y: z, r: 2.6, label: d.label, onUse: () => USES[d.use](p) }) : null;
-    return { wet: g.userData.wet, remove() { g.removeFromParent(); if (node) nodes.remove(node); } };
+    const under = yard.filter((it) => it.visible && Math.abs(it.x - x) < GRID * 0.6 && Math.abs(it.z - z) < GRID * 0.6); for (const it of under) it.visible = false;
+    return { wet: g.userData.wet, remove() { g.removeFromParent(); if (node) nodes.remove(node); for (const it of under) it.visible = true; } };
   };
   const pieceDefs = (live) => Object.fromEntries(Object.entries(T.PIECES).map(([k, d]) => { const make = live ? drawPiece(k) : null;
     return [k, d.shape === 'stairs' ? stairsPiece({ grid: GRID, rise: LEVEL, cost: d.cost, make }) : { cost: d.cost, solid: d.solid, station: d.station, layer: d.shape === 'deck' ? 'floor' : 'ground', height: d.shape === 'deck' ? 0.05 : 0, make }]; }));
@@ -115,7 +117,7 @@ run(async (boot) => {
     canPlace: (x, z, kind, level) => land.heightAt(x, z) > 0.5 && (level > 0 || (land.slopeAt(x, z) < 0.6 && !blocked(x, z, 0.6) && (!!T.PIECES[kind].shape || Math.hypot(x - hero.position.x, z - hero.position.z) > 1))) });
   // Where feet stand: the land, or the top of stairs and decks the hero can step onto from where it is (one step up at most).
   const floorAt = (x, z) => { const g = land.heightAt(x, z); if (!build.pieces.length) return g; const [cx, cz] = build.snap(x, z), base = land.heightAt(cx, cz), top = build.topAt(x, z, hero.position.y - base + 0.05); return top ? Math.max(g, base + top) : g; };
-  const player = control(hero, { input, mode: 'third', heightAt: floorAt, solids: land.solids, minY: 0.25, distance: 7.5, pitch: 0.34, canRun: () => needs.get('stamina') > 3,
+  const player = control(hero, { input, mode: 'third', camYaw: 0, heightAt: floorAt, solids: land.solids, minY: 0.25, distance: 7.5, pitch: 0.34, canRun: () => needs.get('stamina') > 3,
     onStep: () => sound.play('step', { volume: 0.5 }), onJump: () => sound.play('jump'), onLand: () => sound.play('land') }).addSolids(solids);
 
   // Crops grow in three waterings: each new stage dries the soil again. Ripe ones are harvested through the nodes.
@@ -134,6 +136,12 @@ run(async (boot) => {
   const [wx, wz] = T.HOME.well, [tx, tz] = T.HOME.post;
   place(prop('well'), wx, land.heightAt(wx, wz), wz); solids.push({ x: wx, z: wz, r: 1.3 });
   for (const [kind, x, z, turn, r] of T.HOME.decor) { place(prop(kind), x, land.heightAt(x, z), z, { rotY: turn }); if (r) solids.push({ x, z, r }); }
+  // The yard is lived in: worn paths from where you stand to the well and the post, and tufts, flowers and stones between them.
+  const pathMat = surface(T.HOME.path || 'cobble'), lane = (x1, z1, x2, z2, w = 1.5) => { const len = Math.hypot(x2 - x1, z2 - z1), m = new THREE.Mesh(tbox(w, 0.08, len), pathMat); m.position.set((x1 + x2) / 2, land.heightAt((x1 + x2) / 2, (z1 + z2) / 2) + 0.005, (z1 + z2) / 2); m.rotation.y = Math.atan2(x2 - x1, z2 - z1); m.receiveShadow = true; stage.scene.add(m); };
+  const lanes = [[0, 3.5, 0, -2.5], [0, -2.5, wx + 1.6, wz + 1.2], [0, -2.5, tx - 1.6, tz + 1.2], ...(T.HOME.lanes || [])]; for (const l of lanes) lane(...l);
+  for (const [x, z, r] of [[wx, wz, 2.6], [tx, tz - 1.2, 3.4], ...(T.HOME.worn || [])]) { const m = new THREE.Mesh(new THREE.CircleGeometry(r, 20).rotateX(-Math.PI / 2), surface('dirt', { repeat: r * 0.8 })); m.position.set(x, land.heightAt(x, z) + 0.03, z); m.receiveShadow = true; stage.scene.add(m); }   // trodden earth where feet go every day
+  const onLane = (x, z) => lanes.some(([x1, z1, x2, z2]) => { const dx = x2 - x1, dz = z2 - z1, t = clamp(((x - x1) * dx + (z - z1) * dz) / (dx * dx + dz * dz), 0, 1); return Math.hypot(x - x1 - dx * t, z - z1 - dz * t) < 1.1; });
+  yard.push(...scatter([groundCover('tuft'), groundCover('tuft', { seed: 2 }), groundCover('flower'), groundCover('flower', { seed: 2, color: 0xffd23f }), groundCover('stones'), groundCover('stones', { seed: 3, size: 1.5 }), groundCover('fern'), groundCover('mushrooms')], { count: 260, weights: [5, 5, 3, 3, 3, 2, 3, 1], radius: T.HOME.clear + 2, heightAt: land.heightAt, minDistance: 0.7, scale: [0.7, 1.15], where: (x, z) => !onLane(x, z) && !blocked(x, z, 0.5) && Math.hypot(x, z - 2) > 1.2, seed: T.SEED + '|yard', stage }).items);
   const well = nodes.add({ x: wx, y: wz, r: 2.6, label: thirst ? 'Drink, and fill the pail' : 'Fill the pail', onUse: () => { if (thirst) drink(); if (!thirst || inv.has('pail')) fillPail(); } });
   const post = nodes.add({ x: tx, y: tz, r: 2.6, label: 'Trade at the post', onUse: () => shop.open() });
 
@@ -392,7 +400,7 @@ run(async (boot) => {
     if (T.PIECES.furnace) { t.step('smelt at a furnace'); const smelt = recipe((r) => r.station === 'furnace'); give(recipe((r) => r.makes === 'furnace').needs); give(smelt.needs); t.assert(craft.make('furnace'), 'a furnace can be crafted'); hold('furnace'); face(6, 10); t.assert(await useHeld() && build.at(6, 10), 'the furnace is placed');
       t.assert(!craft.can(smelt.makes, []), 'smelting needs the furnace'); player.teleport(6, 12.4); t.assert(craft.make(smelt.makes, build.near(P.x, P.z, 5)) && inv.has(smelt.makes), 'ore becomes ' + smelt.makes + ' beside it'); }
     if (FOE) { t.step('a foe comes at night, is fought off and leaves loot'); const armed = Object.keys(T.ITEMS).find((id) => T.ITEMS[id].weapon); if (armed) { inv.add(armed, 1); hold(armed); } clock.set(23); player.teleport(2, 12); await t.frames(2);
-      const f = spawnFoe(P.x + 6, P.z), h0 = needs.get('health'); await t.until(() => needs.get('health') < h0, 12000, 'the foe to reach the hero and hurt them'); const n0 = state.slain; for (let i = 0; i < 40 && state.slain === n0; i++) { await useHeld(); await t.frames(3); }
+      const f = spawnFoe(P.x + 4, P.z), h0 = needs.get('health'); await t.until(() => needs.get('health') < h0, 20000, 'the foe to reach the hero and hurt them'); const n0 = state.slain; for (let i = 0; i < 40 && state.slain === n0; i++) { await useHeld(); await t.frames(3); }
       t.assert(state.slain === n0 + 1 && !foes.includes(f), 'the foe falls'); t.assert(Object.keys(FOE.loot).some((id) => inv.has(id)), 'its loot is in the backpack'); spawnFoe(P.x + 8, P.z); clock.set(6); await t.until(() => !foes.length, 6000, 'the dawn to clear the foes'); clock.set(10); needs.set('health', 100); }
 
     t.step('build stairs and a lookout deck, and climb up'); t.assert(craft.make('stairs') && craft.make('deck'), 'both can be crafted'); hold('stairs'); face(-4, 10, -1); t.assert(await useHeld(), 'the stairs are placed');

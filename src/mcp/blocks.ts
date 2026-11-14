@@ -5,7 +5,7 @@ import { bad, type Env } from '../env';
 import { assetJson, assetText, verKey } from '../projects';
 import { getSettings } from '../settings';
 import { designScene, planDistance, DESIGN_GOALS, DESIGN_SETTINGS } from '../design-scene.js';
-import { themeSpec, renderTheme, themeNotes, themeAsWritten, THEME_SETTINGS } from '../template-theme.js';
+import { themeSpec, renderTheme, themeNotes, themeAsWritten, specAsWritten, themeEdits, themeFurther, DEFAULT_PLAN, THEME_SETTINGS } from '../template-theme.js';
 
 interface Block { name: string; kind: string; signature: string; doc: string; from: string; source: string }
 interface Catalog { three: string; groups: { id: string; title: string; blocks: Block[] }[]; values: Record<string, any> }
@@ -131,23 +131,25 @@ async function templatePlan(env: Env, r: any, name: string, target: number, a: R
   const files = await templateFiles(env, name); if (!files || !files['src/theme.js']) return { plan: r.plan, files: r.files, notes: r.notes };
   // src/theme.js is written from the plan and the brief (src/template-theme.js), so the files are this brief's game before anyone edits them
   const brief = String(a.description || ''), dim = name.endsWith('3d') ? '3d' : '2d', seeded = { ...r.plan, seed: a.seed ? String(a.seed) : undefined };
-  const spec = themeSpec(dim, seeded, brief) as any, told = themeNotes(spec) as { already_in_the_theme: string[]; left_for_you: string[] };
+  const spec = themeSpec(dim, seeded, brief) as any, told = themeNotes(spec) as { already_in_the_theme: string[]; left_for_you: string[]; first_edits: unknown[] };
   files['src/theme.js'] = renderTheme(spec) as string;
   if (files['index.html']) files['index.html'] = files['index.html'].replace(/<title>[^<]*<\/title>/, () => `<title>${String(spec.title).replace(/[<&]/g, '')}</title>`);
-  const plan = { ...r.plan, template: name, theme: { title: spec.title, tagline: spec.tagline, setting: spec.setting, look: spec.look, regions: spec.regions.map((x: any) => x.name), crops: spec.crops, foes: spec.foes ? spec.foes.kinds : 'none', features: spec.features } };
+  const made = r.plan.title_from === 'setting' && spec.title !== r.plan.title;   // the brief gave no name, so the theme made one from the place and what the brief asks for
+  const plan = { ...r.plan, ...(made ? { title: spec.title, title_from: 'generated' } : {}), template: name, theme: { title: spec.title, tagline: spec.tagline, setting: spec.setting, look: spec.look, regions: spec.regions.map((x: any) => x.name), almanac: spec.arc, crops: spec.crops, foes: spec.foes ? spec.foes.kinds : 'none', features: spec.features } };
   const cues = (r.plan.read_from_brief || []).filter((c: any) => TEMPLATE_CUES.includes(c.cue)).map((c: any) => c.cue).join(', ');
   return {
     plan, files,
     notes: [...(r.notes || []),
       `The brief asks for ${cues}, so these files are the ${name} template: a complete game with an endless seeded map (${dim === '2d' ? 'chunks2d' : 'terrainChunks'}), crops (createCrops), players sharing one world (lobbyUI, GCP.room, createWorldSync), building with stairs, crafting, needs, day and night, quests, a trading post and saving, with a play-through that checks all of it, a second player included (createLoopback).`,
       `src/theme.js was written for this brief. It already holds: ${told.already_in_the_theme.join('; ')}.`,
-      ...(r.plan.title_from === 'setting' ? [`The brief names no title, so "${spec.title}" comes from the ${spec.setting} setting${r.plan.setting_from === 'brief' ? '' : ' (which is itself the default: the brief names no place)'}. Pass title to design_scene, or change TITLE in src/theme.js, if the game has a name.`] : []),
+      ...(made ? [`The brief names no title, so "${spec.title}" was made for it from the ${spec.setting} setting${r.plan.setting_from === 'brief' ? '' : ' (itself the default: the brief names no place)'} and what the brief asks for. Pass title to design_scene, or change TITLE in src/theme.js, if the game has a name.`] : []),
     ],
     already_in_the_theme: told.already_in_the_theme,
     left_for_you: told.left_for_you,
+    first_edits: told.first_edits,
     how_to_use: [
       'create_project (no template), then put_files with every file above exactly as returned. It runs and verifies as it is, and it is already the game of this brief in name, place and features.',
-      'src/theme.js is the game: its name, look, items, recipes, crops, buildable pieces, the regions the land passes through as the player walks outwards, the foes and the almanac that teaches it. src/main.js is the engine and reads only from the theme. Read left_for_you: that is where your own design starts. Then change the engine wherever the brief asks for rules it does not have.',
+      'src/theme.js is the game: its name, look, items, recipes, crops, buildable pieces, the regions the land passes through as the player walks outwards, the foes and the almanac that teaches it. src/main.js is the engine and reads only from the theme. Then make the edits in first_edits, in order: each is a ready edit_file call for these files (left_for_you says what each one is and what comes after). They are the expected first step, not an option: without them the game is the template.',
       `deploy_preview. A version whose src/main.js and src/theme.js are still the files above almost line for line has its craft score counted below the target (${target}) whatever the blocks measure: quality.own_work says how much is still the template. Leave the "${TEMPLATE_MARK}${name}" line at the top of src/main.js in place.`,
       'Keep GCP.test.onPlaythrough in step with what you change, so the report still proves the farm, the endless map and the second player work. Its steps for thirst, the furnace and the foes run only when the theme has them.',
     ],
@@ -188,16 +190,15 @@ async function templateWork(env: Env, pid: string, n: number, name: string, src:
   for (const l of mine) have.set(l, (have.get(l) || 0) + 1);
   let kept = 0; for (const l of planned) { const k = have.get(l) || 0; if (k) { kept++; have.set(l, k - 1); } }
   const changed = planned.length - kept, added = mine.length - kept, as_planned = kept / planned.length >= 0.85 && added < planned.length * 0.25;
+  // what to do next, for this game: the edits whose text is still in the files (one that was made drops out), then where the rest of a design goes
+  const dim = name.endsWith('3d') ? '3d' : '2d', spec = (specAsWritten(name, theme) || themeSpec(dim, (DEFAULT_PLAN as any)[dim], '')) as any, once = (text: string, part: string) => text.split(part).length === 2;
+  const open = (themeEdits(spec) as any[]).filter((e) => e.edit_file.every((c: any) => once(c.path === 'src/main.js' ? src : theme, c.old_string)));
+  const ideas = [...open.map((e, i) => ({ ...e, step: i + 1 })), ...(themeFurther(spec) as string[]).map((what, i) => ({ step: open.length + i + 1, what }))];
   return {
     template: name, planned_lines: planned.length, unchanged: kept, changed_or_removed: changed, added, still_the_plan: as_planned,
     summary: as_planned
       ? `src/main.js and src/theme.js are still the ${name} template: ${kept} of its ${planned.length} lines are unchanged and ${added} were added. The craft score therefore measures the template, not yet a game of your own design.`
       : `${changed} of the ${planned.length} template lines were changed or removed and ${added} lines were added since the ${name} template.`,
-    ...(as_planned ? { ideas: [
-      'Theme (src/theme.js): make the world the brief describes. Its items, crops and their prices, the regions the land passes through as the player walks out (each with its own trees, rocks, animals and a find worth the walk), the buildable pieces, the look and the quests.',
-      'Rules (src/main.js): add what the brief asks for that the template lacks. For example a threat at night, a season that changes what grows, animals to tend, a goal far out on the map, or a reason for two players to split the work.',
-      'Feel: answer every event with a sound, a toast and a puff of fx, and let the mood or weather change with progress.',
-      'Keep GCP.test.onPlaythrough in step with the new rules, so the report still proves the farm, the endless map and the second player work.',
-    ] } : {}),
+    ...(as_planned ? { counts_in_full_when: `${Math.max(1, Math.ceil(planned.length * 0.15) + 1 - changed)} more of the template's lines are changed or removed, or ${Math.max(1, Math.ceil(planned.length * 0.25) - added)} more lines are added. The edits below are the start of that, not the whole of it.`, ideas } : {}),
   };
 }

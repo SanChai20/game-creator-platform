@@ -89,7 +89,7 @@ export const CROPS = {
   pumpkin: { seed: 'pumpkin_seed', grow: 150, yields: { pumpkin: [1, 2], pumpkin_seed: [1, 2] } },
 };
 
-/* ===== pieces: what stands where. model is a prop() kind; shape marks the ones the engine draws and gives rules to: a tilled plot, stairs, a raised deck, a furnace =====
+/* ===== pieces: what stands where. model is a prop() kind, or [kind, options]; shape marks the ones the engine draws and gives rules to: a tilled plot, stairs, a raised deck, a furnace =====
    solid: collision radius.  station: recipes that need it work beside it.  level: the storey it is built on.  use: what E does at it. */
 export const PIECES = {
   plot: { shape: 'plot' },
@@ -140,13 +140,13 @@ export const REGIONS = [
 export const FOES = null;
 
 /* ===== home: what stands at the start, the same for every player ([prop kind, x, z, turn, collision radius]) ===== */
-export const HOME = { well: [-6, -5], post: [7, -5], decor: [['stall', 7, -6.6, 0, 1.8], ['crate', 9.4, -5.6, 0.4, 0.6], ['barrel', 4.9, -6.2, 0, 0.5], ['lantern', 3, -3, 0, 0], ['haystack', -8.5, 3, 0.3, 1.1], ['signpost', 2.2, 5.5, 0.4, 0.2]], flat: 16, clear: 12 };
+export const HOME = { well: [-6, -5], post: [7, -5], decor: [['house', 0, -10.5, 0, 3], ['stall', 7, -6.6, 0, 1.8], ['crate', 9.4, -5.6, 0.4, 0.6], ['barrel', 4.9, -6.2, 0, 0.5], ['cart', -9.6, -8.4, 0.9, 1.2], ['bench', -3.4, -7.6, 0, 0.7], ['torch', -1.6, -3.4, 0, 0], ['torch', 1.6, -3.4, 0, 0], ['lantern', 3, -3, 0, 0], ['fence', -4.4, -11, 0, 0], ['fence', -6.4, -11, 0, 0], ['fence', 4.4, -11, 0, 0], ['haystack', -8.5, 3, 0.3, 1.1], ['signpost', 2.2, 5.5, 0.4, 0.2]], path: 'cobble', lanes: [[0, -2.5, 0, -8.2, 2.2]], worn: [[0, -8.4, 3.2]], flat: 16, clear: 12 };
 
 /* ===== the almanac: steps that teach the loop, checked in order. WHEN reads the counters the engine keeps and the backpack. ===== */
 const WHEN = {
   gather: (s, inv) => inv.has('wood', 3) && inv.has('stone', 1) || inv.has('hoe'), hoe: (s, inv) => inv.has('hoe') || s.tilled > 0, till: (s) => s.planted > 0, water: (s) => s.watered > 0,
   drink: (s) => s.drinks > 0, harvest: (s) => s.harvested > 0, explore: (s) => s.charted >= 8, cook: (s) => s.meals > 0 && s.cooked > 0, smelt: (s, inv) => inv.has('ingot') || inv.has('lamp') || inv.has('sword'),
-  sell: (s) => s.sold > 0, fight: (s) => s.slain > 0, climb: (s) => s.climbed > 0,
+  sell: (s) => s.sold > 0, fight: (s) => s.slain > 0, climb: (s) => s.climbed > 0, build: (s, inv) => inv.has('wall') || inv.has('pillar') || s.built > 0,
 };
 export const STEPS = [
   ['gather', 'Chop a tree and break a rock: 3 wood, 1 stone'],

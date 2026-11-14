@@ -77,6 +77,10 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
     }
   }
   const publish = `publish {project, version: ${n}}`;
+  // an untouched starting point: say first, and in order, what to change (a template names exact edit_file calls)
+  const todo = ((own as any)?.ideas || []) as Array<string | { step: number; file?: string; what: string; edit_file?: unknown[] }>, exact = todo.filter((t) => typeof t !== 'string' && t.edit_file) as Array<{ step: number; file: string; what: string }>;
+  const editsLine = exact.length ? `Do these ${exact.length} edits now, in this order; quality.own_work.ideas holds the exact edit_file arguments (path, old_string, new_string) for each: ${exact.map((e) => `${e.step}. ${e.file}: ${e.what.split(/[.:] /)[0]}`).join('; ')}. After them, go on with the remaining lines of quality.own_work.ideas.` : 'Work through quality.own_work.ideas from the first: change the rules, the world and the feel.';
+  const failed = (((pub.report as any)?.checks || []) as Array<{ id?: string; name?: string; ok: boolean }>).filter((x) => !x.ok).map((x) => String(x.id || x.name || 'check'));
   return {
     ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}), so there is no report yet. This is normal: the check takes one to two minutes. Call get_version {project, version: ${n}}; it waits for the result. Do not call deploy_preview again for the same files.` } : {}),
     ...pub, can_publish: el.ok, eligibility: el.reason,
@@ -90,10 +94,9 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_
     } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} now; it waits up to 40 seconds for the report.`
-      : !el.ok ? 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.'
-        : asPlanned ? `Verified, but this is still the design_scene starting point almost line for line (quality.own_work), so its craft score counts as ${counted}/100, below the target of ${target}. Make it your own game: pick from quality.own_work.ideas, change the files, then deploy_preview again.`
-        : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and the target is ${target}. Apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
-          : asPlanned ? `Verified with a craft score of ${craft!.score}/100 (target ${target}). The source is still the design_scene starting point almost line for line (quality.own_work), so the next step is to make it your own game: pick from quality.own_work.ideas, change the files, then deploy_preview again. ${publish} is available whenever you decide it is finished.`
+      : asPlanned ? `${el.ok ? 'Verified, but this' : 'This'} is still the ${(own as any)?.template ? `${(own as any).template} template` : 'design_scene starting point'} almost line for line (quality.own_work: ${own!.unchanged} of ${own!.planned_lines} lines unchanged), so its craft score counts as ${counted}/100 and stays there, below the target of ${target}, until the files are changed. Changing them is the expected next step, not an option. ${editsLine} Then check_project and deploy_preview again.${el.ok ? '' : ` Also fix the failed check${failed.length > 1 ? 's' : ''} (${failed.join(', ')}): each has a hint below.`}`
+        : !el.ok ? 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.'
+          : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and the target is ${target}. Apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
             : `Verified${craft ? ` with a craft score of ${craft.score}/100 (target ${target})` : ''}. This version can go live: ${publish}. The preview page lets a person play it first; keep editing and call deploy_preview again if there is more to do.`,
   };
 }

@@ -172,6 +172,7 @@ export function designScene(args, V) {
   if (found.length) r.plan.read_from_brief = found;
   // where the name and the place came from, so nobody mistakes a default for something the brief said
   if (r.plan.title) r.plan.title_from = args.title ? 'argument' : titleFrom(String(args.description || '')) ? 'brief' : 'setting';
+  if (r.plan.stage) { r.plan.mood_from = args.mood && r.plan.stage.mood === String(args.mood) ? 'argument' : MOOD_WORDS.some(([re]) => re.test(text)) ? 'brief' : 'setting'; r.plan.weather_from = args.weather != null ? 'argument' : WEATHER_WORDS.some(([re]) => re.test(text)) ? 'brief' : 'setting'; }
   if (r.plan.setting) r.plan.setting_from = args.setting && SETTINGS[args.setting] ? 'argument' : ORDER.some((k) => SETTINGS[k].words.test(text)) ? 'brief' : 'default (nothing in the brief names a place)';
   return r;
 }

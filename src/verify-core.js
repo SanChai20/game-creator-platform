@@ -90,13 +90,16 @@ export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS
     for (const p of pages) { try { const cdp = p.createCDPSession ? await p.createCDPSession() : await p.context().newCDPSession(p); await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }); } catch { /* not every browser */ } }
     let turn = 0; const swap = setInterval(() => { const p = pages[turn++ % pages.length]; if (p && p.bringToFront) p.bringToFront().catch(() => {}); }, 700);
     const [a, b] = await Promise.all([run(host, 'host'), run(guest, 'guest')]).finally(() => clearInterval(swap));
+    // what each side's room saw, whatever the outcome: its id, who it knew was there, and how many changes reached it
+    const roomOf = (p) => p.evaluate(() => (window.__GCP && window.__GCP.roomInfo ? window.__GCP.roomInfo() : [])).then((l) => l[l.length - 1] || null).catch(() => null), [ra, rb] = await Promise.all([roomOf(host), roomOf(guest)]);
+    const side = (name, r) => (r ? `${name}: room id ${r.id || 'none (never connected)'}${r.isHost ? ' (host)' : ''}, saw ${r.peers.filter((id) => id !== r.id).length ? 'peer ' + r.peers.filter((id) => id !== r.id).join(', ') : 'no other peer'} in the room, received ${r.world_ops} world change(s), ${r.states} world snapshot(s) and ${r.messages} message(s)${r.closes ? `, lost the connection ${r.closes} time(s)` : ''}` : `${name}: opened no room (GCP.room was never called)`), sides = ` · ${side('Host', ra)} · ${side('Guest', rb)}.`;
     const brief = (r) => ({ ok: !!r.ok, error: r.error || '', steps: r.steps || [], players: r.result && r.result.players, world: r.result && typeof r.result.world === 'string' ? r.result.world.slice(0, 2000) : null });
     const H = brief(a), G = brief(b), saw = H.players >= 2 && G.players >= 2, same = H.world != null && H.world === G.world, ok = H.ok && G.ok && saw && same;
     const last = (r) => (r.steps.length ? ` (during "${r.steps[r.steps.length - 1]}")` : '');
     const detail = ok ? `Host and guest met in one room, each saw ${Math.min(H.players, G.players)} players, and their worlds agree after both changed it.`
       : !H.ok ? `The host failed: ${H.error}${last(H)}` : !G.ok ? `The guest failed: ${G.error}${last(G)}` : !saw ? `The host saw ${H.players || 0} player(s) and the guest ${G.players || 0}: each must see both.`
         : H.world == null || G.world == null ? 'The function must return { players, world } with world a string.' : 'The two worlds differ. Host: ' + H.world.slice(0, 200) + ' · Guest: ' + G.world.slice(0, 200);
-    return { ok, detail, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players } };
+    return { ok, detail: ok ? detail : detail + sides, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players, room: ra }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players, room: rb } };
   } finally { for (const p of pages) { try { await p.close(); } catch { /* gone */ } } }
 }
 

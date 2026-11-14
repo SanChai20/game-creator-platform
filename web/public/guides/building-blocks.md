@@ -242,12 +242,15 @@ player in the same page and a two-player check over a real room (`GCP.test.onTwo
 (name, look, items, crops, pieces, the regions the land passes through, foes, quests); `src/main.js` is the engine.
 
 `design_scene` writes `src/theme.js` for the brief, so the files are already that brief's game: its title (from the
-brief, otherwise from the setting; `plan.title_from` says which), the setting's palette, mood, regions, trees and
-animals, and the features the brief names: thirst ("food and water"), smelting (ore rock, a furnace, ingots), combat
-(foes at night, a sword, loot), corn, saving on the host's device, up to four players. The result lists what is
-`already_in_the_theme` and what is `left_for_you`. Start from `left_for_you`, then change the engine where the brief
-needs rules it lacks: until enough has changed the report counts it as the template (quality.own_work) and keeps the
-craft score below target.
+brief; a brief that gives none gets a name made from its place and what it asks for, and `plan.title_from` says which),
+its own tagline, light, set and order of regions and order of almanac steps (two briefs never get the same theme), and
+the features the brief names: thirst ("food and water"), smelting (ore rock, a furnace, ingots), combat (foes at night,
+a sword, loot), a building system (walls or pillars, crates, signposts), corn, saving on the host's device, up to four
+players. The result lists what is `already_in_the_theme`, what is `left_for_you`, and `first_edits`: three to five
+changes for this game, each as the exact `edit_file` arguments (path, old_string, new_string). Make them in order, then
+go on with the rest of `left_for_you`. Until enough has changed, the report counts the game as the template
+(`quality.own_work`, which repeats the edits still open under `ideas` and says how many more lines must change) and
+keeps the craft score below target; `next` of `get_version` says so first, even when a check failed.
 
 ## The craft score
 

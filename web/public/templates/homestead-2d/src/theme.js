@@ -138,14 +138,14 @@ export const REGIONS = [
 /* ===== foes: what comes out after dark (null: nothing does). kinds, hp (blows of a bare hand), hit (health lost), count at once, every (seconds between), loot ===== */
 export const FOES = null;
 
-/* ===== home: what stands at the start, the same for every player (x, y from the spawn) ===== */
-export const HOME = { well: [-3.5, -2.5], post: [4.5, -2.5], decor: [['crate', 5.6, -2.2], ['barrel', 3.4, -2.3], ['lantern', 2.2, -1.2], ['log', -1.5, 2.5]], clear: 6.5 };
+/* ===== home: what stands at the start, the same for every player ([sprite2d kind, x, y, options]) ===== */
+export const HOME = { well: [-3.5, -2.5], post: [4.5, -2.5], decor: [['house', 0.4, -3.9], ['fence', -2.1, -4.3], ['fence', 2.9, -4.3], ['crate', 5.6, -2.2], ['barrel', 3.4, -2.3], ['lantern', 2.2, -1.2], ['log', -1.5, 2.5], ['flower', -1.3, -2.9, { seed: 2 }], ['flower', 1.9, -2.8, { seed: 3 }], ['flower', -4.6, -1.6, { seed: 4 }], ['flower', 5.4, -1.2, { seed: 5 }], ['flower', -2.6, 1.2, { seed: 6 }]], clear: 6.5 };
 
 /* ===== the almanac: steps that teach the loop, checked in order. WHEN reads the counters the engine keeps and the backpack. ===== */
 const WHEN = {
   gather: (s, inv) => inv.has('wood', 3) && inv.has('stone', 1) || inv.has('hoe'), hoe: (s, inv) => inv.has('hoe') || s.tilled > 0, till: (s) => s.planted > 0, water: (s) => s.watered > 0,
   drink: (s) => s.drinks > 0, harvest: (s) => s.harvested > 0, explore: (s) => s.charted >= 12, cook: (s) => s.meals > 0 && s.cooked > 0, smelt: (s, inv) => inv.has('ingot') || inv.has('lamp') || inv.has('sword'),
-  sell: (s) => s.sold > 0, fight: (s) => s.slain > 0, climb: (s) => s.climbed > 0,
+  sell: (s) => s.sold > 0, fight: (s) => s.slain > 0, climb: (s) => s.climbed > 0, build: (s, inv) => inv.has('wall') || inv.has('pillar') || s.built > 0,
 };
 export const STEPS = [
   ['gather', 'Chop a tree and break a rock: 3 wood, 1 stone'],

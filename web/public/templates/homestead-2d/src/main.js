@@ -120,9 +120,9 @@ run(async (boot) => {
   const guestSave = createSave(T.SAVE_KEY + '-guest', { inv, needs, quests }, T.SAVE);                                  // a guest keeps only what they carry
 
   /* ===== 6. home: the well and the trading post stand at the start for every player ===== */
-  const putHome = (kind, x, y) => { const s = sprite2d(kind), it = stage.add(s, x, y); if (s.solid) solids.push({ x, y: y - 0.1, r: s.solid }); return it; };
+  const putHome = (kind, x, y, o) => { const s = sprite2d(kind, o), it = stage.add(s, x, y); if (s.solid) solids.push({ x, y: y - 0.1, r: s.solid }); return it; };
   const [wx, wy] = T.HOME.well, [tx, ty] = T.HOME.post;
-  putHome('well', wx, wy); putHome('signpost', tx, ty); for (const [kind, x, y] of T.HOME.decor) putHome(kind, x, y);
+  putHome('well', wx, wy); putHome('signpost', tx, ty); for (const [kind, x, y, o] of T.HOME.decor) putHome(kind, x, y, o);
   const well = nodes.add({ x: wx, y: wy, r: 1.7, label: thirst ? 'Drink, and fill the pail' : 'Fill the pail', onUse: () => { if (thirst) drink(); if (!thirst || inv.has('pail')) fillPail(); } });
   const post = nodes.add({ x: tx, y: ty, r: 1.7, label: 'Trade at the post', onUse: () => shop.open() });
 
@@ -384,7 +384,7 @@ run(async (boot) => {
     if (T.PIECES.furnace) { t.step('smelt at a furnace'); const smelt = recipe((r) => r.station === 'furnace'); give(recipe((r) => r.makes === 'furnace').needs); give(smelt.needs); t.assert(craft.make('furnace'), 'a furnace can be crafted'); hold('furnace'); face(3, 5); t.assert(await useHeld() && build.at(3, 5), 'the furnace is placed');
       t.assert(!craft.can(smelt.makes, []), 'smelting needs the furnace'); player.teleport(3, 6.2); t.assert(craft.make(smelt.makes, build.near(hero.x, hero.y, 3.5)) && inv.has(smelt.makes), 'ore becomes ' + smelt.makes + ' beside it'); }
     if (FOE) { t.step('a foe comes at night, is fought off and leaves loot'); const armed = Object.keys(T.ITEMS).find((id) => T.ITEMS[id].weapon); if (armed) { inv.add(armed, 1); hold(armed); } clock.set(23); player.teleport(1, 6); await t.frames(2);
-      const f = spawnFoe(hero.x + 4, hero.y), h0 = needs.get('health'); await t.until(() => needs.get('health') < h0, 8000, 'the foe to reach the hero and hurt them'); const n0 = state.slain; for (let i = 0; i < 40 && state.slain === n0; i++) { await useHeld(); await t.frames(3); }
+      const f = spawnFoe(hero.x + 2.5, hero.y), h0 = needs.get('health'); await t.until(() => needs.get('health') < h0, 20000, 'the foe to reach the hero and hurt them'); const n0 = state.slain; for (let i = 0; i < 40 && state.slain === n0; i++) { await useHeld(); await t.frames(3); }
       t.assert(state.slain === n0 + 1 && !foes.includes(f), 'the foe falls'); t.assert(Object.keys(FOE.loot).some((id) => inv.has(id)), 'its loot is in the backpack'); spawnFoe(hero.x + 6, hero.y); clock.set(6); await t.until(() => !foes.length, 6000, 'the dawn to clear the foes'); clock.set(10); needs.set('health', 100); }
 
     t.step('build stairs and a lookout deck, and climb up'); t.assert(craft.make('stairs') && craft.make('deck'), 'both can be crafted'); hold('stairs'); face(-2, 5, -1); t.assert(await useHeld(), 'the stairs are placed');

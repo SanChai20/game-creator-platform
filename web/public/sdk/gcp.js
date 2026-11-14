@@ -139,6 +139,8 @@
   function Room(code, opts) {
     var self = this, handlers = {}, ws = null, closed = false, tries = 0;
     this.code = code; this.id = null; this.hostId = null; this.peers = []; this.state = null; this.connected = false;
+    var seen = { messages: 0, worldOps: 0, states: 0, closes: 0 };   // what arrived, for the two-player check's report
+    (S.rooms = S.rooms || []).push(function () { return { code: code, id: self.id, host: self.hostId, isHost: self.isHost, connected: self.connected, peers: self.peers.map(function (p) { return p.id; }), messages: seen.messages, world_ops: seen.worldOps, states: seen.states, closes: seen.closes }; });
     Object.defineProperty(this, 'isHost', { get: function () { return self.id !== null && self.id === self.hostId; } });
     function emit(type, a, b) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b); } catch (e) { console.error(e); } }); }
     this.on = function (type, fn) { (handlers[type] = handlers[type] || []).push(fn); return self; };
@@ -157,12 +159,12 @@
         if (m.t === 'welcome') { tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true; emit('open', { id: m.id, host: self.isHost, peers: m.peers, state: m.state }); }
         else if (m.t === 'join') { self.peers.push(m.peer); emit('join', m.peer); }
         else if (m.t === 'leave') { self.peers = self.peers.filter(function (p) { return p.id !== m.id; }); var was = self.hostId; self.hostId = m.host; emit('leave', m.id); if (was !== m.host) emit('host', m.host); }
-        else if (m.t === 'msg') emit('message', m.d, m.from);
-        else if (m.t === 'state') { self.state = m.d; emit('state', m.d); }
+        else if (m.t === 'msg') { seen.messages++; if (m.d && m.d.gcpWorld === 'op') seen.worldOps++; emit('message', m.d, m.from); }
+        else if (m.t === 'state') { seen.states++; self.state = m.d; emit('state', m.d); }
         else if (m.t === 'error') emit('error', new Error(m.message));
       };
       ws.onclose = function (ev) {
-        self.connected = false; emit('close', ev.code);
+        self.connected = false; seen.closes++; emit('close', ev.code);
         if (!closed && ev.code !== 4001 && ev.code !== 4003 && tries < 6) setTimeout(connect, Math.min(8000, 500 * Math.pow(2, tries++)));
       };
     }
@@ -178,6 +180,8 @@
   // room, runs this in both pages and compares what each returns, so "multiplayer" is proved across two real browsers.
   S.twoPlayers = false;
   S.runTwoPlayers = function (limitMs) { var two = GCP.test.twoPlayers; return runScript(pairFn, limitMs, 'two-player check', two ? two.role : 'host'); };
+  /** Every GCP.room this page opened: its id, the host, the peers it knows, and how much arrived (messages, createWorldSync ops, state snapshots). */
+  S.roomInfo = function () { return (S.rooms || []).map(function (f) { try { return f(); } catch (e) { return null; } }).filter(Boolean); };
   function runScript(fn, limitMs, what, arg) {
     if (!fn) return Promise.resolve({ ran: false });
     var steps = [], t0 = performance.now(), frames0 = S.frames, over = false;
