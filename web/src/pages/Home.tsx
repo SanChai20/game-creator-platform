@@ -1,90 +1,63 @@
-import { useEffect, useRef, useState } from 'react';
-import { ago, artStyle, Fail, GameTile, lastVisit, Link, navigate, query, recentPlays, t, useApp, useData, useLocation, type GameCard } from '../lib';
-import { Button, Chip, EmptyState, Eyebrow, SearchInput, Segmented, Spinner } from '../ui';
-import { Vault } from '../vault/Vault';
+// The store front. One request (/api/home) brings the spotlight, the shelves, the genres and the key numbers, so
+// the page is the same size whether the catalogue holds ten games or fifty thousand. The full catalogue, with
+// search and filters, is the browse page.
+import { useEffect, useState } from 'react';
+import { api, Fail, t, useApp, useData, type GameCard } from '../lib';
+import { Button, Eyebrow, Spinner } from '../ui';
+import { Genres, lastVisit, SearchBox, Shelf, Since, Spotlight, Stats, type StoreStats } from '../store';
+
+interface HomeData { stats: StoreStats; shelves: { trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: { tag: string; n: number }[] }
 
 export function Home() {
-  useLocation();
-  const { config } = useApp(), q = query();
-  const sort = q.get('sort') || 'trending', tag = q.get('tag') || '', priceF = q.get('price') || '', search = q.get('q') || '';
-  const [typed, setTyped] = useState(search);
-  const set = (k: string, v: string) => { const n = query(); if (v) n.set(k, v); else n.delete(k); const s = n.toString(); navigate('/' + (s ? '?' + s : ''), true); };
-  useEffect(() => { const id = setTimeout(() => { if (typed !== search) set('q', typed); }, 300); return () => clearTimeout(id); }, [typed]); // eslint-disable-line react-hooks/exhaustive-deps
-  const qs = new URLSearchParams({ sort, ...(tag && { tag }), ...(priceF && { price: priceF }), ...(search && { q: search }) }).toString();
-  const { data, error, loading, reload } = useData<{ games: GameCard[]; tags: string[] }>('/games?' + qs);
-  const filtered = !!(tag || priceF || search) || sort !== 'trending';
-  const games = data?.games || [];
-  const sorts: [string, string][] = [['trending', t('Trending', '热门')], ['new', t('New', '最新')], ['top', t('Top rated', '好评')], ['played', t('Most played', '最多游玩')]];
-  const prices: [string, string][] = [['', t('All', '全部')], ['free', t('Free', '免费')], ['paid', t('Paid', '付费')]];
+  const { config } = useApp();
+  const { data, error, loading, reload } = useData<HomeData>('/home');
+  const [since] = useState(() => lastVisit()), [newCount, setNewCount] = useState(0);
+  useEffect(() => { if (since) api<{ total: number }>(`/games?since=${since}&limit=1&facets=0`).then((r) => setNewCount(r.total), () => {}); }, [since]);
 
-  // The Vault always shows what is trending; the filters below only change the catalogue.
-  const vaultData = useData<{ games: GameCard[] }>(filtered ? '/games?sort=trending' : null);
-  const last = useRef<GameCard[]>([]);
-  const got = filtered ? vaultData.data?.games : data?.games;
-  if (got) last.current = got;           // keep the hall standing while the other list loads
-  const shown = got || last.current;
-  // Reasons to come back: what is new since this browser was last here, and the games it played lately.
-  const [since] = useState(() => lastVisit()), [recent] = useState(() => recentPlays().slice(0, 4));
-  const fresh = (g: GameCard) => !!since && !!g.published_at && g.published_at > since;
-  const newCount = shown.filter(fresh).length;
-  const back = (recent.length > 0 || newCount > 0) && (
-    <div className="since">
-      {recent.length > 0 && (
-        <div className="since-recent">
-          <span className="since-h">{t('Jump back in', '继续玩')}</span>
-          <div className="since-list">{recent.map((r) => (
-            <Link key={r.slug} to={`/g/${r.slug}`} className="since-item">
-              <span className="thumb" style={r.cover ? undefined : artStyle(r.slug)}>{r.cover && <img src={r.cover} alt="" loading="lazy" />}</span>
-              <span className="grow"><b className="clip">{r.title}</b><small>{ago(r.at)}</small></span>
-            </Link>))}</div>
-        </div>
-      )}
-      {newCount > 0 && <Link to="/?sort=new" className="since-new"><b>{newCount}</b><span>{t(newCount === 1 ? 'new game since your last visit' : 'new games since your last visit', '款新游戏，自你上次来访后上架')}</span><em aria-hidden="true">→</em></Link>}
-    </div>
-  );
-  const pitch = (
-    <div className="pitch">
-      <div className="grow stack s">
-        <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
-        <h3>{t('Your agent builds it.', '智能体负责创作，')} <mark>{t('We ship it.', '我们负责上线。')}</mark></h3>
-      </div>
-      <Button to="/create" variant="primary">{t('Make a game', '创作游戏')} →</Button>
-    </div>
+  if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
+  if (loading && !data) return <Spinner />;
+  const d = data!, sh = d.shelves;
+
+  if (!d.stats.games) return (
+    <section className="lead"><div className="wrap solo"><div>
+      <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
+      <h1>{config.settings.tagline}</h1>
+      <p>{t('Web games built by people with their own AI agents. The shelves are empty for now. Yours could be the first.', '由创作者与自己的 AI 智能体共同打造的网页游戏。货架暂时还空着，第一款可以是你的。')}</p>
+      <div className="row wrapx lead-actions"><Button to="/create" variant="primary" size="lg">{t('Make the first game', '创作第一款游戏')}</Button></div>
+    </div></div></section>
   );
 
+  // the spotlight takes the top picks; the trending shelf carries on from there
+  const spot = sh.trending.slice(0, 5), more = sh.trending.slice(5);
   return (
-    <>
-      {shown.length ? (
-        <><Vault games={shown} /><div className="wrap">{back}{pitch}</div></>
-      ) : !filtered && !loading && !error && (
-        <section className="lead"><div className="wrap solo"><div>
-          <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
-          <h1>{config.settings.tagline}</h1>
-          <p>{t('Web games built by people with their own AI agents. The shelves are empty for now. Yours could be the first.', '由创作者与自己的 AI 智能体共同打造的网页游戏。货架暂时还空着，第一款可以是你的。')}</p>
-          <div className="row wrapx lead-actions"><Button to="/create" variant="primary" size="lg">{t('Make the first game', '创作第一款游戏')}</Button></div>
-        </div></div></section>
-      )}
+    <div className="store">
+      <div className="wrap store-top">
+        <div className="store-intro">
+          <h1>{t('Play web games made by creators', '畅玩创作者与')} <span className="hl-a">{t('and their AI agents', 'AI 智能体打造的网页游戏')}</span></h1>
+          <SearchBox big />
+        </div>
+        <Stats s={d.stats} />
+      </div>
 
       <div className="wrap">
-        <div className="filters">
-          <h2>{t('The collection', '全部藏品')}</h2>
-          <Segmented label={t('Sort', '排序')} options={sorts} value={sort} onChange={(k) => set('sort', k === 'trending' ? '' : k)} />
-          <Segmented label={t('Price', '价格')} options={prices} value={priceF} onChange={(k) => set('price', k)} />
-          <SearchInput value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t('Search games', '搜索游戏')} aria-label={t('Search games', '搜索游戏')} />
-        </div>
-        {!!data?.tags.length && <div className="tags">{data.tags.map((x) => <Chip key={x} active={tag === x} onClick={() => set('tag', tag === x ? '' : x)}>{x}</Chip>)}</div>}
+        <Spotlight games={spot} />
+        <Since newCount={newCount} since={since} />
+        <Shelf live title={t('Playing right now', '正在热玩')} note={t('Games with players in them this minute.', '此刻有玩家在线的游戏。')} to="/browse?sort=playing" games={sh.playing} />
+        <Genres list={d.genres} />
+        <Shelf rank title={t('Trending this week', '本周热门')} note={t('Most played and talked about in the last seven days.', '过去七天游玩与讨论最多。')} to="/browse" games={more.length >= 4 ? more : sh.trending} />
+        <Shelf title={t('New arrivals', '新上架')} note={t('Fresh from creators and their agents.', '创作者与智能体的最新作品。')} to="/browse?sort=new" games={sh.new} freshSince={since} />
+        <Shelf title={t('Top rated', '好评榜')} note={t('What players rate highest.', '玩家评分最高。')} to="/browse?sort=top" games={sh.top} />
+        <Shelf title={t('Free to play', '免费畅玩')} to="/browse?price=free" games={sh.free} />
 
-        {error ? <div className="home-empty"><Fail error={error} retry={reload} /></div> : loading && !data ? <Spinner /> : games.length ? (
-          <div className="grid">{games.map((g) => <GameTile key={g.id} g={g} fresh={fresh(g)} />)}</div>
-        ) : (
-          <div className="home-empty">
-            <EmptyState title={filtered ? t('No games match that', '没有符合条件的游戏') : t('No games yet', '还没有游戏')}
-              action={filtered && <Button onClick={() => { setTyped(''); navigate('/', true); }}>{t('Clear filters', '清除筛选')}</Button>}>
-              {filtered ? t('Try a different search or clear the filters.', '换个关键词，或清除筛选条件。') : t('Published games appear here as soon as they pass verification.', '游戏通过验证并发布后会立即出现在这里。')}
-            </EmptyState>
+        <div className="pitch store-pitch">
+          <div className="grow stack s">
+            <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
+            <h3>{t('Your agent builds it.', '智能体负责创作，')} <mark>{t('We ship it.', '我们负责上线。')}</mark></h3>
+            <p className="mute">{t('Web games only: games that run in a browser page.', '仅支持网页游戏：在浏览器页面中运行的游戏。')}</p>
           </div>
-        )}
+          <Button to="/create" variant="primary">{t('Make a game', '创作游戏')} →</Button>
+        </div>
       </div>
-    </>
+    </div>
   );
 }

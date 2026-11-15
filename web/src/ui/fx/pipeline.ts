@@ -187,7 +187,7 @@ export class Pipeline {
     if (this.tier === 'still') { this.frame(performance.now()); return; }
     this.stopLoop = loop((now) => this.frame(now), this.tier === 'lite' ? 30 : 60);
   }
-  /** Another GPU scene (the home page's exhibition hall) fills the view: stop drawing behind it until it lets go (holdFx). */
+  /** Another GPU scene (a 3D view of its own) fills the view: stop drawing behind it until it lets go (holdFx). */
   private hold = (e: Event) => {
     const h = !!(e as CustomEvent).detail;
     if (h === this.held) return;

@@ -20,23 +20,27 @@ import { Earnings } from './pages/Earnings';
 import { Admin } from './pages/Admin';
 import { Device } from './pages/Device';
 import { Docs } from './pages/Docs';
+import { Browse } from './pages/Browse';
+import { SearchBox } from './store';
 
 function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogout: () => void }) {
   const loc = useLocation(), lang = useLang(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
   useEffect(() => { setOpen(false); }, [loc]);
   useEffect(() => { const f = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; addEventListener('mousedown', f); return () => removeEventListener('mousedown', f); }, []);
   const path = loc.split('?')[0], onAuth = path === '/login' || path === '/signup', keep = onAuth && loc.includes('?') ? loc.slice(loc.indexOf('?')) : '';   // someone sent here to approve an agent keeps their place
-  const on = (p: string) => 'nl' + ((p === '/' ? path === '/' || path.startsWith('/g/') : path.startsWith(p)) ? ' on' : '');
+  const on = (p: string) => 'nl' + ((p === '/' ? path === '/' : path.startsWith(p)) ? ' on' : '');
   return (
     <nav className="nav">
       <div className="wrap">
         <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
-        <Link to="/" className={on('/')}>{t('Games', '游戏')}</Link>
+        <Link to="/" className={on('/')}>{t('Discover', '发现')}</Link>
+        <Link to="/browse" className={on('/browse')}>{t('Browse', '浏览')}</Link>
         <Link to="/create" className={on('/create') + (user ? '' : ' hide-xs')}>{t('For creators', '创作者')}</Link>
         <Link to="/docs" className={on('/docs') + ' hide-s'}>{t('Docs', '文档')}</Link>
         {user && <Link to="/console" className={on('/console') + ' hide-s'}>{t('Console', '控制台')}</Link>}
         {user?.role === 'admin' && <Link to="/admin" className={on('/admin') + ' hide-s'}>{t('Admin', '管理')}</Link>}
         <span className="grow" />
+        {path !== '/' && path !== '/browse' && <div className="nav-search hide-s"><SearchBox /></div>}
         <button className="lang" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label="Language">{lang === 'zh' ? 'EN' : '中文'}</button>
         {user ? (
           <div className="menu" ref={ref}>
@@ -85,6 +89,7 @@ function Routes({ user }: { user: Me | null }) {
   if (needUser && !user) return <Spinner />;
   let m: RegExpMatchArray | null;
   if (path === '/') return <Home />;
+  if (path === '/browse') return <Browse />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} />;
   if (path === '/create') return <Creators />;
