@@ -42,6 +42,9 @@ export const SETTING_DEFS = {
   allow_server_code: { v: true, type: 'bool', group: 'Limits', label: 'Allow games to ship server code (server/index.js)' },
   room_max_peers: { v: 16, type: 'int', group: 'Limits', label: 'Players per multiplayer room' },
 
+  open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },
+  open_impl_ai_daily: { v: 200, type: 'int', group: 'Open implementation', label: 'Most AI summaries written per day (the rest use the rule-based summary)' },
+
   oauth_access_ttl_s: { v: 3600, type: 'int', group: 'Agent access (OAuth)', label: 'Access token lifetime (seconds)' },
   oauth_grant_ttl_s: { v: 30 * 86400, type: 'int', group: 'Agent access (OAuth)', label: 'Authorization lifetime before the agent must be re-approved (seconds)' },
 } as const;

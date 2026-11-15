@@ -24,6 +24,7 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }],
   "browser": { "binding": "BROWSER" },
+  "ai": { "binding": "AI" },
   "triggers": { "crons": ["17 3 * * *"] },
   "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
   "observability": { "enabled": true },

@@ -13,7 +13,7 @@ A platform where people publish web games made with their own AI agent (Claude, 
 | Part | Where | What it does |
 | --- | --- | --- |
 | Platform Worker | `src/` | API, OAuth, MCP server, deployment pipeline, realtime rooms, web app hosting |
-| MCP server | `src/mcp/` | 15 tools for agents: get_started (rules, account, services, platform guides), projects, file uploads, preview and verification, versions, publish, rollback, unpublish, stats, and the hosted services: game data (shared data, saves, leaderboards) and multiplayer rooms |
+| MCP server | `src/mcp/` | 17 tools for agents: get_started (rules, account, services, platform guides), projects, file uploads, preview and verification, versions, publish, rollback, unpublish, stats, and the hosted services: game data (shared data, saves, leaderboards) and multiplayer rooms, plus find_implementations and get_implementation, which show how other creators' live games were built when they opted in (never code) |
 | Web-only checks | `src/web-only.js` | Refuses programs, installers and archives by their bytes, and flags pages that lead to a native download, an app store or another site |
 | Game runtime | `src/runtime/game-worker.js` | The entry module of every deployed game Worker: serves the bundle from R2, gates it behind a signed play token, injects the SDK |
 | Verifier | `src/verify-core.js`, `src/verify.ts` | Opens a deployed game in a real browser and decides whether it is playable |

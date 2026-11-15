@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ago, api, bytes, dateTime, Fail, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Spinner, Stat, StatGrid, StatusBadge, Table } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Spinner, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
 import { Stage } from './Game';
 import { projectTabs } from './Analytics';
 
@@ -15,6 +15,45 @@ function Report({ v }: { v: any }) {
       {!!r.missing?.length && <div className="log">{t('Files that failed to load', '加载失败的文件')}:{'\n'}{r.missing.join('\n')}</div>}
       {r.browser === 'unavailable' && <p className="mute fs-sm">{t('The automatic browser check could not run for this version. Play the preview yourself for a short while to verify it.', '该版本无法进行自动浏览器检查。请亲自试玩预览版一小段时间来完成验证。')}</p>}
     </div>
+  );
+}
+
+const listOr = (a: string[] | undefined) => (a && a.length ? a.join(', ') : '—');
+
+/** The opt-in to share how the game is built with other developers' agents, and a look at exactly what they get. */
+function OpenImplementation({ id, p, info, reload }: { id: string; p: any; info: any; reload: () => Promise<unknown> }) {
+  const { busy, act } = useAct(), [card, setCard] = useState<any>(undefined);
+  const on = !!p.open_implementation;
+  const toggle = (next: boolean) => act('impl', async () => { await api(`/console/projects/${id}`, { method: 'PATCH', body: { open_implementation: next } }); await reload(); },
+    next ? t('Shared. Other agents can now learn how this game is built.', '已开放。其他智能体现在可以了解这款游戏的实现方式。') : t('No longer shared.', '已停止分享。'));
+  const look = () => act('look', async () => { const r = await api<{ card: any }>(`/console/projects/${id}/implementation`); setCard(r.card); });
+  const f = card?.built_with;
+  return (
+    <Card title={t('Open implementation', '开放实现')} pad>
+      <div className="stack">
+        <label className="row" style={{ gap: 12, cursor: 'pointer' }}>
+          <Switch checked={on} disabled={busy === 'impl'} onChange={(e) => void toggle(e.target.checked)} aria-label={t('Share how this game is built', '分享这款游戏的实现方式')} />
+          <b>{on ? t('Shared with other agents', '已向其他智能体开放') : t('Not shared', '未分享')}</b>
+        </label>
+        <p className="mute fs-sm">{on
+          ? t('Other developers\' agents can read how the live game is built: engine, rendering, input, audio, techniques and a summary. Your code and files are never shared.', '其他开发者的智能体可以读取线上版本的实现方式：引擎、渲染、输入、音频、技术与概述。你的代码和文件永远不会被分享。')
+          : t('Turn this on to let other developers\' agents learn how the game is built, never its code or files. With it off, nothing is shared.', '开启后，其他开发者的智能体可以了解这款游戏的实现方式，但看不到代码或文件。关闭时不分享任何内容。')}</p>
+        {on && info && <KeyValue items={[[t('Describes', '描述版本'), <span className="mono">v{info.version}</span>], [t('Read by other agents', '被其他智能体读取'), num(info.reads)], [t('Summary by', '概述来源'), info.summary_source === 'ai' ? 'Workers AI' : t('Rules', '规则')]]} />}
+        {p.live_version ? <Button size="sm" onClick={look} disabled={busy === 'look'}>{on ? t('See what agents see', '查看智能体看到的内容') : t('Preview what would be shared', '预览将分享的内容')}</Button>
+          : <p className="dim fs-sm">{t('Publish the game first. The card describes the live version.', '请先发布游戏，卡片描述的是线上版本。')}</p>}
+      </div>
+      {card && <Modal wide onClose={() => setCard(undefined)}><div className="stack l">
+        <div className="row"><b>{t('What other agents see', '其他智能体看到的内容')}</b>{!card.shared && <Badge tone="info">{t('Preview, not shared', '预览，未分享')}</Badge>}<Button size="sm" className="right" onClick={() => setCard(undefined)}>{t('Close', '关闭')}</Button></div>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{card.summary}</p>
+        <KeyValue items={[
+          [t('Engine', '引擎'), f.engine], [t('Libraries', '库'), listOr(f.libraries)], [t('Rendering', '渲染'), listOr(f.rendering)], [t('Graphics', '画面技术'), listOr(f.graphics)],
+          [t('Input', '输入'), listOr(f.input)], [t('Audio', '音频'), listOr(f.audio)], [t('Art', '美术'), f.assets.approach], [t('Platform services', '平台服务'), listOr(f.platform_services)],
+          [t('Loop and performance', '循环与性能'), listOr(f.loop_and_performance)], [t('Structure', '结构'), `${f.structure.files} ${t('files', '个文件')} · ${f.structure.own_code_lines} ${t('lines of own code', '行自有代码')} · ${f.structure.modules}`],
+          !!f.gameplay.playthrough_steps.length && [t('Play-through', '试玩流程'), f.gameplay.playthrough_steps.join(' → ')],
+        ]} />
+        <Ticks items={[card.never_shared]} />
+      </div></Modal>}
+    </Card>
   );
 }
 
@@ -119,6 +158,7 @@ export function Project({ id }: { id: string }) {
               {data.split ? <KeyValue items={[[t('Platform fee', '平台服务费'), usd(data.split.fee)], [t('You receive per sale', '每笔销售你获得'), usd(data.split.net), 'good']]} />
                 : <p className="mute fs-sm">{s.paid_games_enabled ? t(`Free to play. Set a price between ${usd(s.game_price_min_cents)} and ${usd(s.game_price_max_cents)} to sell it; the platform keeps ${s.platform_fee_percent}% of each sale.`, `目前免费。可在 ${usd(s.game_price_min_cents)} 至 ${usd(s.game_price_max_cents)} 之间定价销售，平台从每笔销售中收取 ${s.platform_fee_percent}%。`) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
             </Card>
+            <OpenImplementation id={id} p={p} info={data.implementation} reload={reload} />
             <Card title={t('Details', '详情')} pad>
               <KeyValue items={[
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],
