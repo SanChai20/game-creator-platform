@@ -4,9 +4,10 @@ import { TOKENS_CSS } from './ui/tokens';
 import './ui/ui.css';
 import './styles.css';
 import './store.css';
+import './ui/game.css';
 import { api, AppCtx, LANGS, langReady, Link, loginUrl, navigate, setLang, setTrialRules, t, useLang, useLocation, type Config, type Lang, type Me } from './lib';
 import { Button, EmptyState, Spinner } from './ui';
-import { fxPref, GpuLayer, setFxPref } from './ui/fx';
+import { fxBurst, fxPref, GpuLayer, setFxPref } from './ui/fx';
 
 // The design tokens are defined once in ui/tokens.ts and shared with the Worker's server-rendered pages.
 document.head.insertAdjacentHTML('afterbegin', `<style id="tokens">${TOKENS_CSS}</style>`);
@@ -24,6 +25,7 @@ import { Docs } from './pages/Docs';
 import { Browse } from './pages/Browse';
 import { Categories, Category } from './pages/Categories';
 import { Queue } from './pages/Queue';
+import { Legal, LEGAL_DOCS, legalTitle, type LegalDoc } from './pages/Legal';
 import { SearchBox, StoreBar } from './store';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
@@ -95,7 +97,7 @@ function RouteFrame({ children }: { children: ReactNode }) {
   return <div className="route" key={path}>{children}</div>;
 }
 
-/** Turns the GPU layer on or off for this browser. Off leaves the plain CSS look. */
+/** Turns the effects on or off for this browser (on by default). Off leaves the plain CSS look. */
 function FxToggle() {
   const [on, setOn] = useState(fxPref() === 'on');
   return <button className="fx-toggle" aria-pressed={on} onClick={() => { const v = on ? 'off' : 'on'; setFxPref(v); setOn(v === 'on'); }}>{t('Effects', '特效')}: {on ? t('on', '开') : t('off', '关')}</button>;
@@ -134,6 +136,8 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/console\/p\/([^/]+)\/analytics$/))) return <Analytics key={m[1]} id={m[1]} />;
   if (path === '/claim-admin') return <ClaimAdmin />;
   if (path === '/device') return <Device />;
+  if (path === '/legal') return <Legal doc="terms" />;
+  if ((m = path.match(/^\/legal\/([a-z]+)$/)) && (LEGAL_DOCS as string[]).includes(m[1])) return <Legal doc={m[1] as LegalDoc} />;
   if ((m = path.match(/^\/admin(?:\/([a-z]+))?$/))) return user?.role === 'admin' ? <Admin tab={m[1] || 'overview'} /> : <NotFound />;
   return <NotFound />;
 }
@@ -148,6 +152,8 @@ function App() {
   }, []);
   useEffect(() => { refresh().catch(() => setFailed(true)); }, [refresh]);
   const toast = useCallback((msg: string, bad = false) => { setToast({ msg, bad }); clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), bad ? 5200 : 2600); }, []);
+  // a good-news toast arrives like an achievement, with a little burst of stars
+  useEffect(() => { if (toastMsg && !toastMsg.bad) requestAnimationFrame(() => fxBurst(document.querySelector('.toast'), 'stars', 0.7)); }, [toastMsg]);
   useEffect(() => { if (state) document.title = `${state.config.settings.brand_name} — ${state.config.settings.tagline}`; }, [state]);
   if (failed) return <div className="wrap page"><EmptyState title={t('The site did not respond', '站点暂时无法响应')} action={<Button onClick={() => location.reload()}>{t('Reload', '刷新')}</Button>} /></div>;
   if (!state) return <Spinner />;
@@ -167,8 +173,8 @@ function App() {
         </div>
         <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link></nav>
         <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
-        <div className="foot-col"><b>{t('This browser', '本浏览器')}</b><FxToggle /><LangPicker /></div>
-        <span className="foot-note">© {new Date().getFullYear()} {brand}</span>
+        <nav className="foot-col" aria-label={t('Legal', '法律信息')}><b>{t('Legal', '法律信息')}</b>{LEGAL_DOCS.map((d) => <Link key={d} to={`/legal/${d}`}>{legalTitle(d)}</Link>)}</nav>
+        <div className="foot-note"><span>© {new Date().getFullYear()} {brand}</span><span className="foot-tools"><FxToggle /><LangPicker /></span></div>
       </div></footer>
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
     </AppCtx.Provider>
