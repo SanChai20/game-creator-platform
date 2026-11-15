@@ -11,7 +11,7 @@
 .nav a.nl:hover { color: var(--text); background: var(--bg-2); }
 .nav a.nl.on { color: var(--text); }
 .nav a.nl.on::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -13px; height: 2px; border-radius: 2px; background: var(--grad-accent); box-shadow: 0 0 12px var(--accent-glow); }
-.lang { height: 34px; border: 1px solid var(--line-2); background: none; border-radius: var(--r-sm); padding: 0 11px; font: 600 12px var(--font-mono); color: var(--text-2); cursor: pointer; transition: all var(--dur); }
+.lang { flex: none; white-space: nowrap; height: 34px; border: 1px solid var(--line-2); background: none; border-radius: var(--r-sm); padding: 0 11px; font: 600 12px var(--font-mono); color: var(--text-2); cursor: pointer; transition: all var(--dur); }
 .lang:hover { color: var(--text); border-color: var(--line-3); background: var(--bg-2); }
 .avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, var(--violet), var(--accent-2)); border: 2px solid var(--bg-0); box-shadow: 0 0 0 1px var(--line-3); display: grid; place-items: center; font: 700 14px var(--font-display); cursor: pointer; color: #fff; }
 .menu { position: relative; }
@@ -20,6 +20,7 @@
 .menu .pop a:hover, .menu .pop button:hover { background: var(--bg-3); color: var(--text); }
 .menu .pop .who { padding: 10px 12px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .nav-join { margin-left: 4px; }
+@media (max-width: 440px) { .nav .hide-xs { display: none; } .nav .wrap { gap: 2px; } }
 @media (max-width: 720px) { .nav .hide-s { display: none; } .brand span { display: none; } .brand { margin-right: 2px; } .nav a.nl { padding: 9px 10px; } .nav a.nl.on::after { left: 10px; right: 10px; } }
 
 /* ---- footer ----------------------------------------------------------------------------------- */
@@ -86,6 +87,7 @@ footer.foot a { color: var(--text-2); transition: color var(--dur); } footer.foo
 .stage .poster { position: absolute; inset: 0; background-size: cover; background-position: center; transform: scale(1.02); }
 .stage .poster::after { content: ""; position: absolute; inset: 0; background: radial-gradient(70% 70% at 50% 50%, rgba(6, 7, 11, .2), rgba(6, 7, 11, .82)); }
 .stage .over { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; text-align: center; padding: 20px; }
+.stage .over .mute { padding: 6px 14px; border-radius: var(--r-pill); background: rgba(6, 7, 11, .72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: var(--text); }
 .stage:fullscreen { border-radius: 0; border: 0; max-height: none; }
 .stage-bar { margin-top: 12px; }
 @media (max-width: 620px) { .stage { aspect-ratio: 4 / 3; border-radius: var(--r-lg); } .play-btn { height: 58px; font-size: 17px; } .play-ico { width: 38px; height: 38px; } }
