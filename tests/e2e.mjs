@@ -284,6 +284,43 @@ async function main() {
   assert.equal(priced.creator_receives_per_sale, '$4.49');
   await tool('update_project', { project: pid, price_cents: 50 }, true);
   assert.equal((await B.post(`/api/games/${slug}/play`)).status, 402);
+  ok('paid game: playing without buying is refused');
+
+  // free trial: per account, enforced on the server, reloading costs time, services refused once it is used
+  assert.equal((await A.patch(`/api/console/projects/${pid}`, { trial_minutes: 9999 })).status, 400);
+  const trialSet = await tool('update_project', { project: pid, trial_minutes: 1 });
+  assert.ok(String(trialSet.free_trial).startsWith('1 min'), JSON.stringify(trialSet));
+  assert.equal(must(await B.get(`/api/games/${slug}`)).trial.remaining_seconds, 60);
+  assert.equal(must(await B.get('/api/games?price=trial')).games.some((x) => x.slug === slug && x.trial_minutes === 1), true);
+  const tp1 = must(await B.post(`/api/games/${slug}/play`));
+  assert.equal(tp1.trial.remaining_seconds, 60);
+  const tt1 = new URL(tp1.url).searchParams.get('gcp_t'), tbody = JSON.parse(Buffer.from(tt1.split('.')[0], 'base64url').toString());
+  assert.ok(tbody.tr === 1 && tbody.x <= Math.floor(Date.now() / 1000) + 81, JSON.stringify(tbody));   // the token ends with the trial
+  assert.equal((await fetch(tp1.url)).status, 200);
+  const tsvc = (tk, path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: tk, ...body }) });
+  assert.equal((await tsvc(tt1, 'save', { op: 'set', key: 'trial', value: 1 })).status, 200);
+  const tb1 = await (await tsvc(tt1, 'beat', { frames: 5, active: true, first: true })).json();
+  assert.ok(tb1.trial && tb1.trial.over === false && tb1.trial.remaining_seconds >= 58, JSON.stringify(tb1));   // the 30 s charged up front is still this session's to play
+  let tdetail = must(await B.get(`/api/games/${slug}`));
+  assert.equal(tdetail.trial.used_seconds, 30); assert.equal(tdetail.owned, false);
+  const tp2 = must(await B.post(`/api/games/${slug}/play`)), tt2 = new URL(tp2.url).searchParams.get('gcp_t');   // a reload, or another device
+  assert.equal(tp2.trial.remaining_seconds, 30);
+  const tb2 = await (await tsvc(tt2, 'beat', { frames: 5, active: true, first: true })).json();
+  assert.ok(tb2.trial.over === false && tb2.trial.remaining_seconds >= 28, JSON.stringify(tb2));   // the new session keeps the 30 s it was charged
+  const tp3 = await B.post(`/api/games/${slug}/play`);
+  assert.equal(tp3.status, 402); assert.equal(tp3.json.code, 'trial_over');   // but no further session starts
+  await sleep(31000);
+  const tb3 = await (await tsvc(tt2, 'beat', { frames: 9, active: true })).json();
+  assert.ok(tb3.trial.over === true && tb3.trial.remaining_seconds === 0, JSON.stringify(tb3));
+  assert.equal((await tsvc(tt1, 'save', { op: 'get', key: 'trial' })).status, 402);
+  assert.equal((await tsvc(tt2, 'score', { op: 'submit', board: 'x', score: 1 })).status, 402);
+  tdetail = must(await B.get(`/api/games/${slug}`));
+  assert.equal(tdetail.trial.over, true);
+  const cons = must(await A.get(`/api/console/projects/${pid}`));
+  assert.ok(cons.trial.minutes === 1 && cons.trial.active && cons.trial.players === 1 && cons.trial.bought === 0, JSON.stringify(cons.trial));
+  assert.equal((await tool('get_stats', { project: pid })).free_trial.players, 1);
+  ok('free trial: creator sets it from the console or the agent, a player plays it, each session costs at least 30 s, the time is shared across sessions, saves and scores refused and no new session once it is used');
+
   const buy = must(await B.post(`/api/games/${slug}/buy`));
   const sid = buy.url.split('/').pop(), session = sessions.get(sid);
   assert.equal(session.amount_total, 499);
@@ -294,7 +331,9 @@ async function main() {
   assert.equal((await fetch(`${BASE}/api/stripe/webhook`, { method: 'POST', headers: { 'stripe-signature': `t=${ts},v1=${sig}` }, body: payload })).status, 200); // replay is harmless
   must(await B.post('/api/billing/confirm', { session_id: sid }));
   assert.equal(must(await B.get(`/api/games/${slug}`)).owned, true);
-  must(await B.post(`/api/games/${slug}/play`));
+  const bought = must(await B.post(`/api/games/${slug}/play`));
+  assert.equal(bought.trial, undefined); assert.equal(must(await B.get(`/api/games/${slug}`)).trial, null);
+  assert.equal(must(await A.get(`/api/console/projects/${pid}`)).trial.bought, 1);
   let earn = must(await A.get('/api/console/earnings'));
   assert.equal(earn.balance.available, 449); assert.equal(earn.by_game[0].n, 1); assert.equal(earn.by_game[0].fees, 50);
   ok('paid game: play blocked, checkout for $4.99, signed webhook (bad signature refused, replay harmless), creator credited $4.49, platform keeps $0.50');
@@ -329,7 +368,7 @@ async function main() {
   const vs = await tool('list_versions', { project: pid });
   assert.equal(vs.live_version, 1); assert.equal(vs.versions.length, 2);
   const stats = await tool('get_stats', { project: pid });
-  assert.equal(stats.plays, 1); assert.ok(stats.runtime_errors.some((e) => /demo error/.test(e.message)));
+  assert.equal(stats.plays, 2); assert.ok(stats.runtime_errors.some((e) => /demo error/.test(e.message)));   // plays: the first play and the free-trial session
   const con = must(await A.get(`/api/console/projects/${pid}`));
   assert.equal(con.versions.length, 2); assert.ok(con.events.length >= 6); assert.ok(con.daily.length >= 1);
   const prev = must(await A.post(`/api/console/projects/${pid}/preview`));

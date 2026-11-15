@@ -128,6 +128,24 @@
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
   }
 
+  // Free trial of a paid game: the platform signs a trial token that ends with the trial. The server counts the time
+  // and refuses the platform services once it is used; here the game is paused and the platform page is told.
+  var trial = null;
+  try { var tb = JSON.parse(atob(String(cfg.token).split('.')[0].replace(/-/g, '+').replace(/_/g, '/'))); if (tb && tb.tr) trial = { until: (tb.x - 20) * 1000, over: false }; } catch (e) { /* no token */ }
+  function trialOver() {
+    if (!trial || trial.over) return; trial.over = true;
+    S.hold(true);
+    try { parent.postMessage({ gcp: 'trial_over' }, '*'); } catch (e) { /* not framed */ }
+    try {
+      var d = document.createElement('div');
+      d.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:rgba(11,13,15,.92);color:#e8e4da;font:15px/1.5 system-ui,sans-serif;text-align:center;padding:24px');
+      d.innerHTML = '<div><b style="display:block;font-size:22px;margin-bottom:6px">Your free trial has ended</b><span style="opacity:.7">Buy the game on its page to keep playing.</span></div>';
+      (document.body || document.documentElement).appendChild(d);
+    } catch (e) { /* no DOM yet */ }
+  }
+  function onBeat(j) { if (j && j.trial) { if (j.trial.over) trialOver(); else if (!j.trial.bought) trial.until = Math.min(trial.until, Date.now() + j.trial.remaining_seconds * 1000); } }
+  if (trial) setInterval(function () { if (!trial.over && !trial.ending && Date.now() >= trial.until) { trial.ending = true; beat(); setTimeout(trialOver, 3000); } }, 1000);
+
   // Heartbeat: play time counts only while the tab is visible and frames are advancing.
   var beatFrames = 0, fpsEma = 0;
   function beat(last) {
@@ -136,7 +154,7 @@
     fpsEma = advanced / 15;
     var body = JSON.stringify({ t: cfg.token, frames: S.frames, active: advanced > 0 && document.visibilityState === 'visible', fps: Math.round(fpsEma), errors: pending.splice(0, 5), fatal: S.fatal });
     if (last && navigator.sendBeacon) navigator.sendBeacon(cfg.api + '/api/rt/beat', new Blob([body], { type: 'text/plain' }));
-    else fetch(cfg.api + '/api/rt/beat', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: body, keepalive: true }).catch(function () { });
+    else fetch(cfg.api + '/api/rt/beat', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: body, keepalive: true }).then(function (r) { if ((r.status === 401 || r.status === 402) && trial) trialOver(); return r.json(); }).then(onBeat).catch(function () { });
   }
   setInterval(beat, 15000);
   window.addEventListener('pagehide', function () { beat(true); });
@@ -234,7 +252,7 @@
     ready: function (info) {
       if (S.ready) return; S.ready = true; S.readyAt = performance.now(); S.progress = 1; if (info) S.stats = info;
       if (GCP.test.autostart) setTimeout(function () { autostartFns.forEach(function (fn) { try { fn(); } catch (e) { note(S.errors, 'autostart hook threw: ' + (e && e.message || e)); } }); }, 0);
-      if (!standalone) { api('beat', { frames: S.frames, active: false, first: true, loadMs: Math.round(S.readyAt - S.boot) }).catch(function () { }); }
+      if (!standalone) { api('beat', { frames: S.frames, active: false, first: true, loadMs: Math.round(S.readyAt - S.boot) }).then(onBeat).catch(function () { }); }
     },
     /** Call when the game cannot start. Shows up as the failure reason in verification. */
     fatal: function (err) { S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },

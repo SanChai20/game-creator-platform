@@ -51,6 +51,7 @@ Genre, art direction, engine and rendering technique are the creator's, and the 
 
 - **Creator license.** A one-time fee (default $30) to publish any number of games. Building and previewing are free.
 - **Free or paid games.** A creator sets a price or leaves the game free. Players pay the platform; the platform keeps its cut (default 10%) and credits the rest to the creator's balance after a holding period (default 7 days).
+- **Free trials.** A creator can let players try a paid game for a set number of minutes (console or `update_project trial_minutes`). The time is kept per player account on the server, counted by wall clock while the game is open, with at least 30 seconds charged per session, so reloading or switching devices does not reset it. A trial play token expires with the trial, after which saves, leaderboards, rooms and new sessions are refused and the game page asks the player to buy. Admins can switch trials off or cap their length.
 - **Withdrawals.** Once the available balance reaches the minimum (default $50), the creator withdraws to a bank account through Stripe Connect, or requests a manual payout that an administrator settles.
 - **Refunds** revoke access and reverse the creator's credit.
 
