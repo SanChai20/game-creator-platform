@@ -215,6 +215,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .bars div:hover { opacity: 1; filter: brightness(1.2); }
 .bars div:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg-0); font: 600 11px var(--font-mono); padding: 5px 8px; border-radius: 7px; white-space: nowrap; z-index: 5; pointer-events: none; box-shadow: var(--shadow-2); }
 .chart-block { display: grid; gap: 14px; }
+.share { display: grid; gap: 10px; }
+.share-row { display: grid; grid-template-columns: minmax(80px, 34%) 1fr auto; align-items: center; gap: 12px; font-size: 14px; }
+.share-row .num { color: var(--text-2); font: 600 13px var(--font-mono); white-space: nowrap; }
+.share-bar { height: 8px; border-radius: 99px; background: var(--bg-4); overflow: hidden; }
+.share-bar i { display: block; height: 100%; border-radius: inherit; background: var(--grad-accent); }
 .chart-v { font: 700 18px/1 var(--font-display); }
 .check { display: grid; grid-template-columns: 24px 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
 .check:last-child { border-bottom: 0; }

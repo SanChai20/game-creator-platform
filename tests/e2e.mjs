@@ -262,10 +262,22 @@ async function main() {
   await sleep(500);
   assert.equal(got.a[0].t, 'welcome'); assert.equal(got.a[0].host, got.a[0].id); assert.ok(got.a.some((m) => m.t === 'join')); assert.ok(got.a.some((m) => m.t === 'msg' && m.d.hi === 1));
   assert.equal(got.b[0].host, got.a[0].id); assert.ok(got.b.some((m) => m.t === 'state' && m.d.round === 2));
+  const inRooms = await tool('get_stats', { project: pid, only_now: true });   // the room reports its own occupancy
+  assert.ok(inRooms.rooms.players_in_rooms === 2 && inRooms.rooms.busiest.some((r) => r.room === 'test' && r.players === 2 && r.env === 'live') && inRooms.online.live >= 1, JSON.stringify(inRooms));
   wa.close(); await sleep(500);
   assert.ok(got.b.some((m) => m.t === 'leave' && m.host === got.b[0].id));
-  wb.close();
+  wb.close(); await sleep(500);
+  assert.equal((await tool('get_stats', { project: pid, only_now: true })).rooms.players_in_rooms, 0);
   ok('game services: cloud save, leaderboard keeps best, room relay with host and host migration');
+
+  // analytics: players online, rooms, sessions, new and returning players, versions, devices, for the agent and in the console
+  const an = (await tool('get_stats', { project: pid, days: 7 })).analytics;
+  assert.ok(an.totals.sessions >= 1 && an.totals.players === 1 && an.totals.new_players === 1 && an.daily.length === 7 && an.daily[6].players === 1 && an.last_24_hours.length === 24 && an.devices.length >= 1 && an.versions[0].version === 1 && an.session_lengths.length === 6, JSON.stringify(an.totals));
+  const ca = must(await A.get(`/api/console/projects/${pid}/analytics?days=30`));
+  assert.ok(ca.daily.length === 30 && ca.now.online && ca.project.id === pid);
+  assert.ok(must(await A.get(`/api/console/projects/${pid}/online`)).rooms);
+  assert.ok([403, 404].includes((await B.get(`/api/console/projects/${pid}/analytics`)).status));
+  ok(`analytics: ${an.totals.sessions} session(s) by ${an.totals.players} player, rooms counted while players were in them, daily, hourly, version and device breakdowns; another account is refused`);
 
   // paid game: purchase required, checkout, webhook, split, refund path
   const priced = await tool('update_project', { project: pid, price_cents: 499 });

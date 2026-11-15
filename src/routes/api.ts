@@ -7,6 +7,7 @@ import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../e
 import { enqueue } from '../pipeline';
 import { getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { getSettings, SETTING_DEFS } from '../settings';
+import { gameAnalytics, onlineNow } from '../analytics';
 import { stripe, stripeReady, verifyWebhook } from '../stripe';
 import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
 // @ts-ignore plain JS module
@@ -317,7 +318,18 @@ api.get('/console/projects/:id', async (c) => {
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s) : null,
+    online: await onlineNow(c.env, p.id),
   });
+});
+
+// Analytics: the full picture for a window of days, and the cheap live count the dashboard polls.
+api.get('/console/projects/:id/analytics', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30)) });
+});
+api.get('/console/projects/:id/online', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await onlineNow(c.env, p.id));
 });
 
 api.post('/console/projects/:id/preview', async (c) => {

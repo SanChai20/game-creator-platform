@@ -126,6 +126,6 @@ rt.get('/room', async (c) => {
   const want = Number(c.req.query('max')) || s.room_max_peers;
   const id = c.env.ROOMS.idFromName(`${tok.g}:${tok.e}:${code}`);
   const u = new URL(c.req.url);
-  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${Math.min(want, s.room_max_peers)}`;
+  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${Math.min(want, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}`;
   return c.env.ROOMS.get(id).fetch(new Request(u, c.req.raw));
 });
