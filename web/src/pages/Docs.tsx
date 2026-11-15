@@ -9,7 +9,7 @@ export function Docs() {
   useEffect(() => { const id = location.hash.slice(1); if (id) document.getElementById(id)?.scrollIntoView(); }, []);
   const sections: [string, string][] = [
     ['connect', t('Connect your agent', '连接智能体')], ['prompt', t('Your first prompt', '第一句指令')], ['rules', t('The three rules', '三条规则')],
-    ['features', t('What every game gets', '每款游戏自带的能力')], ['money', t('Pricing and payouts', '费用与收益')],
+    ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['money', t('Pricing and payouts', '费用与收益')],
   ];
   return (
     <div className="wrap page">
@@ -45,7 +45,7 @@ export function Docs() {
             <div className="tri quad">
               <div><span className="ico">⚡</span><h3>{t('Its own Worker', '独立的 Worker')}</h3><p>{t('Every version is deployed as its own Cloudflare Worker, close to players, with nothing to host or scale.', '每个版本都部署为独立的 Cloudflare Worker，贴近玩家，无需自建托管或扩容。')}</p></div>
               <div><span className="ico">⇄</span><h3>{t('Multiplayer rooms', '多人房间')}</h3><p>{t('Realtime rooms with host migration, from one line of code.', '支持主机迁移的实时房间，一行代码即可使用。')}</p></div>
-              <div><span className="ico">★</span><h3>{t('Saves and leaderboards', '存档与排行榜')}</h3><p>{t('Cloud saves per player, shared game data and leaderboards.', '按玩家的云存档、游戏共享数据与排行榜。')}</p></div>
+              <div><span className="ico">★</span><h3>{t('Saves and leaderboards', '存档与排行榜')}</h3><p>{t('Each player\'s progress saved per game, player stats, shared game data and leaderboards.', '按游戏保存每位玩家的进度、玩家统计、游戏共享数据与排行榜。')}</p></div>
               <div><span className="ico">▲</span><h3>{t('Real numbers', '真实数据')}</h3><p>{t('Plays, time played, ratings, sales and the errors real players hit, per version.', '按版本统计的游玩次数、时长、评分、销量以及真实玩家遇到的错误。')}</p></div>
             </div>
             <Ticks items={[
@@ -55,16 +55,39 @@ export function Docs() {
             ]} />
           </section>
 
+          <section id="progress">
+            <h2>{t('Player progress', '玩家进度')}</h2>
+            <p>{t('Every game keeps each player\'s progress with the platform, so it follows them to any device and survives new versions. Players are always signed in, and everything below belongs to one player in one game: the platform checks the signed play session on every call, so a game can never read or change another player\'s data, or another game\'s.', '每款游戏都把每位玩家的进度交给平台保存，换设备、出新版本都不会丢。玩家始终处于登录状态，以下所有数据都只属于某一位玩家在某一款游戏中的记录：平台在每次调用时都会校验签名的游玩会话，游戏无法读取或修改其他玩家或其他游戏的数据。')}</p>
+            <Code text={`// load before the first playable frame
+const save = (await GCP.save.get('slot1')) || { v: 1, level: 1 };
+
+// save at checkpoints and when the tab is hidden (JSON, 256 KB per key)
+await GCP.save.set('slot1', { v: 1, level: 4, coins: 120 });
+
+// numbers worth tracking: add, max, min, set
+await GCP.playerStats.add('levels_cleared');
+await GCP.playerStats.max('best_combo', 17);
+
+// what the platform recorded by itself: sessions, play time, first and last played
+const record = await GCP.playRecord();`} />
+            <Ticks items={[
+              t('Recorded for every game without any code: sessions, time played, first and last played, best leaderboard scores.', '无需任何代码即可为每款游戏记录：游玩次数、游玩时长、首次与最近游玩时间、排行榜最佳成绩。'),
+              t('Preview and live keep separate data, and the browser check plays under a throwaway identity, so testing never touches real progress.', '预览与正式版的数据互相独立，浏览器验证使用一次性身份，测试永远不会影响真实进度。'),
+              t('Players see their own progress on the game page and can reset it. Creators see totals and averages, never one player\'s data.', '玩家可在游戏页面查看并重置自己的进度。创作者只能看到总数与平均值，看不到任何单个玩家的数据。'),
+            ]} />
+            <p><a className="sig" href="/guides/saves.md" target="_blank" rel="noreferrer">{t('Read the saves guide', '阅读存档指南')} →</a></p>
+          </section>
+
           <section id="money">
             <h2>{t('Pricing and payouts', '费用与收益')}</h2>
             <Ticks items={[
               s.creator_fee_cents > 0
-                ? (s.creator_fee_required ? t(`Building and previewing are free. A one-time creator license of ${usd(s.creator_fee_cents)} is needed when you publish your first game, for unlimited games.`, `创作与预览完全免费。发布第一款游戏时需一次性购买 ${usd(s.creator_fee_cents)} 的创作者许可，游戏数量不限。`) : t(`The creator license is ${usd(s.creator_fee_cents)}, once, for unlimited games.`, `创作者许可为 ${usd(s.creator_fee_cents)}，一次性，游戏数量不限。`))
+                ? (s.creator_fee_required ? t('Building and previewing are free. A one-time creator license of {fee} is needed when you publish your first game, for unlimited games.', '创作与预览完全免费。发布第一款游戏时需一次性购买 {fee} 的创作者许可，游戏数量不限。', { fee: usd(s.creator_fee_cents) }) : t('The creator license is {fee}, once, for unlimited games.', '创作者许可为 {fee}，一次性，游戏数量不限。', { fee: usd(s.creator_fee_cents) }))
                 : t('Building, previewing and publishing are free for every account.', '创作、预览与发布对所有账户免费开放。'),
               ...(s.paid_games_enabled ? [
                 t('Publish free, or set a price.', '可以免费发布，也可以自行定价。'),
-                t(`On paid games you keep ${100 - s.platform_fee_percent}% of each sale.`, `付费游戏每笔销售你可获得 ${100 - s.platform_fee_percent}%。`),
-                t(`Withdraw once your balance reaches ${usd(s.withdraw_min_cents)}.`, `余额达到 ${usd(s.withdraw_min_cents)} 即可提现。`),
+                t('On paid games you keep {share}% of each sale.', '付费游戏每笔销售你可获得 {share}%。', { share: 100 - s.platform_fee_percent }),
+                t('Withdraw once your balance reaches {amount}.', '余额达到 {amount} 即可提现。', { amount: usd(s.withdraw_min_cents) }),
               ] : []),
             ]} />
           </section>

@@ -1,6 +1,49 @@
-# Saves, leaderboards and server code
+# Player progress, saves, leaderboards and server code
 
 Each game runs on its own origin, and the preview and live versions are different origins. `localStorage` therefore does not follow a player from device to device or from one version's address to the next. The platform services below do.
+
+## Player progress: what every game should do
+
+Every game should keep each player's progress with the platform, not only in `localStorage`. Every player is signed in when a game opens, so `GCP.player.id` is always a real account, and each of the services below belongs to one player in one game:
+
+- The platform takes the game, the environment (preview or live) and the player from the signed play session on every call. Nothing in a request can name another player or another game, so a game cannot read or overwrite anyone else's progress, even by mistake.
+- Preview data is kept apart from live data. The verification browser plays under a throwaway identity of its own, so it always starts from no save and never touches your own progress.
+- Players see their own progress on the game page and can reset it there. You see totals and averages with `game_data {action: "summary"}`, never one player's data.
+
+A good default for any game:
+
+```js
+const SAVE = 'progress';
+let state = migrate(await GCP.save.get(SAVE)) || { v: 1, level: 1, unlocked: [] };   // before GCP.ready()
+// …at a checkpoint (level cleared, item found) and when the tab is hidden:
+GCP.save.set(SAVE, state);
+GCP.playerStats.add('levels_cleared');
+```
+
+## Recorded for you
+
+Without any code, the platform records for each player in each game: sessions, active play time (tab visible, frames advancing), first and last played, the last version played and their best leaderboard scores. Read it in the game with:
+
+```js
+const r = await GCP.playRecord();
+// { sessions, seconds, first_played, last_played, last_version, stats: {…}, best: { board: score }, saves: { keys, bytes, last_saved } }
+```
+
+Use it for a "welcome back" message, a total-time line on a stats screen, or to skip a tutorial for a returning player.
+
+## Player stats
+
+Named numbers per player and game, updated on the server so two tabs never lose an increment:
+
+```js
+await GCP.playerStats.add('coins', 25);      // +25 (default +1). Resolves to the new value
+await GCP.playerStats.max('best_combo', 17); // keeps the highest
+await GCP.playerStats.min('fastest_lap', 41.2);
+await GCP.playerStats.set('chapter', 3);
+const all = await GCP.playerStats.all();     // { coins: 125, best_combo: 17, … }
+```
+
+Up to 64 names per player, each 1 to 60 characters. Offline, the calls resolve to `null`. Players see these numbers on the game page, so use readable names (`levels_cleared`, not `lc`).
 
 ## Cloud saves
 
@@ -11,7 +54,8 @@ await GCP.save.remove('slot1');
 ```
 
 - Saves belong to the signed-in player and this game. Preview saves are kept apart from live saves.
-- Calls never throw. Offline, they fall back to `localStorage` and `set` resolves to `false`.
+- Calls never throw. Offline, they fall back to a copy in `localStorage` that is kept per player and environment (two people sharing a browser never see each other's saves), and `set` resolves to `false`.
+- Up to 64 keys per player, 256 KB each.
 - Do not write every frame. Save at checkpoints, every 20 to 30 seconds while playing, and when the tab is hidden:
 
 ```js

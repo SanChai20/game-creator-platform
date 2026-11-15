@@ -10,6 +10,8 @@ import { originalityCheck, publishGate } from './originality-check';
 import { now, parseJson, rid } from './util';
 // @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
+// @ts-ignore plain JS module
+import { verifierId } from './player-data.js';
 
 export interface Job { kind: 'preview' | 'publish'; pid: string; n: number; origin: string; actor: string }
 
@@ -68,7 +70,8 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
     await stage(env, v, 'verifying', 'Running the game in a browser');
     const sid = 'vf_' + rid(12);
     await env.DB.prepare("INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, 'preview', ?, 'verify', ?, ?)").bind(sid, p.id, v.n, p.owner_id, now(), now()).run();
-    const token = await signPlayToken({ g: p.id, e: 'preview', u: p.owner_id, n: 'Verifier', k: 'verify', s: sid, x: Math.floor(now() / 1000) + 900 }, await playKey(env, p.id));
+    // The verifier plays under a throwaway identity of its own: it starts from no save and never touches the creator's progress.
+    const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Verifier', k: 'verify', s: sid, x: Math.floor(now() / 1000) + 900 }, await playKey(env, p.id));
     const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU);
     report = out.report; shot = out.shot;
     report.deploy = health.detail;

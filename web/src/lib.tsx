@@ -1,32 +1,70 @@
 // Shared plumbing for the web app: language, API client, a tiny router, session state and small components.
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { Button, Notice } from './ui/components';
+import { detectLang, langTag, matchLang, type Lang } from './i18n/langs';
 // Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
 export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
 
 // ---- language ---------------------------------------------------------------------------------
-export type Lang = 'en' | 'zh';
-const stored = (() => { try { return localStorage.getItem('gcp.lang'); } catch { return null; } })();
-let lang: Lang = stored === 'zh' || stored === 'en' ? stored : (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+// Six languages. Call sites carry English and 简体中文 inline: t('Play', '游玩'). The other four (繁體中文, 日本語, 한국어,
+// Español) live in i18n/<code>.json keyed by the English string and load only when picked. Strings that arrive from the
+// Worker in English (admin setting labels and groups) are translated with tr(), from the same files plus i18n/zh.json.
+// The same English word can mean two things ('Copy' a link, a 'Copy' of a game): a key 'English|简体中文' picks one.
+// Placeholders: t('Page {page} of {pages}', '第 {page} / {pages} 页', { page, pages }). `npm test` fails on any string
+// that is missing from a language, so new strings get translated when they are added.
+export { LANGS } from './i18n/langs';
+export type { Lang };
+const urlLang = (() => { try { return matchLang(new URLSearchParams(location.search).get('lang')); } catch { return null; } })();
+const stored = (() => { try { return matchLang(localStorage.getItem('gcp.lang')); } catch { return null; } })();
+let lang: Lang = urlLang || stored || detectLang(navigator.languages?.length ? navigator.languages : [navigator.language]);
+let dict: Record<string, string> = {};
+const DICTS: Record<Exclude<Lang, 'en'>, () => Promise<{ default: Record<string, string> }>> = {
+  zh: () => import('./i18n/zh.json'), 'zh-TW': () => import('./i18n/zh-TW.json'), ja: () => import('./i18n/ja.json'), ko: () => import('./i18n/ko.json'), es: () => import('./i18n/es.json'),
+};
+const loadDict = async (l: Lang) => (l === 'en' ? {} : (await DICTS[l]().catch(() => ({ default: {} }))).default);
 const langSubs = new Set<() => void>();
-/** Pick the string for the current language. */
-export const t = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : s);
+/** Pick the string for the current language. English and 简体中文 are given here; the others come from i18n/<lang>.json. */
+export const t = (en: string, zh: string, vars?: Record<string, string | number>) =>
+  fill(lang === 'en' ? en : lang === 'zh' ? zh : dict[`${en}|${zh}`] ?? dict[en] ?? (lang === 'zh-TW' ? zh : en), vars);
+/** Translate a string that arrives in English from the Worker (admin setting labels, groups and options). */
+export const tr = (en: string, vars?: Record<string, string | number>) => fill(lang === 'en' ? en : dict[en] ?? en, vars);
+/** The current language's BCP 47 tag, for Intl formatters. */
+export const locale = () => langTag(lang);
 export const getLang = () => lang;
-export function setLang(l: Lang) { lang = l; try { localStorage.setItem('gcp.lang', l); } catch { /* private mode */ } document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'; langSubs.forEach((f) => f()); }
+const apply = (l: Lang) => {
+  document.documentElement.lang = langTag(l);
+  try { document.cookie = `gcp_lang=${l}; path=/; max-age=31536000; samesite=lax`; } catch { /* sandboxed */ }
+};
+/** Loads the language once, before the first render, so nothing flashes in English. */
+export const langReady = loadDict(lang).then((d) => { dict = d; apply(lang); });
+export async function setLang(l: Lang) {
+  const d = await loadDict(l);
+  lang = l; dict = d;
+  try { localStorage.setItem('gcp.lang', l); } catch { /* private mode */ }
+  apply(l); langSubs.forEach((f) => f());
+}
 export const useLang = () => useSyncExternalStore((f) => { langSubs.add(f); return () => langSubs.delete(f); }, getLang);
-document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
 
-// ---- formatting -------------------------------------------------------------------------------
 export const usd = (cents: number) => `${cents < 0 ? '−' : ''}$${(Math.abs(cents || 0) / 100).toFixed(2)}`;
 export const price = (cents: number) => (cents > 0 ? usd(cents) : t('Free', '免费'));
-export const num = (n: number) => new Intl.NumberFormat(lang === 'zh' ? 'zh-CN' : 'en', { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
+// Free trials of paid games. The platform can switch them off or cap their length; the app learns that from /config.
+let trialRules = { on: true, max: 120 };
+export function setTrialRules(s: Record<string, unknown>) { trialRules = { on: s.trials_enabled !== false, max: Number(s.trial_max_minutes) || 120 }; }
+/** Minutes of free trial a game offers (0 for none, and always 0 for a free game). */
+export const trialOf = (g: { price_cents: number; trial_minutes?: number }) => (trialRules.on && g.price_cents > 0 ? Math.min(g.trial_minutes || 0, trialRules.max) : 0);
+/** "Free trial · 30 min", or the short form "30 min trial" for tight spots. */
+export const trialLabel = (mins: number, short = false) => (short ? t('{n} min trial', '试玩 {n} 分钟', { n: mins }) : t('Free trial · {n} min', '免费试玩 · {n} 分钟', { n: mins }));
+/** m:ss for a countdown. */
+export const clock = (sec: number) => { const s = Math.max(0, Math.ceil(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+export const num = (n: number) => new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
 /** A number with its unit, singular or plural in English. */
-export const count = (n: number, one: string, many: string, zh: string) => `${num(n)} ${t(n === 1 ? one : many, zh)}`;
-export const date = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(ms)) : '—');
-export const dateTime = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms)) : '—');
+export const count = (n: number, one: string, many: string, zh: string) => { const word = n === 1 ? one : many; return `${num(n)} ${t(word, zh)}`; };
+export const date = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(locale(), { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(ms)) : '—');
+export const dateTime = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(locale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms)) : '—');
 export function ago(ms: number | null | undefined) {
   if (!ms) return '—';
-  const s = Math.max(1, Math.round((Date.now() - ms) / 1000)), rtf = new Intl.RelativeTimeFormat(lang === 'zh' ? 'zh-CN' : 'en', { numeric: 'auto' });
+  const s = Math.max(1, Math.round((Date.now() - ms) / 1000)), rtf = new Intl.RelativeTimeFormat(locale(), { numeric: 'auto' });
   if (s < 60) return rtf.format(-s, 'second'); if (s < 3600) return rtf.format(-Math.round(s / 60), 'minute');
   if (s < 86400) return rtf.format(-Math.round(s / 3600), 'hour'); if (s < 86400 * 30) return rtf.format(-Math.round(s / 86400), 'day');
   return date(ms);
@@ -104,7 +142,7 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 35 + ((h >> 9) % 90)) % 360, x = 15 + ((h >> 4) % 70), y = 10 + ((h >> 13) % 60);
   return { background: `radial-gradient(90% 80% at ${x}% ${y}%, hsl(${a} 78% 58% / .95), transparent 62%), radial-gradient(70% 70% at ${100 - x}% ${100 - y}%, hsl(${b} 70% 45% / .8), transparent 65%), linear-gradient(135deg, hsl(${b} 40% 18%), hsl(${a} 45% 9%))` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
 /** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
@@ -158,7 +196,7 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
       <div className="card-in" style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 270 } as CSSProperties}>
         <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
           {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
-          <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+          <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}{!!trialOf(g) && <em className="price-trial">{trialLabel(trialOf(g), true)}</em>}</span>
           {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
           <span className="play-hint" aria-hidden="true" />
         </div>

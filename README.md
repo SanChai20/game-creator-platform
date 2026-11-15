@@ -19,11 +19,11 @@ A platform where people publish web games made with their own AI agent (Claude, 
 | Verifier | `src/verify-core.js`, `src/verify.ts` | Opens a deployed game in a real browser and decides whether it is playable |
 | Duplication check | `src/originality.js`, `src/originality-check.ts` | Before publishing: compares each verified version with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and libraries ignored) and refuses copies and uploads that are not games. Workers AI (`@cf/openai/gpt-oss-20b`) only reviews borderline cases, under a daily cap |
 | Open implementation | `src/implementation.js`, `src/implementations.ts` | Opt-in cards that tell other agents how a live game is built, written from facts about the build, never its code |
-| SDK | `web/public/sdk/gcp.js` | `GCP.ready()`, saves, leaderboards, rooms, test hooks. Injected into every game |
+| SDK | `web/public/sdk/gcp.js` | `GCP.ready()`, per-player saves and stats, the play record, leaderboards, rooms, test hooks. Injected into every game |
 | Hosted modules | `web/public/kits/v1/` | `@gcp/…` modules (procedural core, building blocks, loop, input, Three.js and canvas helpers, multiplayer) that published games already import. Still served at `/kits/v1/`; agents are no longer pointed at them |
 | Guides | `web/public/guides/` | The four platform guides served through MCP: the contract, versions and troubleshooting, saves, multiplayer. The older authoring guides stay readable at `/guides/` for existing games |
 | Templates | `web/public/templates/` | Starting points that pass verification, used by the end-to-end tests |
-| Web app | `web/src/` | Marketplace, game pages, creator console, earnings, admin console (React, English and 简体中文) |
+| Web app | `web/src/` | Marketplace, game pages, creator console, earnings, admin console (React, in English, 简体中文, 繁體中文, 日本語, 한국어 and Español; see `web/src/i18n/`) |
 | Schema | `migrations/` | D1 tables |
 | Tests | `tests/e2e.mjs` | End-to-end run against a local Worker with a mock Stripe |
 
@@ -47,10 +47,20 @@ Three rules, and nothing else is prescribed:
 
 Genre, art direction, engine and rendering technique are the creator's, and the platform neither prescribes nor scores them.
 
+## Player progress
+
+Every game gets per-player progress from the platform: cloud saves (`GCP.save`), player stats (`GCP.playerStats`) and a play record the platform keeps by itself (sessions, play time, first and last played, best scores; `GCP.playRecord()`). The rules live in `src/player-data.js` and are tested in `tests/player-data.mjs`:
+
+- The game, environment and player always come from the signed play token, checked against that game's own key. A request body cannot name another player or game.
+- Preview and live data are separate. The verifier plays under a throwaway identity (`verify:<session>`), cleaned up daily, so it never touches a creator's own saves.
+- Players see and reset their own progress on the game page (`/api/games/:slug/progress`). Creators get totals and averages through `game_data`, never one player's data.
+- The SDK's offline copy in `localStorage` is keyed by game, environment and player, so people sharing a browser stay apart.
+
 ## Money
 
 - **Creator license.** A one-time fee (default $30) to publish any number of games. Building and previewing are free.
 - **Free or paid games.** A creator sets a price or leaves the game free. Players pay the platform; the platform keeps its cut (default 10%) and credits the rest to the creator's balance after a holding period (default 7 days).
+- **Free trials.** A creator can let players try a paid game for a set number of minutes (console or `update_project trial_minutes`). The time is kept per player account on the server, counted by wall clock while the game is open, with at least 30 seconds charged per session, so reloading or switching devices does not reset it. A trial play token expires with the trial, after which saves, leaderboards, rooms and new sessions are refused and the game page asks the player to buy. Admins can switch trials off or cap their length.
 - **Withdrawals.** Once the available balance reaches the minimum (default $50), the creator withdraws to a bank account through Stripe Connect, or requests a manual payout that an administrator settles.
 - **Refunds** revoke access and reverse the creator's credit.
 

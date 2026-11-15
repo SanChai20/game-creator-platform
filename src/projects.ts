@@ -60,6 +60,17 @@ export async function updateProjectMeta(env: Env, p: Project, input: Record<stri
     }
     put('price_cents', price);
   }
+  if (input.trial_minutes !== undefined && input.trial_minutes !== null) {
+    const s = await getSettings(env), mins = Math.round(Number(input.trial_minutes));
+    if (!Number.isFinite(mins) || mins < 0) throw bad('trial_minutes must be 0 (no free trial) or a whole number of minutes.');
+    if (mins > 0) {
+      if (!s.trials_enabled) throw forbidden('Free trials are turned off on this platform. Set trial_minutes to 0.');
+      if (mins > s.trial_max_minutes) throw bad(`A free trial can be at most ${s.trial_max_minutes} minutes.`);
+      const price = input.price_cents !== undefined ? Math.round(Number(input.price_cents)) : p.price_cents;
+      if (!(price > 0)) throw bad('Only a paid game can have a free trial. Set a price first (price_cents), then the trial.');
+    }
+    put('trial_minutes', mins);
+  }
   if (!sets.length) return;
   put('updated_at', now());
   await env.DB.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, p.id).run();

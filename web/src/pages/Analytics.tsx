@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { ago, api, count, Fail, num, t, useData } from '../lib';
 import { Badge, Bars, Card, ChartBlock, EmptyState, Notice, PageHeader, Segmented, Share, Spinner, Stat, StatGrid, StatusBadge, Table, Tabs } from '../ui';
 
-const DEVICE: Record<string, [string, string]> = { phone: ['Phone', '手机'], tablet: ['Tablet', '平板'], desktop: ['Desktop', '桌面电脑'], other: ['Other', '其他'] };
-const LENGTH_ZH: Record<string, string> = { 'under 30 s': '30 秒以内', '30 s to 2 min': '30 秒至 2 分钟', '2 to 5 min': '2 至 5 分钟', '5 to 15 min': '5 至 15 分钟', '15 to 30 min': '15 至 30 分钟', 'over 30 min': '30 分钟以上' };
+const DEVICE: Record<string, () => string> = { phone: () => t('Phone', '手机'), tablet: () => t('Tablet', '平板'), desktop: () => t('Desktop', '桌面电脑'), other: () => t('Other', '其他') };
+const LENGTH: Record<string, () => string> = { 'under 30 s': () => t('under 30 s', '30 秒以内'), '30 s to 2 min': () => t('30 s to 2 min', '30 秒至 2 分钟'), '2 to 5 min': () => t('2 to 5 min', '2 至 5 分钟'), '5 to 15 min': () => t('5 to 15 min', '5 至 15 分钟'), '15 to 30 min': () => t('15 to 30 min', '15 至 30 分钟'), 'over 30 min': () => t('over 30 min', '30 分钟以上') };
 const mins = (m: number) => (m >= 120 ? `${num(m / 60)} ${t('h', '小时')}` : `${num(m)} ${t('min', '分钟')}`);
 const pct = (v: number) => `${v}%`;
 
@@ -51,9 +51,9 @@ export function Analytics({ id }: { id: string }) {
 
         {empty ? <Card pad><EmptyState title={t('No players yet in this window', '此时间段内还没有玩家')}>{p.status === 'live' ? t('Numbers appear here as soon as signed-in players open the live game. Your own plays and the verifier are not counted.', '已登录的玩家打开线上游戏后，这里就会出现数据。你本人的游玩和自动验证不计入。') : t('Publish the game to start collecting player numbers. Your own plays and the verifier are not counted.', '发布游戏后才会开始统计玩家数据。你本人的游玩和自动验证不计入。')}</EmptyState></Card> : <>
           <StatGrid>
-            <Stat label={t('Players', '玩家')} value={num(x.players)} sub={t(`${num(x.new_players)} new · ${num(x.returning_players)} returning`, `${num(x.new_players)} 新玩家 · ${num(x.returning_players)} 回访`)} />
-            <Stat label={t('Sessions', '会话')} value={num(x.sessions)} sub={t(`${x.sessions_per_player} per player · ${num(x.counted_plays)} counted plays`, `人均 ${x.sessions_per_player} 次 · ${num(x.counted_plays)} 次计入游玩`)} />
-            <Stat label={t('Time played', '游玩时长')} value={mins(x.minutes_played)} sub={t(`${x.avg_session_minutes} min average · ${x.median_session_minutes} min median`, `平均 ${x.avg_session_minutes} 分钟 · 中位 ${x.median_session_minutes} 分钟`)} />
+            <Stat label={t('Players', '玩家')} value={num(x.players)} sub={t('{new_players} new · {returning_players} returning', '{new_players} 新玩家 · {returning_players} 回访', { new_players: num(x.new_players), returning_players: num(x.returning_players) })} />
+            <Stat label={t('Sessions', '会话')} value={num(x.sessions)} sub={t('{sessions_per_player} per player · {counted_plays} counted plays', '人均 {sessions_per_player} 次 · {counted_plays} 次计入游玩', { sessions_per_player: x.sessions_per_player, counted_plays: num(x.counted_plays) })} />
+            <Stat label={t('Time played', '游玩时长')} value={mins(x.minutes_played)} sub={t('{avg_session_minutes} min average · {median_session_minutes} min median', '平均 {avg_session_minutes} 分钟 · 中位 {median_session_minutes} 分钟', { avg_session_minutes: x.avg_session_minutes, median_session_minutes: x.median_session_minutes })} />
             <Stat tone={x.error_session_share > 5 ? 'accent' : undefined} label={t('Sessions with errors', '出错的会话')} value={pct(x.error_session_share)} sub={`${count(x.sessions_with_errors, 'session', 'sessions', '个会话')} · ${num(x.never_started)} ${t('never started', '个未能启动')}`} />
           </StatGrid>
 
@@ -85,10 +85,10 @@ export function Analytics({ id }: { id: string }) {
                 <p className="dim fs-sm" style={{ marginTop: 12 }}>{t('Returning: played on an earlier day too.', '回访：此前某一天也玩过。')}</p>
               </Card>
               <Card title={t('Session length', '单次时长')} pad>
-                <Share items={data.session_lengths.map((b: any) => ({ name: t(b.label, LENGTH_ZH[b.label] || b.label), value: b.sessions, note: num(b.sessions) }))} />
+                <Share items={data.session_lengths.map((b: any) => ({ name: LENGTH[b.label]?.() || b.label, value: b.sessions, note: num(b.sessions) }))} />
               </Card>
               <Card title={t('Devices', '设备')} pad>
-                <Share items={data.devices.map((d: any) => ({ name: t(...(DEVICE[d.name] || [d.name, d.name])), value: d.sessions, note: `${pct(d.share)} · ${d.avg_minutes} ${t('min', '分钟')}` }))} />
+                <Share items={data.devices.map((d: any) => ({ name: DEVICE[d.name]?.() || d.name, value: d.sessions, note: `${pct(d.share)} · ${d.avg_minutes} ${t('min', '分钟')}` }))} />
               </Card>
               <Card title={t('Browsers', '浏览器')} pad>
                 <Share items={data.browsers.map((d: any) => ({ name: d.name, value: d.sessions, note: pct(d.share) }))} />

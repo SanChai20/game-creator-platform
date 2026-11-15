@@ -4,7 +4,7 @@
 // thousands of games: lists are paged, rows scroll sideways, and nothing assumes a fixed number of games.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { CountUp } from './ui/toon';
-import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, useLocation, Verdict, type GameCard } from './lib';
+import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[] }
@@ -87,7 +87,7 @@ export function SearchBox({ initial = '', autoFocus, big, hotkey, onSubmit }: { 
             </Link>
           ))}
           {!hits.length && <div className="sbox-none">{t('No games match yet.', '暂无匹配的游戏。')}</div>}
-          <button type="button" className="sbox-all" onClick={() => go(q.trim())}>{total ? t(`See all ${num(total)} results`, `查看全部 ${num(total)} 个结果`) : t('Search the whole catalogue', '在全部游戏中搜索')} <em aria-hidden="true">↵</em></button>
+          <button type="button" className="sbox-all" onClick={() => go(q.trim())}>{total ? t('See all {total} results', '查看全部 {total} 个结果', { total: num(total) }) : t('Search the whole catalogue', '在全部游戏中搜索')} <em aria-hidden="true">↵</em></button>
         </div>
       )}
     </div>
@@ -176,7 +176,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
               <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>
               <div><dt>{t('Played', '游玩')}</dt><dd className="num">{count(g.plays, 'time', 'times', '次')}{!!g.playing && <span className="live"> · {num(g.playing)} {t('now', '人在线')}</span>}</dd></div>
             </dl>
-            <div className="feat-buy"><span className="feat-price">{price(g.price_cents)}</span><span className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : `▶ ${t('Play free', '免费游玩')}`}</span></div>
+            <div className="feat-buy"><span className="feat-price">{price(g.price_cents)}</span>{!!trialOf(g) && <span className="trial-tag">{trialLabel(trialOf(g))}</span>}<span className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : `▶ ${t('Play free', '免费游玩')}`}</span></div>
           </div>
         </Link>
         <button type="button" className="feat-arrow r" onClick={() => step(1)} aria-label={t('Next', '下一个')}>›</button>
@@ -221,7 +221,7 @@ export function GameRow({ g, onFocus, active, rank }: { g: GameCard; onFocus?: (
         <span className="gr-tags">{g.tags.slice(0, 3).map((x) => <i key={x} style={hue(x)}>{genreName(x)}</i>)}</span>
       </span>
       <span className="gr-meta"><Verdict g={g} />{!!g.playing && <small className="live">{num(g.playing)} {t('playing', '人在玩')}</small>}{!g.playing && g.published_at && <small>{ago(g.published_at)}</small>}</span>
-      <span className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+      <span className="gr-buy">{!!trialOf(g) && <small className="gr-trial">{trialLabel(trialOf(g), true)}</small>}<span className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span></span>
     </Link>
   );
 }
@@ -298,7 +298,7 @@ export function Cartridge({ g }: { g: Genre }) {
       <span className="cart-art" aria-hidden="true">
         {covers.length ? covers.slice(0, 3).map((c, k) => <img key={k} src={c} alt="" loading="lazy" decoding="async" className={'c' + k} />) : <span className="cart-blank" />}
       </span>
-      <span className="cart-label"><b className="clip">{genreName(g.tag)}</b><small className="num">{num(g.n)} {t(g.n === 1 ? 'game' : 'games', '款')}</small></span>
+      <span className="cart-label"><b className="clip">{genreName(g.tag)}</b><small className="num">{num(g.n)} {g.n === 1 ? t('game', '款') : t('games', '款')}</small></span>
     </Link>
   );
 }
@@ -329,7 +329,7 @@ export function Since({ newCount, since }: { newCount: number; since: number | n
             </Link>))}</div>
         </div>
       )}
-      {newCount > 0 && since && <Link to={`/browse?sort=new&since=${since}`} className="since-new"><b className="num">{num(newCount)}</b><span>{t(newCount === 1 ? 'new game since your last visit' : 'new games since your last visit', '款新游戏，自你上次来访后上架')}</span><em aria-hidden="true">→</em></Link>}
+      {newCount > 0 && since && <Link to={`/browse?sort=new&since=${since}`} className="since-new"><b className="num">{num(newCount)}</b><span>{newCount === 1 ? t('new game since your last visit', '款新游戏，自你上次来访后上架') : t('new games since your last visit', '款新游戏，自你上次来访后上架')}</span><em aria-hidden="true">→</em></Link>}
     </div>
   );
 }
@@ -345,7 +345,7 @@ export function QueueBand({ pool }: { pool: GameCard[] }) {
       <span className="qband-fan" aria-hidden="true">{fan.map((g, k) => <span key={g.id} className={'q' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>)}</span>
       <span className="grow">
         <span className="eyebrow sig">{t('Your discovery queue', '你的探索队列')}</span>
-        <b>{left.length ? t(`${left.length} games you haven't opened yet`, `${left.length} 款你还没打开过的游戏`) : t('You have seen every pick. New ones arrive daily.', '推荐已全部看完，每天都有新游戏。')}</b>
+        <b>{left.length ? t('{n} games you haven\'t opened yet', '{n} 款你还没打开过的游戏', { n: left.length }) : t('You have seen every pick. New ones arrive daily.', '推荐已全部看完，每天都有新游戏。')}</b>
         <small>{t('One at a time, with the facts that matter. Skip what you do not fancy.', '一次一款，只看重点，不喜欢就跳过。')}</small>
       </span>
       <span className="btn btn-primary">{t('Start the queue', '开始探索')} →</span>
@@ -360,7 +360,7 @@ export function MoreLike({ tag, slug, n }: { tag?: string; slug: string; n?: str
     if (!tag) return;
     api<{ games: GameCard[] }>(`/games?tag=${encodeURIComponent(tag)}&limit=13&facets=0&sort=played`).then((r) => setGames(r.games.filter((g) => g.slug !== slug).slice(0, 12)), () => {});
   }, [tag, slug]);
-  return <Shelf n={n} title={t(`More ${genreName(tag || '')} games`, `更多${genreName(tag || '')}游戏`)} to={`/c/${encodeURIComponent(tag || '')}`} games={games} />;
+  return <Shelf n={n} title={t('More {tag} games', '更多{tag}游戏', { tag: genreName(tag || '') })} to={`/c/${encodeURIComponent(tag || '')}`} games={games} />;
 }
 /** "More from this creator" for a game page. */
 export function MoreFrom({ owner, author, slug, n }: { owner?: string; author: string; slug: string; n?: string }) {
@@ -369,7 +369,7 @@ export function MoreFrom({ owner, author, slug, n }: { owner?: string; author: s
     if (!owner) return;
     api<{ games: GameCard[] }>(`/games?by=${encodeURIComponent(owner)}&limit=13&facets=0&sort=played`).then((r) => setGames(r.games.filter((g) => g.slug !== slug).slice(0, 12)), () => {});
   }, [owner, slug]);
-  return <Shelf n={n} title={t(`More from ${author}`, `${author} 的更多作品`)} to={`/browse?by=${encodeURIComponent(owner || '')}&who=${encodeURIComponent(author)}`} games={games} />;
+  return <Shelf n={n} title={t('More from {author}', '{author} 的更多作品', { author })} to={`/browse?by=${encodeURIComponent(owner || '')}&who=${encodeURIComponent(author)}`} games={games} />;
 }
 
 // ---- paging -------------------------------------------------------------------------------------
@@ -384,7 +384,7 @@ export function Pager({ page, pages, href, onPage }: { page: number; pages: numb
     <nav className="pager" aria-label={t('Pages', '分页')}>
       {page > 1 ? go(page - 1, 'pg pg-step', <>‹ {t('Prev', '上一页')}</>) : <span className="pg pg-step off">‹ {t('Prev', '上一页')}</span>}
       <span className="pg-nums">{out.map((p) => typeof p === 'string' ? <span key={p} className="pg-gap">…</span> : p === page ? <span key={p} className="pg on" aria-current="page">{p}</span> : go(p, 'pg', p))}</span>
-      <span className="pg-of">{t(`Page ${page} of ${num(pages)}`, `第 ${page} / ${num(pages)} 页`)}</span>
+      <span className="pg-of">{t('Page {page} of {pages}', '第 {page} / {pages} 页', { page, pages: num(pages) })}</span>
       {page < pages ? go(page + 1, 'pg pg-step', <>{t('Next', '下一页')} ›</>) : <span className="pg pg-step off">{t('Next', '下一页')} ›</span>}
     </nav>
   );

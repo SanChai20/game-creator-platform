@@ -293,3 +293,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
   mask-image: radial-gradient(60% 70% at 30% 40%, #000, transparent 75%); -webkit-mask-image: radial-gradient(60% 70% at 30% 40%, #000, transparent 75%); }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* CJK: the tight negative tracking that suits Oxanium crowds Han, kana and Hangul, so headings and figures go back to 0.
+   Korean breaks between words, not inside them. */
+/* Tracking is a Latin device (HUD labels, tight display heads); spaced-out Han, kana and Hangul reads as separate
+   characters, so CJK pages drop it everywhere. Japanese headings break between phrases, not inside a word. */
+:root:is(:lang(zh), :lang(ja), :lang(ko)) * { letter-spacing: 0 !important; }
+:root:lang(ja) :is(h1, h2, h3, h4) { word-break: auto-phrase; }
+:root:lang(ko) body { word-break: keep-all; overflow-wrap: break-word; }

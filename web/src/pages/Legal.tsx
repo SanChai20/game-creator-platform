@@ -22,7 +22,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
   const body: Record<LegalDoc, ReactNode> = {
     terms: <>
       <S h={t('Using the platform', '使用本平台')}>
-        <p>{t(`${brand} hosts web games made by creators with their own AI agents, and lets players find, play, rate and buy them. By creating an account or playing a game you agree to these terms.`, `${brand} 托管由创作者借助自己的 AI 智能体制作的网页游戏，玩家可以在这里发现、游玩、评价和购买游戏。创建账户或游玩游戏即表示你同意本条款。`)}</p>
+        <p>{t('{brand} hosts web games made by creators with their own AI agents, and lets players find, play, rate and buy them. By creating an account or playing a game you agree to these terms.', '{brand} 托管由创作者借助自己的 AI 智能体制作的网页游戏，玩家可以在这里发现、游玩、评价和购买游戏。创建账户或游玩游戏即表示你同意本条款。', { brand })}</p>
         <p>{t('You must be old enough to agree to these terms where you live, keep your sign-in safe, and tell us if you think someone else is using your account.', '你需要达到所在地区同意本条款的法定年龄，妥善保管登录方式，并在怀疑账户被他人使用时通知我们。')}</p>
       </S>
       <S h={t('Creators and their games', '创作者与游戏')}>
@@ -30,7 +30,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         <p>{t('Only web games are accepted. A creator must own or have permission for everything in a game, and may not publish copies of other creators\' games, malware, or anything unlawful or harmful. Games that break these rules can be taken offline.', '平台仅接受网页游戏。创作者必须拥有或已获授权使用游戏中的全部内容，不得发布其他创作者游戏的副本、恶意软件或任何违法、有害的内容。违反规则的游戏可能会被下线。')}</p>
       </S>
       <S h={t('Payments and earnings', '付款与收益')}>
-        <p>{t(`Players pay the platform. The platform keeps ${fee}% of each sale and credits the rest to the creator, available to withdraw after ${hold} days once the balance reaches ${usd(min)}. Payments and payouts are processed by Stripe.`, `玩家向平台付款。平台从每笔销售中收取 ${fee}%，其余部分计入创作者余额，${hold} 天后且余额达到 ${usd(min)} 即可提现。付款与提现由 Stripe 处理。`)}</p>
+        <p>{t('Players pay the platform. The platform keeps {fee}% of each sale and credits the rest to the creator, available to withdraw after {days} days once the balance reaches {min}. Payments and payouts are processed by Stripe.', '玩家向平台付款。平台从每笔销售中收取 {fee}%，其余部分计入创作者余额，{days} 天后且余额达到 {min} 即可提现。付款与提现由 Stripe 处理。', { fee, days: hold, min: usd(min) })}</p>
       </S>
       <S h={t('Players', '玩家')}>
         <p>{t('A purchase gives you a personal licence to play the game on this platform, not ownership of it. Reviews must be honest and about the game.', '购买即获得在本平台游玩该游戏的个人许可，而非游戏的所有权。评价必须真实且与游戏相关。')}</p>
@@ -79,7 +79,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
       </S>
       <S h={t('What happens next', '之后会怎样')}>
         <p>{t('A refund goes back to the card or account you paid with, through Stripe. It removes your access to the game, and the creator\'s share of that sale is taken back from their balance.', '退款将通过 Stripe 原路退回你付款时使用的银行卡或账户。退款后你将失去该游戏的访问权限，创作者在该笔销售中的分成也会从其余额中扣回。')}</p>
-        <p>{t(`Creators' earnings are held for ${hold} days before they can be withdrawn, so most refunds are settled before any money leaves the platform.`, `创作者的收益在可提现前会冻结 ${hold} 天，因此大多数退款会在资金离开平台前处理完毕。`)}</p>
+        <p>{t('Creators\' earnings are held for {days} days before they can be withdrawn, so most refunds are settled before any money leaves the platform.', '创作者的收益在可提现前会冻结 {days} 天，因此大多数退款会在资金离开平台前处理完毕。', { days: hold })}</p>
       </S>
       <S h={t('Your rights', '你的权利')}>
         <p>{t('Nothing here limits the rights consumer law gives you where you live.', '本政策不限制你所在地区消费者保护法赋予你的任何权利。')}</p>
@@ -88,7 +88,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
   };
   return (
     <div className="wrap page legal">
-      <PageHeader eyebrow={t('Legal', '法律信息')} title={legalTitle(doc)} sub={t(`Last updated ${UPDATED}`, `最后更新：${UPDATED}`)} />
+      <PageHeader eyebrow={t('Legal', '法律信息')} title={legalTitle(doc)} sub={t('Last updated {date}', '最后更新：{date}', { date: UPDATED })} />
       <Tabs active={doc} items={LEGAL_DOCS.map((d) => ({ key: d, to: `/legal/${d}`, label: legalTitle(d) }))} />
       <article className="legal-body">{body[doc]}</article>
     </div>
