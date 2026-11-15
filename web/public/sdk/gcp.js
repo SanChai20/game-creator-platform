@@ -159,7 +159,8 @@
   setInterval(beat, 15000);
   window.addEventListener('pagehide', function () { beat(true); });
 
-  function lsKey(k) { return 'gcp:' + cfg.gameId + ':' + k; }
+  // The offline copy is kept per game, environment and player, so two people who share a browser never see each other's saves.
+  function lsKey(k) { return 'gcp:' + cfg.gameId + ':' + cfg.env + ':' + (cfg.player && cfg.player.id || 'anon') + ':' + k; }
   var LS = { get: function (k) { try { var v = localStorage.getItem(lsKey(k)); return v == null ? null : JSON.parse(v); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(lsKey(k), JSON.stringify(v)); } catch (e) { /* private mode */ } }, del: function (k) { try { localStorage.removeItem(lsKey(k)); } catch (e) { /* ignore */ } } };
 
   function Room(code, opts) {
@@ -264,6 +265,17 @@
       set: function (key, value) { LS.set(key, value); return api('save', { op: 'set', key: key, value: value }).then(function () { return true; }).catch(function () { return false; }); },
       remove: function (key) { LS.del(key); return api('save', { op: 'delete', key: key }).then(function () { return true; }).catch(function () { return false; }); },
     },
+    /** Named numbers kept per player and game: add (default +1), max, min, set. Each resolves to the stored value, or null offline. */
+    playerStats: {
+      add: function (name, n) { return api('stats', { op: 'add', name: name, value: n == null ? 1 : +n }).then(function (r) { return r.value; }).catch(function () { return null; }); },
+      max: function (name, v) { return api('stats', { op: 'max', name: name, value: +v }).then(function (r) { return r.value; }).catch(function () { return null; }); },
+      min: function (name, v) { return api('stats', { op: 'min', name: name, value: +v }).then(function (r) { return r.value; }).catch(function () { return null; }); },
+      set: function (name, v) { return api('stats', { op: 'set', name: name, value: +v }).then(function (r) { return r.value; }).catch(function () { return null; }); },
+      get: function (name) { return api('stats', { op: 'get', name: name }).then(function (r) { return r.value; }).catch(function () { return null; }); },
+      all: function () { return api('stats', { op: 'all' }).then(function (r) { return r.stats; }).catch(function () { return {}; }); },
+    },
+    /** What the platform recorded for this player in this game: sessions, play seconds, first and last played, stats, best scores. */
+    playRecord: function () { return api('record', {}).catch(function () { return null; }); },
     /** Game-wide data every player can read. Written only by the game's server code. */
     shared: { get: function (key) { return api('save', { op: 'get', key: key, shared: true }).then(function (r) { return r.value; }).catch(function () { return null; }); } },
     leaderboard: {

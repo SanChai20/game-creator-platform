@@ -8,18 +8,18 @@ import { owns } from '../earnings';
 import { TRIAL_MIN_CHARGE_S, trialCharge } from '../trials';
 import { clamp, dayOf, now, safeEqual } from '../util';
 // @ts-ignore plain JS module
-import { verifyPlayToken } from '../runtime/game-worker.js';
+import { DataError, authToken, playRecordStmt, playerOf, playerSummary, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 
 interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'player' | 'owner' | 'verify'; s: string; x: number; tr?: 1 }
 
 // The token names its own game and environment; the signature is checked against that game's key.
+// Every per-player read and write below takes the game, environment and player from this token, never from the request body.
 async function authAny(env: Env, token: unknown): Promise<Tok> {
-  let body: Tok | null = null;
-  try { body = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(token).split('.')[0].replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)))); } catch { /* invalid */ }
-  if (!body || !/^[a-z0-9]{6,16}$/.test(String(body.g))) throw new AppError(401, 'Play session expired. Reopen the game from its page.', 'bad_token');
-  const ok = await verifyPlayToken(token, await playKey(env, body.g), body.g, body.e);
-  if (!ok) throw new AppError(401, 'Play session expired. Reopen the game from its page.', 'bad_token');
-  return ok as Tok;
+  return guard(() => authToken(token, (g: string) => playKey(env, g)));
+}
+async function guard<T>(fn: () => Promise<T>): Promise<T> {
+  try { return await fn(); }
+  catch (e) { if (e instanceof DataError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; }
 }
 
 // A free-trial token works for the platform services only while the player's trial has time left (or once they bought the game).
@@ -40,8 +40,6 @@ async function authPlay(env: Env, token: unknown): Promise<Tok> {
   return tok;
 }
 
-const MAX_VALUE = 256 * 1024;
-const keyOk = (k: unknown): k is string => typeof k === 'string' && k.length > 0 && k.length <= 120;
 
 export const rt = new Hono<{ Bindings: Env }>();
 
@@ -76,6 +74,8 @@ rt.post('/beat', async (c) => {
     );
     if (becameCounted) stmts.push(env.DB.prepare('UPDATE plays SET counted = 1 WHERE id = ?').bind(play.id));
   }
+  const rec = playRecordStmt(env.DB, play, delta, !!b.first, t);   // the player's own record for this game (none for the verifier)
+  if (rec) stmts.push(rec);
   // A creator playing their own preview cleanly, in a real browser, qualifies the version when the automated browser cannot.
   if (play.kind === 'owner' && play.env === 'preview' && total >= s.verify_human_min_seconds && nerr === 0) {
     stmts.push(env.DB.prepare('UPDATE versions SET human_ok = 1 WHERE project_id = ? AND n = ? AND human_ok = 0').bind(play.project_id, play.version));
@@ -101,36 +101,32 @@ rt.post('/beat', async (c) => {
 
 rt.post('/save', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
-  if (!keyOk(b.key)) throw bad('key must be a string of 1–120 characters.');
-  const owner = b.shared ? '' : tok.u, scope = `${tok.g}${tok.e === 'preview' ? ':preview' : ''}`;
-  if (b.op === 'get') {
-    const r = await c.env.DB.prepare('SELECT v FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).first<{ v: string }>();
-    return c.json({ value: r ? JSON.parse(r.v) : null });
-  }
-  if (b.shared) throw new AppError(403, 'Shared data is written by game server code only.');
-  if (b.op === 'set') {
-    const v = JSON.stringify(b.value ?? null);
-    if (v.length > MAX_VALUE) throw bad('Value too large (256 KB max per key).');
-    const n = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM saves WHERE project_id = ? AND user_id = ?').bind(scope, owner).first<{ n: number }>();
-    if ((n?.n || 0) >= 64) throw bad('Too many save keys (64 max per player).');
-    await c.env.DB.prepare('INSERT INTO saves (project_id, user_id, k, v, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at').bind(scope, owner, b.key, v, now()).run();
-    return c.json({ ok: true });
-  }
-  if (b.op === 'delete') { await c.env.DB.prepare('DELETE FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).run(); return c.json({ ok: true }); }
-  throw bad('op must be get, set or delete.');
+  return c.json(await guard(() => saveOp(c.env.DB, tok, b, now())));
+});
+
+// GCP.playerStats: named numbers per player and game.
+rt.post('/stats', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  return c.json(await guard(() => statOp(c.env.DB, tok, b, now())));
+});
+
+// GCP.playRecord(): what the platform recorded for this player in this game.
+rt.post('/record', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  return c.json(await playerSummary(c.env.DB, scopeOf(tok.g, tok.e), playerOf(tok)));
 });
 
 rt.post('/score', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
-  const board = String(b.board || 'default').slice(0, 40), asc = b.order === 'asc', scope = `${tok.g}${tok.e === 'preview' ? ':preview' : ''}`;
+  const board = String(b.board || 'default').slice(0, 40), asc = b.order === 'asc', scope = scopeOf(tok.g, tok.e), me = playerOf(tok);
   if (b.op === 'submit') {
     const score = Number(b.score);
     if (!Number.isFinite(score)) throw bad('score must be a number.');
-    if (tok.k !== 'verify') await c.env.DB.prepare(`INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, board, user_id) DO UPDATE SET score = ${asc ? 'MIN' : 'MAX'}(score, excluded.score), name = excluded.name, updated_at = excluded.updated_at`).bind(scope, board, tok.u, tok.n, score, now()).run();
-    const mine = await c.env.DB.prepare('SELECT score FROM scores WHERE project_id = ? AND board = ? AND user_id = ?').bind(scope, board, tok.u).first<{ score: number }>();
+    if (tok.k !== 'verify') await c.env.DB.prepare(`INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, board, user_id) DO UPDATE SET score = ${asc ? 'MIN' : 'MAX'}(score, excluded.score), name = excluded.name, updated_at = excluded.updated_at`).bind(scope, board, me, tok.n, score, now()).run();
+    const mine = await c.env.DB.prepare('SELECT score FROM scores WHERE project_id = ? AND board = ? AND user_id = ?').bind(scope, board, me).first<{ score: number }>();
     return c.json({ ok: true, best: mine?.score ?? score });
   }
-  const rows = await c.env.DB.prepare(`SELECT name, score, user_id = ?4 AS me FROM scores WHERE project_id = ?1 AND board = ?2 ORDER BY score ${asc ? 'ASC' : 'DESC'} LIMIT ?3`).bind(scope, board, clamp(Number(b.limit) || 10, 1, 100), tok.u).all();
+  const rows = await c.env.DB.prepare(`SELECT name, score, user_id = ?4 AS me FROM scores WHERE project_id = ?1 AND board = ?2 ORDER BY score ${asc ? 'ASC' : 'DESC'} LIMIT ?3`).bind(scope, board, clamp(Number(b.limit) || 10, 1, 100), me).all();
   return c.json({ rows: rows.results });
 });
 
@@ -138,21 +134,8 @@ rt.post('/score', async (c) => {
 rt.post('/server-store', async (c) => {
   const g = c.req.header('x-gcp-game') || '', e = c.req.header('x-gcp-env') || 'live';
   if (!/^[a-z0-9]{6,16}$/.test(g) || !safeEqual(c.req.header('x-gcp-key') || '', await playKey(c.env, g))) throw new AppError(401, 'Bad game key.');
-  const b = await body(c), scope = `${g}${e === 'preview' ? ':preview' : ''}`, owner = String(b.player || '');
-  if (b.op === 'list') {
-    const rows = await c.env.DB.prepare("SELECT k FROM saves WHERE project_id = ? AND user_id = ? AND k LIKE ? ESCAPE '\\' ORDER BY k LIMIT 500").bind(scope, owner, String(b.prefix || '').replace(/[\\%_]/g, '\\$&') + '%').all<{ k: string }>();
-    return c.json({ keys: rows.results.map((r) => r.k) });
-  }
-  if (!keyOk(b.key)) throw bad('key must be a string of 1–120 characters.');
-  if (b.op === 'get') { const r = await c.env.DB.prepare('SELECT v FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).first<{ v: string }>(); return c.json({ value: r ? JSON.parse(r.v) : null }); }
-  if (b.op === 'set') {
-    const v = JSON.stringify(b.value ?? null);
-    if (v.length > MAX_VALUE) throw bad('Value too large (256 KB max per key).');
-    await c.env.DB.prepare('INSERT INTO saves (project_id, user_id, k, v, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at').bind(scope, owner, b.key, v, now()).run();
-    return c.json({ ok: true });
-  }
-  if (b.op === 'delete') { await c.env.DB.prepare('DELETE FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).run(); return c.json({ ok: true }); }
-  throw bad('op must be get, set, delete or list.');
+  const b = await body(c);
+  return c.json(await guard(() => serverStoreOp(c.env.DB, g, e, b, now())));
 });
 
 rt.get('/room', async (c) => {

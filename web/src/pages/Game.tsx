@@ -28,6 +28,32 @@ export function Stage({ poster, seed, url, children, onTrialOver }: { poster: st
   );
 }
 
+/** The signed-in player's own progress in this game: what the platform recorded and what the game saved. Never anyone else's. */
+function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
+  const { act, busy } = useAct();
+  const { data, reload } = useData<any>(`/games/${encodeURIComponent(slug)}/progress`);
+  const [sure, setSure] = useState(false);
+  useEffect(() => { if (!playing) void reload(); }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data || (!data.sessions && !data.saves.keys && !Object.keys(data.stats).length)) return null;
+  const stats = Object.entries(data.stats as Record<string, number>).slice(0, 8), best = Object.entries(data.best as Record<string, number>).slice(0, 4);
+  const reset = () => act('reset', async () => { await api(`/games/${encodeURIComponent(slug)}/progress`, { method: 'DELETE' }); setSure(false); await reload(); }, t('Your progress in this game was reset.', '你在这款游戏中的进度已重置。'));
+  return (
+    <Card title={t('Your progress', '你的进度')} aside={<span className="dim fs-sm">{t('Only you see this', '仅你可见')}</span>} pad>
+      <KeyValue items={[
+        [t('Sessions', '游玩次数'), num(data.sessions)],
+        [t('Time played', '游玩时长'), playTime(data.seconds)],
+        [t('Last played', '上次游玩'), ago(data.last_played)],
+        [t('Saved game', '存档'), data.saves.keys ? `${t('Saved', '已保存')} · ${ago(data.saves.last_saved)}` : '—'],
+        ...best.map(([k, v]) => [`${t('Best', '最佳')} · ${k}`, <span className="mono">{num(v)}</span>] as [string, ReactNode]),
+        ...stats.map(([k, v]) => [k.replace(/[_-]+/g, ' '), <span className="mono">{num(v)}</span>] as [string, ReactNode]),
+      ]} />
+      {(data.saves.keys > 0 || stats.length > 0 || best.length > 0) && (sure
+        ? <div className="row"><span className="mute fs-sm grow">{t('Delete your saves, stats and scores in this game?', '删除你在这款游戏中的存档、统计和分数？')}</span><Button size="sm" variant="ghost" onClick={() => setSure(false)}>{t('Cancel', '取消')}</Button><Button size="sm" onClick={reset} disabled={busy === 'reset'}>{t('Reset', '重置')}</Button></div>
+        : <div><Button size="sm" variant="ghost" onClick={() => setSure(true)}>{t('Reset my progress', '重置我的进度')}</Button></div>)}
+    </Card>
+  );
+}
+
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
@@ -169,6 +195,7 @@ export function Game({ slug }: { slug: string }) {
               <Stat label={t('Time played', '累计时长')} value={playTime(g.minutes * 60)} />
               <Stat label={t('Rating', '评分')} value={g.rating != null ? `★ ${g.rating.toFixed(1)}` : '—'} />
             </StatGrid>
+            {user && live && <MyProgress slug={slug} playing={!!url} />}
             <Card title={t('What players think', '玩家怎么看')} aside={count(g.rating_count, 'rating', 'ratings', '个评分')} pad>
               <div className="dist">{[5, 4, 3, 2, 1].map((n) => <div key={n}><span>{n}★</span><i><b style={{ width: `${total ? (data.rating_dist[n - 1] / total) * 100 : 0}%` }} /></i><span className="num">{data.rating_dist[n - 1]}</span></div>)}</div>
             </Card>
