@@ -19,7 +19,7 @@ export function Categories() {
       <header className="browse-h">
         <nav className="crumbs" aria-label={t('Breadcrumb', '导航路径')}><Link to="/">{t('Store', '商店')}</Link><i>/</i><span>{t('Categories', '分类')}</span></nav>
         <div className="row wrapx" style={{ alignItems: 'flex-end' }}>
-          <div className="grow wide"><h1>{t('All categories', '全部分类')}</h1><p className="mute">{genres.length ? t(`${genres.length} genres, biggest first. Each one has its own page.`, `共 ${genres.length} 个类型，按游戏数量排序，每个都有独立页面。`) : ' '}</p></div>
+          <div className="grow wide"><h1>{t('All categories', '全部分类')}</h1><p className="mute">{genres.length ? t('{n} genres, biggest first. Each one has its own page.', '共 {n} 个类型，按游戏数量排序，每个都有独立页面。', { n: genres.length }) : ' '}</p></div>
           <input className="input cats-find" type="search" placeholder={t('Find a category', '查找分类')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Find a category', '查找分类')} />
         </div>
       </header>
@@ -71,10 +71,10 @@ export function Category({ tag }: { tag: string }) {
         </div>
       </section>
       <div className="wrap">
-        <Shelf n="01" title={t(`Top rated in ${name}`, `${name} 好评榜`)} to={`/c/${encodeURIComponent(tag)}?sort=top`} games={top} rank />
-        <Shelf n="02" title={t(`New in ${name}`, `${name} 新上架`)} to={`/c/${encodeURIComponent(tag)}?sort=new`} games={fresh} />
+        <Shelf n="01" title={t('Top rated in {name}', '{name} 好评榜', { name })} to={`/c/${encodeURIComponent(tag)}?sort=top`} games={top} rank />
+        <Shelf n="02" title={t('New in {name}', '{name} 新上架', { name })} to={`/c/${encodeURIComponent(tag)}?sort=new`} games={fresh} />
         <section className="cat-all" id="all">
-          <header className="sh"><span className="sh-n" aria-hidden="true">03</span><div className="grow"><h2>{t(`Every ${name} game`, `全部${name}游戏`)}</h2><p>{t('Filter, sort and page through all of them.', '筛选、排序，逐页浏览全部游戏。')}</p></div></header>
+          <header className="sh"><span className="sh-n" aria-hidden="true">03</span><div className="grow"><h2>{t('Every {name} game', '全部{name}游戏', { name })}</h2><p>{t('Filter, sort and page through all of them.', '筛选、排序，逐页浏览全部游戏。')}</p></div></header>
           <Catalogue pinned={tag} base={`/c/${encodeURIComponent(tag)}`} genres={data?.related} />
         </section>
       </div>

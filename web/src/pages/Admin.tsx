@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pager } from '../store';
-import { ago, api, date, dateTime, Fail, Link, num, playTime, series, t, usd, useAct, useApp, useData, count } from '../lib';
+import { ago, api, date, dateTime, Fail, Link, num, playTime, series, t, tr, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Spinner, Stat, StatGrid, StatusBadge, Switch, Table, Tabs } from '../ui';
 
 const tabs = (): [string, string][] => [['overview', t('Overview', '概览')], ['settings', t('Settings', '参数设置')], ['users', t('Users', '用户')], ['games', t('Games', '游戏')], ['money', t('Money', '资金')]];
@@ -66,19 +66,20 @@ function Settings() {
     const out: Record<string, unknown> = {};
     for (const [k, raw] of Object.entries(draft)) {
       const d = data!.defs[k];
-      if (d.type === 'bool' || d.type === 'text') out[k] = raw;
-      else { const n = Number(raw); if (!Number.isFinite(n)) throw new Error(`${d.label}: ${t('enter a number', '请输入数字')}`); out[k] = d.type === 'cents' ? Math.round(n * 100) : d.type === 'int' ? Math.round(n) : n; }
+      if (d.type === 'bool' || d.type === 'text' || d.type === 'select') out[k] = raw;
+      else { const n = Number(raw); if (!Number.isFinite(n)) throw new Error(`${tr(d.label)}: ${t('enter a number', '请输入数字')}`); out[k] = d.type === 'cents' ? Math.round(n * 100) : d.type === 'int' ? Math.round(n) : n; }
     }
     await api('/admin/settings', { method: 'PUT', body: out }); await reload(); await refresh();
   }, t('Settings saved.', '设置已保存。'));
   return (
     <div className="stack l" style={{ maxWidth: 900 }}>
       {groups.map(([group, keys]) => (
-        <Card key={group} title={group}>
+        <Card key={group} title={tr(group)}>
           {keys.map((k) => { const d = data!.defs[k], v = show(k), changed = k in draft; return (
             <label className="set-row" key={k}>
-              <div><b>{d.label}</b><div className="dim mono fs-xs">{k}{changed && <span className="sig"> · {t('changed', '已修改')}</span>}</div></div>
+              <div><b>{tr(d.label)}</b>{d.help && <div className="mute fs-sm">{tr(d.help)}</div>}<div className="dim mono fs-xs">{k}{changed && <span className="sig"> · {t('changed', '已修改')}</span>}</div></div>
               {d.type === 'bool' ? <Switch checked={v as boolean} onChange={(e) => setDraft({ ...draft, [k]: e.target.checked })} />
+                : d.type === 'select' ? <select className="input" value={v as string} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>{(d.options || []).map((o: string) => <option key={o} value={o}>{tr(o)}</option>)}</select>
                 : <div className="row">{d.type === 'cents' && <span className="mute">$</span>}<Input mono={d.type !== 'text'} inputMode={d.type === 'text' ? 'text' : 'decimal'} value={v as string} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} /></div>}
             </label>); })}
         </Card>
@@ -94,7 +95,7 @@ function useSearch(base: string) {
   useEffect(() => { const i = setTimeout(() => { setApplied(q); setPage(1); }, 300); return () => clearTimeout(i); }, [q]);
   const d = useData<any>(`${base}?q=${encodeURIComponent(applied)}&page=${page}`);
   const pages = d.data ? Math.max(1, Math.ceil(d.data.total / d.data.per_page)) : 1;
-  const pager = d.data && pages > 1 ? <div className="list-foot"><span className="dim fs-sm">{t(`${num(d.data.total)} in all`, `共 ${num(d.data.total)} 条`)}</span><Pager page={page} pages={pages} onPage={(p) => { setPage(p); scrollTo({ top: 0 }); }} /></div> : null;
+  const pager = d.data && pages > 1 ? <div className="list-foot"><span className="dim fs-sm">{t('{total} in all', '共 {total} 条', { total: num(d.data.total) })}</span><Pager page={page} pages={pages} onPage={(p) => { setPage(p); scrollTo({ top: 0 }); }} /></div> : null;
   return { q, setQ, pager, ...d };
 }
 
@@ -102,7 +103,7 @@ function Users() {
   const { user: me } = useApp(), { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/users');
   const patch = (id: string, body: Record<string, unknown>, msg: string) => act(id, async () => { await api(`/admin/users/${id}`, { method: 'PATCH', body }); await reload(); }, msg);
   const adjust = (u: any) => {
-    const raw = prompt(t(`Adjust the balance of ${u.email} by how many dollars? Use a minus sign to deduct.`, `将 ${u.email} 的余额调整多少美元？扣减请加负号。`)); if (!raw) return;
+    const raw = prompt(t('Adjust the balance of {email} by how many dollars? Use a minus sign to deduct.', '将 {email} 的余额调整多少美元？扣减请加负号。', { email: u.email })); if (!raw) return;
     const n = Math.round(parseFloat(raw) * 100); if (!Number.isFinite(n) || n === 0) return;
     void patch(u.id, { adjust_cents: n, note: prompt(t('Note shown to the user', '向用户显示的备注')) || undefined }, t('Balance adjusted.', '余额已调整。'));
   };
@@ -134,7 +135,7 @@ function Users() {
 function Games() {
   const { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/games');
   const patch = (id: string, body: Record<string, unknown>, msg: string) => act(id, async () => { await api(`/admin/games/${id}`, { method: 'PATCH', body }); await reload(); }, msg);
-  const remove = (g: any) => { const reason = prompt(t(`Remove "${g.title}" from the platform? Give the reason shown to its creator.`, `确定将《${g.title}》从平台移除吗？请填写向创作者显示的原因。`)); if (reason !== null) void patch(g.id, { action: 'remove', reason }, t('Game removed.', '游戏已移除。')); };
+  const remove = (g: any) => { const reason = prompt(t('Remove "{title}" from the platform? Give the reason shown to its creator.', '确定将《{title}》从平台移除吗？请填写向创作者显示的原因。', { title: g.title })); if (reason !== null) void patch(g.id, { action: 'remove', reason }, t('Game removed.', '游戏已移除。')); };
   return (
     <div className="stack l">
       <div className="admin-tools"><SearchInput placeholder={t('Search by title, address or creator email', '按标题、地址或创作者邮箱搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -169,7 +170,7 @@ function Money() {
     const note = prompt(action === 'paid' ? t('Reference for this payment (for your records)', '本次打款的参考编号（用于留档）') : t('Reason shown to the creator', '向创作者显示的原因')); if (note === null) return;
     void act(w.id, async () => { await api(`/admin/withdrawals/${w.id}`, { body: { action, note } }); await reload(); }, action === 'paid' ? t('Marked as paid.', '已标记为已打款。') : t('Rejected. The balance was returned.', '已拒绝，余额已退回。'));
   };
-  const refund = (x: any) => { if (confirm(t(`Refund ${usd(x.price_cents)} to ${x.buyer}? Access is revoked and the creator's credit is reversed.`, `确定向 ${x.buyer} 退款 ${usd(x.price_cents)} 吗？对方将失去访问权限，创作者的相应收益也会被冲回。`))) void act(x.id, async () => { await api(`/admin/purchases/${x.id}/refund`, { method: 'POST' }); await reload(); }, t('Refunded.', '已退款。')); };
+  const refund = (x: any) => { if (confirm(t('Refund {price} to {buyer}? Access is revoked and the creator\'s credit is reversed.', '确定向 {buyer} 退款 {price} 吗？对方将失去访问权限，创作者的相应收益也会被冲回。', { price: usd(x.price_cents), buyer: x.buyer }))) void act(x.id, async () => { await api(`/admin/purchases/${x.id}/refund`, { method: 'POST' }); await reload(); }, t('Refunded.', '已退款。')); };
   const doGrant = () => act('grant', async () => { await api('/admin/grant-game', { body: grant }); setGrant({ email: '', slug: '' }); await reload(); }, t('Access granted.', '已授予访问权限。'));
   const waiting = data.withdrawals.filter((w: any) => w.status === 'pending');
   return (

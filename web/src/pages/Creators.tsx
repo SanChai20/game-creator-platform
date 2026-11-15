@@ -15,7 +15,7 @@ export function ConnectAgent() {
     headless: { name: t('No browser', '无浏览器'), code: `curl -s -X POST ${config.origin}/oauth/device -d client_name=my-agent`, steps: [
       t('For agents in a sandbox, on a server or in CI that cannot open a sign-in window. The agent runs this and receives a short code and a link.', '适用于运行在沙箱、服务器或 CI 中、无法打开登录窗口的智能体。智能体执行此请求后会得到一个短验证码和一个链接。'),
       t('It shows you the link. Open it in any browser, sign in and choose Allow.', '智能体会把链接显示给你。在任意浏览器中打开，登录并选择允许。'),
-      t('Meanwhile the agent asks the token endpoint every 5 seconds and receives an access token that expires. The response to the first request spells out each step, so you can simply tell your agent: "connect to ' + url + '".', '与此同时，智能体每 5 秒向令牌端点询问一次，随后获得会过期的访问令牌。第一次请求的响应会写明每一步，所以你只需对智能体说：“连接 ' + url + '”。'),
+      t('Meanwhile the agent asks the token endpoint every 5 seconds and receives an access token that expires. The response to the first request spells out each step, so you can simply tell your agent: "connect to {url}".', '与此同时，智能体每 5 秒向令牌端点询问一次，随后获得会过期的访问令牌。第一次请求的响应会写明每一步，所以你只需对智能体说：“连接 {url}”。', { url }),
     ] },
     other: { name: t('Any other agent', '其他智能体'), code: url, steps: [t('Add a remote MCP server (Streamable HTTP) with this address. The agent discovers the OAuth sign-in by itself.', '添加一个远程 MCP 服务器（Streamable HTTP）并填入此地址，智能体会自动发现 OAuth 登录流程。')] },
   };

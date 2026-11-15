@@ -26,16 +26,34 @@ export const chart = {
   grid: color.line, axis: color.text3, label: color.text2, empty: color.bg4,
 } as const;
 
-const cjk = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
-export const font = {
-  // Oxanium: squared, cut corners, like the cartridges. The brand (page titles, heavy) and display (heads, figures) face.
-  brand: `"Oxanium", "IBM Plex Sans", ui-sans-serif, system-ui, ${cjk}`,
-  display: `"Oxanium", "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, ${cjk}`,
-  // IBM Plex Sans: engineered and readable at small sizes, for everything people read.
-  sans: `"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", ${cjk}`,
-  // Martian Mono: a wide terminal face for HUD labels, figures in tables, and code.
-  mono: '"Martian Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace',
+// CJK faces per language, so Han characters take the right regional shapes (骨 and 直 differ between SC, TC and JP) and
+// Hangul gets a Korean face. The Latin faces below are self-hosted with a Latin-only unicode-range, so CJK text always
+// falls through to these system fonts.
+export const CJK = {
+  zh: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC"',
+  'zh-TW': '"PingFang TC", "Microsoft JhengHei", "Noto Sans CJK TC", "Noto Sans TC", "Source Han Sans TC"',
+  ja: '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP"',
+  ko: '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "Noto Sans KR", "Source Han Sans KR"',
 } as const;
+const sys = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue"';
+const monoSys = 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas';
+/** Latin pages list the CJK faces last (game titles can still be in any script); CJK pages list them right after the web fonts. */
+const stacks = (cjk: string, first: boolean) => ({
+  // Oxanium: squared, cut corners, like the cartridges. The brand (page titles, heavy) and display (heads, figures) face.
+  brand: first ? `"Oxanium", "IBM Plex Sans", ${cjk}, ${sys}, sans-serif` : `"Oxanium", "IBM Plex Sans", ${sys}, ${cjk}, sans-serif`,
+  display: first ? `"Oxanium", "IBM Plex Sans", ${cjk}, ${sys}, sans-serif` : `"Oxanium", "IBM Plex Sans", ${sys}, ${cjk}, sans-serif`,
+  // IBM Plex Sans: engineered and readable at small sizes, for everything people read.
+  sans: first ? `"IBM Plex Sans", ${cjk}, ${sys}, sans-serif` : `"IBM Plex Sans", ${sys}, ${cjk}, sans-serif`,
+  // Martian Mono: a wide terminal face for HUD labels, figures in tables, and code. CJK inside it uses the language's sans.
+  mono: `"Martian Mono", ${monoSys}, ${cjk}, monospace`,
+});
+export const font = stacks(CJK.zh, false);
+const fontVars = (f: ReturnType<typeof stacks>) => `--font-brand:${f.brand};--font-display:${f.display};--font-sans:${f.sans};--font-mono:${f.mono}`;
+/** Per-language font stacks, keyed on <html lang>. */
+const LANG_FONTS_CSS = ([['zh-CN', CJK.zh], ['zh-TW', CJK['zh-TW']], ['ja', CJK.ja], ['ko', CJK.ko]] as const)
+  .map(([tag, cjk]) => `:root:lang(${tag}){${fontVars(stacks(cjk, true))}}`).join('') +
+  // zh-HK and other Traditional tags the Worker may set
+  `:root:lang(zh-Hant),:root:lang(zh-HK){${fontVars(stacks(CJK['zh-TW'], true))}}`;
 
 /** Type scale. The large steps grow with the viewport so headings hold their weight on phones and wide screens. */
 export const size = {
@@ -86,4 +104,4 @@ export const TOKENS_CSS =
   face('IBM Plex Sans', 'ibm-plex-sans-latin-wght-normal.woff2', '100 700') +
   face('Oxanium', 'oxanium-latin-wght-normal.woff2', '200 800') +
   face('Martian Mono', 'martian-mono-latin-wght-normal.woff2', '100 800') +
-  `:root{color-scheme:dark;${Object.entries(vars).map(([k, v]) => `--${k}:${v}`).join(';')}}`;
+  `:root{color-scheme:dark;${Object.entries(vars).map(([k, v]) => `--${k}:${v}`).join(';')}}` + LANG_FONTS_CSS;

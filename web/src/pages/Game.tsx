@@ -98,7 +98,7 @@ export function Game({ slug }: { slug: string }) {
 
         {live && (
           <div className="gp-buy">
-            <div className="grow"><h2>{locked ? t(`Buy ${g.title}`, `购买 ${g.title}`) : t(`Play ${g.title}`, `游玩 ${g.title}`)}</h2><p>{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')} {paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</p></div>
+            <div className="grow"><h2>{locked ? t('Buy {title}', '购买 {title}', { title: g.title }) : t('Play {title}', '游玩 {title}', { title: g.title })}</h2><p>{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')} {paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</p></div>
             <div className="gp-buy-act"><span className="gp-price">{price(g.price_cents)}</span>{cta}</div>
           </div>
         )}
@@ -122,7 +122,7 @@ export function Game({ slug }: { slug: string }) {
                   <Textarea value={body} onChange={(e) => setBody(e.target.value)} maxLength={2000} placeholder={t('What did you like? What would make it better? (optional)', '喜欢哪些地方？哪里还可以更好？（选填）')} />
                   <div><Button variant="primary" disabled={!rating || busy === 'review'} onClick={review}>{data.my_review ? t('Update review', '更新评价') : t('Post review', '发布评价')}</Button></div>
                 </Card>
-              ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t(`Play for at least ${config.settings.play_min_seconds} seconds to leave a review.`, `游玩至少 ${config.settings.play_min_seconds} 秒后即可评价。`)}</p>}
+              ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t('Play for at least {n} seconds to leave a review.', '游玩至少 {n} 秒后即可评价。', { n: config.settings.play_min_seconds })}</p>}
               {data.reviews.length ? <div className="reviews">{data.reviews.map((r: any, i: number) => (
                 <div className="review" key={i}>
                   <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span><b>{r.name}</b>{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>

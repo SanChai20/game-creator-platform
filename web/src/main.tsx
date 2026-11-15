@@ -4,7 +4,7 @@ import { TOKENS_CSS } from './ui/tokens';
 import './ui/ui.css';
 import './styles.css';
 import './store.css';
-import { api, AppCtx, Link, loginUrl, navigate, setLang, t, useLang, useLocation, type Config, type Me } from './lib';
+import { api, AppCtx, LANGS, langReady, Link, loginUrl, navigate, setLang, t, useLang, useLocation, type Config, type Lang, type Me } from './lib';
 import { Button, EmptyState, Spinner } from './ui';
 import { fxPref, GpuLayer, setFxPref } from './ui/fx';
 
@@ -29,8 +29,21 @@ import { SearchBox, StoreBar } from './store';
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
 const isStore = (path: string) => path === '/' || path === '/browse' || path === '/categories' || path === '/queue' || path.startsWith('/c/') || path.startsWith('/g/');
 
+/** The language menu: a native select (keyboard, screen readers and phones get their own picker), showing a short code in the top bar. */
+function LangPicker({ short }: { short?: boolean }) {
+  const lang = useLang(), cur = LANGS.find((l) => l.code === lang)!;
+  return (
+    <label className={'lang' + (short ? '' : ' foot-lang')} title={t('Language', '语言')}>
+      <span aria-hidden="true">{short ? cur.short : cur.name}</span><i aria-hidden="true" />
+      <select value={lang} onChange={(e) => void setLang(e.target.value as Lang)} aria-label={t('Language', '语言')}>
+        {LANGS.map((l) => <option key={l.code} value={l.code} lang={l.tag}>{l.name}</option>)}
+      </select>
+    </label>
+  );
+}
+
 function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogout: () => void }) {
-  const loc = useLocation(), lang = useLang(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
+  const loc = useLocation(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
   useEffect(() => { setOpen(false); }, [loc]);
   useEffect(() => { const f = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; addEventListener('mousedown', f); return () => removeEventListener('mousedown', f); }, []);
   const path = loc.split('?')[0], onAuth = path === '/login' || path === '/signup', keep = onAuth && loc.includes('?') ? loc.slice(loc.indexOf('?')) : '';   // someone sent here to approve an agent keeps their place
@@ -46,7 +59,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
         {user?.role === 'admin' && <Link to="/admin" className={on('/admin') + ' hide-s'}>{t('Admin', '管理')}</Link>}
         <span className="grow" />
         {!isStore(path) && <div className="nav-search hide-s"><SearchBox /></div>}
-        <button className="lang" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label="Language">{lang === 'zh' ? 'EN' : '中文'}</button>
+        <LangPicker short />
         {user ? (
           <div className="menu" ref={ref}>
             <button className="avatar" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} aria-label={t('Account menu', '账户菜单')}>{user.name.slice(0, 1).toUpperCase()}</button>
@@ -154,7 +167,7 @@ function App() {
         </div>
         <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link></nav>
         <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
-        <div className="foot-col"><b>{t('This browser', '本浏览器')}</b><FxToggle /><button className="lang foot-lang" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>{lang === 'zh' ? 'English' : '中文'}</button></div>
+        <div className="foot-col"><b>{t('This browser', '本浏览器')}</b><FxToggle /><LangPicker /></div>
         <span className="foot-note">© {new Date().getFullYear()} {brand}</span>
       </div></footer>
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
@@ -162,4 +175,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
+void langReady.then(() => createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>));

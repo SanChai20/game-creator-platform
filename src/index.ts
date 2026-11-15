@@ -17,6 +17,8 @@ import { getSettings } from './settings';
 import { dayOf, esc, now } from './util';
 import { backfill } from './originality-check';
 import { TOKENS_CSS } from '../web/src/ui/tokens';
+import { langTag, pageLang, TEXT } from './consent-text';
+import type { Lang } from '../web/src/i18n/langs';
 // @ts-ignore plain JS module
 import { handle as handleGame } from './runtime/game-worker.js';
 
@@ -102,32 +104,33 @@ ul{margin:0;padding:12px 14px;list-style:none;display:grid;gap:8px;background:rg
 .row{display:flex;gap:12px;margin-top:6px}button{flex:1;height:48px;font:600 14px/1 var(--font-sans);border-radius:var(--r-md);cursor:pointer;border:1px solid var(--line-3);background:var(--bg-2);color:var(--text);transition:background var(--dur),transform var(--dur-fast),box-shadow var(--dur-fast)}button:hover{background:var(--bg-3)}button:active{transform:translate(1px,1px)}
 button.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;box-shadow:var(--shadow-pop)}button.go:hover{background:var(--accent-hi);transform:translate(-1px,-1px);box-shadow:4px 4px 0 0 var(--hot)}button.go:active{transform:translate(2px,2px);box-shadow:1px 1px 0 0 var(--hot)}
 small{display:block;color:var(--text-3);font-size:12.5px}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
-function page(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0a0910"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+function page(title: string, body: string, lang: Lang = 'en'): string {
+  return `<!doctype html><html lang="${langTag(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0a0910"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>${TOKENS_CSS}${PAGE_CSS}</style></head><body><main>${body}</main></body></html>`;
 }
 
-function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number): string {
-  const who = d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : 'This app registered itself, so its name is not verified.';
-  return page(`Connect ${d.clientName}`, `<div class="mark"><i></i>${esc(brand)}</div>
-<h1>Let ${esc(d.clientName)} publish web games for you?</h1>
-<p>${who} Access will be sent to <strong>${esc(d.redirectHost)}</strong>.</p>
-${d.redirectIsLoopback ? '<div class="warn"><strong>This sends access to an app on your computer.</strong> Continue only if you just started connecting from that app.</div>' : ''}
-<p>Signed in as <strong>${esc(user.name)}</strong> (${esc(user.email)}). The agent will be able to:</p>
-<ul><li>Create your game projects and upload their files</li><li>Deploy previews and run verification</li><li>Publish, roll back and take games offline</li><li>Set listing details and prices, and read your game stats</li></ul>
-<p>It cannot withdraw money, change your password or see payment details.</p>
-<p class="web-only">This platform hosts web games only: games that run in a browser page. Native, mobile, console and desktop builds are refused.</p>
+function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number, lang: Lang): string {
+  const T = TEXT[lang], app = esc(d.clientName);
+  const who = d.clientDomain ? T.publishedBy(esc(d.clientDomain)) : T.unverified;
+  return page(T.connect(d.clientName), `<div class="mark"><i></i>${esc(brand)}</div>
+<h1>${T.heading(app)}</h1>
+<p>${who} ${T.sentTo(esc(d.redirectHost))}</p>
+${d.redirectIsLoopback ? `<div class="warn"><strong>${T.loopback[0]}</strong> ${T.loopback[1]}</div>` : ''}
+<p>${T.signedInAs(esc(user.name), esc(user.email))}</p>
+<ul>${T.can.map((c) => `<li>${c}</li>`).join('')}</ul>
+<p>${T.cannot}</p>
+<p class="web-only">${T.webOnly}</p>
 <form method="post"><input type="hidden" name="handle" value="${esc(handle)}">
-<div class="row"><button name="decision" value="deny">Deny</button><button class="go" name="decision" value="approve">Allow</button></div></form>
-<small>Access expires after ${days} day${days === 1 ? '' : 's'}; you can revoke it sooner from your console.</small>`);
+<div class="row"><button name="decision" value="deny">${T.deny}</button><button class="go" name="decision" value="approve">${T.allow}</button></div></form>
+<small>${T.expires(days)}</small>`, lang);
 }
 
 app.all('/authorize', async (c) => {
-  const env = c.env, req = c.req.raw, oauth = env.OAUTH_PROVIDER, s = await getSettings(env);
+  const env = c.env, req = c.req.raw, oauth = env.OAUTH_PROVIDER, s = await getSettings(env), lang = pageLang(req), T = TEXT[lang];
   try {
     const user = await userFromRequest(env, req);
     if (req.method === 'POST') {
-      if (!user) return c.html(page('Sign in again', '<h1>Your session ended</h1><p>Sign in and start connecting from your agent again.</p>'), 401);
+      if (!user) return c.html(page(T.signInAgain, `<h1>${T.sessionEnded}</h1><p>${T.sessionEndedBody}</p>`, lang), 401);
       const form = await req.formData(), handle = String(form.get('handle') || '');
       if (form.get('decision') !== 'approve') { const denied = await oauth.denyConsent(req, handle); return new Response(null, { status: 302, headers: denied.headers }); }
       const approved = await oauth.approveConsent(req, handle);
@@ -144,12 +147,12 @@ app.all('/authorize', async (c) => {
     const details = await oauth.describeConsent(authReq);
     const consent = await oauth.beginConsent(authReq);
     consent.headers.set('Content-Type', 'text/html; charset=utf-8');
-    return new Response(consentPage(s.brand_name, details, consent.handle, user, Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400))), { headers: consent.headers });
+    return new Response(consentPage(s.brand_name, details, consent.handle, user, Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)), lang), { headers: consent.headers });
   } catch (error) {
     if (error instanceof AuthorizationError && error.redirectTo) return Response.redirect(error.redirectTo, 302);
     if (error instanceof AuthorizationError || error instanceof CimdFetchError) {
-      const msg = error instanceof AuthorizationError ? error.description : 'This app could not be verified.';
-      return c.html(page('Cannot connect', `<h1>This connection cannot continue</h1><p>${esc(msg)}</p><p>Start connecting from your agent again.</p>`), 400);
+      const msg = error instanceof AuthorizationError ? error.description : T.notVerified;
+      return c.html(page(T.cannotConnect, `<h1>${T.cannotContinue}</h1><p>${esc(msg)}</p><p>${T.startAgain}</p>`, lang), 400);
     }
     throw error;
   }

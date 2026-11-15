@@ -33,7 +33,7 @@ export function Queue() {
       </header>
       {g && R ? (
         <>
-          <div className="q-progress" aria-label={t(`${i + 1} of ${pool.length}`, `第 ${i + 1} / ${pool.length} 款`)}>{pool.map((_, k) => <i key={k} className={k < i ? 'done' : k === i ? 'on' : ''} />)}<span className="num">{i + 1} / {pool.length}</span></div>
+          <div className="q-progress" aria-label={t('{i} of {total}', '第 {i} / {total} 款', { i: i + 1, total: pool.length })}>{pool.map((_, k) => <i key={k} className={k < i ? 'done' : k === i ? 'on' : ''} />)}<span className="num">{i + 1} / {pool.length}</span></div>
           <article className="q-card" key={g.id} style={{ '--h': genreHue(g.tags[0] || ''), '--rc': R.color } as CSSProperties}>
             <Link to={`/g/${g.slug}`} className="q-art" onClick={() => markSeen(g.slug)}><span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</span></Link>
             <div className="q-info">

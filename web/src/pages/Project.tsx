@@ -95,7 +95,7 @@ export function Project({ id }: { id: string }) {
 
       <div className="stack l">
         <StatGrid>
-          <Stat tone="accent" to={`/console/p/${id}/analytics`} label={t('Online now', '当前在线')} value={num(data.online?.online.live ?? 0)} sub={t(`${num(data.online?.rooms.players_in_rooms ?? 0)} in rooms · see analytics`, `${num(data.online?.rooms.players_in_rooms ?? 0)} 人在房间中 · 查看数据分析`)} />
+          <Stat tone="accent" to={`/console/p/${id}/analytics`} label={t('Online now', '当前在线')} value={num(data.online?.online.live ?? 0)} sub={t('{n} in rooms · see analytics', '{n} 人在房间中 · 查看数据分析', { n: num(data.online?.rooms.players_in_rooms ?? 0) })} />
           <Stat label={t('Plays', '游玩次数')} value={num(p.plays)} sub={`${num(sum30('plays'))} ${t('in 30 days', '近 30 天')}`} />
           <Stat label={t('Time played', '游玩时长')} value={playTime(p.minutes * 60)} sub={`${playTime(sum30('seconds'))} ${t('in 30 days', '近 30 天')}`} />
           <Stat label={t('Rating', '评分')} value={p.rating != null ? p.rating.toFixed(1) : '—'} sub={count(p.rating_count, 'rating', 'ratings', '个评分')} />
@@ -156,7 +156,7 @@ export function Project({ id }: { id: string }) {
                 <div className="price-edit"><span className="mute">$</span><Input mono inputMode="decimal" value={priceText} onChange={(e) => setPriceText(e.target.value)} autoFocus aria-label={t('Price in US dollars', '美元价格')} /><Button variant="primary" onClick={savePrice} disabled={busy === 'price'}>{t('Save', '保存')}</Button><Button variant="ghost" onClick={() => setPriceText(null)}>{t('Cancel', '取消')}</Button></div>
               )}
               {data.split ? <KeyValue items={[[t('Platform fee', '平台服务费'), usd(data.split.fee)], [t('You receive per sale', '每笔销售你获得'), usd(data.split.net), 'good']]} />
-                : <p className="mute fs-sm">{s.paid_games_enabled ? t(`Free to play. Set a price between ${usd(s.game_price_min_cents)} and ${usd(s.game_price_max_cents)} to sell it; the platform keeps ${s.platform_fee_percent}% of each sale.`, `目前免费。可在 ${usd(s.game_price_min_cents)} 至 ${usd(s.game_price_max_cents)} 之间定价销售，平台从每笔销售中收取 ${s.platform_fee_percent}%。`) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
+                : <p className="mute fs-sm">{s.paid_games_enabled ? t('Free to play. Set a price between {min} and {max} to sell it; the platform keeps {cut}% of each sale.', '目前免费。可在 {min} 至 {max} 之间定价销售，平台从每笔销售中收取 {cut}%。', { min: usd(s.game_price_min_cents), max: usd(s.game_price_max_cents), cut: s.platform_fee_percent }) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
             </Card>
             <OpenImplementation id={id} p={p} info={data.implementation} reload={reload} />
             <Card title={t('Details', '详情')} pad>
