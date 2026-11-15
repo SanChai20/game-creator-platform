@@ -10,6 +10,7 @@ import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { stripe, stripeReady, verifyWebhook } from '../stripe';
+import { beginTrial, trialMinutes, trialState } from '../trials';
 import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
 // @ts-ignore plain JS module
 import { signPlayToken } from '../runtime/game-worker.js';
@@ -23,6 +24,7 @@ const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.
 function card(origin: string, r: Record<string, any>) {
   return {
     id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: parseJson<string[]>(r.tags, []), cover: media(origin, r.cover_key), price_cents: r.price_cents,
+    trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
     author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
   };
@@ -90,7 +92,7 @@ async function listGames(c: Ctx, o: ListOpts) {
   if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase()); }
   // tag can name several genres, comma separated: a game must carry all of them
   for (const one of tag.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5)) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + one.replace(/[\\%_]/g, '\\$&') + '"%'); }
-  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') where.push('p.price_cents > 0 AND p.price_cents < 500');
+  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') where.push('p.price_cents > 0 AND p.price_cents < 500'); else if (o.price === 'trial') where.push('p.price_cents > 0 AND p.trial_minutes > 0');
   if (o.minRating) { where.push('p.rating_count > 0 AND p.rating_sum >= ? * p.rating_count'); args.push(Math.max(1, Math.min(5, o.minRating))); }
   if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
   if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
@@ -193,6 +195,7 @@ api.get('/games/:slug', async (c) => {
     played = !!(await c.env.DB.prepare("SELECT 1 FROM plays WHERE project_id = ? AND user_id = ? AND env = 'live' AND counted = 1 LIMIT 1").bind(p.id, u.id).first());
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
   }
+  const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
   const [v, on] = await Promise.all([
     p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
     c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND last_beat_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
@@ -202,20 +205,28 @@ api.get('/games/:slug', async (c) => {
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
+    trial,
   });
 });
 
-async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User) {
-  const kind = u.id === p.owner_id || u.role === 'admin' ? 'owner' : 'player', sid = 'ps_' + rid(16), t = now();
-  await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t).run();
-  const token = await signPlayToken({ g: p.id, e: envName, u: u.id, n: u.name, k: kind, s: sid, x: Math.floor(t / 1000) + 6 * 3600 }, await playKey(c.env, p.id));
-  return { url: `${await gameUrl(c.env, c.get('origin'), p.id, envName)}?gcp_t=${token}`, session: sid, version };
+async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User, trialSeconds?: number) {
+  const kind = u.id === p.owner_id || u.role === 'admin' ? 'owner' : 'player', sid = 'ps_' + rid(16), t = now(), trial = trialSeconds !== undefined;
+  await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at, trial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t, trial ? 1 : 0).run();
+  // A trial token lasts only as long as the trial time left (plus a little slack for the last heartbeat); a full one six hours.
+  const life = trial ? trialSeconds + 20 : 6 * 3600;
+  const token = await signPlayToken({ g: p.id, e: envName, u: u.id, n: u.name, k: kind, s: sid, x: Math.floor(t / 1000) + life, ...(trial ? { tr: 1 } : {}) }, await playKey(c.env, p.id));
+  return { url: `${await gameUrl(c.env, c.get('origin'), p.id, envName)}?gcp_t=${token}`, session: sid, version, ...(trial ? { trial: { remaining_seconds: trialSeconds } } : {}) };
 }
 
 api.post('/games/:slug/play', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   if (p.status !== 'live' || !p.live_version) throw new AppError(409, 'This game is offline.', 'offline');
-  if (p.price_cents > 0 && u.id !== p.owner_id && u.role !== 'admin' && !(await owns(c.env, u.id, p.id))) throw new AppError(402, 'Buy this game to play it.', 'purchase_required');
+  if (p.price_cents > 0 && u.id !== p.owner_id && u.role !== 'admin' && !(await owns(c.env, u.id, p.id))) {
+    // Not bought: a free trial if the game offers one and this account has time left, otherwise the purchase prompt.
+    const tr = await beginTrial(c.env, p, await getSettings(c.env), u.id);
+    return c.json(await startPlay(c, p, 'live', p.live_version, u, tr.remaining_seconds));
+  }
   return c.json(await startPlay(c, p, 'live', p.live_version, u));
 });
 
@@ -403,17 +414,24 @@ api.get('/console/projects/:id', async (c) => {
     listFiles(c.env, p.id),
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
   ]);
-  const s = await getSettings(c.env);
+  const s = await getSettings(c.env), trials = await trialStats(c.env, p.id);
   return c.json({
     project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s) : null,
+    trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },
     online: await onlineNow(c.env, p.id),
     implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
   });
 });
+
+/** Players who started a free trial of this game, and how many of them then bought it. */
+export async function trialStats(env: Env, pid: string): Promise<{ players: number; bought: number }> {
+  const r = await env.DB.prepare("SELECT COUNT(*) AS players, COALESCE(SUM(EXISTS (SELECT 1 FROM purchases x WHERE x.project_id = t.project_id AND x.user_id = t.user_id AND x.status = 'paid')), 0) AS bought FROM trials t WHERE t.project_id = ?").bind(pid).first<{ players: number; bought: number }>();
+  return { players: r?.players || 0, bought: r?.bought || 0 };
+}
 
 // Analytics: the full picture for a window of days, and the cheap live count the dashboard polls.
 api.get('/console/projects/:id/analytics', async (c) => {
@@ -454,7 +472,8 @@ api.post('/console/projects/:id/online', async (c) => {
 api.patch('/console/projects/:id', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
   const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, any>));
-  if (b.price_cents !== undefined) await updateProjectMeta(c.env, p, { price_cents: b.price_cents });
+  if (b.price_cents !== undefined || b.trial_minutes !== undefined) await updateProjectMeta(c.env, p, { price_cents: b.price_cents, trial_minutes: b.trial_minutes });
+  if (b.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(b.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(b.trial_minutes))} min` : 'Free trial turned off', null, 'console');
   if (typeof b.open_implementation === 'boolean') await setOpenImplementation(c.env, p, b.open_implementation, 'console');
   return c.json({ ok: true });
 });

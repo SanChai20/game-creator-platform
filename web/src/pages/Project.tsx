@@ -57,6 +57,35 @@ function OpenImplementation({ id, p, info, reload }: { id: string; p: any; info:
   );
 }
 
+/** A paid game's free trial: whether players may try it before buying, and for how many minutes. Kept per player account on the server. */
+function FreeTrial({ id, paid, trial, max, reload }: { id: string; paid: boolean; trial: { minutes: number; active: boolean; players: number; bought: number }; max: number; reload: () => Promise<unknown> }) {
+  const { busy, act } = useAct(), [mins, setMins] = useState<string | null>(null);
+  const on = paid && trial.minutes > 0;
+  const save = (m: number) => act('trial', async () => {
+    if (!Number.isInteger(m) || m < 0 || m > max) throw new Error(t(`Enter a whole number of minutes from 1 to ${max}.`, `请输入 1 到 ${max} 之间的整数分钟。`));
+    await api(`/console/projects/${id}`, { method: 'PATCH', body: { trial_minutes: m } }); setMins(null); await reload();
+  }, m ? t(`Free trial set to ${m} minutes.`, `免费试玩已设为 ${m} 分钟。`) : t('Free trial turned off.', '已关闭免费试玩。'));
+  const toggle = (next: boolean) => { if (next) setMins(String(trial.minutes || Math.min(30, max))); else if (trial.minutes) void save(0); else setMins(null); };
+  return (
+    <Card title={t('Free trial', '免费试玩')} pad>
+      <div className="row">
+        <span className="grow">{!paid ? t('Set a price first. A free game needs no trial.', '请先设置价格。免费游戏无需试玩。') : on ? <b>{t(`${trial.minutes} minutes before buying`, `购买前可玩 ${trial.minutes} 分钟`)}</b> : t('Players must buy before playing.', '玩家需购买后才能游玩。')}</span>
+        <Switch checked={on || mins !== null} disabled={!paid || busy === 'trial'} onChange={(e) => toggle(e.target.checked)} aria-label={t('Let players try it for free', '允许玩家免费试玩')} />
+      </div>
+      {mins !== null && (
+        <div className="trial-edit">
+          <Input mono inputMode="numeric" value={mins} onChange={(e) => setMins(e.target.value.replace(/[^0-9]/g, ''))} autoFocus aria-label={t('Trial length in minutes', '试玩时长（分钟）')} />
+          <span className="mute">{t('minutes', '分钟')}</span>
+          <Button variant="primary" onClick={() => void save(Number(mins))} disabled={busy === 'trial' || !mins}>{t('Save', '保存')}</Button>
+          <Button variant="ghost" onClick={() => setMins(null)}>{t('Cancel', '取消')}</Button>
+        </div>
+      )}
+      {on && mins === null && <div className="row"><span className="mute fs-sm grow">{t(`${num(trial.players)} tried it · ${num(trial.bought)} then bought it`, `${num(trial.players)} 人试玩 · 其中 ${num(trial.bought)} 人购买`)}</span><Button size="sm" onClick={() => setMins(String(trial.minutes))}>{t('Change', '修改')}</Button></div>}
+      <p className="dim fs-sm">{t(`Players who have not bought the game can play this long in total, then are asked to buy. The time is counted on our servers for their account, so reloading or switching devices does not reset it. Up to ${max} minutes.`, `未购买的玩家总共可以玩这么久，之后会提示购买。时长按玩家账号在服务器端计算，刷新页面或更换设备都不会重置。最长 ${max} 分钟。`)}</p>
+    </Card>
+  );
+}
+
 export function Project({ id }: { id: string }) {
   const { config } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
@@ -158,6 +187,7 @@ export function Project({ id }: { id: string }) {
               {data.split ? <KeyValue items={[[t('Platform fee', '平台服务费'), usd(data.split.fee)], [t('You receive per sale', '每笔销售你获得'), usd(data.split.net), 'good']]} />
                 : <p className="mute fs-sm">{s.paid_games_enabled ? t(`Free to play. Set a price between ${usd(s.game_price_min_cents)} and ${usd(s.game_price_max_cents)} to sell it; the platform keeps ${s.platform_fee_percent}% of each sale.`, `目前免费。可在 ${usd(s.game_price_min_cents)} 至 ${usd(s.game_price_max_cents)} 之间定价销售，平台从每笔销售中收取 ${s.platform_fee_percent}%。`) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
             </Card>
+            {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
             <OpenImplementation id={id} p={p} info={data.implementation} reload={reload} />
             <Card title={t('Details', '详情')} pad>
               <KeyValue items={[

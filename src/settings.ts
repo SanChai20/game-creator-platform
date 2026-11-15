@@ -22,6 +22,8 @@ export const SETTING_DEFS = {
   game_price_min_cents: { v: 199, type: 'cents', group: 'Paid games', label: 'Lowest price a paid game can have', public: true },
   game_price_max_cents: { v: 9999, type: 'cents', group: 'Paid games', label: 'Highest price a paid game can have', public: true },
   paid_games_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to sell games', public: true },
+  trials_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to offer a free trial of a paid game (minutes of play before buying)', public: true },
+  trial_max_minutes: { v: 120, type: 'int', group: 'Paid games', label: 'Longest free trial a creator can offer (minutes)', public: true },
   earnings_hold_days: { v: 7, type: 'int', group: 'Paid games', label: 'Days a sale is held before the creator can withdraw it (covers refunds)', public: true },
 
   play_min_seconds: { v: 30, type: 'int', group: 'Play counting', label: 'Seconds before a session counts as a play', public: true },

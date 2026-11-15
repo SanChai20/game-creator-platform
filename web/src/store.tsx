@@ -3,7 +3,7 @@
 // category cartridges, the discovery queue and the pager. Everything here is sized for a catalogue of tens of
 // thousands of games: lists are paged, rows scroll sideways, and nothing assumes a fixed number of games.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
-import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, useLocation, Verdict, type GameCard } from './lib';
+import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[] }
@@ -175,7 +175,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
               <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>
               <div><dt>{t('Played', '游玩')}</dt><dd className="num">{count(g.plays, 'time', 'times', '次')}{!!g.playing && <span className="live"> · {num(g.playing)} {t('now', '人在线')}</span>}</dd></div>
             </dl>
-            <div className="feat-buy"><span className="feat-price">{price(g.price_cents)}</span><span className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : `▶ ${t('Play free', '免费游玩')}`}</span></div>
+            <div className="feat-buy"><span className="feat-price">{price(g.price_cents)}</span>{!!trialOf(g) && <span className="trial-tag">{trialLabel(trialOf(g))}</span>}<span className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : `▶ ${t('Play free', '免费游玩')}`}</span></div>
           </div>
         </Link>
         <button type="button" className="feat-arrow r" onClick={() => step(1)} aria-label={t('Next', '下一个')}>›</button>
@@ -220,7 +220,7 @@ export function GameRow({ g, onFocus, active, rank }: { g: GameCard; onFocus?: (
         <span className="gr-tags">{g.tags.slice(0, 3).map((x) => <i key={x} style={hue(x)}>{genreName(x)}</i>)}</span>
       </span>
       <span className="gr-meta"><Verdict g={g} />{!!g.playing && <small className="live">{num(g.playing)} {t('playing', '人在玩')}</small>}{!g.playing && g.published_at && <small>{ago(g.published_at)}</small>}</span>
-      <span className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+      <span className="gr-buy">{!!trialOf(g) && <small className="gr-trial">{trialLabel(trialOf(g), true)}</small>}<span className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span></span>
     </Link>
   );
 }

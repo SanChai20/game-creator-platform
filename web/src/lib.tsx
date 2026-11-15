@@ -19,6 +19,15 @@ document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
 // ---- formatting -------------------------------------------------------------------------------
 export const usd = (cents: number) => `${cents < 0 ? '−' : ''}$${(Math.abs(cents || 0) / 100).toFixed(2)}`;
 export const price = (cents: number) => (cents > 0 ? usd(cents) : t('Free', '免费'));
+// Free trials of paid games. The platform can switch them off or cap their length; the app learns that from /config.
+let trialRules = { on: true, max: 120 };
+export function setTrialRules(s: Record<string, unknown>) { trialRules = { on: s.trials_enabled !== false, max: Number(s.trial_max_minutes) || 120 }; }
+/** Minutes of free trial a game offers (0 for none, and always 0 for a free game). */
+export const trialOf = (g: { price_cents: number; trial_minutes?: number }) => (trialRules.on && g.price_cents > 0 ? Math.min(g.trial_minutes || 0, trialRules.max) : 0);
+/** "Free trial · 30 min", or the short form "30 min trial" for tight spots. */
+export const trialLabel = (mins: number, short = false) => (short ? t(`${mins} min trial`, `试玩 ${mins} 分钟`) : t(`Free trial · ${mins} min`, `免费试玩 · ${mins} 分钟`));
+/** m:ss for a countdown. */
+export const clock = (sec: number) => { const s = Math.max(0, Math.ceil(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 export const num = (n: number) => new Intl.NumberFormat(lang === 'zh' ? 'zh-CN' : 'en', { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
 /** A number with its unit, singular or plural in English. */
 export const count = (n: number, one: string, many: string, zh: string) => `${num(n)} ${t(n === 1 ? one : many, zh)}`;
@@ -104,7 +113,7 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 35 + ((h >> 9) % 90)) % 360, x = 15 + ((h >> 4) % 70), y = 10 + ((h >> 13) % 60);
   return { background: `radial-gradient(90% 80% at ${x}% ${y}%, hsl(${a} 78% 58% / .95), transparent 62%), radial-gradient(70% 70% at ${100 - x}% ${100 - y}%, hsl(${b} 70% 45% / .8), transparent 65%), linear-gradient(135deg, hsl(${b} 40% 18%), hsl(${a} 45% 9%))` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
 /** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
@@ -158,7 +167,7 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
       <div className="card-in" style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 270 } as CSSProperties}>
         <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
           {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
-          <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+          <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}{!!trialOf(g) && <em className="price-trial">{trialLabel(trialOf(g), true)}</em>}</span>
           {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
           <span className="play-hint" aria-hidden="true" />
         </div>

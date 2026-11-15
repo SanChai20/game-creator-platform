@@ -9,7 +9,8 @@ import {
   assetText, checkProject, createProject, defaultImports, deleteFile, getVersion, listFiles, logEvent, ownedProject, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
 } from '../projects';
-import { takeOffline } from '../routes/api';
+import { takeOffline, trialStats } from '../routes/api';
+import { trialMinutes } from '../trials';
 import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
 import { gameAnalytics, onlineNow } from '../analytics';
@@ -50,6 +51,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const envOf = (v: unknown): 'preview' | 'live' => { if (v === undefined || v === null || v === '') return 'live'; if (v === 'preview' || v === 'live') return v; throw bad('env must be "preview" or "live".'); };
 const issueLine = (i: Issue) => `${i.level.toUpperCase()}${i.file ? ` ${i.file}${i.line ? `:${i.line}` : ''}` : ''}: ${i.message}${i.frame ? `\n${i.frame}` : ''}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
 const RUNNING = ['queued', 'deploying', 'verifying'];
+const trialText = (p: { price_cents: number; trial_minutes: number }, s: Awaited<ReturnType<typeof getSettings>>) => {
+  const m = trialMinutes(p, s);
+  return m ? `${m} min: players who have not bought it can play ${m} minutes in total (per account, across devices), then are asked to buy` : p.price_cents > 0 ? 'none: players must buy before playing' : 'not applicable: the game is free';
+};
 const sharing = (p: { open_implementation: number }) => (p.open_implementation ? 'on: other agents can read how the live game is built through get_implementation (never its code)' : 'off: nothing about how this game is built is shared');
 
 async function account(c: ToolCtx) {
@@ -60,7 +65,7 @@ async function account(c: ToolCtx) {
     license: u.creator ? 'active' : `Not purchased. Publishing needs a one-time ${usd(s.creator_fee_cents)} creator license (unlimited games). Uploading, previewing and verifying are free. The account owner buys it at ${c.origin}/console`,
     console_url: `${c.origin}/console`,
     earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
-    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents } : 'disabled',
+    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled' } : 'disabled',
     limits: { files_per_bundle: s.bundle_max_files, bundle_bytes: s.bundle_max_bytes, file_bytes: s.file_max_bytes, server_code: s.allow_server_code },
   };
 }
@@ -141,7 +146,7 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ project: { ...PROJECT, description: 'Optional. A project id or slug to show in detail.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (!a.project) {
-        const rows = await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all<any>();
+        const rows = await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, CASE WHEN price_cents > 0 THEN trial_minutes ELSE 0 END AS trial_minutes, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all<any>();
         return { projects: rows.results.map((r) => ({ ...r, tags: JSON.parse(r.tags || '[]') })) };
       }
       const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id);
@@ -149,7 +154,7 @@ export const TOOLS: Tool[] = [
       return {
         project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, tags: JSON.parse(p.tags || '[]'),
         cover: p.cover_key ? `${c.origin}/api/media/${p.cover_key}` : null,
-        status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
+        status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', free_trial: trialText(p, await getSettings(c.env)), live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
         workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) },
         latest_version: latest ? await versionReport(c, p, latest.n, latest) : null,
         game_page: p.status === 'live' ? `${c.origin}/g/${p.slug}` : null, console_page: `${c.origin}/console/projects/${p.id}`,
@@ -173,11 +178,12 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'update_project', title: 'Update listing, price, cover or sharing',
-    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, price and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share.',
+    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share.',
     inputSchema: obj({
       project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
       controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
       price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
+      trial_minutes: { type: 'integer', description: 'Paid games only: minutes of free play before buying (e.g. 30). 0 turns the free trial off. get_started shows the longest allowed.' },
       cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png".' },
       open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code). Default off.' },
     }, ['project']),
@@ -198,7 +204,8 @@ export const TOOLS: Tool[] = [
       await updateProjectMeta(c.env, p, meta);
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
       const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s).net) : null, ...(cover ? { cover } : {}), open_implementation: sharing(q) };
+      if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s).net) : null, ...(cover ? { cover } : {}), open_implementation: sharing(q) };
     },
   },
   {
@@ -331,7 +338,7 @@ export const TOOLS: Tool[] = [
       let q = await ownedProject(c.env, c.user, p.id);
       while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
       const live = q.status === 'live' && q.live_version === v.n;
-      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
     },
   },
   {
@@ -451,6 +458,7 @@ export const TOOLS: Tool[] = [
       return {
         status: p.status, live_version: p.live_version, plays: p.plays, minutes_played: Math.round(p.seconds / 60), rating: p.rating_count ? +(p.rating_sum / p.rating_count).toFixed(2) : null, ratings: p.rating_count,
         price: p.price_cents ? usd(p.price_cents) : 'free', sales: sales?.n || 0, creator_earnings: usd(sales?.net || 0),
+        free_trial: { setting: trialText(p, await getSettings(c.env)), ...(await trialStats(c.env, p.id)) },   // players who started the trial, and how many then bought
         last_14_days: daily.results.map((d) => ({ day: d.day, sessions: d.sessions, plays: d.plays, minutes: Math.round(d.seconds / 60) })),
         runtime_errors: errors.results, recent_reviews: reviews.results,
         analytics: await gameAnalytics(c.env, p.id, Number(a.days) || 30),

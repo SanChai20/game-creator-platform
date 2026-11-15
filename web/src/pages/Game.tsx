@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ago, api, artStyle, blurb, count, date, Fail, genreHue, genreName, Link, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, artStyle, blurb, clock, count, date, Fail, genreHue, genreName, Link, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Spinner, Stat, StatGrid, Textarea } from '../ui';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
 
 /** The play surface: a poster until the player starts, then the game in a frame on its own origin. */
-export function Stage({ poster, seed, url, children }: { poster: string | null; seed: string; url: string | null; children?: ReactNode }) {
+export function Stage({ poster, seed, url, children, onTrialOver }: { poster: string | null; seed: string; url: string | null; children?: ReactNode; onTrialOver?: () => void }) {
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null);
   const toggle = useCallback(() => { const el = box.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.().catch(() => {}); }, []);
   useEffect(() => {
-    const f = (e: MessageEvent) => { if (e.source === frame.current?.contentWindow && e.data && e.data.gcp === 'fullscreen') toggle(); };
+    const f = (e: MessageEvent) => {
+      if (e.source !== frame.current?.contentWindow || !e.data) return;
+      if (e.data.gcp === 'fullscreen') toggle();
+      if (e.data.gcp === 'trial_over') { if (document.fullscreenElement) void document.exitFullscreen(); onTrialOver?.(); }
+    };
     addEventListener('message', f); return () => removeEventListener('message', f);
-  }, [toggle]);
+  }, [toggle, onTrialOver]);
   useEffect(() => { if (url) frame.current?.focus(); }, [url]);
   return (
     <div>
@@ -29,6 +33,14 @@ export function Game({ slug }: { slug: string }) {
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
   const [url, setUrl] = useState<string | null>(null);
   const [rating, setRating] = useState(0), [body, setBody] = useState('');
+  // A free-trial session: when it ends (by the clock here or by the game's word from the server), the game is closed.
+  const [trialEnd, setTrialEnd] = useState<number | null>(null), [tick, setTick] = useState(0), [trialDone, setTrialDone] = useState(false);
+  const endTrial = useCallback(() => { if (document.fullscreenElement) void document.exitFullscreen(); setUrl(null); setTrialEnd(null); setTrialDone(true); void reload(); }, [reload]);
+  useEffect(() => {
+    if (trialEnd === null) return;
+    const i = setInterval(() => { setTick((n) => n + 1); if (Date.now() >= trialEnd + 4000) endTrial(); }, 1000);
+    return () => clearInterval(i);
+  }, [trialEnd, endTrial]);
 
   // Back from checkout: confirm the session so access does not wait for the webhook.
   useEffect(() => {
@@ -43,10 +55,13 @@ export function Game({ slug }: { slug: string }) {
   if (error && !data) return <div className="wrap page">{error.status === 404 ? <EmptyState title={t('This game is not available', '该游戏暂不可用')} action={<Button to="/">{t('Browse games', '浏览游戏')}</Button>}>{t('It may have been taken offline by its creator.', '它可能已被创作者下线。')}</EmptyState> : <Fail error={error} retry={reload} />}</div>;
   if (loading && !data) return <Spinner />;
   const g = data.game, live = g.status === 'live', paid = g.price_cents > 0, locked = paid && !data.owned;
+  const trial = locked ? data.trial as { minutes: number; used_seconds: number; remaining_seconds: number; over: boolean } | null : null;
+  const canTry = !!trial && !trial.over, leftMin = trial ? Math.max(1, Math.ceil(trial.remaining_seconds / 60)) : 0, fresh = !!trial && trial.used_seconds === 0;
+  const left = trialEnd !== null ? Math.max(0, (trialEnd - Date.now()) / 1000) : 0; void tick;
 
   const play = () => {
     if (!user) return navigate(loginUrl());
-    void act('play', async () => { const r = await api<{ url: string }>(`/games/${slug}/play`, { method: 'POST' }); setUrl(r.url); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); });
+    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST' }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(r.url); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -57,8 +72,9 @@ export function Game({ slug }: { slug: string }) {
   const canReview = !!user && !data.is_owner && (data.played || !config.settings.review_requires_play);
 
   const genre = g.tags?.[0] as string | undefined, R = RARITY[rarity(g)], h = genre ? genreHue(genre) : 270;
+  const tryLabel = fresh || !user ? t(`Try free · ${trial?.minutes} min`, `免费试玩 · ${trial?.minutes} 分钟`) : t(`Continue trial · ${leftMin} min left`, `继续试玩 · 剩 ${leftMin} 分钟`);
   const cta = !live ? null : locked
-    ? <Button variant="primary" size="lg" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>
+    ? <>{canTry && !url && <Button size="lg" onClick={() => { play(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} disabled={busy === 'play'}>{tryLabel}</Button>}<Button variant="primary" size="lg" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button></>
     : <Button variant="primary" size="lg" onClick={() => { play(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : `▶ ${t('Play now', '立即游玩')}`}</Button>;
 
   return (
@@ -74,11 +90,25 @@ export function Game({ slug }: { slug: string }) {
           <div className="gp-head-r"><span className="rar-pill" title={rarityHint()}>{R.name()}</span>{!!g.playing && <span className="live-pill big"><i className="live-dot" aria-hidden="true" />{num(g.playing)} {t('playing now', '人正在玩')}</span>}</div>
         </header>
 
+        {url && trialEnd !== null && trial && (
+          <div className="trial-bar" role="status">
+            <span>{t('Free trial', '免费试玩')}</span>
+            <b className={'tb-left' + (left < 60 ? ' low' : '')}>{clock(left)}</b>
+            <span className="trial-meter" aria-hidden="true"><b style={{ width: `${Math.min(100, (left / (trial.minutes * 60)) * 100)}%` }} /></span>
+            <span className="mute">{t('left', '剩余')}</span>
+            <Button size="sm" variant="primary" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>
+          </div>
+        )}
         <div className="gp-top">
-          <Stage poster={g.cover || g.screenshot} seed={g.slug} url={url}>
+          <Stage poster={g.cover || g.screenshot} seed={g.slug} url={url} onTrialOver={endTrial}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {!live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
-                : locked ? <><PlayButton buy onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</PlayButton><span className="mute fs-sm">{config.payments ? t('One payment. Play as much as you like.', '一次购买，畅玩无限。') : t('Purchases are not open yet on this platform.', '平台暂未开放购买。')}</span></>
+                : locked && canTry ? <>
+                  <PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : fresh || !user ? t('Try it free', '免费试玩') : t('Continue trial', '继续试玩')}</PlayButton>
+                  <span className="mute fs-sm">{!user ? t(`Sign in to start a ${trial!.minutes}-minute free trial.`, `登录即可开始 ${trial!.minutes} 分钟免费试玩。`) : fresh ? t(`${trial!.minutes} minutes free, then ${price(g.price_cents)} to keep playing.`, `免费 ${trial!.minutes} 分钟，之后 ${price(g.price_cents)} 即可继续游玩。`) : t(`${leftMin} of ${trial!.minutes} free minutes left.`, `免费 ${trial!.minutes} 分钟还剩 ${leftMin} 分钟。`)}</span>
+                  <Button size="sm" variant="ghost" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Or buy now', '或直接购买')} · {price(g.price_cents)}</Button>
+                </>
+                : locked ? <>{trial?.over && <b>{trialDone ? t('Your free trial has ended', '免费试玩已结束') : t(`You have used your ${trial.minutes}-minute free trial`, `你已用完 ${trial.minutes} 分钟免费试玩`)}</b>}<PlayButton buy onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</PlayButton><span className="mute fs-sm">{config.payments ? trial?.over ? t('Buy it to keep playing. Your saves are kept.', '购买后即可继续游玩，存档会保留。') : t('One payment. Play as much as you like.', '一次购买，畅玩无限。') : t('Purchases are not open yet on this platform.', '平台暂未开放购买。')}</span></>
                 : <><PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : t('Play', '开始游戏')}</PlayButton>{!user && <span className="mute fs-sm">{t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
             </div>
           </Stage>
@@ -88,6 +118,7 @@ export function Game({ slug }: { slug: string }) {
             <dl className="gp-facts">
               <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
               <div><dt>{t('Released', '发布')}</dt><dd>{date(g.published_at)}</dd></div>
+              {trial && <div><dt>{t('Try it', '试玩')}</dt><dd className="good">{trialLabel(trial.minutes)}</dd></div>}
               <div><dt>{t('Creator', '创作者')}</dt><dd><Link to={`/browse?by=${encodeURIComponent(g.owner_id)}&who=${encodeURIComponent(g.author)}`} className="sig">{g.author}</Link></dd></div>
             </dl>
             <div className="gp-tags">{g.tags.map((x: string) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>
@@ -98,7 +129,7 @@ export function Game({ slug }: { slug: string }) {
 
         {live && (
           <div className="gp-buy">
-            <div className="grow"><h2>{locked ? t(`Buy ${g.title}`, `购买 ${g.title}`) : t(`Play ${g.title}`, `游玩 ${g.title}`)}</h2><p>{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')} {paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</p></div>
+            <div className="grow"><h2>{locked ? t(`Buy ${g.title}`, `购买 ${g.title}`) : t(`Play ${g.title}`, `游玩 ${g.title}`)}</h2><p>{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')} {trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>} {paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</p></div>
             <div className="gp-buy-act"><span className="gp-price">{price(g.price_cents)}</span>{cta}</div>
           </div>
         )}
