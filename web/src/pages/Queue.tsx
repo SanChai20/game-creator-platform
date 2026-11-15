@@ -1,7 +1,7 @@
 // The discovery queue: games this browser has not opened yet, one at a time, with the facts that matter and two
 // choices: open it, or move on. What was seen is remembered in this browser only.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { api, artStyle, count, genreHue, genreName, Link, markSeen, navigate, num, price, RARITY, rarity, rarityHint, resetSeen, seenGames, t, Verdict, type GameCard } from '../lib';
+import { api, artStyle, blurb, count, genreHue, genreName, Link, markSeen, navigate, num, price, RARITY, rarity, rarityHint, resetSeen, seenGames, t, Verdict, type GameCard } from '../lib';
 import { Button, EmptyState, Spinner } from '../ui';
 
 export function Queue() {
@@ -39,7 +39,7 @@ export function Queue() {
             <div className="q-info">
               <div className="feat-tags"><span className="rar" title={rarityHint()}>{R.name()}</span>{g.tags.slice(0, 3).map((x) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>
               <h2>{g.title}</h2>
-              {g.tagline && <p className="lede">{g.tagline}</p>}
+              {blurb(g) && <p className="lede">{blurb(g)}</p>}
               <dl className="feat-facts">
                 <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
                 <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>

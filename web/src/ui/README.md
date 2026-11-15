@@ -13,7 +13,7 @@ Fonts (Inter, Space Grotesk, JetBrains Mono, all OFL) are self-hosted from `web/
 
 ## The look
 
-A game cabinet's HUD: violet-black ink, acid lime (`--accent`) for the one thing to do on a screen, and a hard hot-pink offset shadow (`--shadow-pop`) on anything you can press, which drops onto the page when pressed. Titles are set in the wide brand face (`--font-brand`), small labels are mono and upper case, surfaces are flat panels with hairline borders, figures sit in joined strips (`StatGrid`), and `<mark>` (or `.hl`) is the highlighter for the one phrase that matters most. Keep pages short: details belong on `/docs`.
+A game cabinet's HUD after dark: violet-black ink, acid lime (`--accent`) for the one thing to do on a screen, and a soft lime glow (`--shadow-pop`) under the primary action, which lifts a pixel on hover and settles when pressed. Raised panels (menus, dialogs) use `--shadow-pop-lg`. Nothing moves on its own: no marquees, no tilt or foil, no rotated stickers. Page titles are set in the wide brand face (`--font-brand`); section heads, card titles and figures use the display face. Small labels are mono and upper case, surfaces are flat panels with hairline borders, figures sit in joined strips (`StatGrid`), and `<mark>` (or `.hl`) sets the one phrase that matters most in lime. Keep pages short: details belong on `/docs`.
 
 ## GPU layer (`fx/`)
 
@@ -30,7 +30,6 @@ The store is laid out for a catalogue of tens of thousands of games across many 
 - **Identity.** A night arcade. Games sit in notched cartridges (two corners cut). Every category wears its own colour (`--h` from `genreHue(tag)`). Titles use the wide brand face (`--font-brand`, Unbounded). Sections are numbered like levels (`SectionHead`).
 - **Navigation.** `StoreBar` sits under the top bar on every store page. It holds the Categories mega menu, the main lists, the discovery queue and instant search (`/` focuses it).
 - **Front page.** One request, `/api/home`, returns everything the page shows:
-  - `Ticker`: live activity
   - `Stats`
   - `Spotlight`: the featured carousel, which holds still under reduced motion
   - `Since`: "Jump back in" and "new since your last visit"
