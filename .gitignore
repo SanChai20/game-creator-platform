@@ -9,3 +9,5 @@ web/public/kits/blocks.json
 src/generated/
 *.log
 smoke-state.json
+web/public/kits/baseline.bin
+mcp-live-state.json

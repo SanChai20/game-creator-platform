@@ -415,6 +415,33 @@ async function main() {
   assert.match(repub.open_implementation, /^on/);
   assert.equal((await ctool('get_implementation', { game: slug })).version, 1);
   ok(`open implementation: hidden until the creator opts in, then found by kind and technique and read as a card with no code (${icard.built_with.engine}, ${icard.built_with.input.join(', ')}), counted, and gone again when switched off; publish can opt in`);
+
+  // duplication check: a renamed copy of another creator's live game and a page that is not a game are refused before publishing
+  const fix = (f) => readFileSync(new URL(`fixtures/comet-herder/${f}`, import.meta.url), 'utf8');
+  const waitV = async (call, project, d) => { for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(2000); d = await call('list_versions', { project, version: d.version }); } return d; };
+  const orig = await tool('create_project', { title: `Comet Herder ${run}`, tagline: 'Herd comets into the corral', tags: ['arcade', 'space'] });
+  await tool('upload_files', { project: orig.project, files: [{ path: 'index.html', content: fix('index.html') }, { path: 'game.js', content: fix('game.js') }] });
+  const ov = await waitV(tool, orig.project, await tool('deploy_preview', { project: orig.project, note: 'original' }));
+  assert.equal(ov.status, 'verified', JSON.stringify(ov.report, null, 1).slice(0, 1500));
+  assert.ok(ov.report.checks.find((c) => c.id === 'original').ok && ov.report.checks.find((c) => c.id === 'is_game').ok, JSON.stringify(ov.report.checks));
+  assert.equal((await tool('publish', { project: orig.project })).live, true);
+  const origSlug = (await tool('list_projects', { project: orig.project })).slug;
+  const renamed = fix('game.js').replace(/\b(tug|comets|debris|herded|hull|corral|steer|advance|paint|newRound|chance|pen|stars|flash|held)\b/g, (w) => 'my' + w[0].toUpperCase() + w.slice(1)).replace(/^\s*\/\/.*$/gm, '').replace(/0\.(\d)\b/g, '0.$15');
+  const cp = await ctool('create_project', { title: `Star Wrangler ${run}`, tagline: 'Totally new' });
+  await ctool('upload_files', { project: cp.project, files: [{ path: 'index.html', content: fix('index.html').replace('Comet Herder', 'Star Wrangler') }, { path: 'game.js', content: renamed }] });
+  const cv = await waitV(ctool, cp.project, await ctool('deploy_preview', { project: cp.project, note: 'copy' }));
+  const orc = cv.report.checks.find((c) => c.id === 'original');
+  assert.ok(cv.status === 'failed' && orc && !orc.ok && orc.detail.includes(origSlug) && cv.report.checks.filter((c) => !c.ok).length === 1, JSON.stringify(cv.report.checks || cv.report).slice(0, 1500));
+  assert.match(await ctool('publish', { project: cp.project }, true), /not passed verification|matches/i);
+  const page = '<!doctype html><html><body style="margin:0;background:#111;color:#eee;font:16px sans-serif"><canvas id="c" width="640" height="200"></canvas><h1>Get the Comet app</h1><p>Our new app is coming soon to phones.</p><script>const c = document.getElementById("c").getContext("2d"); let t = 0; function f() { t += 0.02; c.fillStyle = "#123"; c.fillRect(0, 0, 640, 200); for (let i = 0; i < 12; i++) { c.fillStyle = `hsl(${i * 30 + t * 50},80%,60%)`; c.beginPath(); c.arc(320 + Math.cos(t + i) * 200, 100 + Math.sin(t * 2 + i) * 60, 14, 0, 7); c.fill(); } requestAnimationFrame(f); } f(); GCP.ready();</script></body></html>';
+  const ng = await ctool('create_project', { title: `Comet app ${run}` });
+  await ctool('upload_files', { project: ng.project, files: [{ path: 'index.html', content: page }] });
+  const nv = await waitV(ctool, ng.project, await ctool('deploy_preview', { project: ng.project, note: 'not a game' }));
+  const ig = nv.report.checks.find((c) => c.id === 'is_game');
+  assert.ok(nv.status === 'failed' && ig && !ig.ok && nv.report.checks.find((c) => c.id === 'original').ok, JSON.stringify(nv.report.checks || nv.report).slice(0, 1500));
+  const flagged = must(await ADM.get('/api/admin/overview')).flags;
+  assert.ok(flagged.some((f) => f.kind === 'copy_flagged' && f.id === cp.project) && flagged.some((f) => f.kind === 'not_game_flagged' && f.id === ng.project), JSON.stringify(flagged).slice(0, 600));
+  ok(`duplication check: an original game passes; a renamed copy by another creator fails "${orc.label}" (${cv.report.originality.matches[0].code}% of its code) and cannot be published; a page that is not a game fails "${ig.label}"; both show up for the admin`);
   const fresh = await agent('/oauth/token', { grant_type: 'refresh_token', refresh_token: dtok.json.refresh_token, client_id: dtok.json.client_id });
   assert.equal(fresh.status, 200, JSON.stringify(fresh.json)); assert.ok(fresh.json.access_token && fresh.json.access_token !== dtok.json.access_token);
   const cAgents = must(await C.get('/api/console/agents')).agents;

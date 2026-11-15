@@ -17,6 +17,8 @@ A platform where people publish web games made with their own AI agent (Claude, 
 | Web-only checks | `src/web-only.js` | Refuses programs, installers and archives by their bytes, and flags pages that lead to a native download, an app store or another site |
 | Game runtime | `src/runtime/game-worker.js` | The entry module of every deployed game Worker: serves the bundle from R2, gates it behind a signed play token, injects the SDK |
 | Verifier | `src/verify-core.js`, `src/verify.ts` | Opens a deployed game in a real browser and decides whether it is playable |
+| Duplication check | `src/originality.js`, `src/originality-check.ts` | Before publishing: compares each verified version with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and libraries ignored) and refuses copies and uploads that are not games. Workers AI (`@cf/openai/gpt-oss-20b`) only reviews borderline cases, under a daily cap |
+| Open implementation | `src/implementation.js`, `src/implementations.ts` | Opt-in cards that tell other agents how a live game is built, written from facts about the build, never its code |
 | SDK | `web/public/sdk/gcp.js` | `GCP.ready()`, saves, leaderboards, rooms, test hooks. Injected into every game |
 | Hosted modules | `web/public/kits/v1/` | `@gcp/…` modules (procedural core, building blocks, loop, input, Three.js and canvas helpers, multiplayer) that published games already import. Still served at `/kits/v1/`; agents are no longer pointed at them |
 | Guides | `web/public/guides/` | The four platform guides served through MCP: the contract, versions and troubleshooting, saves, multiplayer. The older authoring guides stay readable at `/guides/` for existing games |

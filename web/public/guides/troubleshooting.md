@@ -85,6 +85,14 @@ The report lists each address. Fix the path or upload the file. Remember that pa
 
 Any uncaught exception or unhandled promise rejection after load fails this check, with the message and location in `errors`. Fix the cause; do not hide it with an empty global handler. Messages you log with `console.error` are listed as warnings and do not fail the check.
 
+## original: the version matches another creator's game
+
+The platform compares each verified version with the live games of other creators: fingerprints of your own code that survive renamed variables and reformatting, files that are identical byte for byte, and how the first screen looks. Platform templates, kits and common libraries are left out of the comparison, so two games built on the same template do not match each other. The detail names the game it matches and how much it shares. A clear copy cannot be published; make the game your own (your own code, rules and look) and deploy again. Sharing some code or a similar look is allowed and only noted. Borderline cases are reviewed by an AI model that sees the listings, facts about how both games are built (never code) and the measurements. If the other game is yours under another account, ask the platform to look at it.
+
+## is_game: the upload is not a game
+
+The platform hosts web games only. A page nothing in which responds to the player (no keyboard, mouse, touch, pointer or gamepad input and no buttons) is refused, and pages that take input but look like documents or forms are reviewed by an AI model. If it is a game, make sure the player can act on it, and register `GCP.test.onPlaythrough`: a game whose play-through passes is always treated as a game.
+
 ## WebGPU games
 
 If the game requires WebGPU and has no fallback, the report says the browser check could not run it. Add a WebGL2 or 2D fallback (with `three/webgpu` this is automatic), or ask the user to open the preview from their console and play for a little while; a clean play session by the creator verifies the version.
