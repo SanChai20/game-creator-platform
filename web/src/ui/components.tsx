@@ -46,12 +46,21 @@ export function StatusBadge({ status }: { status: string }) {
 }
 
 // ---- layout -----------------------------------------------------------------------------------
-/** The top of a console or admin page: eyebrow (or a back link), title, optional line under it, actions on the right. */
+/** The trail above a page title. The last item is the current page and is not a link. */
+export function Crumbs({ items }: { items: ({ to: string; label: ReactNode } | ReactNode)[] }) {
+  return (
+    <nav className="crumbs" aria-label={t('Breadcrumb', '导航路径')}>
+      {items.map((it, i) => <span key={i} className="row s">{i > 0 && <i aria-hidden="true">/</i>}{it && typeof it === 'object' && 'to' in (it as object) ? <Link to={(it as { to: string }).to}>{(it as { label: ReactNode }).label}</Link> : <span>{it as ReactNode}</span>}</span>)}
+    </nav>
+  );
+}
+
+/** The top of a page: a breadcrumb (or eyebrow), the title, an optional line under it, actions on the right. */
 export function PageHeader({ eyebrow, back, title, sub, actions, badge }: { eyebrow?: ReactNode; back?: { to: string; label: string }; title: ReactNode; sub?: ReactNode; actions?: ReactNode; badge?: ReactNode }) {
   return (
     <header className="page-h">
       <div className="stack s grow">
-        {back ? <Link to={back.to} className="eyebrow back">← {back.label}</Link> : eyebrow && <Eyebrow tone="accent">{eyebrow}</Eyebrow>}
+        {back ? <Crumbs items={[{ to: back.to, label: back.label }, ...(eyebrow ? [eyebrow] : [])]} /> : eyebrow && <Eyebrow tone="accent">{eyebrow}</Eyebrow>}
         <div className="row wrapx"><h1>{title}</h1>{badge}</div>
         {sub && <p className="mute page-sub">{sub}</p>}
       </div>
@@ -64,7 +73,7 @@ export function PageHeader({ eyebrow, back, title, sub, actions, badge }: { eyeb
 export function Section({ title, sub, actions, children, id, className }: { title: ReactNode; sub?: ReactNode; actions?: ReactNode; children: ReactNode; id?: string; className?: string }) {
   return (
     <section className={cx('stack l', className)} id={id}>
-      <div className="section-h"><div className="stack s"><h2>{title}</h2>{sub && <p className="mute">{sub}</p>}</div>{actions && <div className="right row">{actions}</div>}</div>
+      <div className="section-h"><div className="grow"><h2>{title}</h2>{sub && <p>{sub}</p>}</div>{actions && <div className="right row">{actions}</div>}</div>
       {children}
     </section>
   );
@@ -90,7 +99,7 @@ export function ListRow({ to, media, title, meta, tail, className }: { to?: stri
 // ---- data -------------------------------------------------------------------------------------
 /** One figure with a label and a line of context. Put several in a StatGrid. */
 export function Stat({ label, value, sub, tone, to }: { label: ReactNode; value: ReactNode; sub?: ReactNode; tone?: 'accent'; to?: string }) {
-  const body = <><Eyebrow tone={tone}>{label}</Eyebrow><b className="stat-v">{value}</b>{sub && <small>{sub}</small>}</>;
+  const body = <><b className="stat-v">{value}</b><span className="stat-l">{label}</span>{sub && <small>{sub}</small>}</>;
   return to ? <Link to={to} className={cx('stat', 'is-link', tone && 'stat-accent')}>{body}</Link> : <div className={cx('stat', tone && 'stat-accent')}>{body}</div>;
 }
 export const StatGrid = ({ children }: { children: ReactNode }) => <div className="stats">{children}</div>;

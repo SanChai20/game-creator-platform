@@ -13,7 +13,7 @@ Fonts (Inter, Space Grotesk, JetBrains Mono, all OFL) are self-hosted from `web/
 
 ## The look
 
-A game cabinet's HUD: violet-black ink, acid lime (`--accent`) for the one thing to do on a screen, and a hard hot-pink offset shadow (`--shadow-pop`) on anything you can press, which drops onto the page when pressed. Labels are mono and upper case, surfaces get corner ticks, and `<mark>` (or `.hl`) is the highlighter for the one phrase that matters most. Keep pages short: details belong on `/docs`.
+A game cabinet's HUD: violet-black ink, acid lime (`--accent`) for the one thing to do on a screen, and a hard hot-pink offset shadow (`--shadow-pop`) on anything you can press, which drops onto the page when pressed. Titles are set in the wide brand face (`--font-brand`), small labels are mono and upper case, surfaces are flat panels with hairline borders, figures sit in joined strips (`StatGrid`), and `<mark>` (or `.hl`) is the highlighter for the one phrase that matters most. Keep pages short: details belong on `/docs`.
 
 ## GPU layer (`fx/`)
 
@@ -23,13 +23,39 @@ To let the GPU draw a picture, mark its element with `data-gl="tile" | "hero" | 
 
 Tiers (`fx/gl.ts`): **full** (desktop with a GPU), **lite** (phones and weak devices: background and post only, 30 fps), **still** (reduced motion: one frame), **off** (no WebGL 2, a software renderer, or the footer switch). The pipeline pauses in hidden tabs, lowers its resolution and then its tier when frames run long, and recovers once from a lost context. `localStorage.fx = 'force'` skips the device checks for testing; `__fx.stats` shows fps and CPU time per frame.
 
-## The store (`../store.tsx`)
+## The store (`../store.tsx`, `../store.css`)
 
-The home page and the browse page are built for a catalogue of tens of thousands of games. `/api/home` returns the spotlight, the shelves, the genres and the key numbers in one request; `/api/games` is paged (`limit`, `offset`, with `total` and `next_offset`; `facets=0` skips the genre counts). The building blocks live in `store.tsx`: `SearchBox` (instant results, `/` to focus), `Spotlight` (rotating picks; still under reduced motion), `Stats`, `Shelf` (a sideways row with "See all"), `Genres`, `Since` ("Jump back in" and "new since your last visit") and `MoreLike` (game pages). Shelves never assume a fixed number of games, and the browse grid loads the next page as you scroll.
+The store is laid out for a catalogue of tens of thousands of games across many categories, with Steam's structure as the reference and a look of its own.
 
-Games are collectibles everywhere: `rarity(g)` in `lib.tsx` (Common, Rare, Epic, Legendary, earned from ratings and plays) gives each card its colour (`--rc`). `GameTile` is the collectible card used in every grid and shelf.
+- **Identity.** A night arcade. Games sit in notched cartridges (two corners cut). Every category wears its own colour (`--h` from `genreHue(tag)`). Titles use the wide brand face (`--font-brand`, Unbounded). Sections are numbered like levels (`SectionHead`).
+- **Navigation.** `StoreBar` sits under the top bar on every store page. It holds the Categories mega menu, the main lists, the discovery queue and instant search (`/` focuses it).
+- **Front page.** One request, `/api/home`, returns everything the page shows:
+  - `Ticker`: live activity
+  - `Stats`
+  - `Spotlight`: the featured carousel, which holds still under reduced motion
+  - `Since`: "Jump back in" and "new since your last visit"
+  - `Cartridges`: categories
+  - `TabbedLists`: rows with a preview of the game in focus
+  - `Shelf`: sideways rows
+  - `QueueBand`
+- **Categories.** `/categories` lists every genre, as cartridges and then A to Z (`/api/categories`). Each genre has its own page at `/c/:tag` (`/api/categories/:tag`, which gives its numbers and related genres), followed by its full catalogue.
+- **Catalogue.** `Catalogue` (in `pages/Browse.tsx`) powers `/browse` and every category page:
+  - A filter sidebar: several genres at once (`tag=a,b`), price (`free`, `under5`, `paid`) and minimum rating (`rating=4`). It becomes a drawer on phones.
+  - Sort, and a grid or list view (`GameRow`).
+  - Numbered pages (`Pager`, 30 a page).
+  - Every choice is kept in the address.
+- **Discovery queue.** `/queue` shows games this browser has not opened yet, one at a time (`seenGames`, `markSeen`).
+- **Game pages.**
+  - A media area and a capsule.
+  - The buy box.
+  - About, controls and reviews.
+  - A figure strip.
+  - Shelves for "More from this creator" (`/api/games?by=`) and "More like this".
+- **Long lists elsewhere.** The console's game list and the admin lists are searchable and paged too.
 
-Return visits: `lastVisit()`, `recentPlays()` and `rememberPlay()` in `lib.tsx` keep, in this browser only, when it was last here and which games it played. Live "playing now" counts come with every game (`playing`).
+`verdict(g)` turns a rating into a word: Adored, Loved, Liked, Mixed or Rough. `rarity(g)` (Common to Legendary) gives each card its edge colour (`--rc`).
+
+Return visits are kept in this browser only. `lastVisit()`, `recentPlays()` and `rememberPlay()` record when it was last here and which games it played.
 
 ## Tokens
 

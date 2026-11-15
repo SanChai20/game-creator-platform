@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { TOKENS_CSS } from './ui/tokens';
 import './ui/ui.css';
 import './styles.css';
+import './store.css';
 import { api, AppCtx, Link, loginUrl, navigate, setLang, t, useLang, useLocation, type Config, type Me } from './lib';
 import { Button, EmptyState, Spinner } from './ui';
 import { fxPref, GpuLayer, setFxPref } from './ui/fx';
@@ -21,7 +22,12 @@ import { Admin } from './pages/Admin';
 import { Device } from './pages/Device';
 import { Docs } from './pages/Docs';
 import { Browse } from './pages/Browse';
-import { SearchBox } from './store';
+import { Categories, Category } from './pages/Categories';
+import { Queue } from './pages/Queue';
+import { SearchBox, StoreBar } from './store';
+
+/** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
+const isStore = (path: string) => path === '/' || path === '/browse' || path === '/categories' || path === '/queue' || path.startsWith('/c/') || path.startsWith('/g/');
 
 function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogout: () => void }) {
   const loc = useLocation(), lang = useLang(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
@@ -33,14 +39,13 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
     <nav className="nav">
       <div className="wrap">
         <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
-        <Link to="/" className={on('/')}>{t('Discover', '发现')}</Link>
-        <Link to="/browse" className={on('/browse')}>{t('Browse', '浏览')}</Link>
+        <Link to="/" className={'nl' + (isStore(path) ? ' on' : '')}>{t('Store', '商店')}</Link>
         <Link to="/create" className={on('/create') + (user ? '' : ' hide-xs')}>{t('For creators', '创作者')}</Link>
         <Link to="/docs" className={on('/docs') + ' hide-s'}>{t('Docs', '文档')}</Link>
         {user && <Link to="/console" className={on('/console') + ' hide-s'}>{t('Console', '控制台')}</Link>}
         {user?.role === 'admin' && <Link to="/admin" className={on('/admin') + ' hide-s'}>{t('Admin', '管理')}</Link>}
         <span className="grow" />
-        {path !== '/' && path !== '/browse' && <div className="nav-search hide-s"><SearchBox /></div>}
+        {!isStore(path) && <div className="nav-search hide-s"><SearchBox /></div>}
         <button className="lang" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label="Language">{lang === 'zh' ? 'EN' : '中文'}</button>
         {user ? (
           <div className="menu" ref={ref}>
@@ -66,6 +71,11 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
   );
 }
 
+function StoreBarSlot() {
+  const path = useLocation().split('?')[0];
+  return isStore(path) ? <StoreBar /> : null;
+}
+
 /** Each page enters like a new level: the wrapper is keyed on the path, so its entrance animation replays. */
 function RouteFrame({ children }: { children: ReactNode }) {
   const path = useLocation().split('?')[0];
@@ -79,7 +89,15 @@ function FxToggle() {
 }
 
 function NotFound() {
-  return <div className="wrap page"><EmptyState title={t('Nothing here', '页面不存在')} action={<Button to="/">{t('Back to the games', '返回游戏列表')}</Button>}>{t('That page does not exist, or it was moved.', '该页面不存在或已被移动。')}</EmptyState></div>;
+  return (
+    <div className="wrap nf">
+      <span className="nf-big" aria-hidden="true">404</span>
+      <h1>{t('Game over for this page', '这个页面不存在')}</h1>
+      <p className="mute">{t('It does not exist, or it moved. The games are still here.', '它不存在或已被移动，但游戏都还在。')}</p>
+      <SearchBox />
+      <div className="row wrapx" style={{ justifyContent: 'center' }}><Button to="/" variant="primary">{t('Back to the store', '返回商店')}</Button><Button to="/categories">{t('Browse categories', '浏览分类')}</Button></div>
+    </div>
+  );
 }
 
 function Routes({ user }: { user: Me | null }) {
@@ -90,6 +108,9 @@ function Routes({ user }: { user: Me | null }) {
   let m: RegExpMatchArray | null;
   if (path === '/') return <Home />;
   if (path === '/browse') return <Browse />;
+  if (path === '/categories') return <Categories />;
+  if (path === '/queue') return <Queue />;
+  if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} />;
   if (path === '/create') return <Creators />;
@@ -122,13 +143,19 @@ function App() {
   return (
     <AppCtx.Provider value={{ ...state, refresh, toast }} key={lang}>
       <Nav user={state.user} brand={brand} onLogout={logout} />
+      <StoreBarSlot />
       <GpuLayer />
       <main><RouteFrame><Routes user={state.user} /></RouteFrame></main>
       <footer className="foot"><div className="wrap">
-        <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
-        <span>{state.config.settings.tagline}</span><span className="grow" />
-        <Link to="/">{t('Games', '游戏')}</Link><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a><FxToggle />
-        <span className="foot-note">© {new Date().getFullYear()} {brand} · {t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</span>
+        <div className="foot-brand">
+          <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
+          <p>{state.config.settings.tagline}</p>
+          <p className="foot-web">{t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</p>
+        </div>
+        <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link></nav>
+        <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
+        <div className="foot-col"><b>{t('This browser', '本浏览器')}</b><FxToggle /><button className="lang foot-lang" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}>{lang === 'zh' ? 'English' : '中文'}</button></div>
+        <span className="foot-note">© {new Date().getFullYear()} {brand}</span>
       </div></footer>
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
     </AppCtx.Provider>

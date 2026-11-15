@@ -28,6 +28,8 @@ export const chart = {
 
 const cjk = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
 export const font = {
+  // The brand face: wide and loud, for page titles, section heads and big numbers only.
+  brand: `"Unbounded", "Space Grotesk", "Inter", ui-sans-serif, system-ui, ${cjk}`,
   display: `"Space Grotesk", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, ${cjk}`,
   sans: `"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", ${cjk}`,
   mono: '"JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace',
@@ -63,7 +65,7 @@ const vars: Record<string, string | number> = {
   'grad-surface': `linear-gradient(180deg, rgba(255, 255, 255, .025), rgba(255, 255, 255, 0) 60%)`,
   'grad-text': `linear-gradient(100deg, ${color.accentHi} 0%, ${color.accent} 50%, ${color.cyan})`,
   'grad-hot': `linear-gradient(100deg, ${color.hot}, ${color.violet})`,
-  'font-display': font.display, 'font-sans': font.sans, 'font-mono': font.mono,
+  'font-brand': font.brand, 'font-display': font.display, 'font-sans': font.sans, 'font-mono': font.mono,
   ...Object.fromEntries(Object.entries(size).map(([k, v]) => ['fs-' + k, v])),
   ...Object.fromEntries(Object.entries(space).map(([k, v]) => ['sp-' + k, v])),
   ...Object.fromEntries(Object.entries(radius).map(([k, v]) => ['r-' + k, v])),
@@ -79,6 +81,7 @@ const face = (family: string, file: string, weights: string) =>
 /** Every token as a CSS custom property on :root, plus the self-hosted fonts (served from /fonts). */
 export const TOKENS_CSS =
   face('Inter', 'inter-latin-wght-normal.woff2', '100 900') +
+  face('Unbounded', 'unbounded-latin-wght-normal.woff2', '200 900') +
   face('Space Grotesk', 'space-grotesk-latin-wght-normal.woff2', '300 700') +
   face('JetBrains Mono', 'jetbrains-mono-latin-wght-normal.woff2', '100 800') +
   `:root{color-scheme:dark;${Object.entries(vars).map(([k, v]) => `--${k}:${v}`).join(';')}}`;

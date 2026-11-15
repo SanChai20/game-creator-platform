@@ -1,5 +1,5 @@
 // Shared plumbing for the web app: language, API client, a tiny router, session state and small components.
-import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import { Button, Notice } from './ui/components';
 // Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
 export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
@@ -68,9 +68,11 @@ export function navigate(to: string, replace = false) {
 }
 export const useLocation = () => useSyncExternalStore((f) => { navSubs.add(f); return () => navSubs.delete(f); }, () => location.pathname + location.search);
 export const query = () => new URLSearchParams(location.search);
-export function Link({ to, className, children, onClick, title }: { to: string; className?: string; children: ReactNode; onClick?: () => void; title?: string }) {
-  const go = (e: MouseEvent) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); onClick?.(); navigate(to); };
-  return <a href={to} className={className} onClick={go} title={title}>{children}</a>;
+type LinkProps = { to: string; className?: string; children: ReactNode; onClick?: () => void; title?: string; scroll?: boolean } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href' | 'onClick' | 'className' | 'title' | 'children'>;
+/** An in-app link. A same-page link (a filter or a page number) keeps the scroll position unless `scroll` is set. */
+export function Link({ to, className, children, onClick, title, scroll, ...rest }: LinkProps) {
+  const go = (e: MouseEvent) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); onClick?.(); navigate(to); if (scroll) window.scrollTo(0, 0); };
+  return <a href={to} className={className} onClick={go} title={title} {...rest}>{children}</a>;
 }
 
 // ---- session ----------------------------------------------------------------------------------
@@ -120,9 +122,31 @@ export const RARITY: Record<Rarity, { color: string; foil: number; name: () => s
 };
 export const rarityHint = () => t('Rarity is earned from ratings and plays.', '稀有度由评分和游玩次数决定。');
 
-/** A game as a collectible card: rarity edge, a foil sheen that follows the pointer, a slight tilt. */
+/** A hue for a genre, stable for its name: every category has its own colour across the store. */
+export function genreHue(tag: string) {
+  let h = 2166136261; for (let i = 0; i < tag.length; i++) { h ^= tag.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % 360;
+}
+export const genreName = (tag: string) => tag ? tag.charAt(0).toUpperCase() + tag.slice(1).replace(/-/g, ' ') : '';
+
+/** What players think, in a word, from the average rating and how many ratings there are. */
+export function verdict(g: Pick<GameCard, 'rating' | 'rating_count'>): { word: string; tone: 'top' | 'good' | 'mid' | 'low' | 'none' } {
+  const r = g.rating ?? 0, n = g.rating_count || 0;
+  if (n < 3) return { word: n ? t('A few ratings', '评分较少') : t('No ratings yet', '暂无评分'), tone: 'none' };
+  if (r >= 4.7 && n >= 50) return { word: t('Adored', '口碑爆棚'), tone: 'top' };
+  if (r >= 4.4) return { word: t('Loved', '好评如潮'), tone: 'top' };
+  if (r >= 4) return { word: t('Liked', '特别好评'), tone: 'good' };
+  if (r >= 3) return { word: t('Mixed', '褒贬不一'), tone: 'mid' };
+  return { word: t('Rough', '多半差评'), tone: 'low' };
+}
+export function Verdict({ g, full }: { g: Pick<GameCard, 'rating' | 'rating_count'>; full?: boolean }) {
+  const v = verdict(g);
+  return <span className={'verdict v-' + v.tone}>{v.word}{full && g.rating != null && g.rating_count >= 3 && <span className="mute"> · ★ {g.rating.toFixed(1)} ({num(g.rating_count)})</span>}</span>;
+}
+
+/** A game as a collectible card: a notched cartridge with a rarity edge, a foil sheen that follows the pointer and a slight tilt. */
 export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
-  const rar = rarity(g);
+  const rar = rarity(g), genre = g.tags[0];
   const move = (e: RPointerEvent<HTMLDivElement>) => {
     if (e.pointerType !== 'mouse') return;
     const el = e.currentTarget, r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
@@ -132,16 +156,17 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
   const leave = (e: RPointerEvent<HTMLDivElement>) => { const el = e.currentTarget; el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); };
   return (
     <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`}>
-      <div className="card-in" onPointerMove={move} onPointerLeave={leave} style={{ '--rc': RARITY[rar].color } as CSSProperties}>
+      <div className="card-in" onPointerMove={move} onPointerLeave={leave} style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 270 } as CSSProperties}>
         <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
-          {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <div className="mono-title">{g.title}</div>}
+          {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
           <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+          {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
           <span className="play-hint" aria-hidden="true" />
         </div>
         <div className="card-body">
-          <div className="card-tag"><span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>{fresh && <span className="new">{t('New', '新上架')}</span>}{!fresh && g.featured && <span className="feat">{t('Featured', '精选')}</span>}{!!g.playing && <span className="live">{num(g.playing)} {t('playing', '人在玩')}</span>}</div>
+          <div className="card-tag"><span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>{fresh && <span className="new">{t('New', '新上架')}</span>}{!fresh && g.featured && <span className="feat">{t('Featured', '精选')}</span>}{genre && <span className="gen">{genreName(genre)}</span>}</div>
           <h3 className="clip">{g.title}</h3>
-          <div className="meta"><span className="clip">{g.author}</span><Stars rating={g.rating} count={g.rating_count} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
+          <div className="meta"><Verdict g={g} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
         </div>
         <span className="foil" aria-hidden="true" />
       </div>
@@ -158,6 +183,14 @@ export function rememberPlay(g: { slug: string; title: string; cover: string | n
   const list = [{ slug: g.slug, title: g.title, cover: g.cover, at: Date.now() }, ...recentPlays().filter((r) => r.slug !== g.slug)].slice(0, 8);
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* private mode */ }
 }
+/** Games this browser has opened or skipped, for the discovery queue. */
+const SEEN_KEY = 'gcp.seen';
+export const seenGames = (): string[] => readJson<string[]>(SEEN_KEY, []);
+export function markSeen(slug: string) {
+  const list = [slug, ...seenGames().filter((s) => s !== slug)].slice(0, 400);
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(list)); } catch { /* private mode */ }
+}
+export function resetSeen() { try { localStorage.removeItem(SEEN_KEY); } catch { /* private mode */ } }
 /** When this browser was last here before this visit (null on a first visit). Stays the same for the whole session. */
 export function lastVisit(): number | null {
   let prev: number | null;
