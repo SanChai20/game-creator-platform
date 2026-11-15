@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { artStyle, count, Fail, GameTile, Link, navigate, price, query, Stars, t, useApp, useData, useLocation, type GameCard } from '../lib';
-import { Badge, Button, Card, Chip, EmptyState, Eyebrow, SearchInput, Segmented, Spinner } from '../ui';
+import { Badge, Button, Chip, EmptyState, Eyebrow, SearchInput, Segmented, Spinner } from '../ui';
 
 export function Home() {
   useLocation();
@@ -16,49 +16,54 @@ export function Home() {
   const sorts: [string, string][] = [['trending', t('Trending', '热门')], ['new', t('New', '最新')], ['top', t('Top rated', '好评')], ['played', t('Most played', '最多游玩')]];
   const prices: [string, string][] = [['', t('All', '全部')], ['free', t('Free', '免费')], ['paid', t('Paid', '付费')]];
 
+  const next = hero ? games.slice(1, 5) : [];
+  const pitch = (
+    <div className="pitch">
+      <div className="grow stack s">
+        <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
+        <h3>{t('Your agent builds it.', '智能体负责创作，')} <mark>{t('We ship it.', '我们负责上线。')}</mark></h3>
+      </div>
+      <Button to="/create" variant="primary">{t('Make a game', '创作游戏')} →</Button>
+    </div>
+  );
+
   return (
     <>
       {hero ? (
-        <section className="hero">
-          <div className="bg" style={hero.cover ? { backgroundImage: `url(${hero.cover})` } : artStyle(hero.slug)} />
-          <div className="wrap">
-            <div className="stack l">
-              <Eyebrow tone="accent">{hero.featured ? t('Featured', '精选推荐') : t('Trending now', '正在流行')}</Eyebrow>
+        <div className="wrap bb">
+          <Link to={`/g/${hero.slug}`} className="bb-main" title={hero.title}>
+            <div className="art" style={hero.cover ? undefined : artStyle(hero.slug)}>{hero.cover && <img src={hero.cover} alt="" />}</div>
+            <div className="bb-top"><Badge tone="accent">{hero.featured ? t('Featured', '精选推荐') : t('Trending now', '正在流行')}</Badge>{hero.tags.slice(0, 2).map((x) => <Badge key={x} dot={false}>{x}</Badge>)}</div>
+            <div className="bb-body">
               <h1>{hero.title}</h1>
               {hero.tagline && <p className="lede">{hero.tagline}</p>}
               <div className="row wrapx hero-meta"><span>{t('by', '作者')} <b>{hero.author}</b></span><Stars rating={hero.rating} count={hero.rating_count} /><span className="num">{count(hero.plays, 'play', 'plays', '次游玩')}</span></div>
-              <div className="row wrapx">
-                <Button to={`/g/${hero.slug}`} variant="primary" size="lg">{hero.price_cents > 0 ? `${t('Get it', '购买')} · ${price(hero.price_cents)}` : t('Play now', '立即游玩')}</Button>
-                {hero.tags.slice(0, 3).map((x) => <Badge key={x} dot={false}>{x}</Badge>)}
-              </div>
+              <div><span className="btn btn-primary btn-lg">{hero.price_cents > 0 ? `${t('Get it', '购买')} · ${price(hero.price_cents)}` : `▶ ${t('Play now', '立即游玩')}`}</span></div>
             </div>
-            <Link to={`/g/${hero.slug}`} className="shot" title={hero.title}>
-              {hero.cover ? <img src={hero.cover} alt={hero.title} /> : <div style={{ ...artStyle(hero.slug), position: 'absolute', inset: 0 }} />}
-            </Link>
+          </Link>
+          <div className="bb-side">
+            <div className="rule"><em>{'>>'}</em> {t('Up next', '接下来玩')}</div>
+            <div className="bb-list">{next.map((g, i) => (
+              <Link key={g.id} to={`/g/${g.slug}`} className="bb-item">
+                <span className="n">{String(i + 2).padStart(2, '0')}</span>
+                <div className="thumb" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</div>
+                <div className="grow"><b className="clip">{g.title}</b><small className="clip">{g.price_cents > 0 ? price(g.price_cents) : t('Free', '免费')} · {count(g.plays, 'play', 'plays', '次游玩')}</small></div>
+              </Link>))}</div>
+            {pitch}
           </div>
-        </section>
+        </div>
       ) : !filtered && !loading && !error && (
-        <section className="lead"><div className="wrap">
+        <section className="lead"><div className="wrap solo"><div>
           <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
-          <h1 style={{ marginTop: 20 }}>{config.settings.tagline}</h1>
-          <p>{t('A marketplace of web games built by people working with their own AI agents. The shelves are empty for now. Yours could be the first game here.', '由创作者与自己的 AI 智能体共同打造的网页游戏市场。货架暂时还空着，第一款游戏可以是你的。')}</p>
+          <h1>{config.settings.tagline}</h1>
+          <p>{t('Web games built by people with their own AI agents. The shelves are empty for now. Yours could be the first.', '由创作者与自己的 AI 智能体共同打造的网页游戏。货架暂时还空着，第一款可以是你的。')}</p>
           <div className="row wrapx lead-actions"><Button to="/create" variant="primary" size="lg">{t('Make the first game', '创作第一款游戏')}</Button></div>
-        </div></section>
+        </div></div></section>
       )}
 
       <div className="wrap">
-        <div className="cta-band">
-          <Card tone="accent">
-            <div className="grow stack s">
-              <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
-              <h3>{config.settings.tagline}</h3>
-              <span className="mute">{t('Connect your agent, describe a game, publish it here.', '连接你的智能体，描述一款游戏，然后发布到这里。')}</span>
-            </div>
-            <Button to="/create">{t('How it works', '了解流程')} →</Button>
-          </Card>
-        </div>
-
         <div className="filters">
+          <h2>{t('All games', '全部游戏')}</h2>
           <Segmented label={t('Sort', '排序')} options={sorts} value={sort} onChange={(k) => set('sort', k === 'trending' ? '' : k)} />
           <Segmented label={t('Price', '价格')} options={prices} value={priceF} onChange={(k) => set('price', k)} />
           <SearchInput value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t('Search games', '搜索游戏')} aria-label={t('Search games', '搜索游戏')} />

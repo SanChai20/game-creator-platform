@@ -4,19 +4,20 @@
 // Plain data and strings only: this file is imported by the Worker as well as the browser.
 
 export const color = {
-  // Surfaces, darkest to lightest. The interface is the ink around the games.
-  bg0: '#06070b', bg1: '#0c0e14', bg2: '#12151d', bg3: '#191d27', bg4: '#242a37',
-  line: 'rgba(170, 182, 255, .08)', line2: 'rgba(170, 182, 255, .14)', line3: 'rgba(170, 182, 255, .26)',
+  // Surfaces, darkest to lightest: a violet-black, like a cabinet screen with the power on.
+  bg0: '#0a0910', bg1: '#110f18', bg2: '#17151f', bg3: '#201d2a', bg4: '#2c2838',
+  line: 'rgba(196, 184, 255, .08)', line2: 'rgba(196, 184, 255, .15)', line3: 'rgba(196, 184, 255, .28)',
   // Text
-  text: '#eef0f6', text2: '#a3a9ba', text3: '#686e82',
-  // Brand: a warm signal on cool ink.
-  accent: '#ffb53d', accent2: '#ff7a2f', accentHi: '#ffd27a', accentInk: '#1a0f02',
-  accentWash: 'rgba(255, 181, 61, .11)', accentGlow: 'rgba(255, 138, 48, .38)',
-  // Atmosphere: used for glows and charts, never for meaning.
-  violet: '#8f7cff', cyan: '#4fd8ff', pink: '#ff5fa2',
+  text: '#f2f0f7', text2: '#a9a4b8', text3: '#6c6780',
+  // Brand: acid lime on ink, with a hot pink kick for hard shadows and highlights.
+  accent: '#c6ff3d', accent2: '#8cf23a', accentHi: '#e4ff7a', accentInk: '#0d1400',
+  accentWash: 'rgba(198, 255, 61, .1)', accentLine: 'rgba(198, 255, 61, .34)', accentGlow: 'rgba(198, 255, 61, .3)',
+  hot: '#ff4fa3', hotWash: 'rgba(255, 79, 163, .12)',
+  // Atmosphere: glows and charts, never meaning.
+  violet: '#8b6bff', cyan: '#3fe0ff', pink: '#ff4fa3', gold: '#ffc845',
   // Meaning
-  good: '#4ade9b', bad: '#ff6b6b', info: '#6cb6ff',
-  goodWash: 'rgba(74, 222, 155, .11)', badWash: 'rgba(255, 107, 107, .1)', infoWash: 'rgba(108, 182, 255, .11)',
+  good: '#3ee8b5', bad: '#ff5d6c', info: '#6cb6ff',
+  goodWash: 'rgba(62, 232, 181, .11)', badWash: 'rgba(255, 93, 108, .1)', infoWash: 'rgba(108, 182, 255, .11)',
 } as const;
 
 /** Series colours for charts, in order. Readable on the dark surfaces and distinct from one another. */
@@ -34,28 +35,34 @@ export const font = {
 
 /** Type scale. The large steps grow with the viewport so headings hold their weight on phones and wide screens. */
 export const size = {
-  xs: '12px', sm: '13.5px', md: '15px', lg: '17px', xl: '20px', '2xl': '26px',
-  '3xl': 'clamp(28px, 3.2vw, 42px)', '4xl': 'clamp(36px, 5.2vw, 68px)', '5xl': 'clamp(42px, 7vw, 100px)',
+  xs: '11px', sm: '12.5px', md: '14px', lg: '15.5px', xl: '18px', '2xl': '22px',
+  '3xl': 'clamp(24px, 2.6vw, 34px)', '4xl': 'clamp(30px, 4vw, 50px)', '5xl': 'clamp(34px, 5.2vw, 72px)',
 } as const;
 
 export const space = { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '56px', 10: '80px', 11: '112px' } as const;
-export const radius = { xs: '6px', sm: '10px', md: '14px', lg: '20px', xl: '28px', pill: '999px' } as const;
+/** Tight corners: the interface reads as hardware, not as bubbles. */
+export const radius = { xs: '3px', sm: '5px', md: '7px', lg: '10px', xl: '14px', pill: '999px' } as const;
 export const shadow = {
   1: '0 1px 2px rgba(0, 0, 0, .4)',
   2: '0 12px 32px -8px rgba(0, 0, 0, .6)',
   3: '0 32px 80px -16px rgba(0, 0, 0, .75)',
   glow: `0 10px 34px -6px ${color.accentGlow}`,
   inset: 'inset 0 1px 0 rgba(255, 255, 255, .05)',
+  // The signature: a hard offset shadow, like a sprite's drop shadow.
+  pop: `3px 3px 0 0 ${color.hot}`,
+  'pop-lg': `5px 5px 0 0 ${color.hot}`,
+  'pop-ink': '3px 3px 0 0 #000',
 } as const;
 export const motion = { ease: 'cubic-bezier(.2, .8, .2, 1)', fast: '.12s', base: '.2s', slow: '.4s' } as const;
-export const layout = { wrap: '1320px', gutter: 'clamp(16px, 4vw, 48px)', nav: '64px' } as const;
+export const layout = { wrap: '1240px', gutter: 'clamp(16px, 4vw, 40px)', nav: '58px' } as const;
 export const z = { nav: 50, sticky: 20, modal: 120, toast: 200 } as const;
 
 const vars: Record<string, string | number> = {
   ...Object.fromEntries(Object.entries(color).map(([k, v]) => [k.replace(/[A-Z0-9]/g, (m) => '-' + m.toLowerCase()), v])),
-  'grad-accent': `linear-gradient(135deg, ${color.accentHi} 0%, ${color.accent} 38%, ${color.accent2} 100%)`,
-  'grad-surface': `linear-gradient(180deg, rgba(255, 255, 255, .028), rgba(255, 255, 255, 0) 60%)`,
-  'grad-text': `linear-gradient(100deg, ${color.text} 30%, ${color.accentHi} 70%, ${color.accent2})`,
+  'grad-accent': `linear-gradient(135deg, ${color.accentHi} 0%, ${color.accent} 45%, ${color.accent2} 100%)`,
+  'grad-surface': `linear-gradient(180deg, rgba(255, 255, 255, .025), rgba(255, 255, 255, 0) 60%)`,
+  'grad-text': `linear-gradient(100deg, ${color.accentHi} 0%, ${color.accent} 50%, ${color.cyan})`,
+  'grad-hot': `linear-gradient(100deg, ${color.hot}, ${color.violet})`,
   'font-display': font.display, 'font-sans': font.sans, 'font-mono': font.mono,
   ...Object.fromEntries(Object.entries(size).map(([k, v]) => ['fs-' + k, v])),
   ...Object.fromEntries(Object.entries(space).map(([k, v]) => ['sp-' + k, v])),

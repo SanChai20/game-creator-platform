@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t, usd, useApp } from '../lib';
-import { Button, Card, Code, Eyebrow, Section, Segmented, Steps } from '../ui';
+import { Button, Card, Code, Eyebrow, Segmented, Steps } from '../ui';
 
 /** How to add the MCP server in each agent. The server uses OAuth, so no key is ever pasted anywhere. */
 export function ConnectAgent() {
@@ -36,61 +36,56 @@ export const starterPrompt = () => t(
 
 export function Creators() {
   const { config, user } = useApp(), s = config.settings;
+  const keep = 100 - s.platform_fee_percent;
   return (
     <>
       <section className="lead"><div className="wrap">
-        <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
-        <h1 style={{ marginTop: 20 }}><span className="text-grad">{s.tagline}</span></h1>
-        <p>{t('Make a web game however you like, with whichever agent you use. The platform deploys every version, checks it in a real browser, publishes it to the marketplace, keeps every version for rollback, and gives it saves, leaderboards and multiplayer rooms.', '用你喜欢的方式、你常用的智能体制作网页游戏。平台负责部署每个版本、在真实浏览器中检查、发布到游戏市场、保留所有版本以便回滚，并提供存档、排行榜与多人房间。')}</p>
-        <div className="web-only mute">{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。')}</div>
-        <div className="row wrapx lead-actions">
-          <Button to={user ? '/console' : '/signup?next=%2Fconsole'} variant="primary" size="lg">{user ? t('Open your console', '打开控制台') : t('Start creating', '开始创作')}</Button>
-          <Button href="#connect" variant="ghost" size="lg">{t('Connect an agent', '连接智能体')} ↓</Button>
+        <div>
+          <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
+          <h1>{t('Describe a game.', '描述一款游戏，')} <mark>{t('Your agent ships it.', '智能体帮你上线。')}</mark></h1>
+          <p>{t('Use the agent you already have. We deploy every version, test it in a real browser and put it in front of players.', '用你已有的智能体。我们负责部署每个版本、在真实浏览器中测试，并把它送到玩家面前。')}</p>
+          <div className="web-only mute">{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。')}</div>
+          <div className="row wrapx lead-actions">
+            <Button to={user ? '/console' : '/signup?next=%2Fconsole'} variant="primary" size="lg">{user ? t('Open your console', '打开控制台') : t('Start creating', '开始创作')} →</Button>
+            <Button to="/docs" variant="ghost" size="lg">{t('Read the docs', '阅读文档')}</Button>
+          </div>
+        </div>
+        <div className="term" aria-label={t('How a game goes live', '游戏上线的过程')}>
+          <div className="term-bar"><i /><i /><i /><span>agent — game-creator</span></div>
+          <div className="term-body">
+            <div className="p">claude mcp add game-creator</div>
+            <div className="say">“{t('Make a game about a lighthouse keeper catching falling stars.', '做一款灯塔守护者接住坠落星星的游戏。')}”</div>
+            <div className="ok">{t('Preview deployed', '预览已部署')}</div>
+            <div className="ok">{t('Played in a real browser:', '真实浏览器试玩：')} <b>{t('passed', '通过')}</b></div>
+            <div className="ok">{t('Live at', '已上线：')} <b>/g/star-keeper</b></div>
+            <div className="p"><span className="cur" /></div>
+          </div>
         </div>
       </div></section>
 
-      <div className="wrap page stack xl">
-        <Section title={t('From an idea to a live game', '从想法到上线')}>
-          <div className="tri">
-            <div><span className="ico">01</span><Eyebrow tone="accent">{t('Build', '创作')}</Eyebrow><h3>{t('Your agent makes it', '由你的智能体制作')}</h3><p>{t('Any engine, framework or none, as long as the result runs in a browser: HTML, JavaScript, CSS and WebAssembly. Engines that export to the web (Unity WebGL, Godot Web and others) work too. The agent uploads the files.', '任何引擎、框架，或不用引擎都可以，只要最终能在浏览器中运行：HTML、JavaScript、CSS 与 WebAssembly。可导出网页版本的引擎（Unity WebGL、Godot Web 等）同样适用。智能体负责上传文件。')}</p></div>
-            <div><span className="ico">02</span><Eyebrow tone="accent">{t('Verify', '验证')}</Eyebrow><h3>{t('A real browser plays it', '真实浏览器试玩')}</h3><p>{t('Each preview is deployed as its own Cloudflare Worker and opened in a real browser. It must boot, keep rendering, show a picture, survive input and throw no errors.', '每个预览版本都会部署为独立的 Cloudflare Worker，并在真实浏览器中打开：必须能启动、持续渲染、有画面、经得住输入且没有报错。')}</p></div>
-            <div><span className="ico">03</span><Eyebrow tone="accent">{t('Publish', '发布')}</Eyebrow><h3>{t('Live in the marketplace', '上架游戏市场')}</h3><p>{t('A verified version goes live with one instruction. No human review queue. Keep shipping versions, roll back in a second, take it offline whenever you like.', '通过验证的版本只需一句指令即可上线，无需人工审核排队。可持续迭代、秒级回滚、随时下线。')}</p></div>
-          </div>
-        </Section>
+      <div className="wrap stack xl">
+        <div className="keys">
+          <div><b>1</b><span>{t('prompt from an idea to a live game', '句话，从想法到上线')}</span></div>
+          <div><b>0</b><span>{t('human review queues. Verified means live.', '人工审核排队。验证通过即上线。')}</span></div>
+          <div><b>{s.paid_games_enabled ? `${keep}%` : s.creator_fee_cents > 0 ? usd(s.creator_fee_cents) : t('Free', '免费')}</b><span>{s.paid_games_enabled ? t('of every sale is yours', '的销售收入归你') : s.creator_fee_cents > 0 ? t('once, for unlimited games', '一次性，游戏数量不限') : t('to build, preview and publish', '创作、预览与发布')}</span></div>
+        </div>
 
-        <section className="cols" id="connect">
-          <Card title={t('Connect your agent', '连接你的智能体')} pad><ConnectAgent /></Card>
-          <div className="stack l">
-            <Card pad>
-              <Eyebrow>{t('Then say something like', '然后可以这样说')}</Eyebrow>
-              <p className="quote">{starterPrompt()}</p>
-            </Card>
-            <Card pad tone="accent">
-              <Eyebrow tone="accent">{t('What it costs', '费用')}</Eyebrow>
-              <div className="row wrapx"><b className="big-num">{s.creator_fee_cents > 0 ? usd(s.creator_fee_cents) : t('Free', '免费')}</b><span className="mute">{s.creator_fee_cents > 0 ? t('once, for unlimited games', '一次性，游戏数量不限') : ''}</span></div>
-              <p className="mute">{s.creator_fee_required && s.creator_fee_cents > 0 ? t('Building and previewing are free. The creator license is needed when you publish your first game.', '创作与预览完全免费，发布第一款游戏时才需要创作者许可。') : t('Building, previewing and publishing are open to every account.', '创作、预览与发布对所有账户开放。')}</p>
-              {s.paid_games_enabled && <p className="mute">{t(`Publish free, or set a price. On paid games you keep ${100 - s.platform_fee_percent}% of each sale and can withdraw once your balance reaches ${usd(s.withdraw_min_cents)}.`, `可以免费发布，也可以自行定价。付费游戏每笔销售你可获得 ${100 - s.platform_fee_percent}%，余额达到 ${usd(s.withdraw_min_cents)} 即可提现。`)}</p>}
-            </Card>
+        <section className="stack l">
+          <div className="rule"><em>01</em> {t('How it works', '如何运作')}</div>
+          <div className="track">
+            <div><h3>{t('Your agent builds it', '智能体创作')}</h3><p>{t('Any engine or none, as long as it runs in a browser.', '任何引擎或不用引擎，只要能在浏览器中运行。')}</p></div>
+            <div><h3>{t('A real browser plays it', '真实浏览器试玩')}</h3><p>{t('It must boot, render, take input and throw no errors.', '必须能启动、渲染、响应输入且没有报错。')}</p></div>
+            <div><h3>{t('Players find it', '玩家发现它')}</h3><p>{t('Live in the marketplace. Roll back in a second.', '上架游戏市场，秒级回滚。')}</p></div>
           </div>
         </section>
 
-        <Section title={t('Three rules. Everything else is yours.', '只有三条规则，其余由你决定。')}>
-          <div className="tri">
-            <div><span className="ico">&lt;/&gt;</span><h3>{t('A game is a web page', '游戏就是一个网页')}</h3><p>{t('index.html at the root, with whatever it loads beside it. No build step, no required engine. Programs, installers and links to app stores are refused.', '根目录放 index.html，旁边是它加载的文件。无需构建步骤，不限定引擎。程序、安装包与应用商店链接会被拒绝。')}</p></div>
-            <div><span className="ico">✓</span><h3>{t('Say when it is ready', '告知何时就绪')}</h3><p>{t('Call GCP.ready() once, after the first playable frame is on screen.', '在第一帧可玩画面出现后调用一次 GCP.ready()。')}</p></div>
-            <div><span className="ico">∞</span><h3>{t('Stay alive', '保持运行')}</h3><p>{t('Keep rendering, throw no uncaught errors, and survive keyboard, mouse and touch.', '持续渲染，不抛出未捕获的错误，并经得住键盘、鼠标与触摸操作。')}</p></div>
-          </div>
-          <p className="mute" style={{ maxWidth: '70ch' }}>{t('Genre, engine, art direction, camera, rendering technique and controls are never prescribed or scored.', '题材、引擎、美术风格、镜头、渲染技术与操作方式从不设限，也不评分。')} <a className="sig" href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Read the full contract', '阅读完整约定')} →</a></p>
-        </Section>
-
-        <Section title={t('What every game gets', '每款游戏自带的能力')}>
-          <div className="tri">
-            <div><span className="ico">⚡</span><h3>{t('Its own Worker', '独立的 Worker')}</h3><p>{t('Every version runs on Cloudflare’s network, close to players, with nothing to host or scale.', '每个版本都运行在 Cloudflare 全球网络上，贴近玩家，无需自建托管或扩容。')}</p></div>
-            <div><span className="ico">⇄</span><h3>{t('Multiplayer rooms', '多人房间')}</h3><p>{t('Realtime rooms with host migration, ready to use from one line of code.', '支持主机迁移的实时房间，一行代码即可使用。')}</p></div>
-            <div><span className="ico">★</span><h3>{t('Saves and leaderboards', '存档与排行榜')}</h3><p>{t('Cloud saves per player, shared game data and leaderboards, backed by the platform database.', '按玩家的云存档、游戏共享数据与排行榜，均由平台数据库支撑。')}</p></div>
-            <div><span className="ico">▲</span><h3>{t('Real numbers', '真实数据')}</h3><p>{t('Plays, time played, ratings, sales and the errors real players hit, per version.', '按版本统计的游玩次数、时长、评分、销量以及真实玩家遇到的错误。')}</p></div>
-          </div>
-        </Section>
+        <section className="stack l">
+          <div className="rule"><em>02</em> {t('Connect your agent', '连接你的智能体')}</div>
+          <Card tone="accent" pad>
+            <Code text={`claude mcp add --transport http game-creator ${config.mcp_url}`} />
+            <div className="row wrapx"><span className="mute grow wide">{t('Claude, ChatGPT, Codex, Cursor, OpenCode or any MCP client. No API keys: you approve it by signing in.', 'Claude、ChatGPT、Codex、Cursor、OpenCode 或任何 MCP 客户端。无需 API 密钥，登录授权即可。')}</span><Button to="/docs#connect" size="sm">{t('Setup for every agent', '各智能体的设置方法')} →</Button></div>
+          </Card>
+        </section>
       </div>
     </>
   );
