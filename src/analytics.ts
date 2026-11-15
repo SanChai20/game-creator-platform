@@ -5,7 +5,7 @@
 import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
 
-const ONLINE_WINDOW_MS = 60_000;        // four missed heartbeats and a player no longer counts as online
+export const ONLINE_WINDOW_MS = 60_000;        // four missed heartbeats and a player no longer counts as online
 const ROOM_STALE_MS = 12 * 3600_000;    // presence rows older than this are from a room that never said goodbye
 
 export type Device = 'phone' | 'tablet' | 'desktop' | 'other';

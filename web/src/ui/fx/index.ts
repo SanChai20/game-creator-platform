@@ -1,2 +1,2 @@
 export { GpuLayer } from './GpuLayer';
-export { fxPref, fxTier, setFxPref, type FxTier } from './gl';
+export { fxForced, fxPref, fxTier, fxWeak, holdFx, setFxPref, type FxTier } from './gl';

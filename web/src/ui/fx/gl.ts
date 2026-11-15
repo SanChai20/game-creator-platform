@@ -38,13 +38,23 @@ function detect(): FxTier {
   if (!gl) return 'off';
   gl.getExtension('WEBGL_lose_context')?.loseContext(); // give the probe context back straight away
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return 'still';
-  const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean } };
-  const weak = (nav.deviceMemory !== undefined && nav.deviceMemory <= 4) || (navigator.hardwareConcurrency || 8) <= 4 || nav.connection?.saveData;
+  const weak = fxWeak();
   const phone = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600;
   return (weak && !force) || phone ? 'lite' : 'full';
 }
 if (typeof window !== 'undefined') {
   matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', () => { memo = undefined; dispatchEvent(new Event('fxchange')); });
+}
+
+let held = false;
+/** Pauses the page's GPU layer while another GPU scene fills the view (the exhibition hall), so the two never compete
+ *  for the GPU. The layer keeps its last frame and carries on when released. */
+export function holdFx(on: boolean) { if (on === held) return; held = on; dispatchEvent(new CustomEvent('fx:hold', { detail: on })); }
+export const fxHeld = () => held;
+/** Weak hardware or Save-Data: worth the light background, not a 3D scene and its download. */
+export function fxWeak() {
+  const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean } };
+  return (nav.deviceMemory !== undefined && nav.deviceMemory <= 4) || (navigator.hardwareConcurrency || 8) <= 4 || !!nav.connection?.saveData;
 }
 
 /** Brand colours from the design tokens as GLSL vec3s, so shaders follow tokens.ts like everything else. */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ago, api, artStyle, date, Fail, Link, loginUrl, navigate, num, playTime, price, query, Star, Stars, t, useAct, useApp, useData, count } from '../lib';
+import { ago, api, artStyle, date, Fail, Link, loginUrl, navigate, num, playTime, price, query, rememberPlay, Star, Stars, t, useAct, useApp, useData, count } from '../lib';
 import { Badge, Button, Card, Chip, EmptyState, Eyebrow, KeyValue, Notice, PlayButton, Section, Spinner, Textarea } from '../ui';
 
 /** The play surface: a poster until the player starts, then the game in a frame on its own origin. */
@@ -44,7 +44,7 @@ export function Game({ slug }: { slug: string }) {
 
   const play = () => {
     if (!user) return navigate(loginUrl());
-    void act('play', async () => { const r = await api<{ url: string }>(`/games/${slug}/play`, { method: 'POST' }); setUrl(r.url); });
+    void act('play', async () => { const r = await api<{ url: string }>(`/games/${slug}/play`, { method: 'POST' }); setUrl(r.url); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
