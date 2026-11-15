@@ -101,7 +101,7 @@ async function main() {
   const tools = (await rpc('tools/list')).tools;
   assert.ok(tools.length >= 20 && tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   const started = await tool('get_started');
-  assert.ok(started.workflow.length >= 5 && started.templates.length === 6 && started.what_to_read.always.length === 1 && started.kits.length === 12 && started.quality.target && started.building_blocks.tools.length === 3);
+  assert.ok(started.workflow.length >= 5 && started.templates.length === 6 && started.what_to_read.always.length === 1 && started.kits.length === 13 && started.quality.target && started.building_blocks.tools.length === 3);
   const rec = await tool('recommend_pipeline', { description: 'An open world survival game on an island with torches at night', dynamic_lights: 3 });
   assert.match(rec.pipeline, /three-forward/);
   assert.equal((await tool('recommend_pipeline', { description: 'a top-down pixel puzzle' })).pipeline, 'canvas2d');

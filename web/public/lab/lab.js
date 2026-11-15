@@ -2,21 +2,24 @@
 // modules games import.
 import * as THREE from 'three';
 import * as C from '@gcp/craft.js';
+import * as MAT from '@gcp/materials.js';
 import { NOISE_GLSL, fbm2, vnoise2, gnoise2, ridged2, warp2, vnoise3, gnoise3, hash2i, recipeKey } from '@gcp/procgen.js';
 
 const $ = (id) => document.getElementById(id), q = new URLSearchParams(location.search);
 const kinds = C.recipeKinds(), byKind = Object.fromEntries(kinds.map((k) => [k.kind, k]));
 const FLAT = new Set(['texture', 'noise']), ACTORS = new Set(['humanoid', 'animal']);
-const ORDER = ['tree', 'rock', 'bush', 'cover', 'prop', 'humanoid', 'animal', 'surface', 'terrain', 'texture', 'noise'];
+const ORDER = ['tree', 'rock', 'bush', 'cover', 'prop', 'model', 'humanoid', 'animal', 'surface', 'material', 'terrain', 'texture', 'noise'];
 const USE = {
   tree: 'place(build(recipe), x, land.heightAt(x, z), z);   // or scatter([build(recipe), …], { count: 200 })',
   rock: 'place(build(recipe), x, y, z);', bush: 'place(build(recipe), x, y, z);', cover: 'scatter([build(recipe)], { count: 300, heightAt: land.heightAt });',
   prop: 'place(build(recipe), x, y, z, { rotY: 0.5 });', humanoid: "const actor = build(recipe); stage.scene.add(actor);\nactor.animate('walk', dt);   // every frame",
   animal: 'const a = build(recipe); stage.scene.add(a);\nwander(a, { heightAt: land.heightAt });', surface: 'mesh.material = build(recipe);   // or block(4, 3, 0.3, kind, options)',
   terrain: 'const land = build(recipe);   // land.heightAt(x, z), land.randomPoint(rand)', texture: 'const raster = build(recipe);   // raster.toCanvas(), raster.toRGBA(), raster.normalRGBA(2)',
+  material: "import { material } from '@gcp/materials.js';\nmesh.material = material(recipe);   // the recipe without kind and v; UVs in metres (parts(), plane()) or { mapping: 'box' }",
+  model: "import { model } from '@gcp/materials.js';\nplace(model(recipe.model, recipe), x, y, z, { rotY: 0.5 });",
   noise: 'const n = build(recipe);   // n(x, y) in JS, n.fill(array, w, h), n.glsl("p") in a shader',
 };
-const DEFAULTS = { tree: { species: 'oak' }, cover: { type: 'flower' }, prop: { prop: 'house' }, humanoid: { preset: 'explorer' }, animal: { animal: 'deer' }, surface: { surface: 'brick' }, terrain: { shape: 'island', palette: 'temperate' }, texture: { texture: 'planks' }, noise: { type: 'fbm', scale: 40 } };
+const DEFAULTS = { material: { name: 'steel_rusty' }, model: { model: 'container' }, tree: { species: 'oak' }, cover: { type: 'flower' }, prop: { prop: 'house' }, humanoid: { preset: 'explorer' }, animal: { animal: 'deer' }, surface: { surface: 'brick' }, terrain: { shape: 'island', palette: 'temperate' }, texture: { texture: 'planks' }, noise: { type: 'fbm', scale: 40 } };
 
 let recipe;
 try { recipe = q.get('recipe') ? JSON.parse(q.get('recipe')) : null; } catch { recipe = null; }
@@ -50,7 +53,7 @@ function paramsUI() {
     fillSelect(el, ['idle', 'walk', 'run', 'jump', 'sit', 'dead'], state); el.addEventListener('change', () => { state = el.value; }); label.appendChild(el); box.appendChild(label);
   }
 }
-const listFor = (name) => ({ texture: C.TEXTURES, surface: C.SURFACES, prop: C.PROPS, animal: C.ANIMALS_LIST })[name] || null;
+const listFor = (name) => ({ texture: C.TEXTURES, surface: C.SURFACES, prop: C.PROPS, animal: C.ANIMALS_LIST, name: MAT.MATERIAL_NAMES, base: MAT.BASE_NAMES, model: MAT.MODELS })[name] || null;
 
 function clear() { for (const o of content) { stage.scene.remove(o); } content = []; actor = null; }
 function frame(obj, min = 3) {
@@ -83,6 +86,10 @@ function rebuild() {
       const mat = C.build(recipe), cube = new THREE.Mesh(C.tbox(3, 3, 3, 2), mat), ball = new THREE.Mesh(new THREE.SphereGeometry(1.4, 32, 20), mat);
       cube.position.set(-2, 1.5, 0); ball.position.set(2.2, 1.4, 0); cube.castShadow = ball.castShadow = true; const grp = new THREE.Group(); grp.add(cube, ball); stage.scene.add(grp); content.push(grp); frame(grp, 6);
       info = 'the same material on a 3 m cube (texture tiles every 2 m) and a sphere';
+    } else if (kind === 'material') {
+      const mat = C.build(recipe), cube = new THREE.Mesh(MAT.bevelBox(3, 3, 3, 0.03), mat), ball = new THREE.Mesh(MAT.sphere(1.4, 40, 24), mat);
+      cube.position.set(-2, 1.5, 0); ball.position.set(2.2, 1.4, 0); cube.castShadow = ball.castShadow = true; const grp = new THREE.Group(); grp.add(cube, ball); stage.scene.add(grp); content.push(grp); frame(grp, 6);
+      info = `baked on the GPU (${MAT.BAKE_STATS.sets} sets so far, ${MAT.BAKE_STATS.ms.toFixed(0)} ms in all): a 3 m cube and a sphere`;
     } else if (ACTORS.has(kind)) {
       actor = C.build({ ...recipe, lab: Math.random() }); stage.scene.add(actor); content.push(actor); frame(actor, 2.2); // a fresh object each time: actors are never shared
       info = `${C.countTriangles(actor).toLocaleString()} triangles, jointed and animated`;

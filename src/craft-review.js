@@ -133,7 +133,7 @@ export function craftReview(m) {
     [0.2, ramp(edges, 0.02, 0.055), `${(edges * 100).toFixed(1)}% of the pixels sit on a crisp edge; full marks from 5.5%. A soft or low-resolution picture scores low here. ${is3d
       ? 'Draw at the full pixel ratio when GCP.portrait is true (createStage does), keep shapes faceted or outlined, and avoid one stretched texture over a large area.'
       : 'Draw at the device pixel ratio and give sprites a darker outline.'}`],
-    [0.2, ramp(textures, 0, 8), `${textures} ${is3d ? 'textures' : 'pre-painted sprites or tiles'} in use; full marks from 8. ${is3d ? 'surface(kind) paints one with nothing to download; list_blocks {group: "surfaces"} names every kind.' : 'bake() in @gcp/canvas2d.js paints one once on an off-screen canvas.'}`],
+    [0.2, ramp(textures, 0, 8), `${textures} ${is3d ? 'textures' : 'pre-painted sprites or tiles'} in use; full marks from 8. ${is3d ? 'surface(kind) paints one with nothing to download (list_blocks {group: "surfaces"} names every kind), and material(name) from @gcp/materials.js paints a realistic set of three.' : 'bake() in @gcp/canvas2d.js paints one once on an off-screen canvas.'}`],
     [0.15, 1 - ramp(flat, 0.3, 0.7), `${pctText(flat)} of the picture is a single flat colour; full marks under 30%. ${is3d ? 'That is usually an empty sky or a bare floor: createStage({ mood }) paints a sky gradient with clouds or stars, and a faceted or textured ground removes the rest.' : 'Paint a background layer instead of one fill.'}`],
   ],
     `${pctText(detail)} of the picture has fine detail, ${(edges * 100).toFixed(1)}% of its pixels are crisp edges, ${pctText(flat)} is flat single colour; ${textures} ${is3d ? 'painted or loaded textures in use' : 'pre-painted sprites or tiles'}`,

@@ -19,11 +19,13 @@ const CRAFT_GROUPS = ['stage', 'surfaces', 'nature', 'props', 'actors', 'play', 
 const VALUES_OF: Record<string, string[]> = {
   createStage: ['moods', 'weather'], surface: ['surfaces'], surfaceTexture: ['surfaces'], surfaceNormal: ['surfaces'], block: ['surfaces'], floor: ['surfaces'], paint: ['surfaces'],
   tree: ['trees'], groundCover: ['ground_cover'], terrain: ['terrain_shapes', 'terrain_palettes'], prop: ['props'], place: ['props', 'trees', 'ground_cover'], scatter: ['trees', 'ground_cover', 'props'],
+  material: ['materials', 'material_bases'], materialTextures: ['materials', 'material_bases'], textureCanvas: ['materials', 'material_bases'], resolveRecipe: ['materials', 'material_bases'],
+  model: ['models', 'model_info'], parts: ['materials'], defineBase: ['material_bases'],
   humanoid: ['humanoids'], animal: ['animals'], sprite2d: ['sprites2d', 'trees2d'], actor2d: ['actors2d'], ground2d: ['ground_palettes'], createStage2d: ['moods2d', 'weather2d'], scatter2d: ['sprites2d'], createSound: ['sounds', 'ambiences', 'music'], createInventory: ['items'], itemIcon: ['items'], build: ['recipe_kinds'], recipe: ['recipe_kinds'], variants: ['recipe_kinds'],
 };
 // objects the blocks return: "hud.title" is documented under createHud, and so on
 const OWNERS: Record<string, string> = { stage: 'createStage', hud: 'createHud', sound: 'createSound', fx: 'createFx', actor: 'humanoid', hero: 'humanoid', player: 'control', controller: 'control', land: 'terrain', input: 'createInput', boot: 'run' };
-const LAB: Record<string, string> = { tree: 'tree', rock: 'rock', bush: 'bush', groundCover: 'cover', prop: 'prop', humanoid: 'humanoid', animal: 'animal', surface: 'surface', paint: 'texture', surfaceTexture: 'texture', terrain: 'terrain', noise: 'noise', createStage: 'stage' };
+const LAB: Record<string, string> = { material: 'material', model: 'model', tree: 'tree', rock: 'rock', bush: 'bush', groundCover: 'cover', prop: 'prop', humanoid: 'humanoid', animal: 'animal', surface: 'surface', paint: 'texture', surfaceTexture: 'texture', terrain: 'terrain', noise: 'noise', createStage: 'stage' };
 
 export async function listBlocks(env: Env, origin: string, a: Record<string, any>) {
   const cat = await catalog(env), want = String(a.group || '').toLowerCase().trim();
@@ -39,12 +41,26 @@ export async function listBlocks(env: Env, origin: string, a: Record<string, any
     depth: "For a game with more than one rule, group \"play\" has the systems ready to combine, in 2D and 3D alike: createInventory, createCrafting, createNeeds, createClock, createNodes + createInteract (harvest any scattered tree or rock), createBuilder, createQuests, createSave, and the panels hotbarUI, inventoryUI, needsUI, clockUI, questUI, minimapUI, pauseMenu, lobbyUI. input.bind names actions once for keyboard, mouse, touch buttons and gamepad. design_scene with goal \"homestead\" writes a complete game on all of them.",
     craft_blocks: cat.groups.filter((g) => CRAFT_GROUPS.includes(g.id)).map((g) => ({ group: g.id, title: g.title, blocks: g.blocks.filter((b) => b.kind !== 'value').map(line) })),
     world_2d: (() => { const g = cat.groups.find((x) => x.id === 'world2d'); return g ? { note: "Flat, painted top-down worlds with upright sprites (the 2.5D look) on a plain canvas: import from '@gcp/craft2d.js'. design_scene with camera \"2d\" writes a complete game with them.", blocks: g.blocks.filter((b) => b.kind !== 'value').map(line) } : undefined; })(),
+    realistic: {
+      note: "Opt-in realistic look (PBR), beside the painted low-poly craft blocks: import from '@gcp/materials.js'. Works with createStage and place()/scatter() from craft, or with your own Three.js scene. Use it when the brief asks for a realistic, gritty, industrial or 'not low-poly' look.",
+      import: "import { material, model, parts, toGroup, followWeather, textureCanvas } from '@gcp/materials.js'",
+      examples: [
+        "mesh.material = material('brick_old')                       // any of valid_names.materials",
+        "material({ base: 'metal', paint: '#b8322a', chips: 0.5, rust: 0.3, dirt: 0.4 })   // invent one as data: a base + weathering 0..1",
+        "place(model('container', { color: '#22457a' }), 4, 0, -6)   // any of valid_names.models; place() is from @gcp/craft.js",
+        "const p = parts(); p.box('planks_old', [1, 0.6, 0.6], [0, 0.3, 0]); p.cylinder('steel_rusty', 0.05, 0.8, [0.4, 0, 0]); place(p.build('mybox'), x, y, z)",
+        "ground: new THREE.Mesh(plane(80, 80).rotateX(-Math.PI / 2), material('grass'))   // plane() gives UVs in metres; big floors hide their tiling by themselves",
+      ],
+      groups: [{ group: 'materials', blocks: 'material, materialTextures, textureCanvas, followWeather, defineBase, MATERIALS, BASES' }, { group: 'models', blocks: 'model, parts, bevelBox, lathe, roundCylinder, tube, extrude, plane, sphere, labelMaterial, toGroup' }],
+      guide: 'get_guide realistic-materials',
+    },
     procedural_core: {
       note: "The layer underneath, for making your own assets: import from '@gcp/procgen.js'. Pure JS apart from the mesh builder, so 2D games and other engines can use the noise and the texture painter too. list_blocks {group} shows each in full.",
-      groups: cat.groups.filter((g) => !CRAFT_GROUPS.includes(g.id) && g.id !== 'world2d').map((g) => ({ group: g.id, title: g.title, blocks: g.blocks.map((b) => b.name).join(', ') })),
+      groups: cat.groups.filter((g) => !CRAFT_GROUPS.includes(g.id) && g.id !== 'world2d' && g.id !== 'materials' && g.id !== 'models').map((g) => ({ group: g.id, title: g.title, blocks: g.blocks.map((b) => b.name).join(', ') })),
     },
     valid_names: {
       moods: cat.values.moods, weather: cat.values.weather, surfaces: cat.values.surfaces, trees: cat.values.trees, ground_cover: cat.values.ground_cover, terrain_shapes: cat.values.terrain_shapes, terrain_palettes: cat.values.terrain_palettes,
+      materials: (cat.values as any).materials, material_bases: (cat.values as any).material_bases, models: (cat.values as any).models,
       props: cat.values.props, humanoids: cat.values.humanoids, animals: cat.values.animals, sounds: cat.values.sounds, ambiences: cat.values.ambiences, music: cat.values.music,
       items: (cat.values as any).items, sprites2d: (cat.values as any).sprites2d, trees2d: (cat.values as any).trees2d, actors2d: (cat.values as any).actors2d, ground_palettes: (cat.values as any).ground_palettes,
     },
