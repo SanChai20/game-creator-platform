@@ -28,11 +28,13 @@ export const chart = {
 
 const cjk = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif';
 export const font = {
-  // The brand face: wide and loud, for page titles, section heads and big numbers only.
-  brand: `"Unbounded", "Space Grotesk", "Inter", ui-sans-serif, system-ui, ${cjk}`,
-  display: `"Space Grotesk", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, ${cjk}`,
-  sans: `"Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", ${cjk}`,
-  mono: '"JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace',
+  // Oxanium: squared, cut corners, like the cartridges. The brand (page titles, heavy) and display (heads, figures) face.
+  brand: `"Oxanium", "IBM Plex Sans", ui-sans-serif, system-ui, ${cjk}`,
+  display: `"Oxanium", "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, ${cjk}`,
+  // IBM Plex Sans: engineered and readable at small sizes, for everything people read.
+  sans: `"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", ${cjk}`,
+  // Martian Mono: a wide terminal face for HUD labels, figures in tables, and code.
+  mono: '"Martian Mono", ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace',
 } as const;
 
 /** Type scale. The large steps grow with the viewport so headings hold their weight on phones and wide screens. */
@@ -81,8 +83,7 @@ const face = (family: string, file: string, weights: string) =>
 
 /** Every token as a CSS custom property on :root, plus the self-hosted fonts (served from /fonts). */
 export const TOKENS_CSS =
-  face('Inter', 'inter-latin-wght-normal.woff2', '100 900') +
-  face('Unbounded', 'unbounded-latin-wght-normal.woff2', '200 900') +
-  face('Space Grotesk', 'space-grotesk-latin-wght-normal.woff2', '300 700') +
-  face('JetBrains Mono', 'jetbrains-mono-latin-wght-normal.woff2', '100 800') +
+  face('IBM Plex Sans', 'ibm-plex-sans-latin-wght-normal.woff2', '100 700') +
+  face('Oxanium', 'oxanium-latin-wght-normal.woff2', '200 800') +
+  face('Martian Mono', 'martian-mono-latin-wght-normal.woff2', '100 800') +
   `:root{color-scheme:dark;${Object.entries(vars).map(([k, v]) => `--${k}:${v}`).join(';')}}`;

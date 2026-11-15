@@ -9,7 +9,7 @@ Everything the platform's pages look like comes from this folder. Pages compose 
 | `components.tsx` | The React components. |
 | `../styles.css` | Page layouts only (top bar, billboard, creators terminal, docs, game page, console grids). |
 
-Fonts (Inter, Space Grotesk, JetBrains Mono, all OFL) are self-hosted from `web/public/fonts/`. Chinese text falls back to the system CJK fonts.
+Fonts (Oxanium for titles and figures, IBM Plex Sans for text, Martian Mono for labels and code; all OFL) are self-hosted from `web/public/fonts/`. Chinese text falls back to the system CJK fonts.
 
 ## The look
 
@@ -27,7 +27,7 @@ Tiers (`fx/gl.ts`): **full** (desktop with a GPU), **lite** (phones and weak dev
 
 The store is laid out for a catalogue of tens of thousands of games across many categories, with Steam's structure as the reference and a look of its own.
 
-- **Identity.** A night arcade. Games sit in notched cartridges (two corners cut). Every category wears its own colour (`--h` from `genreHue(tag)`). Titles use the wide brand face (`--font-brand`, Unbounded). Sections are numbered like levels (`SectionHead`).
+- **Identity.** A night arcade. Games sit in notched cartridges (two corners cut). Every category wears its own colour (`--h` from `genreHue(tag)`). Titles use the wide brand face (`--font-brand`, Oxanium). Sections are numbered like levels (`SectionHead`).
 - **Navigation.** `StoreBar` sits under the top bar on every store page. It holds the Categories mega menu, the main lists, the discovery queue and instant search (`/` focuses it).
 - **Front page.** One request, `/api/home`, returns everything the page shows:
   - `Stats`
