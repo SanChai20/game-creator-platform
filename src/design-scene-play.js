@@ -18,7 +18,7 @@ export function playBind(dim) {
       "    { touch: { interact: 'E', attack: '⚔', use: '✋', bag: '▦', jump: '⤒' }, pad: { jump: 0, use: 1, attack: 2, bag: 3, interact: 5, run: 10 }, bottom: 96 });"];
 }
 
-export const HOMESTEAD_HINT = { '2d': 'WASD to move · E gather · Tab backpack · F use what you hold · Space strike · Shift run', '3d': 'WASD move · drag to look · E gather · Tab backpack · F use what you hold · click to strike · Shift run' };
+export const HOMESTEAD_HINT = { '2d': 'WASD to move · E gather · Tab backpack · F use what you hold · Space strike · Shift run', '3d': 'WASD move · click to look around · E gather · Tab backpack · F use what you hold · click to strike · Shift run' };
 
 /**
  * Sections n to n + 4 of a homestead game: things and rules, interface, the frame loop, the start screen, the proof.

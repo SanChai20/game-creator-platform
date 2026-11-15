@@ -7,7 +7,7 @@ About half of the people who open a game are on a phone. A game that only answer
 ```js
 import { createInput } from '@gcp/input.js';
 
-const input = createInput(canvas, { pointerLock: true });   // pointerLock only for mouse-look games
+const input = createInput(canvas, { pointerLock: true });   // mouse-look games: a click captures the mouse, Esc frees it
 if (input.touch) input.addButton('⤒', 'Space');             // an on-screen button that acts like a key
 
 function update(dt) {
@@ -17,8 +17,9 @@ function update(dt) {
   if (input.down('ShiftLeft')) sprint();      // true while held
   input.endFrame();                           // once, at the end of the frame
 }
-canvas.addEventListener('click', () => input.requestLock());
 ```
+
+With `pointerLock: true` the kit does what players expect from a web game: a click on the game hides and captures the mouse, Escape shows it again, and the next click captures it again. The capturing click is not also counted as `Mouse0`. While a title screen, a menu or the backpack is up (`.gh-s`, `.gp-win`) the mouse stays free, and the click that closes one captures it again. If the browser refuses capture, dragging still looks around. `control()` in third-person mode turns this on by itself; pass `pointerLock: false` to it to keep drag-to-look.
 
 ## Doing it by hand
 

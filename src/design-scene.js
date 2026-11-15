@@ -219,7 +219,7 @@ function planScene(args, V) {
   if (camera === '2d') return write2d({ args, V, id, S, mood: byDay(pick(args.mood, V.moods2d, fromWords(MOOD_WORDS) || S.mood)), weather: weather && V.weather2d.includes(weather) ? weather : null, hero: pick(hero, V.actors2d, 'explorer'), goal, goalSummary: GOALS[goal].summary, seed, title, count, time, pk, objective, notes, drift, big, small, camp, animals, foes, planLine: `${PLAN_MARK}${JSON.stringify(planArgs(args))}` });
   const play = goal === 'homestead';
   if (play) { if (!big.some((c) => c.startsWith('tree('))) big.push("tree({ species: 'oak' })"); if (!big.some((c) => c.startsWith('rock('))) big.push('rock()'); if (![...big, ...small].some((c) => c.startsWith('bush('))) big.push('bush({ berries: 0xd83a4a })'); }
-  const moveHint = camera === 'top' ? 'WASD or arrows to move · Shift to run · Space to jump' : 'WASD or arrows to move · drag to look · Shift to run · Space to jump';
+  const moveHint = camera === 'top' ? 'WASD or arrows to move · Shift to run · Space to jump' : 'WASD or arrows to move · click to look around · Shift to run · Space to jump';
 
   const used = new Set(['run', 'createStage', 'terrain', 'scatter', 'place', 'prop', 'humanoid', 'animal', 'control', 'wander', 'createFx', 'createHud', 'createSound', 'createInput', 'rng']);
   if (water) used.add('water'); if (S.grass != null) used.add('grassField');

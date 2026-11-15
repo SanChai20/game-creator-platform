@@ -89,7 +89,7 @@ run(async (boot) => {
   boot.done();
 
   player.enabled = false;
-  hud.title({ title: 'Ember Isle', subtitle: 'Find the ten ember gems before night falls', controls: 'WASD or arrows, drag to look, Shift runs, Space jumps',
+  hud.title({ title: 'Ember Isle', subtitle: 'Find the ten ember gems before night falls', controls: 'WASD or arrows, click to look around, Shift runs, Space jumps',
     onStart: () => { state.playing = true; player.enabled = true; clock.start(); sound.ambience('forest'); sound.music('adventure'); stage.setMood('dusk', 240); } });
 
   GCP.test.onAutostart(() => hud.start());
