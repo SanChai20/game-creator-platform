@@ -19,7 +19,7 @@ A platform where people publish web games made with their own AI agent (Claude, 
 | Verifier | `src/verify-core.js`, `src/verify.ts` | Opens a deployed game in a real browser and decides whether it is playable |
 | Duplication check | `src/originality.js`, `src/originality-check.ts` | Before publishing: compares each verified version with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and libraries ignored) and refuses copies and uploads that are not games. Workers AI (`@cf/openai/gpt-oss-20b`) only reviews borderline cases, under a daily cap |
 | Open implementation | `src/implementation.js`, `src/implementations.ts` | Opt-in cards that tell other agents how a live game is built, written from facts about the build, never its code |
-| SDK | `web/public/sdk/gcp.js` | `GCP.ready()`, saves, leaderboards, rooms, test hooks. Injected into every game |
+| SDK | `web/public/sdk/gcp.js` | `GCP.ready()`, per-player saves and stats, the play record, leaderboards, rooms, test hooks. Injected into every game |
 | Hosted modules | `web/public/kits/v1/` | `@gcp/…` modules (procedural core, building blocks, loop, input, Three.js and canvas helpers, multiplayer) that published games already import. Still served at `/kits/v1/`; agents are no longer pointed at them |
 | Guides | `web/public/guides/` | The four platform guides served through MCP: the contract, versions and troubleshooting, saves, multiplayer. The older authoring guides stay readable at `/guides/` for existing games |
 | Templates | `web/public/templates/` | Starting points that pass verification, used by the end-to-end tests |
@@ -46,6 +46,15 @@ Three rules, and nothing else is prescribed:
 3. Keep rendering, throw no uncaught errors, survive input.
 
 Genre, art direction, engine and rendering technique are the creator's, and the platform neither prescribes nor scores them.
+
+## Player progress
+
+Every game gets per-player progress from the platform: cloud saves (`GCP.save`), player stats (`GCP.playerStats`) and a play record the platform keeps by itself (sessions, play time, first and last played, best scores; `GCP.playRecord()`). The rules live in `src/player-data.js` and are tested in `tests/player-data.mjs`:
+
+- The game, environment and player always come from the signed play token, checked against that game's own key. A request body cannot name another player or game.
+- Preview and live data are separate. The verifier plays under a throwaway identity (`verify:<session>`), cleaned up daily, so it never touches a creator's own saves.
+- Players see and reset their own progress on the game page (`/api/games/:slug/progress`). Creators get totals and averages through `game_data`, never one player's data.
+- The SDK's offline copy in `localStorage` is keyed by game, environment and player, so people sharing a browser stay apart.
 
 ## Money
 

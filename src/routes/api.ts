@@ -14,6 +14,8 @@ import { beginTrial, trialMinutes, trialState } from '../trials';
 import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
 // @ts-ignore plain JS module
 import { signPlayToken } from '../runtime/game-worker.js';
+// @ts-ignore plain JS module
+import { playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
@@ -228,6 +230,17 @@ api.post('/games/:slug/play', async (c) => {
     return c.json(await startPlay(c, p, 'live', p.live_version, u, tr.remaining_seconds));
   }
   return c.json(await startPlay(c, p, 'live', p.live_version, u));
+});
+
+// The signed-in player's own progress in one game (live). Only ever their own: the player comes from the session, not the request.
+api.get('/games/:slug/progress', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  return c.json(await playerSummary(c.env.DB, scopeOf(p.id, 'live'), u.id));
+});
+api.delete('/games/:slug/progress', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  await rateLimit(c.env, 'reset:' + u.id, 20, 3600);
+  return c.json(await resetPlayer(c.env.DB, scopeOf(p.id, 'live'), u.id));
 });
 
 api.post('/games/:slug/reviews', async (c) => {

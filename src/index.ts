@@ -19,6 +19,8 @@ import { backfill } from './originality-check';
 import { TOKENS_CSS } from '../web/src/ui/tokens';
 // @ts-ignore plain JS module
 import { handle as handleGame } from './runtime/game-worker.js';
+// @ts-ignore plain JS module
+import { verifierCleanupStmts } from './player-data.js';
 
 export { GameRoom } from './room';
 export { Pipeline } from './pipeline';
@@ -246,6 +248,7 @@ export default {
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
+      ...verifierCleanupStmts(env.DB, t - 86400000),
     ]));
     // games published before the duplication check existed get their fingerprints a few at a time
     ctx.waitUntil(backfill(env, 20).catch((e) => console.error('fingerprint backfill failed', e)));

@@ -270,6 +270,29 @@ async function main() {
   assert.equal((await tool('get_stats', { project: pid, only_now: true })).rooms.players_in_rooms, 0);
   ok('game services: cloud save, leaderboard keeps best, room relay with host and host migration');
 
+  // per-player progress: two players of one game never see each other's saves, stats or record
+  const svcA = (path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: t2, ...body }) }).then((r) => r.json());
+  assert.equal((await svcA('save', { op: 'get', key: 'slot1' })).value, null);
+  await svcA('save', { op: 'set', key: 'slot1', value: { level: 9 }, user: 'whoever', player: 'whoever' });
+  assert.deepEqual((await svc('save', { op: 'get', key: 'slot1' })).value, { level: 3 });
+  assert.deepEqual((await svcA('save', { op: 'get', key: 'slot1' })).value, { level: 9 });
+  assert.equal((await svc('stats', { op: 'add', name: 'coins', value: 5 })).value, 5);
+  assert.equal((await svc('stats', { op: 'add', name: 'coins' })).value, 6);
+  assert.deepEqual((await svcA('stats', { op: 'all' })).stats, {});
+  assert.equal((await fetch(`${BASE}/api/rt/save`, { method: 'POST', body: JSON.stringify({ t: t.slice(0, -2) + 'xx', op: 'get', key: 'slot1' }) })).status, 401);
+  const rec = await svc('record', {});
+  assert.ok(rec.sessions === 1 && rec.seconds >= 2 && rec.stats.coins === 6 && rec.best.time === 42.5 && rec.saves.keys === 1, JSON.stringify(rec));
+  const myProgress = must(await B.get(`/api/games/${slug}/progress`));
+  assert.deepEqual(myProgress.stats, { coins: 6 });
+  assert.deepEqual(must(await A.get(`/api/games/${slug}/progress`)).stats, {});
+  assert.equal((await client().get(`/api/games/${slug}/progress`)).status, 401);
+  must(await B.del(`/api/games/${slug}/progress`));
+  assert.equal((await svc('save', { op: 'get', key: 'slot1' })).value, null);
+  assert.deepEqual((await svcA('save', { op: 'get', key: 'slot1' })).value, { level: 9 }, 'resetting one player leaves the other alone');
+  const agg = await tool('game_data', { project: pid, action: 'summary' });
+  assert.ok(agg.player_records.players >= 1 && !JSON.stringify(agg).includes('level'), JSON.stringify(agg));
+  ok('per-player progress: saves and stats kept apart per player, forged token refused, own progress readable and resettable, creator sees only totals');
+
   // analytics: players online, rooms, sessions, new and returning players, versions, devices, for the agent and in the console
   const an = (await tool('get_stats', { project: pid, days: 7 })).analytics;
   assert.ok(an.totals.sessions >= 1 && an.totals.players === 1 && an.totals.new_players === 1 && an.daily.length === 7 && an.daily[6].players === 1 && an.last_24_hours.length === 24 && an.devices.length >= 1 && an.versions[0].version === 1 && an.session_lengths.length === 6, JSON.stringify(an.totals));
