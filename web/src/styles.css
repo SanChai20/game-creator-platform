@@ -230,3 +230,21 @@ footer.foot a { color: var(--text-2); transition: color var(--dur); } footer.foo
   .bb-main { min-height: 300px; }
 }
 .tri.quad { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+
+/* ---- GPU layer ---------------------------------------------------------------------------------
+   The canvas sits behind the whole page (ui/fx/pipeline.ts). These rules only take effect once it has drawn:
+   the CSS atmosphere steps aside, and each picture the GPU draws hides its DOM copy (gl-on), with its frame made
+   see-through (gl-host). Remove the canvas and every rule below is inert. */
+.gpu-layer { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; display: block; }
+html[data-fx-live] body { background: transparent; }
+html[data-fx-live] body::before, html[data-fx-live] body::after { display: none; }
+[data-gl].gl-on { background: transparent !important; }
+[data-gl].gl-on img { opacity: 0; }
+.poster.gl-on { transform: none; background-image: none !important; }
+.gl-host { background: transparent !important; }
+.bb-main.gl-host .art { opacity: 0; }
+.gl-slot { position: absolute; inset: 0; z-index: -3; pointer-events: none; }
+.route { animation: route-in .5s var(--ease) both; }
+@keyframes route-in { from { opacity: 0; transform: translateY(10px); } }
+.fx-toggle { background: none; border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 4px 9px; color: var(--text-2); font: 600 11px var(--font-mono); cursor: pointer; }
+.fx-toggle:hover { color: var(--accent); border-color: var(--accent-line); }

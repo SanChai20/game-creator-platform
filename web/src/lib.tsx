@@ -106,7 +106,7 @@ export interface GameCard { id: string; slug: string; title: string; tagline: st
 export function GameTile({ g, to }: { g: GameCard; to?: string }) {
   return (
     <Link to={to || `/g/${g.slug}`} className="game">
-      <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
+      <div className="art" style={g.cover ? undefined : artStyle(g.slug)} data-gl={g.cover ? 'tile' : undefined}>
         {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <div className="mono-title">{g.title}</div>}
         {g.featured && <Badge tone="accent" className="feat">{t('Featured', '精选')}</Badge>}
         <span className="play-hint" aria-hidden="true" />

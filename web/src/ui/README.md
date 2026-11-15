@@ -15,6 +15,14 @@ Fonts (Inter, Space Grotesk, JetBrains Mono, all OFL) are self-hosted from `web/
 
 A game cabinet's HUD: violet-black ink, acid lime (`--accent`) for the one thing to do on a screen, and a hard hot-pink offset shadow (`--shadow-pop`) on anything you can press, which drops onto the page when pressed. Labels are mono and upper case, surfaces get corner ticks, and `<mark>` (or `.hl`) is the highlighter for the one phrase that matters most. Keep pages short: details belong on `/docs`.
 
+## GPU layer (`fx/`)
+
+The site renders through a persistent WebGL 2 pipeline behind the DOM (`fx/pipeline.ts`): a noise field in the brand colours → a scene where game covers, the billboard and game posters are drawn as textured quads at their DOM positions (hover ripple, RGB split, parallax) → bloom → post-processing (chromatic aberration, scanlines, grain, vignette, and a pixelate-and-scan transition on page changes). Text and controls stay in the DOM.
+
+To let the GPU draw a picture, mark its element with `data-gl="tile" | "hero" | "poster"` (the picture comes from `data-gl-src` or the element's first `<img>`). If an ancestor has a background that would cover the canvas, mark it `data-gl-host`. The DOM picture is hidden only after its texture is drawn and comes back on any failure.
+
+Tiers (`fx/gl.ts`): **full** (desktop with a GPU), **lite** (phones and weak devices: background and post only, 30 fps), **still** (reduced motion: one frame), **off** (no WebGL 2, a software renderer, or the footer switch). The pipeline pauses in hidden tabs, lowers its resolution and then its tier when frames run long, and recovers once from a lost context. `localStorage.fx = 'force'` skips the device checks for testing; `__fx.stats` shows fps and CPU time per frame.
+
 ## Tokens
 
 CSS names are the TypeScript keys in kebab case: `color.accentWash` is `var(--accent-wash)`, `space[4]` is `var(--sp-4)`, `size['3xl']` is `var(--fs-3xl)`, `radius.lg` is `var(--r-lg)`. A few composites are added: `--grad-accent`, `--grad-surface`, `--grad-text`.

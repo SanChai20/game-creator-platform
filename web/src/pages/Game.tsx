@@ -13,9 +13,9 @@ export function Stage({ poster, seed, url, children }: { poster: string | null; 
   useEffect(() => { if (url) frame.current?.focus(); }, [url]);
   return (
     <div>
-      <div className="stage" ref={box}>
+      <div className="stage" ref={box} data-gl-host="">
         {url ? <iframe ref={frame} src={url} title="Game" allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope" allowFullScreen /> : (
-          <><div className="poster" style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
+          <><div className="poster" style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} data-gl={poster ? 'poster' : undefined} data-gl-src={poster || undefined} /><div className="over">{children}</div></>
         )}
       </div>
       {url && <div className="row stage-bar"><span className="mute fs-sm">{t('Click the game to give it keyboard focus.', '点击游戏画面以获取键盘焦点。')}</span><Button size="sm" className="right" onClick={toggle}>⤢ {t('Fullscreen', '全屏')}</Button></div>}
