@@ -13,6 +13,7 @@ import { takeOffline } from '../routes/api';
 import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
 import { gameAnalytics, onlineNow } from '../analytics';
+import { publishGate } from '../originality-check';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
@@ -110,6 +111,7 @@ export const TOOLS: Tool[] = [
           'Run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
         ],
         engines: ENGINE_EXPORTS,
+        originality: 'After the browser check passes, each version is compared with other creators\' live games, and a copy (even with renamed variables or new titles) cannot be published. Platform templates, kits and common libraries are ignored, so starting from them is fine. An upload that is not a game is refused too. get_started {topic: "versions"} explains both checks.',
         workflow: [
           '1. create_project, once per game.',
           '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl.',
@@ -320,6 +322,8 @@ export const TOOLS: Tool[] = [
       const el = versionEligible(v, s.verify_browser_required);
       if (!el.ok) throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
       if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
+      const copy = await publishGate(c.env, p, v);
+      if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
       if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
       await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
       await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client });

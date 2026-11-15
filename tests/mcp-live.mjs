@@ -1,4 +1,4 @@
-// Live test of the 15 MCP tools against a deployed platform, driven the way an agent drives them.
+// Live test of the 17 MCP tools against a deployed platform, driven the way an agent drives them.
 // Every tool gets its happy path and its error paths. A connected player joins a multiplayer room over
 // a real WebSocket and submits a leaderboard score with the play token the platform gives players.
 //   BASE=https://<site> node tests/mcp-live.mjs
@@ -455,7 +455,23 @@ await check('get_stats: full shape for the live game, with the player\'s session
 });
 await check('get_stats: unknown project is refused', () => fails('get_stats', { project: 'does-not-exist-' + run }));
 
-// ---- 15. protocol edges
+// ---- 15. open implementations: off by default, a preview for the owner, shared only when switched on, never code
+await check('find_implementations: lists only shared games, with a note that code is never shared', async () => {
+  const d = await ok('find_implementations', { query: 'live test ' + run });
+  assert.ok(Array.isArray(d.games) && !d.games.some((g) => g.game === SLUG) && /never shared/.test(d.note), JSON.stringify(d).slice(0, 300));
+});
+await check('get_implementation: an unknown game is refused', () => fails('get_implementation', { game: 'does-not-exist-' + run }, /no open implementation/));
+await check('get_implementation: the owner previews the card of the live game; switching on shares it, off stops it', async () => {
+  if (!liveOK) { await fails('get_implementation', { game: GAME.project }, /never been published/); return SKIP; }
+  const pre = await ok('get_implementation', { game: GAME.project });
+  assert.ok(pre.yours && pre.shared === false && pre.built_with && pre.built_with.engine && pre.summary.length > 100, JSON.stringify(pre).slice(0, 400));
+  assert.match((await ok('update_project', { project: GAME.project, open_implementation: true })).open_implementation, /^on/);
+  const on = await ok('get_implementation', { game: GAME.project });
+  assert.ok(on.shared === true && on.never_shared, JSON.stringify(on).slice(0, 300));
+  assert.match((await ok('update_project', { project: GAME.project, open_implementation: false })).open_implementation, /^off/);
+});
+
+// ---- 16. protocol edges
 await check('tools/call: an unknown tool is refused', () => fails('no_such_tool', {}));
 
 // ---- summary

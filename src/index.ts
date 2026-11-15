@@ -14,7 +14,8 @@ import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './rout
 import { rt } from './routes/rt';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
-import { esc, now } from './util';
+import { dayOf, esc, now } from './util';
+import { backfill } from './originality-check';
 import { TOKENS_CSS } from '../web/src/ui/tokens';
 // @ts-ignore plain JS module
 import { handle as handleGame } from './runtime/game-worker.js';
@@ -244,6 +245,9 @@ export default {
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
+      env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
     ]));
+    // games published before the duplication check existed get their fingerprints a few at a time
+    ctx.waitUntil(backfill(env, 20).catch((e) => console.error('fingerprint backfill failed', e)));
   },
 } satisfies ExportedHandler<Env>;

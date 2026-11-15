@@ -65,6 +65,8 @@ Every call that talks to the platform resolves instead of throwing, so a network
 | input | After key presses, clicks, drags and touches, frames are still being drawn. A game that restarts by reloading the page (a "Play again" button) passes as long as it boots again. |
 | files | Every file the page asked for was served. |
 | clean | No uncaught errors and no unhandled promise rejections. |
+| original | Once the checks above pass: the game is not a copy of another creator's live game. Code everyone starts from (platform templates, kits, libraries such as three.js) is ignored, so building on them is fine. |
+| is_game | Once the checks above pass: it is a game the player acts on, not a page, a form or a link to somewhere else. |
 
 The browser that runs the check has a software GPU. It is slow, so the frame count needed is low, but a scene that takes ten seconds per frame will fail. If your game has a menu, register a way past it so the check sees real play:
 
