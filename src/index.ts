@@ -15,6 +15,7 @@ import { rt } from './routes/rt';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { esc, now } from './util';
+import { TOKENS_CSS } from '../web/src/ui/tokens';
 // @ts-ignore plain JS module
 import { handle as handleGame } from './runtime/game-worker.js';
 
@@ -88,29 +89,33 @@ app.all('/__game/:pid/:env/*', async (c) => {
 });
 
 // ----- OAuth consent ---------------------------------------------------------------------------
+// Server-rendered pages share the web app's design tokens (web/src/ui/tokens.ts), so they look like the rest of the site.
+const PAGE_CSS = `*,*::before,*::after{box-sizing:border-box}html,body{min-height:100%;margin:0;background:var(--bg-0);color:var(--text);font:400 var(--fs-md)/1.6 var(--font-sans);-webkit-font-smoothing:antialiased}
+body{display:grid;place-items:center;padding:24px;background:radial-gradient(60vw 50vh at 10% -10%,rgba(143,124,255,.14),transparent 70%),radial-gradient(50vw 45vh at 100% -5%,rgba(255,138,48,.12),transparent 70%),var(--bg-0)}
+main{width:min(480px,100%);display:grid;gap:14px;background:var(--grad-surface),rgba(12,14,20,.9);border:1px solid var(--line-2);border-radius:var(--r-xl);padding:clamp(24px,5vw,36px);box-shadow:var(--shadow-3),0 0 120px -40px var(--accent-glow)}
+.mark{display:flex;align-items:center;gap:10px;font:700 15px/1 var(--font-display);letter-spacing:-.01em;margin-bottom:6px}.mark i{width:28px;height:28px;border-radius:9px;background:var(--grad-accent);display:grid;place-items:center;box-shadow:var(--shadow-glow)}.mark i::after{content:"";border-left:9px solid var(--accent-ink);border-top:6px solid transparent;border-bottom:6px solid transparent;margin-left:3px}
+h1{font:700 26px/1.15 var(--font-display);letter-spacing:-.03em;margin:0;text-wrap:balance}p{margin:0;color:var(--text-2)}strong{color:var(--text);font-weight:650}
+ul{margin:0;padding:14px 16px;list-style:none;display:grid;gap:9px;background:rgba(6,7,11,.5);border:1px solid var(--line);border-radius:var(--r-md);font-size:14px}li{padding-left:24px;position:relative}li::before{content:"✓";position:absolute;left:0;top:1px;width:16px;height:16px;border-radius:50%;background:var(--accent-wash);color:var(--accent);font:700 10px/16px var(--font-mono);text-align:center}
+.warn{border:1px solid rgba(255,107,107,.3);border-left:3px solid var(--bad);background:var(--bad-wash);border-radius:var(--r-md);padding:12px 14px;color:var(--text)}
+.web-only{font-size:14px;padding:10px 14px;border:1px solid var(--line-2);border-radius:var(--r-md);background:rgba(6,7,11,.5)}
+.row{display:flex;gap:10px;margin-top:6px}button{flex:1;height:52px;font:600 15px/1 var(--font-sans);border-radius:var(--r-md);cursor:pointer;border:1px solid var(--line-2);background:var(--bg-2);color:var(--text);box-shadow:var(--shadow-inset);transition:background var(--dur),filter var(--dur),transform var(--dur-fast)}button:hover{background:var(--bg-3)}button:active{transform:translateY(1px)}
+button.go{background:var(--grad-accent);border-color:transparent;color:var(--accent-ink);font-weight:700;box-shadow:var(--shadow-glow),inset 0 1px 0 rgba(255,255,255,.45)}button.go:hover{filter:brightness(1.07)}
+small{display:block;color:var(--text-3);font-size:13px}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
 function page(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
-<style>:root{color-scheme:dark}html,body{height:100%;margin:0;background:#0b0d0f;color:#e8e4da;font:15px/1.55 system-ui,-apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif}
-body{display:grid;place-items:center;padding:24px;box-sizing:border-box;background:radial-gradient(900px 500px at 50% -10%,rgba(255,179,71,.14),transparent 60%),#0b0d0f}
-main{width:min(460px,100%);background:#14181b;border:1px solid rgba(232,228,218,.14);border-radius:18px;padding:28px}
-.mark{font-weight:800;letter-spacing:.14em;text-transform:uppercase;font-size:12px;color:#ffb347;margin-bottom:18px}
-h1{font-size:24px;line-height:1.2;margin:0 0 10px;letter-spacing:-.01em}p{margin:0 0 12px;color:rgba(232,228,218,.7)}strong{color:#e8e4da}
-ul{margin:14px 0 18px;padding:14px 16px;list-style:none;background:#0f1215;border:1px solid rgba(232,228,218,.1);border-radius:12px}li{padding:4px 0 4px 22px;position:relative}li:before{content:"";position:absolute;left:2px;top:12px;width:8px;height:8px;border-radius:50%;background:#ffb347}
-.warn{border:1px solid rgba(255,90,64,.5);background:rgba(255,90,64,.08);color:#ffc2b6;border-radius:12px;padding:10px 14px;margin:0 0 14px}
-.row{display:flex;gap:10px;margin-top:8px}button{flex:1;font:inherit;font-weight:700;border-radius:11px;padding:12px 16px;cursor:pointer;border:1px solid rgba(232,228,218,.2);background:transparent;color:#e8e4da}
-button.go{background:#ffb347;border-color:#ffb347;color:#1b1203}small{display:block;margin-top:16px;color:rgba(232,228,218,.5)}</style></head><body><main>${body}</main></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#06070b"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>${TOKENS_CSS}${PAGE_CSS}</style></head><body><main>${body}</main></body></html>`;
 }
 
 function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number): string {
   const who = d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : 'This app registered itself, so its name is not verified.';
-  return page(`Connect ${d.clientName}`, `<div class="mark">${esc(brand)}</div>
+  return page(`Connect ${d.clientName}`, `<div class="mark"><i></i>${esc(brand)}</div>
 <h1>Let ${esc(d.clientName)} publish web games for you?</h1>
 <p>${who} Access will be sent to <strong>${esc(d.redirectHost)}</strong>.</p>
 ${d.redirectIsLoopback ? '<div class="warn"><strong>This sends access to an app on your computer.</strong> Continue only if you just started connecting from that app.</div>' : ''}
 <p>Signed in as <strong>${esc(user.name)}</strong> (${esc(user.email)}). The agent will be able to:</p>
 <ul><li>Create your game projects and upload their files</li><li>Deploy previews and run verification</li><li>Publish, roll back and take games offline</li><li>Set listing details and prices, and read your game stats</li></ul>
 <p>It cannot withdraw money, change your password or see payment details.</p>
-<p>This platform hosts web games only: games that run in a browser page. Native, mobile, console and desktop builds are refused.</p>
+<p class="web-only">This platform hosts web games only: games that run in a browser page. Native, mobile, console and desktop builds are refused.</p>
 <form method="post"><input type="hidden" name="handle" value="${esc(handle)}">
 <div class="row"><button name="decision" value="deny">Deny</button><button class="go" name="decision" value="approve">Allow</button></div></form>
 <small>Access expires after ${days} day${days === 1 ? '' : 's'}; you can revoke it sooner from your console.</small>`);

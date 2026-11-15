@@ -1,5 +1,8 @@
 // Shared plumbing for the web app: language, API client, a tiny router, session state and small components.
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { Badge, Button, Notice } from './ui/components';
+// Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
+export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
 
 // ---- language ---------------------------------------------------------------------------------
 export type Lang = 'en' | 'zh';
@@ -84,22 +87,8 @@ export function Stars({ rating, count }: { rating: number | null; count?: number
   if (rating == null) return <span className="dim">{t('No ratings yet', '暂无评分')}</span>;
   return <span className="stars"><Star />{rating.toFixed(1)}{count != null && <span className="mute" style={{ fontWeight: 450 }}>({num(count)})</span>}</span>;
 }
-export const Spinner = () => <div className="spinner" role="status" aria-label={t('Loading', '加载中')} />;
 export function Fail({ error, retry }: { error: ApiError; retry?: () => void }) {
-  return <div className="notice bad row wrapx"><span className="grow">{error.message}{error.hint ? ` ${error.hint}` : ''}</span>{retry && <button className="btn sm" onClick={retry}>{t('Try again', '重试')}</button>}</div>;
-}
-export function Modal({ children, onClose, wide }: { children: ReactNode; onClose: () => void; wide?: boolean }) {
-  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [onClose]);
-  return <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" className={wide ? 'wide' : ''}>{children}</div></div>;
-}
-export function Code({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  const copy = () => { void navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1400); }); };
-  return <div className="code">{text}<button className="btn sm copy" onClick={copy}>{done ? t('Copied', '已复制') : t('Copy', '复制')}</button></div>;
-}
-export function Bars({ data, tip }: { data: { label: string; value: number }[]; tip: (d: { label: string; value: number }) => string }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return <div className="bars">{data.map((d) => <div key={d.label} data-tip={tip(d)} style={{ height: `${Math.max(2, (d.value / max) * 100)}%`, background: d.value ? undefined : 'var(--ink-2)' }} />)}</div>;
+  return <Notice tone="bad" role="alert" actions={retry && <Button size="sm" onClick={retry}>{t('Try again', '重试')}</Button>}>{error.message}{error.hint ? ` ${error.hint}` : ''}</Notice>;
 }
 /** The last `days` calendar days as YYYY-MM-DD (UTC), oldest first, filled from rows keyed by day. */
 export function series<T extends { day: string }>(rows: T[], days: number, pick: (r: T) => number) {
@@ -119,7 +108,8 @@ export function GameTile({ g, to }: { g: GameCard; to?: string }) {
     <Link to={to || `/g/${g.slug}`} className="game">
       <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
         {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <div className="mono-title">{g.title}</div>}
-        {g.featured && <span className="badge sig feat">{t('Featured', '精选')}</span>}
+        {g.featured && <Badge tone="accent" className="feat">{t('Featured', '精选')}</Badge>}
+        <span className="play-hint" aria-hidden="true" />
         <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
       </div>
       <div>
@@ -128,16 +118,6 @@ export function GameTile({ g, to }: { g: GameCard; to?: string }) {
       </div>
     </Link>
   );
-}
-export function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, [string, string]> = {
-    live: ['good', t('Live', '已上线')], draft: ['', t('Draft', '草稿')], offline: ['sig', t('Offline', '已下线')], removed: ['bad', t('Removed', '已移除')],
-    verified: ['good', t('Verified', '已验证')], failed: ['bad', t('Failed', '未通过')], queued: ['info', t('Queued', '排队中')], deploying: ['info', t('Deploying', '部署中')], verifying: ['info', t('Verifying', '验证中')],
-    paid: ['good', t('Paid', '已支付')], pending: ['sig', t('Pending', '处理中')], rejected: ['bad', t('Rejected', '已拒绝')], refunded: ['', t('Refunded', '已退款')],
-    active: ['good', t('Active', '正常')], suspended: ['bad', t('Suspended', '已停用')],
-  };
-  const [cls, label] = map[status] || ['', status];
-  return <span className={'badge ' + cls}>{label}</span>;
 }
 /** Runs an action, shows a toast on failure, and tells the caller whether it worked. */
 export function useAct() {
