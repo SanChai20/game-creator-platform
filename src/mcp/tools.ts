@@ -43,6 +43,8 @@ export async function guideText(env: Env, origin: string, topic: string) {
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const PROJECT = { type: 'string', description: 'Project id or slug (from list_projects or create_project).' };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Unknown environments are refused, not quietly sent to live.
+const envOf = (v: unknown): 'preview' | 'live' => { if (v === undefined || v === null || v === '') return 'live'; if (v === 'preview' || v === 'live') return v; throw bad('env must be "preview" or "live".'); };
 const issueLine = (i: Issue) => `${i.level.toUpperCase()}${i.file ? ` ${i.file}${i.line ? `:${i.line}` : ''}` : ''}: ${i.message}${i.frame ? `\n${i.frame}` : ''}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
 const RUNNING = ['queued', 'deploying', 'verifying'];
 
@@ -133,13 +135,15 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ project: { ...PROJECT, description: 'Optional. A project id or slug to show in detail.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (!a.project) {
-        const rows = await c.env.DB.prepare("SELECT id, slug, title, status, live_version, preview_version, price_cents, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all();
-        return { projects: rows.results };
+        const rows = await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all<any>();
+        return { projects: rows.results.map((r) => ({ ...r, tags: JSON.parse(r.tags || '[]') })) };
       }
       const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id);
       const latest = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 1').bind(p.id).first<any>();
       return {
-        project: p.id, slug: p.slug, title: p.title, status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', live_version: p.live_version, preview_version: p.preview_version,
+        project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, tags: JSON.parse(p.tags || '[]'),
+        cover: p.cover_key ? `${c.origin}/api/media/${p.cover_key}` : null,
+        status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
         workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) },
         latest_version: latest ? await versionReport(c, p, latest.n, latest) : null,
         game_page: p.status === 'live' ? `${c.origin}/g/${p.slug}` : null, console_page: `${c.origin}/console/projects/${p.id}`,
@@ -190,7 +194,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'upload_files', title: 'Upload, edit or delete files',
-    description: `Changes the project workspace in one call: files writes whole files, edits replaces an exact piece of text in a file already there (cheaper than resending it), delete removes paths. Paths are relative to the bundle root, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64"; for big or binary files, or a whole folder, create_upload_url is better. Only web file types are accepted, and executables or archives are refused whatever their name. Deployed versions keep their own copies, so nothing here changes a preview or the live game until the next deploy_preview and publish. Example: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}], "edits": [{"path": "src/main.js", "old_string": "speed = 4", "new_string": "speed = 5"}], "delete": ["old.js"]}.`,
+    description: `Changes the project workspace in one call: files writes whole files, edits replaces an exact piece of text in a file already there (cheaper than resending it), delete removes paths. Paths are relative to the bundle root, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64"; for big or binary files, or a whole folder, create_upload_url is better. Only web file types are accepted, and executables or archives are refused whatever their name. The whole call is checked first: if any file or edit fails, nothing in the call is saved. Deployed versions keep their own copies, so nothing here changes a preview or the live game until the next deploy_preview and publish. Example: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}], "edits": [{"path": "src/main.js", "old_string": "speed = 4", "new_string": "speed = 5"}], "delete": ["old.js"]}.`,
     inputSchema: obj({
       project: PROJECT,
       files: { type: 'array', maxItems: 40, description: 'Whole files to create or replace, as {path, content} objects. Up to 40 per call.', items: obj({ path: { type: 'string', description: 'Relative path inside the bundle.' }, content: { type: 'string', description: 'The whole file as text (or base64 when encoding is "base64").' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
@@ -201,28 +205,38 @@ export const TOOLS: Tool[] = [
       const p = await ownedProject(c.env, c.user, a.project);
       const files = Array.isArray(a.files) ? a.files : [], edits = Array.isArray(a.edits) ? a.edits : [], dels = Array.isArray(a.delete) ? a.delete : [];
       if (!files.length && !edits.length && !dels.length) throw bad('Nothing to do.', 'Pass files, edits or delete. files is an array of {path, content} objects, not a map of path to content.');
-      const written = [], edited = [], deleted = [];
+      // Check and compute everything in memory first: if any file or edit fails, nothing in the call is saved.
+      const pending = new Map<string, Uint8Array>(), edited: { path: string; replaced: number }[] = [];
       for (const f of files) {
+        const path = cleanPath(f.path);
+        if (!path) throw bad(`${f.path}: not a valid path or file type.`, 'Use relative paths such as "index.html" or "src/game.js", with a web file type (html, js, css, images, sounds, JSON, text).');
         let bytes: Uint8Array;
         try { bytes = f.encoding === 'base64' ? unb64(String(f.content).replace(/\s+/g, '')) : new TextEncoder().encode(String(f.content ?? '')); } catch { throw bad(`${f.path}: content is not valid base64.`); }
-        const row = await putFile(c.env, p, f.path, bytes);
-        written.push({ path: row.path, bytes: row.size, sha: row.sha });
+        pending.set(path, bytes);
       }
       for (const e of edits) {
         const path = cleanPath(e.path) || '';
         if (!isText(path)) throw bad(`${e.path}: edits only work on text files.`);
-        const { bytes } = await readFile(c.env, p.id, path);
-        const src = new TextDecoder().decode(bytes), old = String(e.old_string);
+        const cur = pending.get(path) ?? (await readFile(c.env, p.id, path)).bytes;
+        const src = new TextDecoder().decode(cur), old = String(e.old_string);
         if (!old) throw bad(`${path}: old_string must not be empty.`);
         const count = src.split(old).length - 1;
-        if (count === 0) throw bad(`${path}: old_string was not found${written.length || edited.length ? ' (the changes before it in this call were saved)' : ''}.`, 'Copy the exact text, including indentation, or send the whole file under files.');
+        if (count === 0) throw bad(`${path}: old_string was not found.`, 'Copy the exact text, including indentation, or send the whole file under files.');
         if (count > 1 && !e.replace_all) throw bad(`${path}: old_string appears ${count} times.`, 'Include more surrounding text to make it unique, or set replace_all to true.');
         const out = e.replace_all ? src.split(old).join(String(e.new_string)) : src.replace(old, () => String(e.new_string));
-        const row = await putFile(c.env, p, path, new TextEncoder().encode(out));
-        edited.push({ path: row.path, bytes: row.size, sha: row.sha, replaced: e.replace_all ? count : 1 });
+        pending.set(path, new TextEncoder().encode(out));
+        edited.push({ path, replaced: e.replace_all ? count : 1 });
       }
+      // Every part passed: write.
+      const rows = new Map<string, Awaited<ReturnType<typeof putFile>>>();
+      for (const [path, bytes] of pending) rows.set(path, await putFile(c.env, p, path, bytes));
+      const written = [...new Set(files.map((f) => cleanPath(f.path)!))].map((path) => ({ path, bytes: rows.get(path)!.size, sha: rows.get(path)!.sha }));
+      const deleted: string[] = [];
       for (const path of dels) if (await deleteFile(c.env, p.id, String(path))) deleted.push(path);
-      return { written, edited, deleted, next: 'Call deploy_preview when the changes are complete (dry_run: true for only the static checks).' };
+      return {
+        written, edited: edited.map((e) => ({ path: e.path, bytes: rows.get(e.path)!.size, sha: rows.get(e.path)!.sha, replaced: e.replaced })), deleted,
+        next: 'Call deploy_preview when the changes are complete (dry_run: true for only the static checks).',
+      };
     },
   },
   {
@@ -282,14 +296,20 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
-      if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
       if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
-      let v = a.version ? await getVersion(c.env, p.id, Number(a.version)) : null;
-      if (!a.version) {
+      let v: any = null;
+      if (a.version !== undefined && a.version !== null) {
+        const n = Number(a.version);
+        if (!Number.isInteger(n) || n < 1) throw bad('version must be a whole number from list_versions.');
+        v = await getVersion(c.env, p.id, n);
+        if (!v) throw bad(`Version ${n} does not exist.`, 'Call list_versions to see the versions this game has.');
+      } else {
         const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all<any>();
         v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
       }
       if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
+      // Input is checked before the license, so a wrong version number is reported as such for any account.
+      if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
       const el = versionEligible(v, s.verify_browser_required);
       if (!el.ok) throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
       if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
@@ -306,7 +326,7 @@ export const TOOLS: Tool[] = [
     name: 'rollback', title: 'Roll back to an earlier version',
     description: 'Makes an earlier verified version live again. list_versions shows which ones can be published.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer' } }, ['project', 'version']),
-    run: async (a, c) => TOOLS.find((t) => t.name === 'publish')!.run(a, c),
+    run: async (a, c) => { if (a.version === undefined || a.version === null) throw bad('version is required.', 'Call list_versions to pick the version to go back to.'); return TOOLS.find((t) => t.name === 'publish')!.run(a, c); },
   },
   {
     name: 'unpublish', title: 'Take a game offline',
@@ -329,7 +349,7 @@ export const TOOLS: Tool[] = [
       limit: { type: 'integer', description: 'Rows for leaderboard, 1 to 100. Default 20.' },
     }, ['project', 'action']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB, env = a.env === 'preview' ? 'preview' : 'live';
+      const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB, env = envOf(a.env);
       const scope = `${p.id}${env === 'preview' ? ':preview' : ''}`, key = String(a.key ?? ''), board = String(a.board || 'default').slice(0, 40);
       const needKey = () => { if (!key || key.length > 120) throw bad('key must be a string of 1 to 120 characters.'); };
       switch (a.action) {
@@ -389,7 +409,8 @@ export const TOOLS: Tool[] = [
       kick: { type: 'boolean', description: 'For reset: also disconnect everyone in the room.' },
     }, ['project']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), env = a.env === 'preview' ? 'preview' : 'live', code = String(a.room || 'lobby').slice(0, 40);
+      const p = await ownedProject(c.env, c.user, a.project), env = envOf(a.env), code = String(a.room || 'lobby').slice(0, 40);
+      if (a.action !== undefined && a.action !== 'inspect' && a.action !== 'reset') throw bad('action must be "inspect" or "reset".');
       const rooms = c.env.ROOMS as unknown as DurableObjectNamespace<GameRoom>, stub = rooms.get(rooms.idFromName(`${p.id}:${env}:${code}`));
       if (a.action === 'reset') {
         const r = await stub.reset(!!a.kick);
