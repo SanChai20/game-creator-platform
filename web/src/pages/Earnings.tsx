@@ -34,9 +34,9 @@ export function Earnings() {
       <ConsoleTabs on="earnings" />
       <div className="stack l">
         <StatGrid>
-          <Stat tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
-          <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={t(`Sales clear after ${data.hold_days} days`, `销售收入在 ${data.hold_days} 天后可提现`)} />
-          <Stat label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={t(`The platform keeps ${data.fee_percent}% of each sale`, `平台从每笔销售中收取 ${data.fee_percent}%`)} />
+          <Stat icon="coin" tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
+          <Stat icon="clock" label={t('Pending', '待结算')} value={usd(b.pending)} sub={t(`Sales clear after ${data.hold_days} days`, `销售收入在 ${data.hold_days} 天后可提现`)} />
+          <Stat icon="trophy" label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={t(`The platform keeps ${data.fee_percent}% of each sale`, `平台从每笔销售中收取 ${data.fee_percent}%`)} />
         </StatGrid>
 
         <div className="cols">
@@ -49,7 +49,7 @@ export function Earnings() {
                     {!enough && !pending && <Notice>{t(`You can withdraw once your available balance reaches ${usd(data.min_cents)}. You are ${usd(Math.max(0, data.min_cents - b.available))} away.`, `可提现余额达到 ${usd(data.min_cents)} 后即可提现，还差 ${usd(Math.max(0, data.min_cents - b.available))}。`)}</Notice>}
                     {data.payments && (ready ? (
                       <div className="row wrapx"><div className="grow"><b>{t('Bank payout through Stripe', '通过 Stripe 提现至银行账户')}</b><div className="mute fs-sm">{t('Your payout account is ready', '收款账户已就绪')}{u.payout_country ? ` · ${u.payout_country}` : ''}</div></div>
-                        <Button variant="primary" disabled={!enough || pending || busy === 'wd'} onClick={() => withdraw('stripe')}>{t('Withdraw', '提现')} {usd(b.available)}</Button></div>
+                        <Button variant="primary" data-fx-burst="coins" disabled={!enough || pending || busy === 'wd'} onClick={() => withdraw('stripe')}>{t('Withdraw', '提现')} {usd(b.available)}</Button></div>
                     ) : (
                       <div className="stack">
                         <b>{u.has_payout_account ? t('Finish setting up your payout account', '完成收款账户设置') : t('Set up a payout account', '设置收款账户')}</b>

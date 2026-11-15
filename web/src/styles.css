@@ -34,7 +34,16 @@ footer.foot .brand { font-size: 15px; color: var(--text); margin: 0 0 4px; }
 .foot-col b { font: 600 10.5px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--text-2); margin-bottom: 4px; }
 footer.foot a { color: var(--text-2); transition: color var(--dur); } footer.foot a:hover { color: var(--accent); }
 .foot-lang { height: 28px; }
-.foot-note { grid-column: 1 / -1; padding-top: 18px; border-top: 1px solid var(--line); color: var(--text-3); font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; }
+.foot-note { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--text-3); font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; }
+.foot-tools { display: inline-flex; align-items: center; gap: 8px; }
+.foot-tools .lang { margin: 0; }
+/* ---- legal pages ------------------------------------------------------------------------------ */
+.legal-body { max-width: 72ch; display: grid; gap: 26px; padding-top: 22px; }
+.legal-body h2 { font: 700 var(--fs-xl)/1.25 var(--font-display); letter-spacing: -.01em; margin: 0 0 8px; }
+.legal-body p, .legal-body li { color: var(--text-2); line-height: 1.7; }
+.legal-body p + p { margin-top: 10px; }
+.legal-body ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.legal .tabs { flex-wrap: wrap; }
 
 /* ---- page frame ------------------------------------------------------------------------------- */
 .page { padding-top: clamp(24px, 3.5vw, 40px); padding-bottom: var(--sp-9); }
@@ -160,10 +169,13 @@ footer.foot a { color: var(--text-2); transition: color var(--dur); } footer.foo
 .tri.quad { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
 
 /* ---- GPU layer ---------------------------------------------------------------------------------
-   The canvas sits behind the whole page (ui/fx/pipeline.ts). These rules only take effect once it has drawn:
+   The canvas sits behind the whole page (ui/fx/world3d.ts, or world2d.ts where WebGL 2 cannot run). These rules only take effect once it has drawn:
    the CSS atmosphere steps aside, and each picture the GPU draws hides its DOM copy (gl-on), with its frame made
    see-through (gl-host). Remove the canvas and every rule below is inert. */
-.gpu-layer { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; display: block; }
+.gpu-layer { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; display: block; animation: fx-in .8s ease both; }
+@keyframes fx-in { from { opacity: 0; } }
+/* The particle overlay sits above the page and never takes a click (ui/fx/overlay.ts). */
+.fx-overlay { position: fixed; inset: 0; width: 100%; height: 100%; z-index: calc(var(--z-toast) - 1); pointer-events: none; display: block; }
 html[data-fx-live] body { background: transparent; }
 html[data-fx-live] body::before, html[data-fx-live] body::after { display: none; }
 [data-gl].gl-on { background: transparent !important; }

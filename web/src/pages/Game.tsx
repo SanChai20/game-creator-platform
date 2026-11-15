@@ -58,7 +58,7 @@ export function Game({ slug }: { slug: string }) {
 
   const genre = g.tags?.[0] as string | undefined, R = RARITY[rarity(g)], h = genre ? genreHue(genre) : 270;
   const cta = !live ? null : locked
-    ? <Button variant="primary" size="lg" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>
+    ? <Button variant="primary" size="lg" data-fx-burst="coins" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>
     : <Button variant="primary" size="lg" onClick={() => { play(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : `▶ ${t('Play now', '立即游玩')}`}</Button>;
 
   return (
@@ -120,7 +120,7 @@ export function Game({ slug }: { slug: string }) {
                   <b>{data.my_review ? t('Your review', '你的评价') : t('Rate this game', '为这款游戏评分')}</b>
                   <div className="rate" role="radiogroup" aria-label={t('Rating', '评分')}>{[1, 2, 3, 4, 5].map((n) => <button key={n} role="radio" aria-checked={rating === n} aria-label={`${n}`} className={n <= rating ? 'on' : ''} onClick={() => setRating(n)}><Star /></button>)}</div>
                   <Textarea value={body} onChange={(e) => setBody(e.target.value)} maxLength={2000} placeholder={t('What did you like? What would make it better? (optional)', '喜欢哪些地方？哪里还可以更好？（选填）')} />
-                  <div><Button variant="primary" disabled={!rating || busy === 'review'} onClick={review}>{data.my_review ? t('Update review', '更新评价') : t('Post review', '发布评价')}</Button></div>
+                  <div><Button variant="primary" data-fx-burst="hearts" disabled={!rating || busy === 'review'} onClick={review}>{data.my_review ? t('Update review', '更新评价') : t('Post review', '发布评价')}</Button></div>
                 </Card>
               ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t(`Play for at least ${config.settings.play_min_seconds} seconds to leave a review.`, `游玩至少 ${config.settings.play_min_seconds} 秒后即可评价。`)}</p>}
               {data.reviews.length ? <div className="reviews">{data.reviews.map((r: any, i: number) => (

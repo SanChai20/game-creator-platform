@@ -3,6 +3,7 @@
 // category cartridges, the discovery queue and the pager. Everything here is sized for a catalogue of tens of
 // thousands of games: lists are paged, rows scroll sideways, and nothing assumes a fixed number of games.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
+import { CountUp } from './ui/toon';
 import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
@@ -203,7 +204,7 @@ export function Stats({ s }: { s: StoreStats }) {
   ];
   return (
     <div className="kpis">{items.map(([v, l, to], k) => (
-      <Link key={k} to={to} className={'kpi' + (k === 1 && s.playing > 0 ? ' is-live' : '') + (k === 1 && !s.playing ? ' is-zero' : '')}><b className="num">{v}</b><span>{l}</span></Link>
+      <Link key={k} to={to} className={'kpi' + (k === 1 && s.playing > 0 ? ' is-live' : '') + (k === 1 && !s.playing ? ' is-zero' : '')}><b className="num"><CountUp value={v} /></b><span>{l}</span></Link>
     ))}</div>
   );
 }

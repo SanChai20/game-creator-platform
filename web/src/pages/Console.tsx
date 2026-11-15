@@ -53,10 +53,10 @@ export function Console() {
         )}
 
         <StatGrid>
-          <Stat label={t('Games', '游戏')} value={projects.length} sub={`${projects.filter((p) => p.status === 'live').length} ${t('live', '款已上线')}`} />
-          <Stat label={t('Plays', '游玩次数')} value={num(projects.reduce((a, p) => a + p.plays, 0))} sub={`${num(projects.reduce((a, p) => a + p.minutes, 0))} ${t('minutes played', '分钟游玩时长')}`} />
-          <Stat label={t('Sales', '销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('earned', '累计收益')}`} />
-          <Stat tone="accent" to="/console/earnings" label={t('Available', '可提现')} value={usd(data.balance.available)} sub={<>{data.balance.pending > 0 ? `${usd(data.balance.pending)} ${t('pending', '待结算')}` : t('Open earnings', '查看收益')} →</>} />
+          <Stat icon="pad" label={t('Games', '游戏')} value={projects.length} sub={`${projects.filter((p) => p.status === 'live').length} ${t('live', '款已上线')}`} />
+          <Stat icon="play" label={t('Plays', '游玩次数')} value={num(projects.reduce((a, p) => a + p.plays, 0))} sub={`${num(projects.reduce((a, p) => a + p.minutes, 0))} ${t('minutes played', '分钟游玩时长')}`} />
+          <Stat icon="bag" label={t('Sales', '销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('earned', '累计收益')}`} />
+          <Stat icon="coin" tone="accent" to="/console/earnings" label={t('Available', '可提现')} value={usd(data.balance.available)} sub={<>{data.balance.pending > 0 ? `${usd(data.balance.pending)} ${t('pending', '待结算')}` : t('Open earnings', '查看收益')} →</>} />
         </StatGrid>
 
         <div className="cols">
