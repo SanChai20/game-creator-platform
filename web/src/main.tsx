@@ -29,7 +29,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
       <div className="wrap">
         <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
         <Link to="/" className={on('/')}>{t('Games', '游戏')}</Link>
-        <Link to="/create" className={on('/create')}>{t('For creators', '创作者')}</Link>
+        <Link to="/create" className={on('/create') + (user ? '' : ' hide-xs')}>{t('For creators', '创作者')}</Link>
         {user && <Link to="/console" className={on('/console') + ' hide-s'}>{t('Console', '控制台')}</Link>}
         {user?.role === 'admin' && <Link to="/admin" className={on('/admin') + ' hide-s'}>{t('Admin', '管理')}</Link>}
         <span className="grow" />
