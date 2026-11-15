@@ -14,6 +14,7 @@ import { Auth, ClaimAdmin } from './pages/Auth';
 import { Creators } from './pages/Creators';
 import { Console } from './pages/Console';
 import { Project } from './pages/Project';
+import { Analytics } from './pages/Analytics';
 import { Earnings } from './pages/Earnings';
 import { Admin } from './pages/Admin';
 import { Device } from './pages/Device';
@@ -75,6 +76,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/console') return <Console />;
   if (path === '/console/earnings') return <Earnings />;
   if ((m = path.match(/^\/console\/p\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
+  if ((m = path.match(/^\/console\/p\/([^/]+)\/analytics$/))) return <Analytics key={m[1]} id={m[1]} />;
   if (path === '/claim-admin') return <ClaimAdmin />;
   if (path === '/device') return <Device />;
   if ((m = path.match(/^\/admin(?:\/([a-z]+))?$/))) return user?.role === 'admin' ? <Admin tab={m[1] || 'overview'} /> : <NotFound />;

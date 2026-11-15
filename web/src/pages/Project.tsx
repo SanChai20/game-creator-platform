@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ago, api, bytes, dateTime, Fail, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Spinner, Stat, StatGrid, StatusBadge, Table } from '../ui';
 import { Stage } from './Game';
+import { projectTabs } from './Analytics';
 
 function Report({ v }: { v: any }) {
   const r = v.report;
@@ -50,14 +51,16 @@ export function Project({ id }: { id: string }) {
           {p.status === 'live' && <Button variant="danger" onClick={offline} disabled={busy === 'off'}>{t('Take offline', '下线')}</Button>}
           {p.status === 'offline' && p.live_version && <Button variant="primary" onClick={online} disabled={busy === 'on'}>{t('Put back online', '重新上线')}</Button>}
         </>} />
+      {projectTabs(id, 'overview')}
       {p.status === 'removed' && <div style={{ marginBottom: 22 }}><Notice tone="bad">{t('This game was removed by the platform.', '该游戏已被平台移除。')} {p.removed_reason}</Notice></div>}
 
       <div className="stack l">
         <StatGrid>
+          <Stat tone="accent" to={`/console/p/${id}/analytics`} label={t('Online now', '当前在线')} value={num(data.online?.online.live ?? 0)} sub={t(`${num(data.online?.rooms.players_in_rooms ?? 0)} in rooms · see analytics`, `${num(data.online?.rooms.players_in_rooms ?? 0)} 人在房间中 · 查看数据分析`)} />
           <Stat label={t('Plays', '游玩次数')} value={num(p.plays)} sub={`${num(sum30('plays'))} ${t('in 30 days', '近 30 天')}`} />
           <Stat label={t('Time played', '游玩时长')} value={playTime(p.minutes * 60)} sub={`${playTime(sum30('seconds'))} ${t('in 30 days', '近 30 天')}`} />
           <Stat label={t('Rating', '评分')} value={p.rating != null ? p.rating.toFixed(1) : '—'} sub={count(p.rating_count, 'rating', 'ratings', '个评分')} />
-          <Stat tone="accent" label={t('Sales', '销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('to you', '归你所得')} · ${usd(data.sales.gross)} ${t('gross', '总额')}`} />
+          <Stat label={t('Sales', '销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('to you', '归你所得')} · ${usd(data.sales.gross)} ${t('gross', '总额')}`} />
         </StatGrid>
 
         <div className="cols">

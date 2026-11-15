@@ -113,6 +113,12 @@ export function Bars({ data, tip, height }: { data: { label: string; value: numb
   );
 }
 
+/** Horizontal bars for parts of a whole (devices, browsers, session lengths): name, bar and value on one line. */
+export function Share({ items }: { items: { name: ReactNode; value: number; note?: ReactNode }[] }) {
+  const max = Math.max(1, ...items.map((i) => i.value));
+  return <div className="share">{items.map((i, k) => <div className="share-row" key={k}><span className="clip">{i.name}</span><div className="share-bar"><i style={{ width: `${Math.max(i.value ? 2 : 0, (i.value / max) * 100)}%` }} /></div><span className="num">{i.note ?? i.value}</span></div>)}</div>;
+}
+
 /** A chart with its title and the headline number. */
 export function ChartBlock({ label, value, children }: { label: ReactNode; value?: ReactNode; children: ReactNode }) {
   return <div className="chart-block"><div className="row"><Eyebrow>{label}</Eyebrow>{value != null && <b className="right num chart-v">{value}</b>}</div>{children}</div>;

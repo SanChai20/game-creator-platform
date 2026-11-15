@@ -12,6 +12,7 @@ import {
 import { takeOffline } from '../routes/api';
 import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
+import { gameAnalytics, onlineNow } from '../analytics';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
 
@@ -424,10 +425,11 @@ export const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'get_stats', title: 'Marketplace numbers and runtime errors',
-    description: 'Returns how the published game is doing: plays, play time, ratings and recent reviews, sales, and errors reported from real players\' browsers (useful for fixing bugs that verification did not hit).',
-    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
+    name: 'get_stats', title: 'Players online, analytics and marketplace numbers',
+    description: 'Returns how the game is doing. now: players online at this moment (live and preview) and players in multiplayer rooms. analytics, over the last days (default 30, at most 90): sessions, unique, new and returning players, play time with average and median session length, session-length spread, players per day and per hour for the last 24 hours, a breakdown by version, device, browser and operating system, and the errors real players hit. Also plays, ratings and recent reviews, and sales. Pass only_now: true for just the live counts, which is cheap enough to poll.',
+    inputSchema: obj({ project: PROJECT, days: { type: 'integer', description: 'Window for analytics, 1 to 90 days. Default 30.' }, only_now: { type: 'boolean', description: 'Return only players online now and room occupancy.' } }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
+      if (a.only_now) { const p = await ownedProject(c.env, c.user, a.project); return { status: p.status, ...(await onlineNow(c.env, p.id)) }; }
       const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB;
       const [daily, errors, reviews, sales] = await Promise.all([
         db.prepare('SELECT day, sessions, plays, seconds FROM game_daily WHERE project_id = ? AND day >= ? ORDER BY day').bind(p.id, addDays(dayOf(now()), -13)).all<any>(),
@@ -440,6 +442,8 @@ export const TOOLS: Tool[] = [
         price: p.price_cents ? usd(p.price_cents) : 'free', sales: sales?.n || 0, creator_earnings: usd(sales?.net || 0),
         last_14_days: daily.results.map((d) => ({ day: d.day, sessions: d.sessions, plays: d.plays, minutes: Math.round(d.seconds / 60) })),
         runtime_errors: errors.results, recent_reviews: reviews.results,
+        analytics: await gameAnalytics(c.env, p.id, Number(a.days) || 30),
+        console_page: `${c.origin}/console/p/${p.id}/analytics`,
       };
     },
   },
