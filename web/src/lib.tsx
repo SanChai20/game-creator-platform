@@ -1,5 +1,5 @@
 // Shared plumbing for the web app: language, API client, a tiny router, session state and small components.
-import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { Button, Notice } from './ui/components';
 // Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
 export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
@@ -144,19 +144,18 @@ export function Verdict({ g, full }: { g: Pick<GameCard, 'rating' | 'rating_coun
   return <span className={'verdict v-' + v.tone}>{v.word}{full && g.rating != null && g.rating_count >= 3 && <span className="mute"> · ★ {g.rating.toFixed(1)} ({num(g.rating_count)})</span>}</span>;
 }
 
-/** A game as a collectible card: a notched cartridge with a rarity edge, a foil sheen that follows the pointer and a slight tilt. */
+/** A game's tagline, unless it only repeats the title (agents often set both to the name). */
+export function blurb(g: { title: string; tagline?: string | null }): string {
+  const s = (g.tagline || '').trim(), norm = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  return s && norm(s) !== norm(g.title) ? s : '';
+}
+
+/** A game as a card: a notched cartridge with a thin rarity edge. It lifts on hover; nothing else moves. */
 export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
   const rar = rarity(g), genre = g.tags[0];
-  const move = (e: RPointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== 'mouse') return;
-    const el = e.currentTarget, r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-    el.style.setProperty('--mx', `${(x * 100).toFixed(1)}%`); el.style.setProperty('--my', `${(y * 100).toFixed(1)}%`);
-    el.style.setProperty('--rx', `${((0.5 - y) * 7).toFixed(2)}deg`); el.style.setProperty('--ry', `${((x - 0.5) * 9).toFixed(2)}deg`);
-  };
-  const leave = (e: RPointerEvent<HTMLDivElement>) => { const el = e.currentTarget; el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); };
   return (
     <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`}>
-      <div className="card-in" onPointerMove={move} onPointerLeave={leave} style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 270 } as CSSProperties}>
+      <div className="card-in" style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 270 } as CSSProperties}>
         <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
           {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
           <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
@@ -168,7 +167,6 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
           <h3 className="clip">{g.title}</h3>
           <div className="meta"><Verdict g={g} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
         </div>
-        <span className="foil" aria-hidden="true" />
       </div>
     </Link>
   );

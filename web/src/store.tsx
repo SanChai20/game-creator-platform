@@ -3,7 +3,7 @@
 // category cartridges, the discovery queue and the pager. Everything here is sized for a catalogue of tens of
 // thousands of games: lists are paged, rows scroll sideways, and nothing assumes a fixed number of games.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
-import { ago, api, artStyle, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, useLocation, Verdict, type GameCard } from './lib';
+import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[] }
@@ -140,18 +140,6 @@ export function StoreBar() {
   );
 }
 
-// ---- live ticker --------------------------------------------------------------------------------
-/** A slow crawl of what is happening in the store. Under reduced motion it holds still and scrolls by hand. */
-export function Ticker({ items }: { items: { to: string; kind: string; tone: string; text: ReactNode }[] }) {
-  if (items.length < 3) return null;
-  const run = (hidden?: boolean) => (
-    <div className="tick-run" aria-hidden={hidden || undefined}>
-      {items.map((it, k) => <Link key={k} to={it.to} className="tick-i" tabIndex={hidden ? -1 : undefined}><b className={'tick-k ' + it.tone}>{it.kind}</b>{it.text}</Link>)}
-    </div>
-  );
-  return <div className="ticker" aria-label={t('Happening now', '正在发生')}><div className="tick-track" style={{ '--dur': `${Math.max(30, items.length * 5)}s` } as CSSProperties}>{run()}{run(true)}</div></div>;
-}
-
 // ---- featured carousel --------------------------------------------------------------------------
 /**
  * The home page's lead: a big capsule with its art on the left and the facts on the right, and the other picks
@@ -181,7 +169,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
           <div className="feat-info" aria-live={paused ? 'polite' : 'off'}>
             <div className="feat-tags" style={{ '--rc': R.color } as CSSProperties}><span className="rar" title={rarityHint()}>{R.name()}</span>{g.tags.slice(0, 3).map((x) => <span key={x} className="gtag" style={hue(x)}>{genreName(x)}</span>)}</div>
             <h3>{g.title}</h3>
-            {g.tagline && <p className="lede">{g.tagline}</p>}
+            {blurb(g) && <p className="lede">{blurb(g)}</p>}
             <dl className="feat-facts">
               <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
               <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>
@@ -246,7 +234,7 @@ function Preview({ g }: { g: GameCard }) {
       <span className="tl-prev-b">
         <span className="feat-tags" style={{ '--rc': R.color } as CSSProperties}><span className="rar">{R.name()}</span></span>
         <b>{g.title}</b>
-        {g.tagline && <span className="mute fs-sm">{g.tagline}</span>}
+        {blurb(g) && <span className="mute fs-sm">{blurb(g)}</span>}
         <span className="row s wrapx">{g.tags.slice(0, 4).map((x) => <i key={x} className="gtag" style={hue(x)}>{genreName(x)}</i>)}</span>
         <span className="tl-prev-v"><Verdict g={g} full /></span>
         <span className="mute fs-sm">{t('by', '作者')} {g.author} · {count(g.plays, 'play', 'plays', '次游玩')}</span>
@@ -288,12 +276,12 @@ export function Shelf({ n, title, note, to, games, live, rank, freshSince }: { n
   return (
     <section className={'shelf' + (live ? ' is-live' : '') + (rank ? ' ranked' : '')}>
       <SectionHead n={n} title={title} note={note} to={to} live={live}>
-        <div className="shelf-nav">
+        <div className="shelf-nav" hidden={!edge.l && !edge.r}>
           <button type="button" onClick={() => page(-1)} disabled={!edge.l} aria-label={t('Scroll back', '向左滚动')}>‹</button>
           <button type="button" onClick={() => page(1)} disabled={!edge.r} aria-label={t('Scroll on', '向右滚动')}>›</button>
         </div>
       </SectionHead>
-      <div className="shelf-row" ref={row} onScroll={check}>
+      <div className={'shelf-row' + (edge.l ? ' more-l' : '') + (edge.r ? ' more-r' : '')} ref={row} onScroll={check}>
         {games.map((g, k) => <div className="shelf-cell" key={g.id}>{rank && <span className="rank" aria-hidden="true">{String(k + 1).padStart(2, '0')}</span>}<GameTile g={g} fresh={!!freshSince && !!g.published_at && g.published_at > freshSince} /></div>)}
       </div>
     </section>

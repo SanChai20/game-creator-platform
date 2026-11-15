@@ -1,8 +1,8 @@
 /* Design system styles. Every value comes from a token in tokens.ts (var(--…)); no raw colours below this line
    except transparent black/white for shading. Page layouts live in ../styles.css.
 
-   The look, in one line: a game cabinet's HUD. Violet-black ink, acid lime for the one thing to do, a hard pink
-   offset shadow on anything you can press, and quiet surfaces so the games and the numbers carry the colour.
+   The look, in one line: a game cabinet's HUD after dark. Violet-black ink, acid lime for the one thing to do, a soft
+   glow under anything you can press, and quiet surfaces so the games and the numbers carry the colour.
    Every page shares the store's furniture: a big plain title, joined figure strips, and shelf-style section heads. */
 
 /* ---- base -------------------------------------------------------------------------------------- */
@@ -12,18 +12,10 @@ body {
   margin: 0; min-height: 100vh; overflow-x: hidden; background: var(--bg-0); color: var(--text);
   font: 400 var(--fs-md)/1.6 var(--font-sans); font-feature-settings: "cv11", "ss01", "ss03"; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
 }
-/* Atmosphere: a dot matrix and three coloured lights, fixed so content scrolls over them. */
+/* Atmosphere: one low violet light at the top, fixed so content scrolls over it. Nothing else behind the page. */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-  background:
-    radial-gradient(55vw 45vh at 0% 0%, rgba(139, 107, 255, .16), transparent 70%),
-    radial-gradient(45vw 40vh at 100% 0%, rgba(198, 255, 61, .07), transparent 70%),
-    radial-gradient(60vw 50vh at 80% 110%, rgba(255, 79, 163, .07), transparent 70%);
-}
-body::after {
-  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .55;
-  background-image: radial-gradient(var(--line-2) 1px, transparent 1.4px); background-size: 22px 22px;
-  mask-image: linear-gradient(180deg, #000, transparent 85%); -webkit-mask-image: linear-gradient(180deg, #000, transparent 85%);
+  background: radial-gradient(70vw 50vh at 50% -12%, rgba(139, 107, 255, .13), transparent 72%);
 }
 #root { display: flex; flex-direction: column; min-height: 100vh; }
 main { flex: 1; }
@@ -56,17 +48,17 @@ b, strong { font-weight: 650; }
 .center { text-align: center; }
 .text-grad { background: var(--grad-text); -webkit-background-clip: text; background-clip: text; color: transparent; }
 /* A highlighter stroke for the one phrase on a page that matters most. */
-.hl, mark { background: var(--accent); color: var(--accent-ink); padding: 0 .16em; border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; box-shadow: .07em .07em 0 var(--hot); }
+.hl, mark { background: none; color: var(--accent); padding: 0; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .eyebrow { display: inline-flex; align-items: center; gap: 7px; font: 600 10.5px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
 .eyebrow.sig { color: var(--accent); }
-.eyebrow.sig::before { content: "//"; color: var(--hot); letter-spacing: 0; }
+.eyebrow.sig::before { content: ""; width: 14px; height: 1.5px; border-radius: 1px; background: currentColor; opacity: .6; }
 .eyebrow.back { color: var(--text-2); transition: color var(--dur); } .eyebrow.back:hover { color: var(--accent); }
 .big-num { font: 700 var(--fs-3xl)/1 var(--font-display); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 .kbd { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid var(--line-3); border-bottom-width: 2px; border-radius: var(--r-xs); font: 600 11px/1 var(--font-mono); color: var(--text-2); background: var(--bg-2); }
 
 /* ---- buttons ----------------------------------------------------------------------------------- */
-/* Pressable things sit up off the page on a hard shadow and drop onto it when pressed. */
+/* Pressable things lift a pixel on hover and settle when pressed; the primary one carries a soft glow. */
 .btn {
   position: relative; display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
   height: 38px; padding: 0 16px; border-radius: var(--r-sm); border: 1px solid var(--line-3);
@@ -75,11 +67,11 @@ b, strong { font-weight: 650; }
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur), transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 .btn:hover { background: var(--bg-3); border-color: var(--text-3); }
-.btn:active { transform: translate(1px, 1px); }
+.btn:active { transform: translateY(1px); }
 .btn[disabled] { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-primary, .btn.pri { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; box-shadow: var(--shadow-pop); }
-.btn-primary:hover, .btn.pri:hover { background: var(--accent-hi); border-color: var(--accent-hi); transform: translate(-1px, -1px); box-shadow: 4px 4px 0 0 var(--hot); }
-.btn-primary:active, .btn.pri:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 0 var(--hot); }
+.btn-primary:hover, .btn.pri:hover { background: var(--accent-hi); border-color: var(--accent-hi); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 12px 28px -10px rgba(198, 255, 61, .75); }
+.btn-primary:active, .btn.pri:active { transform: translateY(0); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 4px 12px -6px rgba(198, 255, 61, .5); }
 .btn-primary[disabled]:hover { transform: none; background: var(--accent); }
 .btn-ghost, .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn-ghost:hover, .btn.ghost:hover { background: var(--bg-2); color: var(--text); border-color: var(--line-2); }
@@ -87,17 +79,17 @@ b, strong { font-weight: 650; }
 .btn-danger:hover, .btn.danger:hover { border-color: var(--bad); background: var(--bad-wash); }
 .btn-lg, .btn.big { height: 46px; padding: 0 22px; font-size: 14px; border-radius: var(--r-md); }
 .btn-sm, .btn.sm { height: 30px; padding: 0 11px; font-size: 12.5px; }
-.btn-sm.btn-primary { box-shadow: 2px 2px 0 0 var(--hot); }
+.btn-sm.btn-primary { box-shadow: var(--shadow-pop); }
 .btn-block { width: 100%; }
 
 .play-btn {
   display: inline-flex; align-items: center; gap: 12px; height: 56px; padding: 0 26px 0 9px; border-radius: var(--r-md); border: 0;
   background: var(--accent); color: var(--accent-ink); font: 700 17px/1 var(--font-display); letter-spacing: -.01em; cursor: pointer;
-  box-shadow: var(--shadow-pop-lg); transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast), background var(--dur);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 14px 36px -12px rgba(198, 255, 61, .7); transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast), background var(--dur);
 }
 .play-btn.buy { padding: 0 26px; }
-.play-btn:hover { background: var(--accent-hi); transform: translate(-2px, -2px); box-shadow: 7px 7px 0 0 var(--hot); }
-.play-btn:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0 0 var(--hot); }
+.play-btn:hover { background: var(--accent-hi); transform: translateY(-2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 18px 44px -12px rgba(198, 255, 61, .85); }
+.play-btn:active { transform: translateY(0); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 6px 16px -8px rgba(198, 255, 61, .6); }
 .play-btn[disabled] { opacity: .6; cursor: not-allowed; transform: none; }
 .play-ico { width: 38px; height: 38px; border-radius: var(--r-sm); background: var(--accent-ink); display: grid; place-items: center; }
 .play-ico::after { content: ""; border-left: 12px solid var(--accent); border-top: 8px solid transparent; border-bottom: 8px solid transparent; margin-left: 3px; }
@@ -159,7 +151,7 @@ textarea.input { height: auto; padding: 10px 12px; resize: vertical; min-height:
 .notice-t { display: block; margin-bottom: 2px; }
 .empty { padding: 48px 24px; text-align: center; color: var(--text-2); border: 1px dashed var(--line-3); border-radius: var(--r-lg); background: rgba(17, 15, 24, .5); display: grid; justify-items: center; gap: 8px; }
 .empty.compact { padding: 26px 18px; }
-.empty-ico { width: 46px; height: 46px; border-radius: var(--r-md); margin-bottom: 6px; background: var(--bg-3); border: 1px solid var(--line-3); position: relative; box-shadow: var(--shadow-pop); }
+.empty-ico { width: 46px; height: 46px; border-radius: var(--r-md); margin-bottom: 6px; background: var(--bg-3); border: 1px solid var(--line-3); position: relative; box-shadow: var(--shadow-pop-ink); }
 .empty-ico::after { content: ""; position: absolute; left: 18px; top: 14px; border-left: 12px solid var(--accent); border-top: 8px solid transparent; border-bottom: 8px solid transparent; }
 .empty h3 { color: var(--text); font-size: var(--fs-xl); }
 .empty p { max-width: 50ch; font-size: var(--fs-md); }
@@ -233,7 +225,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .bars div { flex: 1; min-width: 2px; background: var(--accent); border-radius: 1px; position: relative; opacity: .75; transition: opacity var(--dur-fast), background var(--dur-fast); }
 .bars div.zero { background: var(--bg-4); opacity: 1; }
 .bars div:hover { opacity: 1; background: var(--hot); }
-.bars div:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg-0); font: 600 11px var(--font-mono); padding: 5px 8px; border-radius: var(--r-xs); white-space: nowrap; z-index: 5; pointer-events: none; box-shadow: var(--shadow-pop); }
+.bars div:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg-0); font: 600 11px var(--font-mono); padding: 5px 8px; border-radius: var(--r-xs); white-space: nowrap; z-index: 5; pointer-events: none; box-shadow: var(--shadow-pop-ink); }
 .chart-block { display: grid; gap: 12px; }
 .share { display: grid; gap: 9px; }
 .share-row { display: grid; grid-template-columns: minmax(80px, 34%) 1fr auto; align-items: center; gap: 12px; font-size: var(--fs-md); }

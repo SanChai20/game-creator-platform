@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ago, api, artStyle, count, date, Fail, genreHue, genreName, Link, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, artStyle, blurb, count, date, Fail, genreHue, genreName, Link, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Spinner, Stat, StatGrid, Textarea } from '../ui';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
 
@@ -70,7 +70,7 @@ export function Game({ slug }: { slug: string }) {
           <span className="clip">{g.title}</span>
         </nav>
         <header className="gp-head">
-          <div className="grow"><h1>{g.title}</h1>{g.tagline && <p className="lede">{g.tagline}</p>}</div>
+          <div className="grow"><h1>{g.title}</h1>{blurb(g) && <p className="lede">{blurb(g)}</p>}</div>
           <div className="gp-head-r"><span className="rar-pill" title={rarityHint()}>{R.name()}</span>{!!g.playing && <span className="live-pill big"><i className="live-dot" aria-hidden="true" />{num(g.playing)} {t('playing now', '人正在玩')}</span>}</div>
         </header>
 

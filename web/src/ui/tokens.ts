@@ -9,7 +9,7 @@ export const color = {
   line: 'rgba(196, 184, 255, .08)', line2: 'rgba(196, 184, 255, .15)', line3: 'rgba(196, 184, 255, .28)',
   // Text
   text: '#f2f0f7', text2: '#a9a4b8', text3: '#6c6780',
-  // Brand: acid lime on ink, with a hot pink kick for hard shadows and highlights.
+  // Brand: acid lime on ink for the one thing to do; hot pink only as a rare highlight (new, chart series).
   accent: '#c6ff3d', accent2: '#8cf23a', accentHi: '#e4ff7a', accentInk: '#0d1400',
   accentWash: 'rgba(198, 255, 61, .1)', accentLine: 'rgba(198, 255, 61, .34)', accentGlow: 'rgba(198, 255, 61, .3)',
   hot: '#ff4fa3', hotWash: 'rgba(255, 79, 163, .12)',
@@ -42,18 +42,19 @@ export const size = {
 } as const;
 
 export const space = { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '56px', 10: '80px', 11: '112px' } as const;
-/** Tight corners: the interface reads as hardware, not as bubbles. */
-export const radius = { xs: '3px', sm: '5px', md: '7px', lg: '10px', xl: '14px', pill: '999px' } as const;
+/** Firm corners: soft enough to feel finished, tight enough to read as hardware rather than bubbles. */
+export const radius = { xs: '4px', sm: '6px', md: '9px', lg: '12px', xl: '16px', pill: '999px' } as const;
 export const shadow = {
   1: '0 1px 2px rgba(0, 0, 0, .4)',
   2: '0 12px 32px -8px rgba(0, 0, 0, .6)',
   3: '0 32px 80px -16px rgba(0, 0, 0, .75)',
   glow: `0 10px 34px -6px ${color.accentGlow}`,
   inset: 'inset 0 1px 0 rgba(255, 255, 255, .05)',
-  // The signature: a hard offset shadow, like a sprite's drop shadow.
-  pop: `3px 3px 0 0 ${color.hot}`,
-  'pop-lg': `5px 5px 0 0 ${color.hot}`,
-  'pop-ink': '3px 3px 0 0 #000',
+  // Pressable things: a top highlight and a soft lime bloom underneath, so the one action glows rather than shouts.
+  pop: 'inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 22px -10px rgba(198, 255, 61, .6)',
+  // Raised panels (menus, dialogs, cards on cards): a hairline highlight and a long, soft fall-off.
+  'pop-lg': 'inset 0 1px 0 rgba(255, 255, 255, .05), 0 1px 0 rgba(0, 0, 0, .4), 0 28px 64px -24px rgba(0, 0, 0, .85)',
+  'pop-ink': '0 10px 26px -12px rgba(0, 0, 0, .7)',
 } as const;
 export const motion = { ease: 'cubic-bezier(.2, .8, .2, 1)', fast: '.12s', base: '.2s', slow: '.4s' } as const;
 export const layout = { wrap: '1240px', gutter: 'clamp(16px, 4vw, 40px)', nav: '58px' } as const;

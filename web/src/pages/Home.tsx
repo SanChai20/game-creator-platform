@@ -2,21 +2,11 @@
 // so the page is the same size whether the catalogue holds ten games or fifty thousand. The full catalogue, with
 // filters and numbered pages, is the browse page; every category has its own page under /c/.
 import { useEffect, useState } from 'react';
-import { api, Fail, num, price, t, useApp, useData, type GameCard } from '../lib';
+import { api, Fail, t, useApp, useData, type GameCard } from '../lib';
 import { Button, Eyebrow, Spinner } from '../ui';
-import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, Ticker, type Genre, type StoreStats } from '../store';
+import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, type Genre, type StoreStats } from '../store';
 
 interface HomeData { stats: StoreStats; shelves: { trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: Genre[] }
-
-function tickerItems(sh: HomeData['shelves']) {
-  const out: { to: string; kind: string; tone: string; text: string }[] = [];
-  const at = (g: GameCard) => `/g/${g.slug}`;
-  sh.playing.slice(0, 4).forEach((g) => out.push({ to: at(g), kind: `● ${num(g.playing || 0)} ${t('live', '在线')}`, tone: 'live', text: g.title }));
-  sh.new.slice(0, 4).forEach((g) => out.push({ to: at(g), kind: t('New', '新'), tone: 'new', text: g.title }));
-  sh.top.slice(0, 3).forEach((g) => out.push({ to: at(g), kind: `★ ${g.rating?.toFixed(1)}`, tone: 'top', text: g.title }));
-  sh.free.slice(0, 3).forEach((g) => out.push({ to: at(g), kind: price(0), tone: 'free', text: g.title }));
-  const seen = new Set<string>(); return out.filter((x) => (seen.has(x.to + x.tone) ? false : (seen.add(x.to + x.tone), true)));
-}
 
 export function Home() {
   const { config } = useApp();
@@ -43,7 +33,6 @@ export function Home() {
   let n = 0; const next = () => String(++n).padStart(2, '0');
   return (
     <div className="store">
-      <Ticker items={tickerItems(sh)} />
       <div className="wrap store-top">
         <div className="store-intro">
           <h1>{t('Web games made by creators', '创作者与')} <span className="hl-a">{t('and their AI agents', 'AI 智能体打造的网页游戏')}</span></h1>
