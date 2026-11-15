@@ -49,7 +49,7 @@ function Showcase() {
         <span key={g.id} className={'aw' + (k % 3)} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>
       ))}</div>
       <div className="auth-pitch">
-        <b>{data ? t(`${num(data.stats.games)} web games. One account.`, `${num(data.stats.games)} 款网页游戏，一个账户。`) : t('Web games. One account.', '网页游戏，一个账户。')}</b>
+        <b>{data ? t('{games} web games. One account.', '{games} 款网页游戏，一个账户。', { games: num(data.stats.games) }) : t('Web games. One account.', '网页游戏，一个账户。')}</b>
         <span>{t('Play in your browser, keep your library, rate what you love, and publish your own with your agent.', '在浏览器里畅玩，收藏游戏库，为喜欢的作品评分，还能用智能体发布你自己的游戏。')}</span>
       </div>
     </aside>

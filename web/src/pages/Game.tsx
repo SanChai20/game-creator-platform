@@ -98,7 +98,7 @@ export function Game({ slug }: { slug: string }) {
   const canReview = !!user && !data.is_owner && (data.played || !config.settings.review_requires_play);
 
   const genre = g.tags?.[0] as string | undefined, R = RARITY[rarity(g)], h = genre ? genreHue(genre) : 270;
-  const tryLabel = fresh || !user ? t(`Try free · ${trial?.minutes} min`, `免费试玩 · ${trial?.minutes} 分钟`) : t(`Continue trial · ${leftMin} min left`, `继续试玩 · 剩 ${leftMin} 分钟`);
+  const tryLabel = fresh || !user ? t('Try free · {minutes} min', '免费试玩 · {minutes} 分钟', { minutes: trial?.minutes ?? 0 }) : t('Continue trial · {left} min left', '继续试玩 · 剩 {left} 分钟', { left: leftMin });
   const cta = !live ? null : locked
     ? <>{canTry && !url && <Button size="lg" onClick={() => { play(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} disabled={busy === 'play'}>{tryLabel}</Button>}<Button variant="primary" size="lg" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button></>
     : <Button variant="primary" size="lg" onClick={() => { play(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : `▶ ${t('Play now', '立即游玩')}`}</Button>;
@@ -131,10 +131,10 @@ export function Game({ slug }: { slug: string }) {
               {!live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>
                   <PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : fresh || !user ? t('Try it free', '免费试玩') : t('Continue trial', '继续试玩')}</PlayButton>
-                  <span className="mute fs-sm">{!user ? t(`Sign in to start a ${trial!.minutes}-minute free trial.`, `登录即可开始 ${trial!.minutes} 分钟免费试玩。`) : fresh ? t(`${trial!.minutes} minutes free, then ${price(g.price_cents)} to keep playing.`, `免费 ${trial!.minutes} 分钟，之后 ${price(g.price_cents)} 即可继续游玩。`) : t(`${leftMin} of ${trial!.minutes} free minutes left.`, `免费 ${trial!.minutes} 分钟还剩 ${leftMin} 分钟。`)}</span>
+                  <span className="mute fs-sm">{!user ? t('Sign in to start a {minutes}-minute free trial.', '登录即可开始 {minutes} 分钟免费试玩。', { minutes: trial!.minutes }) : fresh ? t('{minutes} minutes free, then {price} to keep playing.', '免费 {minutes} 分钟，之后 {price} 即可继续游玩。', { minutes: trial!.minutes, price: price(g.price_cents) }) : t('{left} of {minutes} free minutes left.', '免费 {minutes} 分钟还剩 {left} 分钟。', { left: leftMin, minutes: trial!.minutes })}</span>
                   <Button size="sm" variant="ghost" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Or buy now', '或直接购买')} · {price(g.price_cents)}</Button>
                 </>
-                : locked ? <>{trial?.over && <b>{trialDone ? t('Your free trial has ended', '免费试玩已结束') : t(`You have used your ${trial.minutes}-minute free trial`, `你已用完 ${trial.minutes} 分钟免费试玩`)}</b>}<PlayButton buy onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</PlayButton><span className="mute fs-sm">{config.payments ? trial?.over ? t('Buy it to keep playing. Your saves are kept.', '购买后即可继续游玩，存档会保留。') : t('One payment. Play as much as you like.', '一次购买，畅玩无限。') : t('Purchases are not open yet on this platform.', '平台暂未开放购买。')}</span></>
+                : locked ? <>{trial?.over && <b>{trialDone ? t('Your free trial has ended', '免费试玩已结束') : t('You have used your {minutes}-minute free trial', '你已用完 {minutes} 分钟免费试玩', { minutes: trial.minutes })}</b>}<PlayButton buy onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</PlayButton><span className="mute fs-sm">{config.payments ? trial?.over ? t('Buy it to keep playing. Your saves are kept.', '购买后即可继续游玩，存档会保留。') : t('One payment. Play as much as you like.', '一次购买，畅玩无限。') : t('Purchases are not open yet on this platform.', '平台暂未开放购买。')}</span></>
                 : <><PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : t('Play', '开始游戏')}</PlayButton>{!user && <span className="mute fs-sm">{t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
             </div>
           </Stage>
@@ -155,7 +155,7 @@ export function Game({ slug }: { slug: string }) {
 
         {live && (
           <div className="gp-buy">
-            <div className="grow"><h2>{locked ? t(`Buy ${g.title}`, `购买 ${g.title}`) : t(`Play ${g.title}`, `游玩 ${g.title}`)}</h2><p>{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')} {trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>} {paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</p></div>
+            <div className="grow"><h2>{locked ? t('Buy {title}', '购买 {title}', { title: g.title }) : t('Play {title}', '游玩 {title}', { title: g.title })}</h2><p>{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')} {trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>} {paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</p></div>
             <div className="gp-buy-act"><span className="gp-price">{price(g.price_cents)}</span>{cta}</div>
           </div>
         )}
@@ -179,7 +179,7 @@ export function Game({ slug }: { slug: string }) {
                   <Textarea value={body} onChange={(e) => setBody(e.target.value)} maxLength={2000} placeholder={t('What did you like? What would make it better? (optional)', '喜欢哪些地方？哪里还可以更好？（选填）')} />
                   <div><Button variant="primary" disabled={!rating || busy === 'review'} onClick={review}>{data.my_review ? t('Update review', '更新评价') : t('Post review', '发布评价')}</Button></div>
                 </Card>
-              ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t(`Play for at least ${config.settings.play_min_seconds} seconds to leave a review.`, `游玩至少 ${config.settings.play_min_seconds} 秒后即可评价。`)}</p>}
+              ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t('Play for at least {n} seconds to leave a review.', '游玩至少 {n} 秒后即可评价。', { n: config.settings.play_min_seconds })}</p>}
               {data.reviews.length ? <div className="reviews">{data.reviews.map((r: any, i: number) => (
                 <div className="review" key={i}>
                   <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span><b>{r.name}</b>{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>

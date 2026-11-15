@@ -39,7 +39,7 @@ export function Device() {
   } else if (req) {
     body = (
       <>
-        <h1>{t(`Let “${req.client_name}” make games for you?`, `允许“${req.client_name}”为你制作游戏吗？`)}</h1>
+        <h1>{t('Let “{client_name}” make games for you?', '允许“{client_name}”为你制作游戏吗？', { client_name: req.client_name })}</h1>
         <p className="mute">{t('Signed in as', '当前登录账户')} <b style={{ color: 'var(--text)' }}>{user!.name}</b> ({user!.email}). {t('Code', '验证码')} <b className="mono" style={{ color: 'var(--text)' }}>{req.user_code}</b>.</p>
         <Notice tone="bad">{t('Allow this only if your own agent just showed you this code. The agent chose its own name, so the name proves nothing. If someone else sent you this link, choose Deny.', '仅当这个验证码是你自己的智能体刚刚显示给你的，才可以允许。名称由智能体自行填写，不能作为凭据。如果链接是别人发给你的，请选择拒绝。')}</Notice>
         <Ticks items={[t('Create and edit your game projects', '创建并编辑你的游戏项目'), t('Deploy previews and run verification', '部署预览并运行验证'), t('Publish, roll back and take games offline', '发布、回滚与下线游戏'), t('Set listing details and prices, and read your game stats', '设置上架信息与价格，查看游戏数据')]} />
@@ -49,7 +49,7 @@ export function Device() {
           <Button type="button" size="lg" className="grow" disabled={busy} onClick={() => decide('deny')}>{t('Deny', '拒绝')}</Button>
           <Button type="button" variant="primary" size="lg" className="grow" disabled={busy} onClick={() => decide('approve')}>{t('Allow', '允许')}</Button>
         </div>
-        <p className="dim fs-sm">{t(`Access expires after ${req.grant_days} day${req.grant_days === 1 ? '' : 's'}; you can revoke it sooner from your console.`, `访问权限将在 ${req.grant_days} 天后过期，你也可以随时在控制台提前撤销。`)}</p>
+        <p className="dim fs-sm">{(req.grant_days === 1 ? t('Access expires after 1 day; you can revoke it sooner from your console.', '访问权限将在 1 天后过期，你也可以随时在控制台提前撤销。') : t('Access expires after {n} days; you can revoke it sooner from your console.', '访问权限将在 {n} 天后过期，你也可以随时在控制台提前撤销。', { n: req.grant_days }))}</p>
       </>
     );
   } else {

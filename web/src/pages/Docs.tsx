@@ -82,12 +82,12 @@ const record = await GCP.playRecord();`} />
             <h2>{t('Pricing and payouts', '费用与收益')}</h2>
             <Ticks items={[
               s.creator_fee_cents > 0
-                ? (s.creator_fee_required ? t(`Building and previewing are free. A one-time creator license of ${usd(s.creator_fee_cents)} is needed when you publish your first game, for unlimited games.`, `创作与预览完全免费。发布第一款游戏时需一次性购买 ${usd(s.creator_fee_cents)} 的创作者许可，游戏数量不限。`) : t(`The creator license is ${usd(s.creator_fee_cents)}, once, for unlimited games.`, `创作者许可为 ${usd(s.creator_fee_cents)}，一次性，游戏数量不限。`))
+                ? (s.creator_fee_required ? t('Building and previewing are free. A one-time creator license of {fee} is needed when you publish your first game, for unlimited games.', '创作与预览完全免费。发布第一款游戏时需一次性购买 {fee} 的创作者许可，游戏数量不限。', { fee: usd(s.creator_fee_cents) }) : t('The creator license is {fee}, once, for unlimited games.', '创作者许可为 {fee}，一次性，游戏数量不限。', { fee: usd(s.creator_fee_cents) }))
                 : t('Building, previewing and publishing are free for every account.', '创作、预览与发布对所有账户免费开放。'),
               ...(s.paid_games_enabled ? [
                 t('Publish free, or set a price.', '可以免费发布，也可以自行定价。'),
-                t(`On paid games you keep ${100 - s.platform_fee_percent}% of each sale.`, `付费游戏每笔销售你可获得 ${100 - s.platform_fee_percent}%。`),
-                t(`Withdraw once your balance reaches ${usd(s.withdraw_min_cents)}.`, `余额达到 ${usd(s.withdraw_min_cents)} 即可提现。`),
+                t('On paid games you keep {share}% of each sale.', '付费游戏每笔销售你可获得 {share}%。', { share: 100 - s.platform_fee_percent }),
+                t('Withdraw once your balance reaches {amount}.', '余额达到 {amount} 即可提现。', { amount: usd(s.withdraw_min_cents) }),
               ] : []),
             ]} />
           </section>

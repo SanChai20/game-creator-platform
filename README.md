@@ -23,7 +23,7 @@ A platform where people publish web games made with their own AI agent (Claude, 
 | Hosted modules | `web/public/kits/v1/` | `@gcp/…` modules (procedural core, building blocks, loop, input, Three.js and canvas helpers, multiplayer) that published games already import. Still served at `/kits/v1/`; agents are no longer pointed at them |
 | Guides | `web/public/guides/` | The four platform guides served through MCP: the contract, versions and troubleshooting, saves, multiplayer. The older authoring guides stay readable at `/guides/` for existing games |
 | Templates | `web/public/templates/` | Starting points that pass verification, used by the end-to-end tests |
-| Web app | `web/src/` | Marketplace, game pages, creator console, earnings, admin console (React, English and 简体中文) |
+| Web app | `web/src/` | Marketplace, game pages, creator console, earnings, admin console (React, in English, 简体中文, 繁體中文, 日本語, 한국어 and Español; see `web/src/i18n/`) |
 | Schema | `migrations/` | D1 tables |
 | Tests | `tests/e2e.mjs` | End-to-end run against a local Worker with a mock Stripe |
 

@@ -63,7 +63,7 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
     ...(rating ? [[`★ ${rating}+`, () => set({ rating: null })] as [string, () => void]] : []),
     ...(search ? [[`“${search}”`, () => set({ q: null })] as [string, () => void]] : []),
     ...(since ? [[t('Since your last visit', '自上次来访'), () => set({ since: null })] as [string, () => void]] : []),
-    ...(by ? [[t(`By ${who || 'this creator'}`, `作者：${who || '该创作者'}`), () => set({ by: null, who: null })] as [string, () => void]] : []),
+    ...(by ? [[(who ? t('By {who}', '作者：{who}', { who }) : t('By this creator', '作者：该创作者')), () => set({ by: null, who: null })] as [string, () => void]] : []),
   ];
 
   return (
@@ -86,7 +86,7 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
               ))}
               {!shownG.length && <span className="dim fs-sm">{t('No genre by that name.', '没有这个类型。')}</span>}
             </div>
-            {!gq && glist.length > 12 && <button type="button" className="fl-more" onClick={() => setMoreG(!moreG)}>{moreG ? t('Show fewer', '收起') : t(`Show all ${glist.length}`, `显示全部 ${glist.length} 个`)}</button>}
+            {!gq && glist.length > 12 && <button type="button" className="fl-more" onClick={() => setMoreG(!moreG)}>{moreG ? t('Show fewer', '收起') : t('Show all {n}', '显示全部 {n} 个', { n: glist.length })}</button>}
             {!pinned && <Link to="/categories" className="fl-more">{t('All categories', '全部分类')} →</Link>}
           </div>
         </aside>
@@ -94,7 +94,7 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
         <div className="cat-main" ref={top}>
           <div className="cat-bar">
             <button type="button" className="btn btn-sm fl-open" onClick={() => setDrawer(true)}>⚙ {t('Filters', '筛选')}{active.length > 0 && <span className="fl-n">{active.length}</span>}</button>
-            <p className="cat-count" aria-live="polite">{busy && !res ? t('Searching…', '搜索中…') : total ? t(`${num(from)}–${num(to)} of ${num(total)} games`, `第 ${num(from)}–${num(to)} 款，共 ${num(total)} 款`) : t('No games', '没有游戏')}</p>
+            <p className="cat-count" aria-live="polite">{busy && !res ? t('Searching…', '搜索中…') : total ? t('{from}–{to} of {total} games', '第 {from}–{to} 款，共 {total} 款', { from: num(from), to: num(to), total: num(total) }) : t('No games', '没有游戏')}</p>
             <label className="cat-sort"><span>{t('Sort by', '排序')}</span>
               <select className="input" value={sort} onChange={(e) => set({ sort: e.target.value === 'trending' ? null : e.target.value })}>{sorts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
             </label>
@@ -134,10 +134,10 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
 export function Browse() {
   const q = query(), sort = q.get('sort') || '', tag = q.get('tag') || '', search = q.get('q') || '', since = q.get('since') || '', priceF = q.get('price') || '', who = q.get('who') || '';
   const tags = tag.split(',').filter(Boolean);
-  const title = search ? t(`Results for “${search}”`, `“${search}”的搜索结果`)
-    : who ? t(`Games by ${who}`, `${who} 的游戏`)
+  const title = search ? t('Results for “{search}”', '“{search}”的搜索结果', { search })
+    : who ? t('Games by {who}', '{who} 的游戏', { who })
     : since ? t('New since your last visit', '你上次来访后的新游戏')
-    : tags.length === 1 ? t(`${genreName(tags[0])} games`, `${genreName(tags[0])}游戏`)
+    : tags.length === 1 ? t('{genre} games', '{genre}游戏', { genre: genreName(tags[0]) })
     : priceF === 'free' ? t('Free to play', '免费畅玩') : priceF === 'under5' ? t('Under $5', '5 美元以下') : priceF === 'trial' ? t('Try before you buy', '先试玩再购买')
     : sort === 'new' ? t('New releases', '新品上架') : sort === 'top' ? t('Top rated', '好评榜') : sort === 'playing' ? t('Playing now', '正在热玩') : sort === 'played' ? t('Most played', '最多游玩')
     : t('All games', '全部游戏');

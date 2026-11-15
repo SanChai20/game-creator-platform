@@ -48,7 +48,7 @@ export function Console() {
           <Notice title={t('Publishing needs a creator license', '发布需要创作者许可')}
             actions={<><Button variant="primary" onClick={buyLicense} disabled={busy === 'fee' || (data.fee_cents > 0 && !config.payments)}>{data.fee_cents > 0 ? `${t('Get the license', '获取许可')} · ${usd(data.fee_cents)}` : t('Activate', '激活')}</Button>
               {data.fee_cents > 0 && !config.payments && <span className="dim fs-sm">{t('Payments are not set up on this platform yet.', '平台尚未开通支付。')}</span>}</>}>
-            {t(`Build and preview for free. Pay ${usd(data.fee_cents)} once to publish as many games as you like.`, `创作与预览免费。一次性支付 ${usd(data.fee_cents)}，即可发布任意数量的游戏。`)}
+            {t('Build and preview for free. Pay {fee} once to publish as many games as you like.', '创作与预览免费。一次性支付 {fee}，即可发布任意数量的游戏。', { fee: usd(data.fee_cents) })}
           </Notice>
         )}
 
@@ -64,7 +64,7 @@ export function Console() {
             <Card title={t('Your games', '你的游戏')} aside={t('Created and updated by your agent · web games only', '由你的智能体创建和更新 · 仅支持网页游戏')}>
               {projects.length > 6 && (
                 <div className="list-tools">
-                  <input className="input" type="search" placeholder={t(`Search ${projects.length} games`, `搜索 ${projects.length} 款游戏`)} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Search your games', '搜索你的游戏')} />
+                  <input className="input" type="search" placeholder={t('Search {n} games', '搜索 {n} 款游戏', { n: projects.length })} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Search your games', '搜索你的游戏')} />
                   <Segmented label={t('Status', '状态')} value={st} onChange={setSt} options={[['all', t('All', '全部')], ['live', t('Live', '已上线')], ['draft', t('Draft', '草稿')], ['offline', t('Offline', '已下线')]]} />
                   <select className="input" value={order} onChange={(e) => setOrder(e.target.value)} aria-label={t('Sort', '排序')}><option value="updated">{t('Recently updated', '最近更新')}</option><option value="plays">{t('Most played', '最多游玩')}</option><option value="title">{t('Title A–Z', '标题 A–Z')}</option></select>
                 </div>
@@ -77,7 +77,7 @@ export function Console() {
                   meta={<>{p.live_version ? `${t('live', '线上')} v${p.live_version}` : t('not published', '未发布')}{p.preview_version ? ` · ${t('preview', '预览')} v${p.preview_version}` : ''} · {t('updated', '更新于')} {ago(p.updated_at)}</>}
                   tail={<><span>{price(p.price_cents)}</span><span>{count(p.plays, 'play', 'plays', '次游玩')}</span><Stars rating={p.rating} /></>} />
               )) : null}
-              {pages > 1 && <div className="list-foot"><span className="dim fs-sm">{t(`${(page - 1) * PER + 1}–${Math.min(shown.length, page * PER)} of ${shown.length}`, `第 ${(page - 1) * PER + 1}–${Math.min(shown.length, page * PER)} 款，共 ${shown.length} 款`)}</span><Pager page={page} pages={pages} onPage={setPage} /></div>}
+              {pages > 1 && <div className="list-foot"><span className="dim fs-sm">{t('{from}–{to} of {total}', '第 {from}–{to} 款，共 {total} 款', { from: (page - 1) * PER + 1, to: Math.min(shown.length, page * PER), total: shown.length })}</span><Pager page={page} pages={pages} onPage={setPage} /></div>}
               {!projects.length && (
                 <div className="pad stack"><b>{t('No games yet', '还没有游戏')}</b><p className="mute">{t('Games are made by your agent, not in this console. Connect it, then ask for a game. The platform hosts web games only: games that run in a browser page, not native, mobile, console or desktop builds.', '游戏由你的智能体创作，而不是在控制台里手动创建。先连接智能体，再让它为你做一款游戏。平台仅托管网页游戏，即在浏览器页面中运行的游戏，不接受原生、移动端、主机或桌面端构建。')}</p><Code text={starterPrompt()} /></div>
               )}
