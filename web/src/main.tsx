@@ -1,10 +1,11 @@
-import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
+import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TOKENS_CSS } from './ui/tokens';
 import './ui/ui.css';
 import './styles.css';
 import { api, AppCtx, Link, loginUrl, navigate, setLang, t, useLang, useLocation, type Config, type Me } from './lib';
 import { Button, EmptyState, Spinner } from './ui';
+import { fxPref, GpuLayer, setFxPref } from './ui/fx';
 
 // The design tokens are defined once in ui/tokens.ts and shared with the Worker's server-rendered pages.
 document.head.insertAdjacentHTML('afterbegin', `<style id="tokens">${TOKENS_CSS}</style>`);
@@ -61,6 +62,18 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
   );
 }
 
+/** Each page enters like a new level: the wrapper is keyed on the path, so its entrance animation replays. */
+function RouteFrame({ children }: { children: ReactNode }) {
+  const path = useLocation().split('?')[0];
+  return <div className="route" key={path}>{children}</div>;
+}
+
+/** Turns the GPU layer on or off for this browser. Off leaves the plain CSS look. */
+function FxToggle() {
+  const [on, setOn] = useState(fxPref() === 'on');
+  return <button className="fx-toggle" aria-pressed={on} onClick={() => { const v = on ? 'off' : 'on'; setFxPref(v); setOn(v === 'on'); }}>{t('Effects', '特效')}: {on ? t('on', '开') : t('off', '关')}</button>;
+}
+
 function NotFound() {
   return <div className="wrap page"><EmptyState title={t('Nothing here', '页面不存在')} action={<Button to="/">{t('Back to the games', '返回游戏列表')}</Button>}>{t('That page does not exist, or it was moved.', '该页面不存在或已被移动。')}</EmptyState></div>;
 }
@@ -104,11 +117,12 @@ function App() {
   return (
     <AppCtx.Provider value={{ ...state, refresh, toast }} key={lang}>
       <Nav user={state.user} brand={brand} onLogout={logout} />
-      <main><Routes user={state.user} /></main>
+      <GpuLayer />
+      <main><RouteFrame><Routes user={state.user} /></RouteFrame></main>
       <footer className="foot"><div className="wrap">
         <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
         <span>{state.config.settings.tagline}</span><span className="grow" />
-        <Link to="/">{t('Games', '游戏')}</Link><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a>
+        <Link to="/">{t('Games', '游戏')}</Link><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a><FxToggle />
         <span className="foot-note">© {new Date().getFullYear()} {brand} · {t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</span>
       </div></footer>
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}

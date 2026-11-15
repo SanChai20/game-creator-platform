@@ -31,7 +31,8 @@ export function Home() {
     <>
       {hero ? (
         <div className="wrap bb">
-          <Link to={`/g/${hero.slug}`} className="bb-main" title={hero.title}>
+          <Link to={`/g/${hero.slug}`} className="bb-main" title={hero.title} data-gl-host="">
+            {hero.cover && <span className="gl-slot" data-gl="hero" data-gl-src={hero.cover} aria-hidden="true" />}
             <div className="art" style={hero.cover ? undefined : artStyle(hero.slug)}>{hero.cover && <img src={hero.cover} alt="" />}</div>
             <div className="bb-top"><Badge tone="accent">{hero.featured ? t('Featured', '精选推荐') : t('Trending now', '正在流行')}</Badge>{hero.tags.slice(0, 2).map((x) => <Badge key={x} dot={false}>{x}</Badge>)}</div>
             <div className="bb-body">
