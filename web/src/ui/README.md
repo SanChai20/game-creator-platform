@@ -23,6 +23,14 @@ To let the GPU draw a picture, mark its element with `data-gl="tile" | "hero" | 
 
 Tiers (`fx/gl.ts`): **full** (desktop with a GPU), **lite** (phones and weak devices: background and post only, 30 fps), **still** (reduced motion: one frame), **off** (no WebGL 2, a software renderer, or the footer switch). The pipeline pauses in hidden tabs, lowers its resolution and then its tier when frames run long, and recovers once from a lost context. `localStorage.fx = 'force'` skips the device checks for testing; `__fx.stats` shows fps and CPU time per frame.
 
+## The Vault (`../vault/`)
+
+The home page opens on an exhibition hall: `vault/hall.js` is a three.js scene built with the platform's own materials kit (`public/kits/v1/materials.js`, the one games use), bundled into its own chunk and loaded only after the page has painted. `vault/Vault.tsx` lays the page's text, the exhibit panel and the controls over it as ordinary DOM. Without WebGL 2, with effects off, on weak hardware or with Save-Data, the same exhibit is a framed CSS card; reduced motion gets a still hall. While the hall fills the view it holds the GPU layer (`holdFx`) so the two never compete.
+
+Games are collectibles everywhere: `rarity(g)` in `lib.tsx` (Common, Rare, Epic, Legendary, earned from ratings and plays) gives each card its colour (`--rc`). `GameTile` is the collectible card used in every grid.
+
+Return visits: `lastVisit()`, `recentPlays()` and `rememberPlay()` in `lib.tsx` keep, in this browser only, when it was last here and which games it played, for "new since your last visit" and "Jump back in". Live "playing now" counts come from `/api/games` (`playing`).
+
 ## Tokens
 
 CSS names are the TypeScript keys in kebab case: `color.accentWash` is `var(--accent-wash)`, `space[4]` is `var(--sp-4)`, `size['3xl']` is `var(--fs-3xl)`, `radius.lg` is `var(--r-lg)`. A few composites are added: `--grad-accent`, `--grad-surface`, `--grad-text`.

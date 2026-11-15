@@ -7,7 +7,7 @@ import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../e
 import { enqueue } from '../pipeline';
 import { getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { getSettings, SETTING_DEFS } from '../settings';
-import { gameAnalytics, onlineNow } from '../analytics';
+import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { stripe, stripeReady, verifyWebhook } from '../stripe';
 import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
@@ -24,7 +24,7 @@ function card(origin: string, r: Record<string, any>) {
   return {
     id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: parseJson<string[]>(r.tags, []), cover: media(origin, r.cover_key), price_cents: r.price_cents,
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
-    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation,
+    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
   };
 }
 
@@ -80,8 +80,9 @@ api.get('/games', async (c) => {
   if (price === 'free') where.push('p.price_cents = 0'); else if (price === 'paid') where.push('p.price_cents > 0');
   const order = sort === 'new' ? 'p.published_at DESC' : sort === 'top' ? '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC' : sort === 'played' ? 'p.plays DESC' : 'p.featured DESC, recent DESC, p.plays DESC, p.published_at DESC';
   const rows = await c.env.DB.prepare(
-    `SELECT p.*, u.name AS author, COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?), 0) AS recent
-     FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 60`).bind(addDays(dayOf(now()), -7), ...args).all();
+    `SELECT p.*, u.name AS author, COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?), 0) AS recent,
+       (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl WHERE pl.project_id = p.id AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
+     FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 60`).bind(addDays(dayOf(now()), -7), now() - ONLINE_WINDOW_MS, ...args).all();
   const tags = await c.env.DB.prepare("SELECT tags FROM projects WHERE status = 'live' LIMIT 500").all<{ tags: string }>();
   const counts = new Map<string, number>();
   for (const r of tags.results) for (const t of parseJson<string[]>(r.tags, [])) counts.set(t, (counts.get(t) || 0) + 1);

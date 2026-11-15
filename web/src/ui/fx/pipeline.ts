@@ -10,7 +10,7 @@
 //
 // The DOM stays on top for all text, controls and accessibility. A surface's own <img> is hidden only after its
 // texture is on the GPU, and shown again the moment anything goes wrong, so nothing is ever missing.
-import { fxForced, loop, palette, type FxTier } from './gl';
+import { fxForced, fxHeld, loop, palette, type FxTier } from './gl';
 
 // ---- shaders (GLSL ES 3.00) -------------------------------------------------------------------------------------
 const FULL_VS = `#version 300 es
@@ -148,7 +148,7 @@ export class Pipeline {
   private mouse = { x: -1e4, y: -1e4, nx: .5, ny: .5, sx: .5, sy: .5 };
   private stopLoop = () => {}; private observer?: MutationObserver; private dirty = true;
   private transition = -1; private dpr = 1; private downgrades = 0; private windowStart = 0; private count = 0; private cpu = 0; private lastFrame = 0;
-  private t0 = performance.now() - 40000;
+  private t0 = performance.now() - 40000; private held = fxHeld();
   stats: PipelineStats;
 
   constructor(private canvas: HTMLCanvasElement, private tier: FxTier, private onFail: () => void) {
@@ -172,6 +172,7 @@ export class Pipeline {
     canvas.addEventListener('webglcontextlost', this.lost);
     addEventListener('resize', this.resize);
     if (tier !== 'still') addEventListener('pointermove', this.move, { passive: true });
+    addEventListener('fx:hold', this.hold);
     if (tier === 'full') {
       this.observer = new MutationObserver(() => { this.dirty = true; });
       this.observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-gl', 'data-gl-src', 'src'] });
@@ -182,15 +183,23 @@ export class Pipeline {
 
   /** Starts rendering. The still tier draws a single frame and stops. */
   start() {
+    if (this.held) return;
     if (this.tier === 'still') { this.frame(performance.now()); return; }
     this.stopLoop = loop((now) => this.frame(now), this.tier === 'lite' ? 30 : 60);
   }
+  /** Another GPU scene (the home page's exhibition hall) fills the view: stop drawing behind it until it lets go (holdFx). */
+  private hold = (e: Event) => {
+    const h = !!(e as CustomEvent).detail;
+    if (h === this.held) return;
+    this.held = h;
+    if (h) { this.stopLoop(); this.stopLoop = () => {}; } else this.start();
+  };
   /** A page change: play the level-load transition. */
   pageChange() { if (this.tier !== 'still') this.transition = performance.now(); this.dirty = true; }
 
   dispose() {
     this.stopLoop(); this.observer?.disconnect();
-    removeEventListener('resize', this.resize); removeEventListener('pointermove', this.move);
+    removeEventListener('resize', this.resize); removeEventListener('pointermove', this.move); removeEventListener('fx:hold', this.hold);
     this.canvas.removeEventListener('webglcontextlost', this.lost);
     this.release();
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();

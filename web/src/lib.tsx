@@ -1,6 +1,6 @@
 // Shared plumbing for the web app: language, API client, a tiny router, session state and small components.
-import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
-import { Badge, Button, Notice } from './ui/components';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
+import { Button, Notice } from './ui/components';
 // Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
 export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
 
@@ -102,23 +102,71 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 35 + ((h >> 9) % 90)) % 360, x = 15 + ((h >> 4) % 70), y = 10 + ((h >> 13) % 60);
   return { background: `radial-gradient(90% 80% at ${x}% ${y}%, hsl(${a} 78% 58% / .95), transparent 62%), radial-gradient(70% 70% at ${100 - x}% ${100 - y}%, hsl(${b} 70% 45% / .8), transparent 65%), linear-gradient(135deg, hsl(${b} 40% 18%), hsl(${a} 45% 9%))` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string }
-export function GameTile({ g, to }: { g: GameCard; to?: string }) {
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
+/** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
+  const r = g.rating_count >= 3 ? g.rating ?? 0 : 0;
+  if (g.featured || (r >= 4.8 && g.rating_count >= 100)) return 'legendary';
+  if ((r >= 4.5 && g.rating_count >= 20) || g.plays >= 10000) return 'epic';
+  if (r >= 4 || g.plays >= 500) return 'rare';
+  return 'common';
+}
+export const RARITY: Record<Rarity, { color: string; foil: number; name: () => string }> = {
+  common: { color: '#a9a4b8', foil: 0.1, name: () => t('Common', '普通') },
+  rare: { color: '#3fe0ff', foil: 0.3, name: () => t('Rare', '稀有') },
+  epic: { color: '#8b6bff', foil: 0.6, name: () => t('Epic', '史诗') },
+  legendary: { color: '#ffc845', foil: 1, name: () => t('Legendary', '传说') },
+};
+export const rarityHint = () => t('Rarity is earned from ratings and plays.', '稀有度由评分和游玩次数决定。');
+
+/** A game as a collectible card: rarity edge, a foil sheen that follows the pointer, a slight tilt. */
+export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
+  const rar = rarity(g);
+  const move = (e: RPointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
+    const el = e.currentTarget, r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    el.style.setProperty('--mx', `${(x * 100).toFixed(1)}%`); el.style.setProperty('--my', `${(y * 100).toFixed(1)}%`);
+    el.style.setProperty('--rx', `${((0.5 - y) * 7).toFixed(2)}deg`); el.style.setProperty('--ry', `${((x - 0.5) * 9).toFixed(2)}deg`);
+  };
+  const leave = (e: RPointerEvent<HTMLDivElement>) => { const el = e.currentTarget; el.style.removeProperty('--rx'); el.style.removeProperty('--ry'); };
   return (
-    <Link to={to || `/g/${g.slug}`} className="game">
-      <div className="art" style={g.cover ? undefined : artStyle(g.slug)} data-gl={g.cover ? 'tile' : undefined}>
-        {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <div className="mono-title">{g.title}</div>}
-        {g.featured && <Badge tone="accent" className="feat">{t('Featured', '精选')}</Badge>}
-        <span className="play-hint" aria-hidden="true" />
-        <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
-      </div>
-      <div>
-        <h3 className="clip">{g.title}</h3>
-        <div className="meta"><span className="clip">{g.author}</span><span className="dim">·</span><Stars rating={g.rating} count={g.rating_count} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
+    <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`}>
+      <div className="card-in" onPointerMove={move} onPointerLeave={leave} style={{ '--rc': RARITY[rar].color } as CSSProperties}>
+        <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
+          {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <div className="mono-title">{g.title}</div>}
+          <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+          <span className="play-hint" aria-hidden="true" />
+        </div>
+        <div className="card-body">
+          <div className="card-tag"><span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>{fresh && <span className="new">{t('New', '新上架')}</span>}{!fresh && g.featured && <span className="feat">{t('Featured', '精选')}</span>}{!!g.playing && <span className="live">{num(g.playing)} {t('playing', '人在玩')}</span>}</div>
+          <h3 className="clip">{g.title}</h3>
+          <div className="meta"><span className="clip">{g.author}</span><Stars rating={g.rating} count={g.rating_count} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
+        </div>
+        <span className="foil" aria-hidden="true" />
       </div>
     </Link>
   );
 }
+// ---- return visits (kept in this browser only) ---------------------------------------------------
+export interface RecentPlay { slug: string; title: string; cover: string | null; at: number }
+const RECENT_KEY = 'gcp.recent', VISIT_KEY = 'gcp.visit', PREV_KEY = 'gcp.prevVisit';
+const readJson = <T,>(k: string, d: T, store: Storage | null = null): T => { try { const v = (store || localStorage).getItem(k); return v ? JSON.parse(v) as T : d; } catch { return d; } };
+/** Games this browser played lately, newest first, for "Jump back in". */
+export const recentPlays = (): RecentPlay[] => readJson<RecentPlay[]>(RECENT_KEY, []).filter((r) => r && r.slug);
+export function rememberPlay(g: { slug: string; title: string; cover: string | null }) {
+  const list = [{ slug: g.slug, title: g.title, cover: g.cover, at: Date.now() }, ...recentPlays().filter((r) => r.slug !== g.slug)].slice(0, 8);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* private mode */ }
+}
+/** When this browser was last here before this visit (null on a first visit). Stays the same for the whole session. */
+export function lastVisit(): number | null {
+  let prev: number | null;
+  try { const s = sessionStorage.getItem(PREV_KEY); if (s !== null) return s === '' ? null : Number(s); } catch { /* fine */ }
+  prev = readJson<number | null>(VISIT_KEY, null);
+  try { sessionStorage.setItem(PREV_KEY, prev ? String(prev) : ''); localStorage.setItem(VISIT_KEY, String(Date.now())); } catch { /* private mode */ }
+  return prev;
+}
+
 /** Runs an action, shows a toast on failure, and tells the caller whether it worked. */
 export function useAct() {
   const { toast } = useApp(), [busy, setBusy] = useState('');
