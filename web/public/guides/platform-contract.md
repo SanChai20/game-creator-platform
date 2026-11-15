@@ -35,6 +35,8 @@ GCP.fatal(err);                           // if the game cannot start; shown as 
 
 await GCP.save.set('slot1', { level: 3 });       // per-player cloud save (JSON, 256 KB per key)
 const data = await GCP.save.get('slot1');        // null when nothing is saved
+await GCP.playerStats.add('levels_cleared');     // per-player numbers: add, max, min, set, all
+const rec = await GCP.playRecord();              // sessions, play time, first and last played (recorded by the platform)
 await GCP.leaderboard.submit('time', 42.5, 'asc');
 const rows = await GCP.leaderboard.top('time', 10, 'asc');   // [{ name, score, me }]
 const room = GCP.room('lobby');                  // realtime multiplayer, see the multiplayer guide
@@ -123,7 +125,7 @@ If the game needs WebGPU and has no fallback, the automatic browser check cannot
 ## Serving details that matter
 
 - Paths are case sensitive. `Assets/Hero.png` and `assets/hero.png` are different files.
-- The page is framed by the platform. `localStorage` works but is per origin: preview and live do not share it. Use `GCP.save` for anything a player would miss.
+- The page is framed by the platform. `localStorage` works but is per origin: preview and live do not share it. Use `GCP.save` for anything a player would miss: it is private to the signed-in player and this game, and follows them across devices and versions.
 - Files are cached hard because each version is immutable. A new version gets a new address, so you never fight a stale cache.
 - Fullscreen, gamepad, pointer lock and autoplay-after-gesture are allowed in the frame. Camera, microphone and geolocation are not.
 - Keep the bundle lean. Limits on file count and size are shown by `get_started` under `account.limits`.

@@ -4,7 +4,7 @@ import { TOKENS_CSS } from './ui/tokens';
 import './ui/ui.css';
 import './styles.css';
 import './store.css';
-import { api, AppCtx, LANGS, langReady, Link, loginUrl, navigate, setLang, t, useLang, useLocation, type Config, type Lang, type Me } from './lib';
+import { api, AppCtx, LANGS, langReady, Link, loginUrl, navigate, setLang, setTrialRules, t, useLang, useLocation, type Config, type Lang, type Me } from './lib';
 import { Button, EmptyState, Spinner } from './ui';
 import { fxPref, GpuLayer, setFxPref } from './ui/fx';
 
@@ -144,7 +144,7 @@ function App() {
   const [toastMsg, setToast] = useState<{ msg: string; bad: boolean } | null>(null), timer = useRef(0);
   const refresh = useCallback(async () => {
     const [cfg, me] = await Promise.all([api<Config>('/config'), api<{ user: Me | null }>('/me')]);
-    setState({ user: me.user, config: cfg });
+    setTrialRules(cfg.settings); setState({ user: me.user, config: cfg });
   }, []);
   useEffect(() => { refresh().catch(() => setFailed(true)); }, [refresh]);
   const toast = useCallback((msg: string, bad = false) => { setToast({ msg, bad }); clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), bad ? 5200 : 2600); }, []);

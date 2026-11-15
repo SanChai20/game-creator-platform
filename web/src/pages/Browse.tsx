@@ -51,7 +51,7 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
 
   const total = res?.total ?? 0, pages = Math.max(1, Math.ceil(total / PAGE)), from = total ? (page - 1) * PAGE + 1 : 0, to = Math.min(total, page * PAGE);
   const sorts: [string, string][] = [['trending', t('Trending', '热门')], ['new', t('Newest', '最新')], ['top', t('Top rated', '好评')], ['playing', t('Playing now', '在玩')], ['played', t('Most played', '最多游玩')]];
-  const prices: [string, string][] = [['', t('Any price', '任意价格')], ['free', t('Free', '免费')], ['under5', t('Under $5', '5 美元以下')], ['paid', t('Paid', '付费')]];
+  const prices: [string, string][] = [['', t('Any price', '任意价格')], ['free', t('Free', '免费')], ['under5', t('Under $5', '5 美元以下')], ['paid', t('Paid', '付费')], ['trial', t('Free trial', '可免费试玩')]];
   const ratings: [string, string][] = [['', t('Any rating', '任意评分')], ['3', '★ 3+'], ['4', '★ 4+'], ['4.5', '★ 4.5+']];
   const [gq, setGq] = useState(''), [moreG, setMoreG] = useState(false);
   const glist = useMemo(() => genres.filter((g) => g.tag !== pinned && (!gq || g.tag.includes(gq.toLowerCase()))), [genres, gq, pinned]);
@@ -138,7 +138,7 @@ export function Browse() {
     : who ? t('Games by {who}', '{who} 的游戏', { who })
     : since ? t('New since your last visit', '你上次来访后的新游戏')
     : tags.length === 1 ? t('{genre} games', '{genre}游戏', { genre: genreName(tags[0]) })
-    : priceF === 'free' ? t('Free to play', '免费畅玩') : priceF === 'under5' ? t('Under $5', '5 美元以下')
+    : priceF === 'free' ? t('Free to play', '免费畅玩') : priceF === 'under5' ? t('Under $5', '5 美元以下') : priceF === 'trial' ? t('Try before you buy', '先试玩再购买')
     : sort === 'new' ? t('New releases', '新品上架') : sort === 'top' ? t('Top rated', '好评榜') : sort === 'playing' ? t('Playing now', '正在热玩') : sort === 'played' ? t('Most played', '最多游玩')
     : t('All games', '全部游戏');
   return (
