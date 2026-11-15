@@ -18,6 +18,7 @@ import { Analytics } from './pages/Analytics';
 import { Earnings } from './pages/Earnings';
 import { Admin } from './pages/Admin';
 import { Device } from './pages/Device';
+import { Docs } from './pages/Docs';
 
 function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogout: () => void }) {
   const loc = useLocation(), lang = useLang(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
@@ -31,6 +32,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
         <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
         <Link to="/" className={on('/')}>{t('Games', '游戏')}</Link>
         <Link to="/create" className={on('/create') + (user ? '' : ' hide-xs')}>{t('For creators', '创作者')}</Link>
+        <Link to="/docs" className={on('/docs') + ' hide-s'}>{t('Docs', '文档')}</Link>
         {user && <Link to="/console" className={on('/console') + ' hide-s'}>{t('Console', '控制台')}</Link>}
         {user?.role === 'admin' && <Link to="/admin" className={on('/admin') + ' hide-s'}>{t('Admin', '管理')}</Link>}
         <span className="grow" />
@@ -73,6 +75,7 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} />;
   if (path === '/create') return <Creators />;
+  if (path === '/docs') return <Docs />;
   if (path === '/console') return <Console />;
   if (path === '/console/earnings') return <Earnings />;
   if ((m = path.match(/^\/console\/(?:p|projects)\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
@@ -105,7 +108,7 @@ function App() {
       <footer className="foot"><div className="wrap">
         <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
         <span>{state.config.settings.tagline}</span><span className="grow" />
-        <Link to="/">{t('Games', '游戏')}</Link><Link to="/create">{t('Make a game', '创作游戏')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a>
+        <Link to="/">{t('Games', '游戏')}</Link><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a>
         <span className="foot-note">© {new Date().getFullYear()} {brand} · {t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</span>
       </div></footer>
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
