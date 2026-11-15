@@ -439,9 +439,14 @@ async function main() {
   const nv = await waitV(ctool, ng.project, await ctool('deploy_preview', { project: ng.project, note: 'not a game' }));
   const ig = nv.report.checks.find((c) => c.id === 'is_game');
   assert.ok(nv.status === 'failed' && ig && !ig.ok && nv.report.checks.find((c) => c.id === 'original').ok, JSON.stringify(nv.report.checks || nv.report).slice(0, 1500));
+  // the same platform template published by two creators is not a copy: template and kit code is left out
+  const tp = await ctool('create_project', { title: `My explorer ${run}` });
+  await ctool('upload_files', { project: tp.project, files: tplIndex.templates.find((x) => x.name === 'three-explorer').files.map((f) => ({ path: f.path, content: readFileSync(new URL(`three-explorer/${f.path}`, tplDir), 'utf8') })) });
+  const tv = await waitV(ctool, tp.project, await ctool('deploy_preview', { project: tp.project, note: 'from the template' }));
+  assert.ok(tv.status === 'verified' && tv.report.checks.find((c) => c.id === 'original').ok, JSON.stringify(tv.report.checks || tv.report).slice(0, 1500));
   const flagged = must(await ADM.get('/api/admin/overview')).flags;
   assert.ok(flagged.some((f) => f.kind === 'copy_flagged' && f.id === cp.project) && flagged.some((f) => f.kind === 'not_game_flagged' && f.id === ng.project), JSON.stringify(flagged).slice(0, 600));
-  ok(`duplication check: an original game passes; a renamed copy by another creator fails "${orc.label}" (${cv.report.originality.matches[0].code}% of its code) and cannot be published; a page that is not a game fails "${ig.label}"; both show up for the admin`);
+  ok(`duplication check: an original game passes and so does another creator's game built on the same template as a live one; a renamed copy by another creator fails "${orc.label}" (${cv.report.originality.matches[0].code}% of its code) and cannot be published; a page that is not a game fails "${ig.label}"; both show up for the admin`);
   const fresh = await agent('/oauth/token', { grant_type: 'refresh_token', refresh_token: dtok.json.refresh_token, client_id: dtok.json.client_id });
   assert.equal(fresh.status, 200, JSON.stringify(fresh.json)); assert.ok(fresh.json.access_token && fresh.json.access_token !== dtok.json.access_token);
   const cAgents = must(await C.get('/api/console/agents')).agents;
