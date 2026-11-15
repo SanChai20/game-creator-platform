@@ -240,7 +240,7 @@ await check('publish: the verified version goes live', async () => {
 });
 
 // ---- 9. broken version: failed deploys cannot be published, and publish without a version picks the newest verified one
-let badV1 = null, badV2 = null;
+let badV1 = null, badV2 = null, badLive = false; // badLive: the broken-test project's first good version went live
 await check('deploy_preview + publish on a second project: a good version', async () => {
   await ok('upload_files', { project: BAD.project, files: blankFiles });
   badV1 = await deployAndWait(BAD.project);
@@ -250,6 +250,7 @@ await check('publish: the first good version of the broken-test project goes liv
   const r = await mcp('publish', { project: BAD.project, version: badV1.version });
   if (r.isError && /creator license/i.test(r.text)) return SKIP;
   assert.ok(!r.rpcError && !r.isError, r.text);
+  badLive = true;
 });
 await check('deploy_preview: a broken build fails verification', async () => {
   await ok('upload_files', { project: BAD.project, files: [{ path: 'index.html', content: '<!doctype html><title>broken</title><script>throw new Error("mcp-live boom")</script>' }] });
@@ -278,7 +279,7 @@ await check('rollback: an earlier verified version is made live again', async ()
 
 // ---- 11. unpublish
 await check('unpublish: takes the game offline and list_projects stops showing it as live', async () => {
-  if (!badV1) return SKIP;
+  if (!badLive) return SKIP; // nothing went live, so there is nothing to take offline
   await ok('unpublish', { project: BAD.project });
   const d = await ok('list_projects', { project: BAD.project });
   assert.equal(d.status, 'offline');
