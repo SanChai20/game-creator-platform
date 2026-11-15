@@ -32,7 +32,7 @@ h2 > .live-dot { width: 9px; height: 9px; margin-right: 10px; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
 
 /* Page titles in the brand face; everything below them in the display face, so the wide letters stay special. */
-.page-h h1, .browse-h h1, .store-intro h1, .gp-head h1, .cat-hero h1, .auth h1, .lead h1 { font-family: var(--font-brand); font-weight: 750; letter-spacing: -.035em; }
+.page-h h1, .browse-h h1, .store-intro h1, .gp-head h1, .cat-hero h1, .auth h1, .lead h1 { font-family: var(--font-brand); font-weight: 800; letter-spacing: -.015em; }
 .sh h2, .q-info h2, .feat-info h3, .docs-body h2, .az-h { font-family: var(--font-display); font-weight: 700; letter-spacing: -.03em; }
 
 /* Section heads: a quiet running number, the title, a short note, and the way to see more. No rules, no chips. */
