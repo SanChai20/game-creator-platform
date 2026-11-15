@@ -1,9 +1,9 @@
 // Smoke test for a deployed platform: signs up a throwaway creator, connects over OAuth like an agent would,
 // builds each starter template through MCP, deploys the previews as real Workers and waits for browser verification.
-//   BASE=https://<site> node tests/live-smoke.mjs [template | "plan:<description>" ...]
+//   BASE=https://<site> node tests/live-smoke.mjs [template ...]
 // It never touches the admin claim. State is written to SMOKE_STATE (default ./smoke-state.json) for clean-up.
 import { createHash, randomBytes } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
 const BASE = process.env.BASE; if (!BASE) throw new Error('Set BASE to the site origin.');
@@ -43,17 +43,17 @@ const tool = async (name, args = {}) => {
 const state = { base: BASE, email, password, token: tok.access_token, projects: {} };
 const save = () => writeFileSync(process.env.SMOKE_STATE || 'smoke-state.json', JSON.stringify(state, null, 1));
 let failed = 0;
+const tplDir = new URL('../web/public/templates/', import.meta.url), tplIndex = JSON.parse(readFileSync(new URL('index.json', tplDir), 'utf8'));
 for (const t of templates) {
-  // "plan:<description>" builds what design_scene returns for that description instead of a template
-  const planned = t.startsWith('plan:') ? await tool('design_scene', { description: t.slice(5), seed: run }) : null;
-  const p = await tool('create_project', planned ? { title: `${planned.plan.title} ${run}`, tagline: 'Smoke test', tags: ['test'] } : { title: `${t} ${run}`, template: t, tagline: 'Smoke test', tags: ['test'] });
+  // each template is uploaded the way an agent uploads its own files
+  const p = await tool('create_project', { title: `${t} ${run}`, tagline: 'Smoke test', tags: ['test'] });
   state.projects[t] = p.project; save();
-  if (planned) await tool('put_files', { project: p.project, files: Object.entries(planned.files).map(([path, content]) => ({ path, content })) });
-  const c = await tool('check_project', { project: p.project }); assert.equal(c.ok, true, c.errors.join('\n'));
+  await tool('upload_files', { project: p.project, files: tplIndex.templates.find((x) => x.name === t).files.map((f) => ({ path: f.path, content: readFileSync(new URL(`${t}/${f.path}`, tplDir), 'utf8') })) });
+  const c = await tool('deploy_preview', { project: p.project, dry_run: true }); assert.equal(c.ok, true, c.errors.join('\n'));
   const t0 = Date.now(); let d = await tool('deploy_preview', { project: p.project, note: 'smoke' });
-  for (let i = 0; i < 90 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(3000); d = await tool('get_version', { project: p.project, version: d.version }); }
+  for (let i = 0; i < 90 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(3000); d = await tool('list_versions', { project: p.project, version: d.version }); }
   const secs = Math.round((Date.now() - t0) / 1000);
-  if (d.status === 'verified') console.log(`  ✓ ${t}: verified in ${secs}s (${d.report.metrics.loadMs} ms load, ${d.report.metrics.fps} fps, ${d.report.metrics.colors} colours, ${d.report.playthrough ? `play-through ${d.report.playthrough.steps.length} steps in ${d.report.playthrough.ms} ms` : "no play-through"}${d.quality ? `, craft ${d.quality.craft_score}/100 ${d.quality.level}` : ''})  ${d.screenshot}`);
+  if (d.status === 'verified') console.log(`  ✓ ${t}: verified in ${secs}s (${d.report.metrics.loadMs} ms load, ${d.report.metrics.fps} fps, ${d.report.metrics.colors} colours, ${d.report.playthrough ? `play-through ${d.report.playthrough.steps.length} steps in ${d.report.playthrough.ms} ms` : "no play-through"})  ${d.screenshot}`);
   else { failed++; console.log(`  ✗ ${t}: ${d.status} after ${secs}s\n${JSON.stringify(d.report || d, null, 1).slice(0, 2500)}`); }
 }
 save();

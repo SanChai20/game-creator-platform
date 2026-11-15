@@ -1,20 +1,19 @@
-// The tools an external agent uses to build, check, deploy, verify, publish and manage games.
-// Descriptions are written for agents of ordinary ability: each says when to call it and what comes next.
+// The tools an external agent uses to deploy, verify, publish and manage web games, and to use the platform's services.
+// The platform hosts games; it does not tell agents how to make them. Engines, renderers, art and asset
+// pipelines are the agent's business. Descriptions say when to call a tool and what comes next.
 import { unzipSync } from 'fflate';
 import { AppError, bad, forbidden, type Env, type User } from '../env';
-import { gameUrl } from '../deploy';
 import { balanceOf, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import {
-  applyTemplate, assetJson, assetText, checkProject, createProject, defaultImports, deleteFile, getVersion, listFiles, logEvent, ownedProject, publicVersion,
+  assetText, checkProject, createProject, defaultImports, deleteFile, getVersion, listFiles, logEvent, ownedProject, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
 } from '../projects';
 import { takeOffline } from '../routes/api';
-import { designSceneTool, getBlock, listBlocks, ownWork } from './blocks';
-import { DESIGN_GOALS, DESIGN_SETTINGS } from '../design-scene.js';
+import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
 import { THREE_VERSION } from '../generated/runtime-source';
-import { addDays, cleanPath, dayOf, extOf, isText, now, parseJson, sha256, token as randomToken, unb64, usd } from '../util';
+import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
 
 export interface ToolCtx { env: Env; user: User; origin: string; client: string }
 interface Tool {
@@ -23,20 +22,36 @@ interface Tool {
   run: (a: Record<string, any>, c: ToolCtx) => Promise<unknown>;
 }
 
+export { WEB_ONLY } from '../web-only.js';
+import { WEB_ONLY } from '../web-only.js';
+export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
+
+/** The platform guides an agent can read: how the platform behaves, not how to make a game. */
+export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summary: string }[] = [
+  { topic: 'contract', file: 'platform-contract', title: 'The platform contract', summary: 'The hard rules, what the platform injects into the page, the SDK, exactly what verification checks, and the optional play-through hook. Read before the first deploy.' },
+  { topic: 'versions', file: 'troubleshooting', title: 'Versions and failed verification', summary: 'How previews, versions, publishing and rollback relate, each verification check, why it usually fails, and the fix.' },
+  { topic: 'saves', file: 'saves', title: 'Saves, leaderboards and server code', summary: 'Cloud saves per player, shared game data, leaderboards, and optional server code that runs in the game\'s own Worker.' },
+  { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
+];
+export async function guideText(env: Env, origin: string, topic: string) {
+  const t = String(topic || '').toLowerCase().trim();
+  const g = PLATFORM_GUIDES.find((x) => x.topic === t || x.file === t);
+  const text = g && await assetText(env, `/guides/${g.file}.md`);
+  return text ? { guide: g!, markdown: text.replaceAll('{{ORIGIN}}', origin).replaceAll('{{THREE}}', THREE_VERSION) } : null;
+}
+
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
 const PROJECT = { type: 'string', description: 'Project id or slug (from list_projects or create_project).' };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const issueLine = (i: Issue) => `${i.level.toUpperCase()}${i.file ? ` ${i.file}${i.line ? `:${i.line}` : ''}` : ''}: ${i.message}${i.frame ? `\n${i.frame}` : ''}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
-
-async function guideIndex(env: Env) { return assetJson<{ guides: { topic: string; title: string; summary: string }[] }>(env, '/guides/index.json'); }
-async function kitIndex(env: Env) { return assetJson<{ three: string; kits: { name: string; file: string; summary: string; exports: string[] }[] }>(env, '/kits/index.json'); }
+const RUNNING = ['queued', 'deploying', 'verifying'];
 
 async function account(c: ToolCtx) {
   const s = await getSettings(c.env), u = c.user, bal = await balanceOf(c.env, u.id);
   return {
     name: u.name, creator_license: !!u.creator,
     can_publish: !!u.creator || !s.creator_fee_required,
-    license: u.creator ? 'active' : `Not purchased. Publishing needs a one-time ${usd(s.creator_fee_cents)} creator license (unlimited games). Building, previewing and verifying are free. The account owner buys it at ${c.origin}/console`,
+    license: u.creator ? 'active' : `Not purchased. Publishing needs a one-time ${usd(s.creator_fee_cents)} creator license (unlimited games). Uploading, previewing and verifying are free. The account owner buys it at ${c.origin}/console`,
     console_url: `${c.origin}/console`,
     earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
     paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents } : 'disabled',
@@ -47,251 +62,80 @@ async function account(c: ToolCtx) {
 async function waitVersion(c: ToolCtx, pid: string, n: number, ms: number) {
   const end = Date.now() + ms;
   let v = await getVersion(c.env, pid, n);
-  while (v && (v.status === 'queued' || v.status === 'deploying' || v.status === 'verifying') && Date.now() < end) { await sleep(2000); v = await getVersion(c.env, pid, n); }
+  while (v && RUNNING.includes(v.status) && Date.now() < end) { await sleep(2000); v = await getVersion(c.env, pid, n); }
   return v!;
 }
 
-async function versionReport(c: ToolCtx, p: { id: string; slug: string; preview_version: number | null }, n: number, v: Awaited<ReturnType<typeof getVersion>>) {
+async function versionReport(c: ToolCtx, p: { id: string; slug: string }, n: number, v: Awaited<ReturnType<typeof getVersion>>) {
   const s = await getSettings(c.env);
   if (!v) throw bad(`Version ${n} does not exist. Call list_versions.`);
   const pub = publicVersion(v, c.origin), el = versionEligible(v, s.verify_browser_required);
-  const running = ['queued', 'deploying', 'verifying'].includes(v.status);
-  const craft = (pub.report as any)?.craft as { score: number; level: string; summary: string; next: string[] } | undefined, target = s.craft_target;
-  const own = craft && !running ? await ownWork(c.env, p.id, n) : null, asPlanned = !!own?.still_the_plan;
-  // an untouched starter measures the building blocks, not a game: its own-work score is capped below the target
-  const STARTER_CAP = Math.max(0, target - 15), counted = craft ? (asPlanned ? Math.min(craft.score, STARTER_CAP) : craft.score) : 0;
-  const below = !!craft && counted < target;
-  // the same measurements on the version before, so nobody reads an unchanged score as progress
-  let since: Record<string, unknown> | null = null;
-  if (craft && !running) {
-    const prev = await c.env.DB.prepare("SELECT n, report FROM versions WHERE project_id = ? AND n < ? AND status = 'verified' ORDER BY n DESC LIMIT 1").bind(p.id, n).first<{ n: number; report: string | null }>();
-    let was: any = null; try { was = prev?.report ? JSON.parse(prev.report).craft : null; } catch { /* an unreadable old report is no comparison */ }
-    if (prev && was && Array.isArray(was.dimensions)) {
-      const moved = ((craft as any).dimensions || []).flatMap((d: any) => { const o = was.dimensions.find((x: any) => x.id === d.id); return o && o.score !== d.score ? [`${d.label}: ${o.score} to ${d.score} of ${d.max}`] : []; });
-      const change = craft.score - was.score;
-      since = {
-        version: prev.n, craft_score: was.score, change, moved,
-        summary: moved.length ? `${change > 0 ? `Up ${change}` : change < 0 ? `Down ${-change}` : 'Same total'} against version ${prev.n}: ${moved.join('; ')}.`
-          : `Nothing the score measures moved since version ${prev.n}. That is expected after changes to rules, numbers or text. If you added things to raise the score, they are not on screen in the portrait (the opening view, drawn at full quality): place them near the start, in front of the camera.`,
-      };
-    }
-  }
-  const publish = `publish {project, version: ${n}}`;
-  // an untouched starting point: say first, and in order, what to change (a template names exact edit_file calls)
-  const todo = ((own as any)?.ideas || []) as Array<string | { step: number; file?: string; what: string; edit_file?: unknown[] }>, exact = todo.filter((t) => typeof t !== 'string' && t.edit_file) as Array<{ step: number; file: string; what: string }>;
-  const editsLine = exact.length ? `Do these ${exact.length} edits now, in this order; quality.own_work.ideas holds the exact edit_file arguments (path, old_string, new_string) for each: ${exact.map((e) => `${e.step}. ${e.file}: ${e.what.split(/[.:] /)[0]}`).join('; ')}. After them, go on with the remaining lines of quality.own_work.ideas.` : 'Work through quality.own_work.ideas from the first: change the rules, the world and the feel.';
-  const failed = (((pub.report as any)?.checks || []) as Array<{ id?: string; name?: string; ok: boolean }>).filter((x) => !x.ok).map((x) => String(x.id || x.name || 'check'));
+  // the verifier also measures how finished a game looks; that is the console's business, not a rule agents build to
+  if (pub.report && typeof pub.report === 'object') delete (pub.report as Record<string, unknown>).craft;
+  const running = RUNNING.includes(v.status);
   return {
-    ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}), so there is no report yet. This is normal: the check takes one to two minutes. Call get_version {project, version: ${n}}; it waits for the result. Do not call deploy_preview again for the same files.` } : {}),
+    ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}). This is normal: it takes one to two minutes. Call list_versions {project, version: ${n}}; it waits for the result. Do not deploy the same files again.` } : {}),
     ...pub, can_publish: el.ok, eligibility: el.reason,
-    ...(craft ? { quality: {
-      craft_score: counted, ...(asPlanned ? { measured_score: craft.score, starter: `This is still the design_scene starting point (quality.own_work), so the craft score counts as ${counted} at most, below the target of ${target}, whatever the blocks measure (${craft.score}). It counts in full once the game is your own: change the rules, the world and the feel.` } : {}),
-      look_score: (craft as any).look ?? null, level: craft.level, target, meets_target: !below, summary: asPlanned ? `The untouched starting point: the blocks measure ${craft.score}, which says nothing about the game yet. ${craft.summary}` : craft.summary,
-      improve: craft.next,
-      ...(since ? { since_previous: since } : {}),
-      ...(own ? { own_work: own } : {}),
-      note: `The score is measured from the running game (pictures, draw calls, sound, interface, the play-through), not judged by taste, so changing rules, numbers or text does not move it. look_score is the picture alone out of 100 (surfaces, light, world, motion): finished reference games measure 80 to 95 there. The picture is the portrait: the opening view drawn once more at full quality, as a device with a graphics card draws it (the screenshot of the version); scenery that is not on screen there is not counted. Each line under improve names the measurement that is short, the value that earns full marks and the building block that moves it; get_block {name} shows its options. ${below ? 'Start with the first line.' : 'The target is met, so these are optional.'} Publishing never depends on the score.`,
-    } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
-    next: running ? `Still ${v.status} (${v.stage}). Call get_version {project, version: ${n}} now; it waits up to 40 seconds for the report.`
-      : asPlanned ? `${el.ok ? 'Verified, but this' : 'This'} is still the ${(own as any)?.template ? `${(own as any).template} template` : 'design_scene starting point'} almost line for line (quality.own_work: ${own!.unchanged} of ${own!.planned_lines} lines unchanged), so its craft score counts as ${counted}/100 and stays there, below the target of ${target}, until the files are changed. Changing them is the expected next step, not an option. ${editsLine} Then check_project and deploy_preview again.${el.ok ? '' : ` Also fix the failed check${failed.length > 1 ? 's' : ''} (${failed.join(', ')}): each has a hint below.`}`
-        : !el.ok ? 'Fix every failed check below (each has a hint), upload the changed files, run check_project, then deploy_preview again.'
-          : below ? `Verified, so it can be published, but the craft score is ${craft!.score}/100 and the target is ${target}. Apply the fixes under quality.improve (start with the first), then deploy_preview again and compare the score.`
-            : `Verified${craft ? ` with a craft score of ${craft.score}/100 (target ${target})` : ''}. This version can go live: ${publish}. The preview page lets a person play it first; keep editing and call deploy_preview again if there is more to do.`,
+    next: running ? `Still ${v.status} (${v.stage}). Call list_versions {project, version: ${n}}; it waits up to 40 seconds for the report.`
+      : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
+        : `Verified. A person can play it on the preview page first. To make it live: publish {project, version: ${n}}.`,
   };
 }
 
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
-    description: 'Call this first. Returns the workflow, the three hard rules every game must follow, how quality is measured, the account status, and which building blocks, guides, kits and templates exist. Call it again whenever you are unsure what to do next.',
-    inputSchema: obj({}), annotations: { readOnlyHint: true },
-    run: async (_a, c) => {
+    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms). Pass topic to read one platform guide in full: "contract", "versions", "saves" or "multiplayer". It does not tell you how to make your game; that is up to you.`,
+    inputSchema: obj({ topic: { type: 'string', enum: PLATFORM_GUIDES.map((g) => g.topic), description: 'Optional. Returns that platform guide as Markdown instead of the overview.' } }), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      if (a.topic) {
+        const g = await guideText(c.env, c.origin, a.topic);
+        if (!g) throw bad(`No guide "${a.topic}".`, `Topics: ${PLATFORM_GUIDES.map((x) => x.topic).join(', ')}`);
+        return { topic: g.guide.topic, title: g.guide.title, markdown: g.markdown };
+      }
       const s = await getSettings(c.env);
       return {
         platform: s.brand_name,
-        account: await account(c),
-        workflow: [
-          '1. Plan. For a 3D world call design_scene with one sentence about the game: it picks building blocks for the stage, ground, scenery, landmarks, hero, creatures, sound and interface, and returns a complete starting game made of them. For anything else call recommend_pipeline.',
-          '2. create_project, then write files: put_files for small text files, edit_file for changes, create_upload_url + curl for big or binary files or a whole folder.',
-          '3. Build the game. list_blocks shows every block (one call each: a textured material, a tree, a house, an animated character, a HUD, sound); get_block {name} shows its options and valid names. For depth beyond one rule, group "play" has an inventory with a hotbar, crafting, needs, a day clock, harvesting, building, quests and cloud saves with their panels, and input.bind names actions once for keyboard, mouse, touch and gamepad (design_scene with goal "homestead" wires them all up). Blocks are optional and mix with your own code.',
-          '4. check_project: static checks (syntax, imports, missing files, the contract). Fix everything it reports.',
-          '5. deploy_preview: freezes a version, deploys it as its own Cloudflare Worker, runs it in a real browser, and returns a verification report with a craft score out of 100. Register GCP.test.onPlaythrough (platform-contract guide) so the browser also plays your rules to the end.',
-          `6. Repeat 3 to 5 until the version is verified, the craft score is ${s.craft_target} or more and the game is your own design. The report lists what to improve and which block does it (quality.improve) and, for a game that began as a design_scene plan, how much of it is still the plan (quality.own_work). A person can play every preview from the console.`,
-          '7. publish: makes that verified version live in the marketplace. Later: list_versions, rollback, unpublish, get_stats.',
-        ],
+        web_games_only: WEB_ONLY,
+        what_this_server_does: 'It hosts web games. It takes the files of your game, deploys each version to its own address, checks it in a real browser, publishes it to the marketplace, keeps every version for rollback, and provides player saves, leaderboards and realtime multiplayer rooms. How you make the game (engine or none, renderer, art, hand-made or generated assets, any build tooling on your side) is your choice: the platform neither prescribes nor scores it.',
         rules: [
-          'The game is a web page: index.html at the bundle root, plus any files it loads with relative paths. No build step is required.',
-          'Call GCP.ready() once, right after the first playable frame is drawn. `GCP` is injected by the platform; never bundle or import it. (stage.run() from the craft blocks calls it for you.)',
-          'It must run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
+          'A web page: index.html at the bundle root, plus the files it loads with relative paths. There is no build step on the platform: upload what the browser runs.',
+          'Call GCP.ready() once, right after the first playable frame is drawn. GCP is injected by the platform; never bundle or import it.',
+          'Run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
         ],
-        quality: {
-          how_it_is_measured: 'After a version verifies, the browser loads the game once more at full quality (GCP.portrait is true: draw as on a device with a graphics card) and takes its portrait, which becomes the screenshot. Seven things are then measured: surface detail and crispness, light and colour (tonal range, brightness, lighting and effect passes), how furnished the world is (shapes, triangles, materials), ambient motion, sound, interface and input, and a passing play-through. The result is quality.craft_score out of 100, and quality.look_score for the picture alone.',
-          reference: 'The measures are calibrated on finished games. A hand-made open-world survival game with a deferred renderer (ambient occlusion, bloom, cascaded shadows, 350k triangles a frame) measures look 93. A scene of bare primitives measures under 35.',
-          target: `${s.craft_target} or more for a game you would call finished. Publishing never depends on the score; it tells you what a player would notice is missing.`,
-          why_blocks: 'A bare primitive with a flat colour, a silent scene and no interface is what scores low. Every block exists to remove one of those in one call, with nothing to download: surface(kind) paints a material, tree(), rock(), prop(kind), humanoid() and animal() build detailed models from parts, createStage() lights the scene, createHud() and createSound() give interface and sound.',
+        engines: ENGINE_EXPORTS,
+        workflow: [
+          '1. create_project, once per game.',
+          '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl.',
+          '3. deploy_preview: static checks, then a new numbered version deployed to its own preview address and checked in a real browser. With dry_run: true it runs only the static checks.',
+          '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
+          '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover; game_data and game_room manage the game\'s data and multiplayer rooms.',
+        ],
+        services: {
+          sdk: 'window.GCP, injected into every page. GCP.ready(), GCP.progress(f, label), GCP.fatal(err), GCP.player, GCP.env, GCP.fullscreen().',
+          saves: 'GCP.save.get/set/remove per player, GCP.shared.get for data every player sees, stored in the platform database. game_data reads and seeds shared data, counts saves and manages leaderboards. get_started {topic: "saves"}.',
+          leaderboards: 'GCP.leaderboard.submit(board, score, order) and GCP.leaderboard.top(board, n, order). game_data {action: "leaderboard"} reads or clears one.',
+          multiplayer: 'GCP.room(code): a realtime room per code on the platform\'s multiplayer servers, with a host and host migration. game_room inspects or resets one. get_started {topic: "multiplayer"}.',
+          server_code: s.allow_server_code ? 'Optional server/index.js runs in the game\'s own Worker and is reached with GCP.server. get_started {topic: "saves"}.' : 'Disabled on this platform.',
+          verification_hooks: 'GCP.test.onPlaythrough(fn) lets the verifier play your rules to the end; GCP.test.onTwoPlayers(fn) checks a two-player session. Both optional. get_started {topic: "contract"}.',
         },
+        account: await account(c),
         session: `The access token lasts ${Math.round(Math.max(60, s.oauth_access_ttl_s) / 60)} minutes. When a call answers 401, do not sign in again: POST ${c.origin}/oauth/token with grant_type=refresh_token, refresh_token and client_id, keep the new access_token and refresh_token from the answer, and repeat the call. The whole authorization ends after ${Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400))} days or when the user revokes it. Projects, files and versions stay as they are across all of that.`,
-        freedom: 'Everything else is yours: genre, art direction, camera, rendering technique, engine or no engine. Blocks, guides and kits are help, not a house style: a game made entirely of your own code is just as welcome and is measured the same way.',
-        imports_available_by_default: defaultImports(c.origin),
-        building_blocks: {
-          import: "import { createStage, terrain, tree, scatter, prop, place, humanoid, control, createHud, createSound } from '@gcp/craft.js'",
-          tools: ['design_scene: a description in, a block plan and a complete starting game out', 'list_blocks: every block with a one-line summary, and every valid name (moods, surfaces, trees, props, characters, animals, sounds)', 'get_block {name}: full options of one block'],
-          realistic: "For a realistic (PBR) look instead of the painted low-poly one, @gcp/materials.js: material('steel_rusty') or material({ base: 'metal', paint: '#b8322a', chips: 0.5, rust: 0.3 }) paints textures on the GPU at load; model('crate'), model('container'), model('cabin') … are ready props for place(); parts() builds your own models from bevelled boxes, cylinders, tubes and labels in metres. list_blocks shows the names; the realistic-materials guide has a complete scene.",
-          procedural_core: "@gcp/procgen.js is the layer underneath for making your own assets: seeded random numbers and noise that match between JavaScript and shaders, a mesh builder, a texture painter and recipes (seed + parameters as data). See the procedural-generation guide.",
-          preview: `${c.origin}/lab shows every block live.`,
-        },
-        guides: (await guideIndex(c.env)).guides.map((g) => `${g.topic}: ${g.summary}`),
-        kits: (await kitIndex(c.env)).kits.map((k) => `@gcp/${k.file}: ${k.summary}`),
-        templates: (await assetJson<{ templates: { name: string; summary: string }[] }>(c.env, '/templates/index.json')).templates.map((t) => `${t.name}: ${t.summary}`),
-        what_to_read: {
-          always: ['platform-contract (10 minutes, before writing any code: the rules, the SDK, what verification checks, the play-through hook)'],
-          '3d_game_with_three_js': ['building-blocks (how the blocks fit together, with a complete small game)', 'performance (read "The verification browser" before building the scene: it has no GPU)', 'rendering-pipelines when you set up your own renderer instead of createStage', 'procedural-generation, meshes and materials-textures when you make your own models and surfaces', 'realistic-materials when the game should look realistic rather than low-poly (PBR materials and models made in code)', 'animation when things move'],
-          '2d_game': ['rendering-pipelines (the canvas section)', 'input', 'performance (the 2D section)', 'loading', 'building-blocks (the parts that work in 2D: HUD, sound, noise, painted textures)'],
-          when_needed: ['saves: cloud saves, leaderboards, server code', 'multiplayer: rooms', 'audio: sound without files', 'troubleshooting: as soon as deploy_preview comes back not verified'],
-          note: 'Guides are short and contain working code. Reading the ones on this list for your kind of game first is cheaper than a failed preview.',
-        },
-        start_from: 'You do not need a template. For a world, 3D or flat top-down 2D (camera "2d"), design_scene writes the starting files for your description. Templates remain for other cases: "three-blank" (your own renderer, lights, loop and input, nothing else), "canvas2d-arcade" (a complete small 2D game), "blank" (a bare 2D canvas).',
-        tip: 'Not sure how to render the game? Call recommend_pipeline with a short description before writing code.',
+        import_map: { note: 'The platform adds an import map to index.html unless the page has its own, so these bare imports resolve without a bundler. Using them is optional.', entries: defaultImports(c.origin) },
+        guides: PLATFORM_GUIDES.map((g) => `${g.topic}: ${g.summary}`),
       };
     },
   },
   {
-    name: 'get_account', title: 'Account status',
-    description: 'Shows whether this account can publish (creator license), earnings, paid-game rules and bundle limits. Call it when publish is refused or the user asks about money.',
-    inputSchema: obj({}), annotations: { readOnlyHint: true }, run: (_a, c) => account(c),
-  },
-  {
-    name: 'list_guides', title: 'List authoring guides',
-    description: 'Lists the authoring guides: the platform contract, building blocks, procedural generation, rendering pipelines, meshes, materials and textures, animation, loading, input, performance, audio, saves, multiplayer, and troubleshooting. They distil conventions verified in shipped games. Read the relevant ones before writing that part of the game.',
-    inputSchema: obj({}), annotations: { readOnlyHint: true }, run: async (_a, c) => guideIndex(c.env),
-  },
-  {
-    name: 'get_guide', title: 'Read a guide',
-    description: 'Returns one authoring guide as Markdown with working code. Topics come from list_guides (for example "platform-contract", "building-blocks", "procedural-generation", "rendering-pipelines", "meshes", "materials-textures", "loading", "performance", "troubleshooting").',
-    inputSchema: obj({ topic: { type: 'string', description: 'Guide topic from list_guides.' } }, ['topic']), annotations: { readOnlyHint: true },
+    name: 'list_projects', title: 'List projects or show one',
+    description: "Without project: lists this account's games with status (draft, live, offline), live and preview versions and marketplace numbers. With project: shows that one in detail, with workspace size, links and the newest version's report.",
+    inputSchema: obj({ project: { ...PROJECT, description: 'Optional. A project id or slug to show in detail.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      const idx = await guideIndex(c.env), topic = String(a.topic || '').toLowerCase().trim();
-      const g = idx.guides.find((x) => x.topic === topic) || idx.guides.find((x) => x.topic.includes(topic) || topic.includes(x.topic));
-      const text = g && await assetText(c.env, `/guides/${g.topic}.md`);
-      if (!text) throw bad(`No guide "${a.topic}".`, `Topics: ${idx.guides.map((x) => x.topic).join(', ')}`);
-      return { markdown: text.replaceAll('{{ORIGIN}}', c.origin).replaceAll('{{THREE}}', THREE_VERSION).replaceAll('{{TARGET}}', String((await getSettings(c.env)).craft_target)) };
-    },
-  },
-  {
-    name: 'design_scene', title: 'Plan a 3D game from a description',
-    description: 'Describe the game in a sentence and get (1) a plan that names a building block for every part of it: stage and mood, ground, scenery, landmarks, hero, creatures, sound, interface, and (2) a complete starting game (index.html + src/main.js) made only of those blocks, with a start screen, an end screen, touch input, sound and a play-through, that you then reshape into your game. With goal "homestead" the starting game has depth from the first line: inventory, crafting, needs, day and night, harvesting, building, quests and saving, all from blocks you can recombine (list_blocks {group: "play"}). When the brief also asks for crops, a world that grows as the player explores, or friends playing together, the starting game is a hand-written template with all three (homestead-2d or homestead-3d: src/theme.js is the game, src/main.js the engine). Plain rules, no AI: the same description gives the same plan, and every choice can be overridden with an argument. Call it before writing a game with a world; it is the fastest way to one that looks finished. It writes 3D worlds (third-person or from above) and flat, painted top-down worlds with upright sprites (camera "2d", also chosen when the description says 2D, 2.5D, pixel or isometric). For games that are not a world (puzzles, boards, platformers) it returns the blocks that apply instead.',
-    inputSchema: obj({
-      description: { type: 'string', description: 'What the player sees and does, for example "a knight collects sunstones on a volcanic island at dusk while wolves chase him". Things you name (trees, animals, props, a character) are put in the plan.' },
-      setting: { type: 'string', enum: DESIGN_SETTINGS, description: 'The kind of world. Chosen from the description when omitted.' },
-      goal: { type: 'string', enum: DESIGN_GOALS, description: 'The rules the starting game ships with. collect: every pickup before the time runs out. survive: hunters chase the hero until the clock runs out. reach: find keys, then a portal. homestead: a game with depth: gather wood and stone from any tree or rock, craft tools, build a fire, eat, fight at night and live until dawn, with an inventory and hotbar, a crafting window, needs, a day clock, quests, a minimap, a pause menu and a cloud save (chosen when the description speaks of crafting, building a base, farming or a survival game). You will change them; this decides what is already wired up.' },
-      camera: { type: 'string', enum: ['third', 'top', '2d'], description: 'third: 3D, behind the hero with drag-to-look (default). top: 3D, a high camera looking down. 2d: a flat painted world seen from above with upright sprites (the 2.5D look of survival and farming games), drawn on a plain canvas.' },
-      mood: { type: 'string', description: 'Light and sky, one of the moods in list_blocks (clear-day, golden-hour, misty-dawn, dusk, night, storm, …).' },
-      weather: { type: 'string', description: 'rain, snow, motes, fireflies, embers, leaves, dust, or none.' },
-      terrain: { type: 'string', description: 'island, hills, plains, valley, dunes, mountains or flat.' },
-      palette: { type: 'string', description: 'Ground colours: temperate, autumn, desert, snow, volcanic, alien or tropical.' },
-      hero: { type: 'string', description: 'The player character, one of the humanoids in list_blocks (explorer, knight, wizard, pirate, astronaut, robot, …).' },
-      title: { type: 'string', description: 'The name of the game.' },
-      seed: { type: 'string', description: 'Any word. The same seed always grows the same world; a different one gives a different world with the same rules.' },
-      pickups: { type: 'integer', description: 'How many things to collect (goal collect). Default 10.' },
-      time_limit: { type: 'integer', description: 'Seconds on the clock. Default 240, or 90 for survive. For homestead it is the length of a full day and night, default 300.' },
-    }, ['description']), annotations: { readOnlyHint: true },
-    run: async (a, c) => designSceneTool(c.env, c.origin, a),
-  },
-  {
-    name: 'list_blocks', title: 'List building blocks',
-    description: 'Lists the building blocks the platform hosts: one-call functions that return something finished and are generated in code (nothing to download): a lit stage with sky and weather, 39 painted surface materials, terrain, water, trees, rocks, plants, grass, 46 props (buildings, furniture, lights, pickups), animated people and animals, player control with a camera, particle effects, a HUD and sound; plus the procedural core underneath (seeded noise that matches in JS and shaders, a mesh builder, a texture painter, recipes). Also returns every valid name: moods, surfaces, trees, props, characters, animals, sounds. Call it before building anything by hand, and pass `group` to read one group in full.',
-    inputSchema: obj({ group: { type: 'string', description: 'Optional. One of: stage, surfaces, nature, props, actors, fx, hud, sound, basics, noise, gpu-noise, mesh, texture, recipe. Returns that group with full documentation.' } }), annotations: { readOnlyHint: true },
-    run: async (a, c) => listBlocks(c.env, c.origin, a),
-  },
-  {
-    name: 'get_block', title: 'Read one building block',
-    description: 'Returns one building block in full: the import line, the signature, every option, the valid names it accepts, the same asset as a recipe, and a link that shows it live. Accepts a function name ("scatter", "createHud"), a method ("hud.title", "stage.setMood", "player.moveTo") or a value ("oak", "campfire", "golden-hour"). Call it right before you use a block for the first time.',
-    inputSchema: obj({ name: { type: 'string', description: 'Block name from list_blocks, e.g. "terrain", "prop", "humanoid", "createSound", "mergeParts".' } }, ['name']), annotations: { readOnlyHint: true },
-    run: async (a, c) => getBlock(c.env, c.origin, a),
-  },
-  {
-    name: 'recommend_pipeline', title: 'Recommend a rendering approach',
-    description: 'Describe the game you are about to build and get a concrete rendering recommendation: which pipeline fits (2D canvas, Three.js forward, forward with post-processing, deferred, WebGPU), which kit modules and template to start from, a frame budget, and the mistakes to avoid. It never dictates art style or gameplay. Call it before writing rendering code.',
-    inputSchema: obj({
-      description: { type: 'string', description: 'One or two sentences about the game: what the player sees and does.' },
-      dimension: { type: 'string', enum: ['2d', '2.5d', '3d'], description: 'How the world is drawn.' },
-      world: { type: 'string', enum: ['single-screen', 'level', 'open-world'], description: 'How much world is visible or streamed.' },
-      look: { type: 'string', enum: ['flat', 'stylized-lit', 'realistic', 'pixel'], description: 'Rough visual direction, if decided.' },
-      devices: { type: 'string', enum: ['desktop', 'mobile', 'both'], description: 'Where it must run well. Default both.' },
-      dynamic_lights: { type: 'integer', description: 'Light sources that move or switch at once (torches, muzzle flashes). Default 0.' },
-      moving_things: { type: 'integer', description: 'Roughly how many things animate at once (enemies, particles count as 1 system).' },
-      multiplayer: { type: 'boolean', description: 'True if players share a session.' },
-    }, ['description']), annotations: { readOnlyHint: true },
-    run: async (a) => recommend(a),
-  },
-  {
-    name: 'list_kits', title: 'List reusable kits',
-    description: 'Lists the module files hosted by the platform (import them as "@gcp/<file>"): the craft building blocks, the procedural generation core, HUD, sound, loop and input, Three.js helpers, 2D canvas helpers, multiplayer. For what the functions in them do, list_blocks is the better view; this one lists files and export names.',
-    inputSchema: obj({}), annotations: { readOnlyHint: true },
-    run: async (_a, c) => { const k = await kitIndex(c.env); return { three_version: k.three, import_prefix: '@gcp/', kits: k.kits.map((x) => ({ import: `@gcp/${x.file}`, summary: x.summary, exports: x.exports })), note: 'Read the source with get_kit_file to see exact signatures. You may also copy a kit into your bundle and change it.' }; },
-  },
-  {
-    name: 'get_kit_file', title: 'Read kit source',
-    description: 'Returns the source of one kit module (for example "hud.js", "craft/props.js" or "procgen/texture.js") so you can see exactly how something is built, or copy it into your bundle and change it. get_block is shorter when you only need the options.',
-    inputSchema: obj({ file: { type: 'string', description: 'File name from list_kits or the "source" of get_block, e.g. "core.js" or "craft/nature.js".' } }, ['file']), annotations: { readOnlyHint: true },
-    run: async (a, c) => {
-      const file = String(a.file || '').replace(/^@gcp\//, '');
-      const text = /^((craft|procgen)\/)?[a-z0-9\-]+\.js$/.test(file) ? await assetText(c.env, `/kits/v1/${file}`) : null;
-      if (!text) throw bad(`No kit file "${a.file}".`, 'Call list_kits for the file names. The craft and procedural modules are split into parts: craft/stage.js, craft/surfaces.js, craft/nature.js, craft/props.js, craft/actors.js, craft/fx.js, procgen/noise.js, procgen/glsl.js, procgen/mesh.js, procgen/texture.js, procgen/recipe.js.');
-      return { file, import: `@gcp/${file}`, source: text };
-    },
-  },
-  {
-    name: 'list_templates', title: 'List starter templates',
-    description: 'Lists starter projects that already pass verification. They are optional: for a world (3D, or flat top-down 2D), design_scene writes starting files that fit your description, and list_blocks gives you the parts. Use a template when you want a bare renderer ("three-blank"), a 2D starting point ("canvas2d-arcade", "blank") or an example to read.',
-    inputSchema: obj({}), annotations: { readOnlyHint: true }, run: async (_a, c) => assetJson(c.env, '/templates/index.json'),
-  },
-  {
-    name: 'list_projects', title: 'List projects',
-    description: "Lists this account's game projects with status (draft, live, offline), versions and marketplace numbers.",
-    inputSchema: obj({}), annotations: { readOnlyHint: true },
-    run: async (_a, c) => {
-      const rows = await c.env.DB.prepare("SELECT id, slug, title, status, live_version, preview_version, price_cents, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all();
-      return { projects: rows.results };
-    },
-  },
-  {
-    name: 'create_project', title: 'Create a game project',
-    description: 'Creates a new game project. Templates are optional: for a world (3D, or flat top-down 2D) leave `template` out and write the files design_scene returns; pass `template` for a bare starting point ("three-blank" for your own Three.js setup, "canvas2d-arcade" for 2D, "blank" for an empty page that satisfies the contract). Returns the project id used by every other tool.',
-    inputSchema: obj({
-      title: { type: 'string', description: 'Game title shown in the marketplace.' },
-      template: { type: 'string', description: 'Optional starter template name from list_templates.' },
-      tagline: { type: 'string', description: 'One line shown on the game card.' },
-      description: { type: 'string', description: 'Longer description for the game page.' },
-      tags: { type: 'array', items: { type: 'string' }, description: 'Up to 8 genre or mood tags.' },
-    }, ['title']),
-    run: async (a, c) => {
-      const p = await createProject(c.env, c.user, a as any, c.client);
-      const files = a.template ? await applyTemplate(c.env, p, String(a.template)) : [];
-      return { project: p.id, slug: p.slug, title: p.title, files, console_page: `${c.origin}/console/projects/${p.id}`, next: files.length ? 'Template files are in the workspace. Use read_file to study them, change them with edit_file or put_files, then check_project.' : 'Upload index.html and the rest with put_files, then check_project.' };
-    },
-  },
-  {
-    name: 'update_project', title: 'Update listing details or price',
-    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, and price. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents). The platform keeps its cut of each sale and credits the rest to the creator.',
-    inputSchema: obj({
-      project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
-      controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
-      price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
-    }, ['project']),
-    run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
-      await updateProjectMeta(c.env, p, a);
-      const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s).net) : null };
-    },
-  },
-  {
-    name: 'get_project', title: 'Project status',
-    description: 'Shows one project: status, live and preview versions, the latest verification result, workspace size and links. Call it to see where things stand.',
-    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => {
+      if (!a.project) {
+        const rows = await c.env.DB.prepare("SELECT id, slug, title, status, live_version, preview_version, price_cents, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all();
+        return { projects: rows.results };
+      }
       const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id);
       const latest = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 1').bind(p.id).first<any>();
       return {
@@ -303,78 +147,87 @@ export const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'put_files', title: 'Write files',
-    description: 'Creates or replaces files in the project workspace. Best for text files up to a few hundred lines. For a small change to an existing file use edit_file instead (it saves tokens). For large or binary files, or to upload a whole folder at once, use create_upload_url. Paths are relative, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64". Example arguments: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}, {"path": "src/main.js", "content": "import * as THREE from \'three\';..."}]}. `files` is an array of objects, not a map of path to content.',
+    name: 'create_project', title: 'Create a game project',
+    description: `Creates an empty project for one web game and returns its id, which every other tool takes. ${WEB_ONLY} Next: upload_files or create_upload_url.`,
     inputSchema: obj({
-      project: PROJECT,
-      files: { type: 'array', minItems: 1, maxItems: 40, description: 'Array of {path, content} objects, e.g. [{"path": "index.html", "content": "<!doctype html>..."}]. Up to 40 per call.', items: obj({ path: { type: 'string', description: 'Relative path inside the bundle, e.g. "src/main.js".' }, content: { type: 'string', description: 'The whole file as text (or base64 when encoding is "base64").' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
-    }, ['project', 'files']),
+      title: { type: 'string', description: 'Game title shown in the marketplace.' },
+      tagline: { type: 'string', description: 'One line shown on the game card.' },
+      description: { type: 'string', description: 'Longer description for the game page.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Up to 8 genre or mood tags.' },
+    }, ['title']),
+    run: async (a, c) => {
+      const p = await createProject(c.env, c.user, a as any, c.client);
+      return { project: p.id, slug: p.slug, title: p.title, console_page: `${c.origin}/console/projects/${p.id}`, next: 'Upload the game: upload_files for text files, create_upload_url for big or binary files or a whole folder. Then deploy_preview.' };
+    },
+  },
+  {
+    name: 'update_project', title: 'Update listing, price or cover',
+    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, price and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used.',
+    inputSchema: obj({
+      project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
+      controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
+      price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
+      cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png".' },
+    }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
-      if (!Array.isArray(a.files) || !a.files.length) throw bad('files must be a non-empty array of {path, content}.');
-      const written = [];
-      for (const f of a.files) {
+      let cover: string | undefined;
+      if (a.cover) {
+        const path = cleanPath(a.cover) || '', ext = extOf(path);
+        if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) throw bad('The cover must be a png, jpg or webp file.');
+        const { row, bytes } = await readFile(c.env, p.id, path);
+        if (row.size > 2 * 1024 * 1024) throw bad('The cover must be under 2 MB.');
+        const key = `covers/${p.id}-${now().toString(36)}.${ext}`;
+        await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: row.ctype } });
+        await c.env.DB.prepare('UPDATE projects SET cover_key = ? WHERE id = ?').bind(key, p.id).run();
+        cover = `${c.origin}/api/media/${key}`;
+      }
+      const { cover: _c, ...meta } = a;
+      await updateProjectMeta(c.env, p, meta);
+      const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s).net) : null, ...(cover ? { cover } : {}) };
+    },
+  },
+  {
+    name: 'upload_files', title: 'Upload, edit or delete files',
+    description: `Changes the project workspace in one call: files writes whole files, edits replaces an exact piece of text in a file already there (cheaper than resending it), delete removes paths. Paths are relative to the bundle root, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64"; for big or binary files, or a whole folder, create_upload_url is better. Only web file types are accepted, and executables or archives are refused whatever their name. Deployed versions keep their own copies, so nothing here changes a preview or the live game until the next deploy_preview and publish. Example: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}], "edits": [{"path": "src/main.js", "old_string": "speed = 4", "new_string": "speed = 5"}], "delete": ["old.js"]}.`,
+    inputSchema: obj({
+      project: PROJECT,
+      files: { type: 'array', maxItems: 40, description: 'Whole files to create or replace, as {path, content} objects. Up to 40 per call.', items: obj({ path: { type: 'string', description: 'Relative path inside the bundle.' }, content: { type: 'string', description: 'The whole file as text (or base64 when encoding is "base64").' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
+      edits: { type: 'array', maxItems: 40, description: 'Exact text replacements in text files already in the workspace. old_string must match exactly (spaces and newlines included) and appear once, unless replace_all is true. Applied after files.', items: obj({ path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' }, replace_all: { type: 'boolean' } }, ['path', 'old_string', 'new_string']) },
+      delete: { type: 'array', items: { type: 'string' }, description: 'Paths to delete.' },
+    }, ['project']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      const files = Array.isArray(a.files) ? a.files : [], edits = Array.isArray(a.edits) ? a.edits : [], dels = Array.isArray(a.delete) ? a.delete : [];
+      if (!files.length && !edits.length && !dels.length) throw bad('Nothing to do.', 'Pass files, edits or delete. files is an array of {path, content} objects, not a map of path to content.');
+      const written = [], edited = [], deleted = [];
+      for (const f of files) {
         let bytes: Uint8Array;
         try { bytes = f.encoding === 'base64' ? unb64(String(f.content).replace(/\s+/g, '')) : new TextEncoder().encode(String(f.content ?? '')); } catch { throw bad(`${f.path}: content is not valid base64.`); }
         const row = await putFile(c.env, p, f.path, bytes);
-        written.push({ path: row.path, bytes: row.size });
+        written.push({ path: row.path, bytes: row.size, sha: row.sha });
       }
-      return { written, next: 'Run check_project when your changes are complete.' };
+      for (const e of edits) {
+        const path = cleanPath(e.path) || '';
+        if (!isText(path)) throw bad(`${e.path}: edits only work on text files.`);
+        const { bytes } = await readFile(c.env, p.id, path);
+        const src = new TextDecoder().decode(bytes), old = String(e.old_string);
+        if (!old) throw bad(`${path}: old_string must not be empty.`);
+        const count = src.split(old).length - 1;
+        if (count === 0) throw bad(`${path}: old_string was not found${written.length || edited.length ? ' (the changes before it in this call were saved)' : ''}.`, 'Copy the exact text, including indentation, or send the whole file under files.');
+        if (count > 1 && !e.replace_all) throw bad(`${path}: old_string appears ${count} times.`, 'Include more surrounding text to make it unique, or set replace_all to true.');
+        const out = e.replace_all ? src.split(old).join(String(e.new_string)) : src.replace(old, () => String(e.new_string));
+        const row = await putFile(c.env, p, path, new TextEncoder().encode(out));
+        edited.push({ path: row.path, bytes: row.size, sha: row.sha, replaced: e.replace_all ? count : 1 });
+      }
+      for (const path of dels) if (await deleteFile(c.env, p.id, String(path))) deleted.push(path);
+      return { written, edited, deleted, next: 'Call deploy_preview when the changes are complete (dry_run: true for only the static checks).' };
     },
-  },
-  {
-    name: 'edit_file', title: 'Edit part of a file',
-    description: 'Replaces an exact piece of text in a workspace file. old_string must match the file exactly (including spaces and newlines) and appear once, unless replace_all is true. Use read_file first if you are not sure of the exact text.',
-    inputSchema: obj({ project: PROJECT, path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' }, replace_all: { type: 'boolean' } }, ['project', 'path', 'old_string', 'new_string']),
-    run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), path = cleanPath(a.path) || '';
-      const { bytes } = await readFile(c.env, p.id, path);
-      if (!isText(path)) throw bad('edit_file only works on text files.');
-      const src = new TextDecoder().decode(bytes), old = String(a.old_string);
-      if (!old) throw bad('old_string must not be empty.');
-      const count = src.split(old).length - 1;
-      if (count === 0) throw bad('old_string was not found in the file.', 'Call read_file and copy the exact text, including indentation.');
-      if (count > 1 && !a.replace_all) throw bad(`old_string appears ${count} times.`, 'Include more surrounding text to make it unique, or set replace_all to true.');
-      const out = a.replace_all ? src.split(old).join(String(a.new_string)) : src.replace(old, () => String(a.new_string));
-      const row = await putFile(c.env, p, path, new TextEncoder().encode(out));
-      return { path: row.path, bytes: row.size, replaced: a.replace_all ? count : 1 };
-    },
-  },
-  {
-    name: 'read_file', title: 'Read a file',
-    description: 'Returns a workspace file. Text files come back as text with line numbers available through offset and limit (lines). Binary files return only their size and type.',
-    inputSchema: obj({ project: PROJECT, path: { type: 'string' }, offset: { type: 'integer', description: 'First line to return (1-based).' }, limit: { type: 'integer', description: 'Number of lines (default 400, max 2000).' } }, ['project', 'path']),
-    annotations: { readOnlyHint: true },
-    run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), path = cleanPath(a.path) || '';
-      const { row, bytes } = await readFile(c.env, p.id, path);
-      if (!isText(path)) return { path, bytes: row.size, type: row.ctype, note: 'Binary file; content not returned.' };
-      const lines = new TextDecoder().decode(bytes).split('\n'), off = Math.max(1, Number(a.offset) || 1), lim = Math.min(2000, Math.max(1, Number(a.limit) || 400));
-      const slice = lines.slice(off - 1, off - 1 + lim).map((l) => (l.length > 4000 ? l.slice(0, 4000) + ' …[line truncated]' : l));
-      return { path, total_lines: lines.length, from_line: off, to_line: off + slice.length - 1, content: slice.join('\n'), more: off - 1 + lim < lines.length };
-    },
-  },
-  {
-    name: 'list_files', title: 'List workspace files',
-    description: 'Lists every file in the project workspace with sizes.',
-    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size })), total_bytes: files.reduce((x, f) => x + f.size, 0) }; },
-  },
-  {
-    name: 'delete_files', title: 'Delete files',
-    description: 'Deletes files from the project workspace. Versions that were already deployed keep their own copies.',
-    inputSchema: obj({ project: PROJECT, paths: { type: 'array', items: { type: 'string' }, minItems: 1 } }, ['project', 'paths']), annotations: { destructiveHint: true },
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); const deleted = []; for (const path of a.paths || []) if (await deleteFile(c.env, p.id, String(path))) deleted.push(path); return { deleted }; },
-  },
-  {
-    name: 'apply_template', title: 'Copy a starter template into the project',
-    description: 'Copies a starter template into the workspace, overwriting files with the same paths. Use it to (re)start from a known-good base.',
-    inputSchema: obj({ project: PROJECT, template: { type: 'string' } }, ['project', 'template']),
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); return { files: await applyTemplate(c.env, p, String(a.template)) }; },
   },
   {
     name: 'create_upload_url', title: 'Get a direct upload URL',
-    description: 'Returns a short-lived URL for uploading files straight from a shell with curl, without passing their contents through this conversation. Use it when you have a terminal and the files are large, binary, or many (a zip of the whole folder works). Valid for 30 minutes.',
+    description: 'Returns a short-lived URL for uploading files straight from a shell with curl, without passing their contents through this conversation. Use it for large or binary files, or a whole folder as a zip (an engine\'s web export folder, for example). Valid for 30 minutes.',
     inputSchema: obj({ project: PROJECT }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), t = randomToken(24);
@@ -384,44 +237,27 @@ export const TOOLS: Tool[] = [
         expires_in_minutes: 30,
         one_file: `curl -fsS -X PUT --data-binary @index.html "${base}?path=index.html"`,
         whole_folder: `zip -qr /tmp/game.zip . -x '.*' && curl -fsS -X POST --data-binary @/tmp/game.zip "${base}/zip"`,
-        note: 'Paths inside the zip become paths in the workspace. Add ?clean=1 to the zip URL to delete workspace files that are not in the zip. Each call prints JSON listing what was written.',
+        note: 'Run whole_folder inside the folder that holds index.html. Paths inside the zip become paths in the workspace. Add ?clean=1 to the zip URL to delete workspace files that are not in the zip. Each call prints JSON listing what was written.',
       };
     },
   },
   {
-    name: 'set_cover', title: 'Set the cover image',
-    description: 'Uses an image file from the workspace (png, jpg or webp, ideally 16:9, under 2 MB) as the marketplace cover. Without a cover, the verification screenshot is used.',
-    inputSchema: obj({ project: PROJECT, path: { type: 'string', description: 'Workspace path of the image.' } }, ['project', 'path']),
-    run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), path = cleanPath(a.path) || '', ext = extOf(path);
-      if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) throw bad('The cover must be a png, jpg or webp file.');
-      const { row, bytes } = await readFile(c.env, p.id, path);
-      if (row.size > 2 * 1024 * 1024) throw bad('The cover must be under 2 MB.');
-      const key = `covers/${p.id}-${now().toString(36)}.${ext}`;
-      await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: row.ctype } });
-      await c.env.DB.prepare('UPDATE projects SET cover_key = ? WHERE id = ?').bind(key, p.id).run();
-      return { ok: true, cover: `${c.origin}/api/media/${key}` };
-    },
-  },
-  {
-    name: 'check_project', title: 'Static checks',
-    description: 'Checks the workspace without deploying: JavaScript syntax (with the exact line), imports that do not resolve, files referenced but missing, the GCP.ready() contract, and size limits. It is fast, so run it after every round of edits and fix every error before deploy_preview.',
+    name: 'list_files', title: 'List workspace files',
+    description: 'Lists every file in the project workspace with its size and sha (the first 32 hex characters of its SHA-256), so you can see which local files differ from what was uploaded.',
     inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), r = await checkProject(c.env, p, c.origin);
-      return { ok: r.ok, files: r.files, bytes: r.bytes, errors: r.errors.map(issueLine), warnings: r.warnings.map(issueLine), next: r.ok ? 'No errors. Call deploy_preview.' : 'Fix the errors above, then run check_project again.' };
-    },
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0) }; },
   },
   {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
-    description: 'Freezes the workspace as a new numbered version, deploys it as its own Cloudflare Worker (the preview), then opens it in a real browser and checks that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also runs that script and the report lists each step; without one, the report says that only start-up, rendering and input were checked. Returns the verification report. The check takes one to two minutes; if it is still running after 80 seconds the answer says not_finished, and get_version returns the report (do not deploy again meanwhile). The user can play the preview from their console.',
-    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' } }, ['project']),
+    description: 'Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after 80 seconds the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile).',
+    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
       const check = await checkProject(c.env, p, c.origin);
-      if (!check.ok) return { deployed: false, reason: 'Static checks failed, so nothing was deployed.', errors: check.errors.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
+      if (a.dry_run) return { ok: check.ok, files: check.files, bytes: check.bytes, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: check.ok ? 'No errors. Call deploy_preview without dry_run.' : 'Fix the errors above, then check again.' };
+      if (!check.ok) return { deployed: false, reason: 'Static checks failed, so nothing was deployed.', errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
       const busy = await c.env.DB.prepare("SELECT n FROM versions WHERE project_id = ? AND status IN ('queued','deploying','verifying') AND created_at > ?").bind(p.id, now() - 10 * 60000).first<{ n: number }>();
-      if (busy) throw new AppError(409, `Version ${busy.n} is still being deployed.`, 'busy', `Call get_version {project, version: ${busy.n}} and wait for it to finish first.`);
+      if (busy) throw new AppError(409, `Version ${busy.n} is still being deployed.`, 'busy', `Call list_versions {project, version: ${busy.n}} and wait for it to finish first.`);
       const v = await snapshot(c.env, p, check.manifest, String(a.note || ''));
       await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
@@ -430,29 +266,19 @@ export const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'get_version', title: 'Version status and verification report',
-    description: 'Returns a version\'s deploy and verification status with the full report: each check, uncaught errors, missing files, load time, frame rate and a screenshot URL. Omit version for the newest one.',
-    inputSchema: obj({ project: PROJECT, version: { type: 'integer' } }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
-      const n = Number(a.version) || (await c.env.DB.prepare('SELECT MAX(n) AS n FROM versions WHERE project_id = ?').bind(p.id).first<{ n: number }>())?.n || 0;
-      if (!n) throw bad('This project has no versions yet.', 'Call deploy_preview first.');
-      return versionReport(c, p, n, await waitVersion(c, p.id, n, 40000));
-    },
-  },
-  {
-    name: 'list_versions', title: 'List versions',
-    description: 'Lists the project\'s versions, newest first, with status and which one is live and which is on preview.',
-    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
+    name: 'list_versions', title: 'List versions or read one report',
+    description: 'Without version: lists the project\'s versions, newest first, with status, whether each can be published, and which is live and which is on preview. With version: returns that version\'s full verification report (each check, uncaught errors, missing files, load time, frame rate, screenshot), waiting up to 40 seconds if it is still being checked.',
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Optional. A version number to read in full.' } }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
+      if (a.version) return versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), 40000));
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
       return { live_version: p.live_version, preview_version: p.preview_version, status: p.status, versions: rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage, can_publish: versionEligible(v, s.verify_browser_required).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' })) };
     },
   },
   {
     name: 'publish', title: 'Publish a verified version',
-    description: 'Makes a verified version live in the marketplace (deployed as the game\'s live Worker). Only versions that passed verification can be published, and the account needs a creator license. Omit version to publish the newest verified one. Also use this to roll back: pass an older verified version number.',
+    description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
@@ -465,7 +291,7 @@ export const TOOLS: Tool[] = [
       }
       if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
       const el = versionEligible(v, s.verify_browser_required);
-      if (!el.ok) throw new AppError(409, el.reason, 'not_verified', 'Call get_version to read the failed checks, fix them, and deploy_preview again.');
+      if (!el.ok) throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
       if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
       await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
       await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
@@ -473,20 +299,108 @@ export const TOOLS: Tool[] = [
       let q = await ownedProject(c.env, c.user, p.id);
       while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
       const live = q.status === 'live' && q.live_version === v.n;
-      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call get_project in a little while to confirm.' };
+      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
     },
   },
   {
     name: 'rollback', title: 'Roll back to an earlier version',
-    description: 'Makes an earlier verified version live again. Same as publish with that version number.',
+    description: 'Makes an earlier verified version live again. list_versions shows which ones can be published.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer' } }, ['project', 'version']),
     run: async (a, c) => TOOLS.find((t) => t.name === 'publish')!.run(a, c),
   },
   {
     name: 'unpublish', title: 'Take a game offline',
-    description: 'Takes the live game out of the marketplace and removes its live Worker. Versions and the preview stay; publish puts it back.',
+    description: 'Takes the live game out of the marketplace and removes its live deployment. Versions and the preview stay; publish puts it back.',
     inputSchema: obj({ project: PROJECT }, ['project']), annotations: { destructiveHint: true },
     run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); if (p.status !== 'live') throw bad('This game is not live.'); await takeOffline(c.env, p, c.client); return { ok: true, status: 'offline' }; },
+  },
+  {
+    name: 'game_data', title: 'Game database: shared data, saves and leaderboards',
+    description: 'Manages what the platform database holds for one game, in its preview or live environment (they are kept apart). Shared data is game-wide JSON every player reads with GCP.shared.get(key): use set to seed levels, configuration or a message of the day without server code. Player saves (GCP.save) are private to each player; summary counts them without showing them. Leaderboards are what GCP.leaderboard.submit wrote. Actions: summary, list (shared keys, optional prefix), get, set, delete (one shared key), leaderboard (top rows of a board), clear_leaderboard. Writes take effect for players at once.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['summary', 'list', 'get', 'set', 'delete', 'leaderboard', 'clear_leaderboard'] },
+      env: { type: 'string', enum: ['preview', 'live'], description: 'Default live. Previews have their own separate data.' },
+      key: { type: 'string', description: 'Shared data key (1 to 120 characters), for get, set and delete.' },
+      value: { description: 'Any JSON value, for set. 256 KB at most.' },
+      prefix: { type: 'string', description: 'Only keys starting with this, for list.' },
+      board: { type: 'string', description: 'Leaderboard name, for leaderboard and clear_leaderboard. Default "default".' },
+      order: { type: 'string', enum: ['desc', 'asc'], description: 'For leaderboard: desc (highest first, default) or asc (lowest first, for times).' },
+      limit: { type: 'integer', description: 'Rows for leaderboard, 1 to 100. Default 20.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB, env = a.env === 'preview' ? 'preview' : 'live';
+      const scope = `${p.id}${env === 'preview' ? ':preview' : ''}`, key = String(a.key ?? ''), board = String(a.board || 'default').slice(0, 40);
+      const needKey = () => { if (!key || key.length > 120) throw bad('key must be a string of 1 to 120 characters.'); };
+      switch (a.action) {
+        case 'summary': {
+          const [shared, saves, boards] = await Promise.all([
+            db.prepare("SELECT COUNT(*) AS keys, COALESCE(SUM(LENGTH(v)), 0) AS bytes FROM saves WHERE project_id = ? AND user_id = ''").bind(scope).first<{ keys: number; bytes: number }>(),
+            db.prepare("SELECT COUNT(DISTINCT user_id) AS players, COUNT(*) AS keys, COALESCE(SUM(LENGTH(v)), 0) AS bytes FROM saves WHERE project_id = ? AND user_id != ''").bind(scope).first<{ players: number; keys: number; bytes: number }>(),
+            db.prepare('SELECT board, COUNT(*) AS entries, MAX(updated_at) AS last_at FROM scores WHERE project_id = ? GROUP BY board ORDER BY board').bind(scope).all<{ board: string; entries: number; last_at: number }>(),
+          ]);
+          return { env, shared_data: shared, player_saves: saves, leaderboards: boards.results.map((b) => ({ board: b.board, entries: b.entries, last_submit: new Date(b.last_at).toISOString() })), limits: { value_bytes: 256 * 1024, save_keys_per_player: 64 } };
+        }
+        case 'list': {
+          const rows = await db.prepare("SELECT k, LENGTH(v) AS bytes, updated_at FROM saves WHERE project_id = ? AND user_id = '' AND k LIKE ? ESCAPE '\\' ORDER BY k LIMIT 500").bind(scope, String(a.prefix || '').replace(/[\\%_]/g, '\\$&') + '%').all<{ k: string; bytes: number; updated_at: number }>();
+          return { env, keys: rows.results.map((r) => ({ key: r.k, bytes: r.bytes, updated_at: new Date(r.updated_at).toISOString() })) };
+        }
+        case 'get': {
+          needKey();
+          const r = await db.prepare("SELECT v FROM saves WHERE project_id = ? AND user_id = '' AND k = ?").bind(scope, key).first<{ v: string }>();
+          return { env, key, value: r ? JSON.parse(r.v) : null, exists: !!r };
+        }
+        case 'set': {
+          needKey();
+          if (a.value === undefined) throw bad('value is required for set (any JSON value).');
+          const v = JSON.stringify(a.value);
+          if (v.length > 256 * 1024) throw bad('Value too large (256 KB max per key).');
+          await db.prepare("INSERT INTO saves (project_id, user_id, k, v, updated_at) VALUES (?, '', ?, ?, ?) ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at").bind(scope, key, v, now()).run();
+          await logEvent(c.env, p.id, 'data_set', `${env}: ${key}`, null, c.client);
+          return { ok: true, env, key, bytes: v.length, read_it_with: `await GCP.shared.get(${JSON.stringify(key)})` };
+        }
+        case 'delete': {
+          needKey();
+          const r = await db.prepare("DELETE FROM saves WHERE project_id = ? AND user_id = '' AND k = ?").bind(scope, key).run();
+          return { ok: true, env, key, deleted: (r.meta.changes || 0) > 0 };
+        }
+        case 'leaderboard': {
+          const asc = a.order === 'asc';
+          const rows = await db.prepare(`SELECT name, score, updated_at FROM scores WHERE project_id = ? AND board = ? ORDER BY score ${asc ? 'ASC' : 'DESC'} LIMIT ?`).bind(scope, board, clamp(Number(a.limit) || 20, 1, 100)).all<{ name: string; score: number; updated_at: number }>();
+          return { env, board, order: asc ? 'asc' : 'desc', rows: rows.results.map((r, i) => ({ rank: i + 1, name: r.name, score: r.score, at: new Date(r.updated_at).toISOString() })) };
+        }
+        case 'clear_leaderboard': {
+          const r = await db.prepare('DELETE FROM scores WHERE project_id = ? AND board = ?').bind(scope, board).run();
+          await logEvent(c.env, p.id, 'leaderboard_cleared', `${env}: ${board}`, null, c.client);
+          return { ok: true, env, board, removed: r.meta.changes || 0 };
+        }
+        default: throw bad('action must be summary, list, get, set, delete, leaderboard or clear_leaderboard.');
+      }
+    },
+  },
+  {
+    name: 'game_room', title: 'Multiplayer room: inspect or reset',
+    description: 'Looks inside one of the game\'s realtime multiplayer rooms, the ones players join with GCP.room(code): who is connected, who is the host, and the world snapshot the host stored. reset clears the snapshot (with kick: true it also disconnects everyone, who can rejoin at once); use it when a room is stuck on a bad state. Rooms are per environment and per code; an empty room keeps nothing. get_started {topic: "multiplayer"} explains the room model.',
+    inputSchema: obj({
+      project: PROJECT,
+      room: { type: 'string', description: 'The room code the game passed to GCP.room(code). Default "lobby".' },
+      env: { type: 'string', enum: ['preview', 'live'], description: 'Default live.' },
+      action: { type: 'string', enum: ['inspect', 'reset'], description: 'Default inspect.' },
+      kick: { type: 'boolean', description: 'For reset: also disconnect everyone in the room.' },
+    }, ['project']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), env = a.env === 'preview' ? 'preview' : 'live', code = String(a.room || 'lobby').slice(0, 40);
+      const rooms = c.env.ROOMS as unknown as DurableObjectNamespace<GameRoom>, stub = rooms.get(rooms.idFromName(`${p.id}:${env}:${code}`));
+      if (a.action === 'reset') {
+        const r = await stub.reset(!!a.kick);
+        await logEvent(c.env, p.id, 'room_reset', `${env}: ${code}${a.kick ? ' (kicked)' : ''}`, null, c.client);
+        return { env, room: code, ...r };
+      }
+      const r = await stub.inspect(), s = await getSettings(c.env);
+      const bytes = r.state_json ? r.state_json.length : 0;
+      const state = !r.state_json ? null : bytes > 20000 ? `${r.state_json.slice(0, 20000)} …[truncated, ${bytes} bytes]` : JSON.parse(r.state_json);
+      return { env, room: code, players: r.players, host: r.host, state, state_bytes: bytes, limits: { players_per_room: s.room_max_peers, message_bytes: 64 * 1024, state_bytes: 256 * 1024 }, ...(r.players.length ? {} : { note: 'Nobody is in this room now. Rooms are created when the first player joins and forget everything when the last one leaves.' }) };
+    },
   },
   {
     name: 'get_stats', title: 'Marketplace numbers and runtime errors',
@@ -510,51 +424,6 @@ export const TOOLS: Tool[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------------------------
-// Pipeline recommendation: plain rules distilled from the reference games.
-// ---------------------------------------------------------------------------------------------
-function recommend(a: Record<string, any>) {
-  const text = String(a.description || '').toLowerCase();
-  const has = (...w: string[]) => w.some((x) => text.includes(x));
-  const dim = a.dimension || (has('2d', 'top-down', 'topdown', 'platformer', 'pixel', 'card', 'puzzle', 'board', 'sprite', 'side-scroll') ? '2d' : has('isometric', '2.5d') ? '2.5d' : '3d');
-  const mobile = (a.devices || 'both') !== 'desktop';
-  const lights = Number(a.dynamic_lights) || 0, world = a.world || (has('open world', 'open-world', 'survival', 'explore', 'island', 'terrain') ? 'open-world' : 'level');
-  const gpuSim = has('fluid', 'million', 'gpu simulation', 'compute shader', 'cellular');
-  const out: Record<string, unknown> = {};
-  if (dim === '2d' || dim === '2.5d' && !has('3d model', 'rotate camera')) {
-    out.pipeline = 'canvas2d';
-    out.why = ['A 2D canvas draws thousands of pre-baked sprites per frame on any device, starts instantly, and has no shader or GPU-driver failure modes.', 'Depth is a sort by ground position; lighting is a multiply layer. Both are a few lines.'];
-    out.start_from = { world: 'For a top-down or 2.5D world, design_scene {description, camera: "2d"} writes a complete starting game on @gcp/craft2d.js: painted land, 30 kinds of sprites, animated people and animals, darkness with lights, weather. list_blocks {group: "world2d"} shows the parts.', template: 'canvas2d-arcade', kits: ['@gcp/craft2d.js', '@gcp/core.js', '@gcp/canvas2d.js', '@gcp/input.js'], blocks: "createHud from '@gcp/hud.js' (interface), createSound from '@gcp/sound.js' (effects, ambience, music), and from '@gcp/procgen.js': paint(kind).toCanvas() for tiles and patterns, noise() for maps and variation, rng(seed) for repeatable levels" };
-    out.frame = ['update(dt) with dt clamped to 0.1 s', 'draw cached ground chunks', 'draw sprites sorted by y', 'draw lighting/fog overlay', 'DOM HUD on top'];
-    out.avoid = ['Drawing vector paths every frame: bake each sprite once into an offscreen canvas and drawImage it.', 'Reading pixels back (getImageData) in the frame loop.', 'A canvas larger than devicePixelRatio 2: cap it.'];
-    out.guides = ['platform-contract', 'rendering-pipelines', 'loading', 'input', 'performance'];
-  } else if (gpuSim) {
-    out.pipeline = 'webgpu (with a WebGL fallback or creator-qualified verification)';
-    out.why = ['GPU compute is the only way to run that much simulation per frame.', 'The verification browser has no WebGPU, so either ship a reduced WebGL path or qualify the version by playing the preview yourself.'];
-    out.start_from = { template: 'blank', kits: ['@gcp/core.js', '@gcp/input.js'] };
-    out.avoid = ['Assuming navigator.gpu exists: feature-detect, and call GCP.fatal with a clear message when it does not.', 'Creating pipelines inside the frame loop.'];
-    out.guides = ['platform-contract', 'rendering-pipelines', 'performance', 'troubleshooting'];
-  } else {
-    const deferred = lights > 8 || has('many lights', 'ssao', 'screen-space', 'deferred');
-    const post = !deferred && (a.look === 'stylized-lit' || a.look === 'realistic' || has('bloom', 'glow', 'neon', 'cinematic'));
-    out.pipeline = deferred ? 'three-forward first, custom deferred as a quality tier' : post ? 'three-forward + post-processing' : 'three-forward';
-    out.why = deferred
-      ? ['More than about 8 moving lights, or effects that need depth and normals (SSAO, screen-space water), are what a G-buffer is for.', 'Build and ship the forward path first as the "low" tier: it is the fallback for phones and the path verification will exercise. Add the deferred path behind a quality setting once the game is playable.']
-      : ['One forward pass with a shadowed sun, hemisphere ambient and fog renders stylised worlds well and runs everywhere, including the software GPU used by verification.', post ? 'Add bloom and tone mapping through EffectComposer on medium quality and above; keep "low" as the plain pass.' : 'Skip post-processing until the game is playable; it is easy to add later and costly on phones.'];
-    out.start_from = { plan: 'design_scene {description}: picks building blocks for the whole game and returns starting files made of them', blocks: "@gcp/craft.js: createStage sets up this exact pipeline (shadowed sun, hemisphere light, fog, tone mapping, bloom on fast devices, a lighter profile on slow ones); surface, terrain, tree, prop, humanoid and the rest fill the world. list_blocks shows them all.", or_your_own_renderer: 'template three-blank (renderer, lights, loop, input and GCP.ready() in one file) with @gcp/core.js, @gcp/three-kit.js, @gcp/input.js; the blocks that do not need a stage still work there (surface, prop, tree, humanoid, createHud, createSound)' };
-    out.frame = ['update(dt) with dt clamped to 0.1 s', world === 'open-world' ? 'stream chunks: build at most a few per frame from a queue, dispose far ones' : 'update animated objects', 'move the shadow camera with the player', post ? 'composer.render()' : 'renderer.render(scene, camera)', 'DOM HUD on top'];
-    out.budget = { pixel_ratio: mobile ? 'min(devicePixelRatio, 1.5); 1 on low' : 'min(devicePixelRatio, 2)', draw_calls: mobile ? 'under 150' : 'under 400', shadow_map: mobile ? 1024 : 2048, lights: 'one shadow-casting directional light; up to 4 point lights without shadows' };
-    out.avoid = ['One Mesh per tree, rock or blade: use InstancedMesh, or merge static parts into one geometry with vertex colours.', 'New materials or textures per object: cache and share them.', 'Allocating vectors inside the frame loop.', 'Loading assets over the network when a painted texture (surface(kind)) or generated geometry will do.', 'Flat single-colour materials on bare primitives: they are the main thing that makes a game look unfinished. surface(kind) and the model blocks fix it in one call.', 'Shadows on every light.'];
-    out.guides = ['platform-contract', 'rendering-pipelines', 'performance', 'loading', 'input', 'meshes', 'materials-textures', 'animation'];
-    out.verification_browser = 'It has no GPU and draws 960x540 on the CPU. A forward pass with one shadowed light and simple materials runs at about 4 fps there, which passes (the floor is 2). Full-screen post-processing, several shadow lights or heavy fragment shaders at default quality can fail: start on the lowest quality when frames are slow. See the performance guide.';
-  }
-  out.multiplayer = a.multiplayer || has('multiplayer', 'co-op', 'coop', 'versus', 'pvp') ? { use: 'GCP.room(code) with one host that owns the world state; guests send inputs and render snapshots', kit: '@gcp/net.js', guide: 'multiplayer' } : undefined;
-  out.quality = 'deploy_preview returns a craft score out of 100 measured from the running game, with the specific things to improve.';
-  out.always = ['Show a boot screen at once and report GCP.progress; call GCP.ready() after the first playable frame.', 'Offer quality levels and pick a low one automatically on touch devices or when frames are slow.', 'Wrap startup in try/catch and call GCP.fatal(error) so failures are reported instead of a blank page.', 'Register GCP.test.onPlaythrough with a short script that plays the core loop to its end (score, win or lose, restart). The verifier runs it, so bugs in the rules are caught before the user plays.'];
-  out.note = 'This is a starting point chosen for reliability. Art direction, camera, mechanics and feel are entirely up to you.';
-  return out;
-}
-
 /** Unzips an uploaded archive into the workspace. */
 export async function importZip(env: Env, user: User, projectId: string, zip: Uint8Array, clean: boolean) {
   const p = await ownedProject(env, user, projectId);
@@ -573,6 +442,5 @@ export async function importZip(env: Env, user: User, projectId: string, zip: Ui
   }
   let removed: string[] = [];
   if (clean) { const keep = new Set(written); for (const f of await listFiles(env, p.id)) if (!keep.has(f.path)) { await deleteFile(env, p.id, f.path); removed.push(f.path); } }
-  return { written, skipped, removed, next: 'Run check_project.' };
+  return { written, skipped, removed, next: 'Call deploy_preview (dry_run: true runs only the static checks).' };
 }
-void gameUrl; void parseJson;

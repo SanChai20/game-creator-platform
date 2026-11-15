@@ -1,17 +1,29 @@
-# Troubleshooting a failed verification
+# Versions and failed verification
 
-`deploy_preview` returns a report with one entry per check, the errors the browser saw, any files that failed to load, timings, and a screenshot. Read `summary` first, then the first check that failed: later checks often fail only because an earlier one did. Fix, then run `check_project` and `deploy_preview` again. Each preview is a new version number; nothing is overwritten.
+## How versions work
 
-## check_project refuses the deploy
+- The **workspace** is the set of files you upload (`upload_files`, `create_upload_url`). Changing it changes nothing players see.
+- `deploy_preview` freezes the workspace into a new **version** with the next number, deploys it to its own preview address and checks it in a real browser. Versions never change after that, and nothing is overwritten.
+- Only a **verified** version can be **published**. `publish` makes it live at the game's public page; the previous live version stays in the list.
+- `rollback {version}` makes an earlier verified version live again at once. `unpublish` takes the game offline; `publish` brings it back.
+- `list_versions` lists them all with their status; `list_versions {version}` returns one version's full report.
+
+## Reading a failed report
+
+The report has one entry per check, the errors the browser saw, any files that failed to load, timings, and a screenshot. Read `summary` first, then the first check that failed: later checks often fail only because an earlier one did. Fix, upload the changed files, and `deploy_preview` again (`dry_run: true` runs only the static checks).
+
+## The static checks refuse the deploy
 
 | Message | Cause and fix |
 | --- | --- |
-| JavaScript syntax error at file:line | The file does not parse. The report includes the line and a code frame. Most often an unclosed bracket or template string after an edit; re-read the file with `read_file` before editing again. |
+| JavaScript syntax error at file:line | The file does not parse. The report includes the line and a code frame. Most often an unclosed bracket or template string after an edit; compare it with your local copy before editing again. |
 | Import not found | A relative import points at a file that is not in the bundle. Paths are case sensitive and need the extension (`./world.js`, not `./world`). |
 | Bare import with no mapping | `import x from 'some-lib'` only works for names in the import map (`three`, `three/addons/…`, `three/webgpu`, `three/tsl`, `@gcp/…`). Bundle the library and import it by relative path, or add your own import map to `index.html`. |
 | Missing file | HTML or CSS refers to a file that was not uploaded. |
 | GCP.ready() is never called | Add `if (window.GCP) GCP.ready();` after the first playable frame. |
 | index.html missing | It must be at the bundle root, not inside a folder. When uploading a zip, the platform strips a single top-level folder for you. |
+| Links to a native download, links to an app-store install, sends the player to another site | The platform hosts web games only, and the page must be the game itself. Remove the download, store link or redirect. |
+| Upload refused: "is a Windows program", "a zip archive", … | Uploads are checked by their bytes, not only their name, and programs, installers and archives are refused. Upload the web build instead; from an engine, its Web / HTML5 / WebGL export folder (Unity: Compression Format set to Disabled). |
 
 ## boots: GCP.ready() was not called in time
 
