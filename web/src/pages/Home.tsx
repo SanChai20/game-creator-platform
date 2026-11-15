@@ -55,7 +55,7 @@ export function Home() {
       <div className="wrap">
         <Spotlight games={spot} />
         <Since newCount={newCount} since={since} />
-        <Cartridges n={next()} list={d.genres} />
+        <Cartridges n={d.genres.length ? next() : undefined} list={d.genres} />
         <TabbedLists n={next()} title={t('New and noteworthy', '新鲜热门')} tabs={[
           { key: 'trending', label: t('Trending', '热门'), to: '/browse', games: more.length >= 5 ? more : sh.trending },
           { key: 'new', label: t('New releases', '新品'), to: '/browse?sort=new', games: sh.new },

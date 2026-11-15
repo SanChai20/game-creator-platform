@@ -2,7 +2,8 @@
 // Every tool gets its happy path and its error paths. A connected player joins a multiplayer room over
 // a real WebSocket and submits a leaderboard score with the play token the platform gives players.
 //   BASE=https://<site> node tests/mcp-live.mjs
-// Creates throwaway accounts and projects. No tool deletes a project, so the ids are printed for clean-up.
+// Creates throwaway accounts and projects. At the end every game it published is taken offline again, so nothing
+// it made stays in the public store; no tool deletes a project, so the ids are printed for removal in the admin console.
 // Needs Node 22 or later (global WebSocket). Publishing is skipped, and reported as skipped, when the
 // platform requires the creator license for publishing.
 import { createHash, randomBytes } from 'node:crypto';
@@ -473,6 +474,10 @@ await check('get_implementation: the owner previews the card of the live game; s
 
 // ---- 16. protocol edges
 await check('tools/call: an unknown tool is refused', () => fails('no_such_tool', {}));
+
+// ---- clean-up: take every game this run published back offline, so test games never stay in the public store
+for (const p of [GAME, BAD, EMPTY]) { try { await mcp('unpublish', { project: p.project }); } catch { /* never published, or already offline */ } }
+console.log('Clean-up: this run\'s games are offline.');
 
 // ---- summary
 const count = (k) => results.filter((r) => r[0] === k).length;
