@@ -55,7 +55,7 @@ export const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const TYPES: Record<string, string> = {
   html: 'text/html', js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', json: 'application/json', txt: 'text/plain', md: 'text/markdown',
   svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif', ico: 'image/x-icon',
-  wasm: 'application/wasm', glb: 'model/gltf-binary', gltf: 'model/gltf+json', bin: 'application/octet-stream', ktx2: 'image/ktx2', hdr: 'application/octet-stream',
+  wasm: 'application/wasm', glb: 'model/gltf-binary', gltf: 'model/gltf+json', bin: 'application/octet-stream', data: 'application/octet-stream', pck: 'application/octet-stream', ktx2: 'image/ktx2', hdr: 'application/octet-stream',
   mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4', mp4: 'video/mp4', webm: 'video/webm',
   woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf', wgsl: 'text/plain', glsl: 'text/plain', map: 'application/json',
 };
@@ -63,6 +63,7 @@ export const extOf = (path: string) => (path.match(/\.([a-z0-9]+)$/i)?.[1] || ''
 export const typeOf = (path: string) => TYPES[extOf(path)] || '';
 export const isText = (path: string) => ['html', 'js', 'mjs', 'css', 'json', 'txt', 'md', 'svg', 'wgsl', 'glsl', 'map'].includes(extOf(path));
 export const ALLOWED_EXT = Object.keys(TYPES);
+
 
 /** Normalises a bundle path; returns null if it is not allowed. */
 export function cleanPath(p: string): string | null {

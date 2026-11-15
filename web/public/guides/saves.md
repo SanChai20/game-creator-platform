@@ -88,7 +88,7 @@ What the server module receives in `env`:
 | `env.player` | `{ id, name }` of the caller, or `null` when the request carries no valid play session |
 | `env.store` | `get(key, { player })`, `set(key, value, { player })`, `delete(key, { player })`, `list(prefix, { player })`. Without `player` the data is game-wide and is what `GCP.shared.get` reads. With `player` it is that player's save, the same data `GCP.save` uses. |
 
-Rules for server code: it is an ES module with a default export that has `fetch`; it may import other files under `server/` by relative path; it has no access to the platform's own data or secrets; keep each request short. `check_project` validates the syntax, and the platform setting that allows server code is reported by `get_account`.
+Rules for server code: it is an ES module with a default export that has `fetch`; it may import other files under `server/` by relative path; it has no access to the platform's own data or secrets; keep each request short. `deploy_preview` validates the syntax, and whether this platform allows server code is shown by `get_started` under `account.limits`.
 
 ## Privacy
 

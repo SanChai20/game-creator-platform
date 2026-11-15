@@ -49,7 +49,7 @@ export function Console() {
         <div className="cols">
           <div className="stack l">
             <div className="card">
-              <header><h3>{t('Your games', '你的游戏')}</h3><span className="dim right" style={{ fontSize: 13 }}>{t('Created and updated by your agent', '由你的智能体创建和更新')}</span></header>
+              <header><h3>{t('Your games', '你的游戏')}</h3><span className="dim right" style={{ fontSize: 13 }}>{t('Created and updated by your agent · web games only', '由你的智能体创建和更新 · 仅支持网页游戏')}</span></header>
               {projects.length ? projects.map((p) => (
                 <Link to={`/console/p/${p.id}`} className="proj" key={p.id}>
                   <div className="thumb" style={p.cover ? undefined : artStyle(p.slug)}>{p.cover && <img src={p.cover} alt="" loading="lazy" />}</div>
@@ -58,7 +58,7 @@ export function Console() {
                   <div className="row tail mute num" style={{ fontSize: 13 }}><span>{price(p.price_cents)}</span><span>{count(p.plays, 'play', 'plays', '次游玩')}</span><Stars rating={p.rating} /></div>
                 </Link>
               )) : (
-                <div className="pad stack"><b>{t('No games yet', '还没有游戏')}</b><p className="mute">{t('Games are made by your agent, not in this console. Connect it, then ask for a game.', '游戏由你的智能体创作，而不是在控制台里手动创建。先连接智能体，再让它为你做一款游戏。')}</p><Code text={starterPrompt()} /></div>
+                <div className="pad stack"><b>{t('No games yet', '还没有游戏')}</b><p className="mute">{t('Games are made by your agent, not in this console. Connect it, then ask for a game. The platform hosts web games only: games that run in a browser page, not native, mobile, console or desktop builds.', '游戏由你的智能体创作，而不是在控制台里手动创建。先连接智能体，再让它为你做一款游戏。平台仅托管网页游戏，即在浏览器页面中运行的游戏，不接受原生、移动端、主机或桌面端构建。')}</p><Code text={starterPrompt()} /></div>
               )}
             </div>
             {!!data.library.length && <div><div className="section-h" style={{ marginTop: 8 }}><h2 style={{ fontSize: 20 }}>{t('Games you bought', '已购游戏')}</h2></div><div className="grid" style={{ paddingBottom: 0 }}>{data.library.map((g: any) => <GameTile key={g.id} g={g} />)}</div></div>}

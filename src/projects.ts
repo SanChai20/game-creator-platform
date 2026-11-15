@@ -5,6 +5,8 @@ import { getSettings } from './settings';
 import { THREE_VERSION } from './generated/runtime-source';
 import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf } from './util';
 
+import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
+
 export const wsKey = (pid: string, path: string) => `ws/${pid}/${path}`;
 export const verKey = (pid: string, n: number, path: string) => `v/${pid}/${n}/${path}`;
 
@@ -25,7 +27,7 @@ export async function ownedProject(env: Env, user: User, idOrSlug: string): Prom
 
 export async function createProject(env: Env, user: User, input: { title: string; slug?: string; tagline?: string; description?: string; tags?: string[] }, actor = 'console'): Promise<Project> {
   const s = await getSettings(env);
-  if (s.creator_fee_for_projects && !user.creator) throw forbidden('A creator license is required before creating projects.', 'Call get_account to get the purchase link.');
+  if (s.creator_fee_for_projects && !user.creator) throw forbidden('A creator license is required before creating projects.', 'Call get_started to see the account status and the purchase link.');
   const title = String(input.title || '').trim().slice(0, 80);
   if (title.length < 2) throw bad('title must be at least 2 characters.');
   const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM projects WHERE owner_id = ? AND status != 'removed'").bind(user.id).first<{ n: number }>();
@@ -75,7 +77,9 @@ export async function listFiles(env: Env, pid: string): Promise<FileRow[]> {
 export async function putFile(env: Env, p: Project, rawPath: string, bytes: Uint8Array): Promise<FileRow> {
   const s = await getSettings(env);
   const path = cleanPath(rawPath);
-  if (!path) throw bad(`Path not allowed: "${rawPath}".`, 'Use relative paths like "index.html" or "src/game.js" with a known extension (html, js, css, json, png, jpg, webp, svg, mp3, ogg, wav, glb, wasm, woff2, …).');
+  if (!path) throw bad(`Path not allowed: "${rawPath}".`, `Use relative paths like "index.html" or "src/game.js" with a web file extension (html, js, css, json, png, jpg, webp, svg, mp3, ogg, wav, glb, wasm, woff2, data, pck, …). ${WEB_ONLY_HINT}`);
+  const what = nonWebContent(bytes, path);
+  if (what) throw bad(`${path} is ${what}, not a web file. This platform hosts web games only.`, WEB_ONLY_HINT);
   if (bytes.byteLength > s.file_max_bytes) throw bad(`${path} is ${bytes.byteLength} bytes; the limit is ${s.file_max_bytes}.`);
   const existing = await listFiles(env, p.id);
   const others = existing.filter((f) => f.path !== path);
@@ -102,21 +106,6 @@ export async function deleteFile(env: Env, pid: string, path: string): Promise<b
   const r = await env.DB.prepare('DELETE FROM files WHERE project_id = ? AND path = ?').bind(pid, path).run();
   await env.FILES.delete(wsKey(pid, path));
   return (r.meta.changes || 0) > 0;
-}
-
-/** Copies a starter template into the workspace. */
-export async function applyTemplate(env: Env, p: Project, name: string): Promise<string[]> {
-  const idx = await assetJson<{ templates: { name: string; files: { path: string }[] }[] }>(env, '/templates/index.json');
-  const t = idx.templates.find((x) => x.name === name);
-  if (!t) throw bad(`Unknown template "${name}".`, `Available: ${idx.templates.map((x) => x.name).join(', ')}`);
-  const written: string[] = [];
-  for (const f of t.files) {
-    const r = await env.ASSETS.fetch(new Request(`https://assets.local/templates/${name}/${f.path}`));
-    if (!r.ok) continue;
-    await putFile(env, p, f.path, new Uint8Array(await r.arrayBuffer()));
-    written.push(f.path);
-  }
-  return written;
 }
 
 export async function assetJson<T>(env: Env, path: string): Promise<T> {
@@ -205,7 +194,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const bytes = files.reduce((a, f) => a + f.size, 0);
   let manifest = resolveManifest(null, origin);
 
-  if (!files.length) err({ message: 'The project has no files yet.', hint: 'Upload at least index.html (put_files), or start from a template (apply_template).' });
+  if (!files.length) err({ message: 'The project has no files yet.', hint: 'Upload at least index.html (upload_files or create_upload_url).' });
   if (files.length && !paths.has('index.html')) err({ message: 'index.html is missing.', hint: 'The game document must be index.html at the bundle root.' });
 
   const texts = new Map<string, string>();
@@ -232,7 +221,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
     catch (e) {
       const loc = (e as { loc?: { line: number; column: number } }).loc;
       err({ file, line: loc ? loc.line + lineOffset : undefined, col: loc?.column, message: `JavaScript syntax error: ${(e as Error).message.replace(/\s*\(\d+:\d+\)$/, '')}`, frame: loc ? frameOf(src, loc.line, loc.column) : undefined,
-        hint: kind === 'script' && /\b(import|export)\b/.test(src) ? 'This file uses import/export. Load it with <script type="module">.' : 'Fix the syntax at the marked position, upload the file again, then run check_project.' });
+        hint: kind === 'script' && /\b(import|export)\b/.test(src) ? 'This file uses import/export. Load it with <script type="module">.' : 'Fix the syntax at the marked position, upload the file again, then deploy again.' });
       return;
     }
     const imps: { spec: string; line: number }[] = [];
@@ -252,6 +241,8 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   for (const [file, src] of texts) {
     const ext = extOf(file);
     if (file.startsWith('server/')) continue;
+    // web games only: the page is the game, not a way to a native download, an app store or another site
+    if (ext === 'html' || ext === 'js' || ext === 'mjs') for (const i of nonWebPage(src)) err({ file, line: src.slice(0, i.index).split('\n').length, message: i.message, hint: i.hint });
     if (ext === 'js' || ext === 'mjs') {
       // A file is a module if anything imports it or it uses import/export; parse as module first.
       const isModule = /^\s*(import|export)\b/m.test(src);
@@ -296,7 +287,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
     }
   }
 
-  if (files.length && !sawReady) err({ message: 'The game never calls GCP.ready().', hint: 'Call GCP.ready() once, right after the first playable frame is drawn (stage.run() from @gcp/craft.js or @gcp/craft2d.js does it for you, unless you pass { ready: false }). The platform uses it to know the game booted. See get_guide("platform-contract").' });
+  if (files.length && !sawReady) err({ message: 'The game never calls GCP.ready().', hint: 'Call GCP.ready() once, right after the first playable frame is drawn (stage.run() from @gcp/craft.js or @gcp/craft2d.js does it for you, unless you pass { ready: false }). An engine export can call it from its index.html or a small JS plugin once the first scene is running. The platform uses it to know the game booted. See get_started {topic: "contract"}.' });
 
   const server = files.filter((f) => f.path.startsWith('server/'));
   if (server.length) {
@@ -339,7 +330,7 @@ export function versionEligible(v: Version, browserRequired: boolean): { ok: boo
   const report = parseJson<{ ok?: boolean; gpuLimited?: boolean; browser?: string }>(v.report, {});
   if (v.status === 'verified' && report.ok) return { ok: true, reason: 'Automated browser check passed.' };
   if (v.human_ok && (!browserRequired || report.gpuLimited || report.browser === 'unavailable')) return { ok: true, reason: 'A clean real-browser preview session qualified this version.' };
-  if (v.status === 'queued' || v.status === 'deploying' || v.status === 'verifying') return { ok: false, reason: `Version ${v.n} is still ${v.status}. Call get_version again in a few seconds.` };
+  if (v.status === 'queued' || v.status === 'deploying' || v.status === 'verifying') return { ok: false, reason: `Version ${v.n} is still ${v.status}. Call list_versions {project, version} again in a few seconds.` };
   return { ok: false, reason: `Version ${v.n} has not passed verification.` };
 }
 

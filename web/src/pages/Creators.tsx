@@ -30,8 +30,8 @@ export function ConnectAgent() {
 }
 
 export const starterPrompt = () => t(
-  'Use the Game Creator tools. Call get_started first. Then make me a small game about a lighthouse keeper catching falling stars, preview it, fix whatever verification reports, and show me the preview before publishing.',
-  '使用 Game Creator 工具。先调用 get_started，然后帮我做一款小游戏：灯塔守护者接住坠落的星星。部署预览，修复验证报告中的所有问题，发布前先让我看看预览。');
+  'Use the Game Creator tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.',
+  '使用 Game Creator 工具。先调用 get_started，然后帮我做一款网页小游戏：灯塔守护者接住坠落的星星。部署预览，修复验证报告中的所有问题，发布前先让我看看预览。');
 
 export function Creators() {
   const { config, user } = useApp(), s = config.settings;
@@ -40,7 +40,8 @@ export function Creators() {
       <section className="lead"><div className="wrap">
         <span className="eyebrow sig">{t('For creators', '面向创作者')}</span>
         <h1 style={{ marginTop: 18 }}>{s.tagline}</h1>
-        <p>{t('The hard-won craft of making web games that load fast, run everywhere and feel good has been written down once: as rules, guides, kits and a verifier. Your agent, whichever one you use, picks it up and builds your game with it.', '如何让网页游戏加载快、处处能跑、手感出色——这些来之不易的经验已被整理成规则、指南、工具包与验证器。无论你使用哪款智能体，它都能直接取用，为你把游戏做出来。')}</p>
+        <p>{t('Make a web game however you like, with whichever agent you use. The platform deploys every version, checks it in a real browser, publishes it to the marketplace, keeps every version for rollback, and gives it saves, leaderboards and multiplayer rooms.', '用你喜欢的方式、你常用的智能体制作网页游戏。平台负责部署每个版本、在真实浏览器中检查、发布到游戏市场、保留所有版本以便回滚，并提供存档、排行榜与多人房间。')}</p>
+        <p className="mute">{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。')}</p>
         <div className="row wrapx" style={{ marginTop: 30 }}>
           <Link to={user ? '/console' : '/signup?next=%2Fconsole'} className="btn pri big">{user ? t('Open your console', '打开控制台') : t('Start creating', '开始创作')}</Link>
           <a href="#connect" className="btn big ghost">{t('Connect an agent', '连接智能体')}</a>
@@ -51,7 +52,7 @@ export function Creators() {
         <section className="stack l">
           <div className="section-h" style={{ margin: 0 }}><h2>{t('From an idea to a live game', '从想法到上线')}</h2></div>
           <div className="tri">
-            <div><span className="eyebrow sig">01 · {t('Build', '创作')}</span><h3>{t('Describe it to your agent', '向智能体描述你的游戏')}</h3><p>{t('The agent reads the platform guides on rendering, meshes, materials, input and performance, starts from a template or from nothing, and writes the game.', '智能体会阅读平台关于渲染、网格、材质、输入与性能的指南，从模板或空白起步，写出整款游戏。')}</p></div>
+            <div><span className="eyebrow sig">01 · {t('Build', '创作')}</span><h3>{t('Your agent makes it', '由你的智能体制作')}</h3><p>{t('Any engine, framework or none, as long as the result runs in a browser: HTML, JavaScript, CSS and WebAssembly. Engines that export to the web (Unity WebGL, Godot Web and others) work too. The agent uploads the files.', '任何引擎、框架，或不用引擎都可以，只要最终能在浏览器中运行：HTML、JavaScript、CSS 与 WebAssembly。可导出网页版本的引擎（Unity WebGL、Godot Web 等）同样适用。智能体负责上传文件。')}</p></div>
             <div><span className="eyebrow sig">02 · {t('Verify', '验证')}</span><h3>{t('A real browser plays it', '真实浏览器试玩')}</h3><p>{t('Each preview is deployed as its own Cloudflare Worker and opened in a real browser. It must boot, keep rendering, show a picture, survive input and throw no errors.', '每个预览版本都会部署为独立的 Cloudflare Worker，并在真实浏览器中打开：必须能启动、持续渲染、有画面、经得住输入且没有报错。')}</p></div>
             <div><span className="eyebrow sig">03 · {t('Publish', '发布')}</span><h3>{t('Live in the marketplace', '上架游戏市场')}</h3><p>{t('A verified version goes live with one instruction. No human review queue. Keep shipping versions, roll back in a second, take it offline whenever you like.', '通过验证的版本只需一句指令即可上线，无需人工审核排队。可持续迭代、秒级回滚、随时下线。')}</p></div>
           </div>
@@ -79,11 +80,11 @@ export function Creators() {
         <section className="stack l">
           <div className="section-h" style={{ margin: 0 }}><h2>{t('Three rules. Everything else is yours.', '只有三条规则，其余由你决定。')}</h2></div>
           <div className="tri">
-            <div><h3>{t('A game is a web page', '游戏就是一个网页')}</h3><p>{t('index.html at the root, with whatever it loads beside it. No build step, no required engine.', '根目录放 index.html，旁边是它加载的文件。无需构建步骤，不限定引擎。')}</p></div>
+            <div><h3>{t('A game is a web page', '游戏就是一个网页')}</h3><p>{t('index.html at the root, with whatever it loads beside it. No build step, no required engine. Programs, installers and links to app stores are refused.', '根目录放 index.html，旁边是它加载的文件。无需构建步骤，不限定引擎。程序、安装包与应用商店链接会被拒绝。')}</p></div>
             <div><h3>{t('Say when it is ready', '告知何时就绪')}</h3><p>{t('Call GCP.ready() once, after the first playable frame is on screen.', '在第一帧可玩画面出现后调用一次 GCP.ready()。')}</p></div>
             <div><h3>{t('Stay alive', '保持运行')}</h3><p>{t('Keep rendering, throw no uncaught errors, and survive keyboard, mouse and touch.', '持续渲染，不抛出未捕获的错误，并经得住键盘、鼠标与触摸操作。')}</p></div>
           </div>
-          <p className="mute" style={{ maxWidth: '70ch' }}>{t('Genre, art direction, camera, rendering technique and controls are never prescribed. The guides are advice gathered from shipped games, the kits are optional, and two games made here should look nothing alike.', '题材、美术风格、镜头、渲染技术与操作方式从不设限。指南是从已上线游戏中总结的建议，工具包可用可不用——在这里诞生的任意两款游戏都不该彼此相像。')} <a className="sig" href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Read the full contract', '阅读完整约定')} →</a></p>
+          <p className="mute" style={{ maxWidth: '70ch' }}>{t('Genre, engine, art direction, camera, rendering technique and controls are never prescribed or scored.', '题材、引擎、美术风格、镜头、渲染技术与操作方式从不设限，也不评分。')} <a className="sig" href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Read the full contract', '阅读完整约定')} →</a></p>
         </section>
 
         <section className="stack l">

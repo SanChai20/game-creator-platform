@@ -53,6 +53,20 @@ export class GameRoom extends DurableObject<Env> {
     } else if (m.t === 'ping') this.send(ws, { t: 'pong' });
   }
 
+  /** For the game's creator (MCP game_room): who is here, who hosts, and the stored snapshot. Called over RPC only, never from a player's request. */
+  async inspect(): Promise<{ players: { id: string; name: string; host: boolean; joined_at: string }[]; host: string | null; state_json: string | null }> {
+    const peers = this.peers(), raw = await this.ctx.storage.get<string>('state');
+    return { players: peers.map((e, i) => ({ id: e.p.id, name: e.p.name, host: i === 0, joined_at: new Date(Math.floor(e.p.at)).toISOString() })), host: peers[0]?.p.id ?? null, state_json: raw ?? null };
+  }
+
+  /** Clears a stuck room: drops the snapshot and, with kick, disconnects everyone (they can rejoin at once). */
+  async reset(kick: boolean): Promise<{ cleared: boolean; disconnected: number }> {
+    await this.ctx.storage.deleteAll();
+    const peers = this.peers();
+    for (const e of peers) { this.send(e.ws, { t: 'state', d: null }); if (kick) try { e.ws.close(4000, 'Room reset by the game creator'); } catch { /* closing */ } }
+    return { cleared: true, disconnected: kick ? peers.length : 0 };
+  }
+
   async webSocketClose(ws: WebSocket): Promise<void> { await this.left(ws); }
   async webSocketError(ws: WebSocket): Promise<void> { await this.left(ws); }
 

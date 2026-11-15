@@ -104,12 +104,13 @@ button.go{background:#ffb347;border-color:#ffb347;color:#1b1203}small{display:bl
 function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number): string {
   const who = d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : 'This app registered itself, so its name is not verified.';
   return page(`Connect ${d.clientName}`, `<div class="mark">${esc(brand)}</div>
-<h1>Let ${esc(d.clientName)} make games for you?</h1>
+<h1>Let ${esc(d.clientName)} publish web games for you?</h1>
 <p>${who} Access will be sent to <strong>${esc(d.redirectHost)}</strong>.</p>
 ${d.redirectIsLoopback ? '<div class="warn"><strong>This sends access to an app on your computer.</strong> Continue only if you just started connecting from that app.</div>' : ''}
 <p>Signed in as <strong>${esc(user.name)}</strong> (${esc(user.email)}). The agent will be able to:</p>
-<ul><li>Create and edit your game projects</li><li>Deploy previews and run verification</li><li>Publish, roll back and take games offline</li><li>Set listing details and prices, and read your game stats</li></ul>
+<ul><li>Create your game projects and upload their files</li><li>Deploy previews and run verification</li><li>Publish, roll back and take games offline</li><li>Set listing details and prices, and read your game stats</li></ul>
 <p>It cannot withdraw money, change your password or see payment details.</p>
+<p>This platform hosts web games only: games that run in a browser page. Native, mobile, console and desktop builds are refused.</p>
 <form method="post"><input type="hidden" name="handle" value="${esc(handle)}">
 <div class="row"><button name="decision" value="deny">Deny</button><button class="go" name="decision" value="approve">Allow</button></div></form>
 <small>Access expires after ${days} day${days === 1 ? '' : 's'}; you can revoke it sooner from your console.</small>`);
