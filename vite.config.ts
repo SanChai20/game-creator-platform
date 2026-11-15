@@ -5,6 +5,6 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   root: 'web',
   plugins: [react()],
-  build: { outDir: '../dist', emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 800 },   // the home hall's three.js chunk is ~720 KB (190 KB gzipped), loaded on demand
+  build: { outDir: '../dist', emptyOutDir: true, target: 'es2022' },
   server: { proxy: { '/api': 'http://localhost:8787', '/mcp': 'http://localhost:8787' } },
 });

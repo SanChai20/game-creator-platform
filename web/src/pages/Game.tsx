@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ago, api, artStyle, date, Fail, Link, loginUrl, navigate, num, playTime, price, query, rememberPlay, Star, Stars, t, useAct, useApp, useData, count } from '../lib';
 import { Badge, Button, Card, Chip, EmptyState, Eyebrow, KeyValue, Notice, PlayButton, Section, Spinner, Textarea } from '../ui';
+import { MoreLike } from '../store';
 
 /** The play surface: a poster until the player starts, then the game in a frame on its own origin. */
 export function Stage({ poster, seed, url, children }: { poster: string | null; seed: string; url: string | null; children?: ReactNode }) {
@@ -114,6 +115,7 @@ export function Game({ slug }: { slug: string }) {
           <p className="dim fs-sm">✓ {t('Every game here was run in a real browser and checked for playability before it went live.', '这里的每款游戏在上线前都在真实浏览器中运行并通过了可玩性验证。')}</p>
         </aside>
       </div>
+      <MoreLike tag={g.tags?.[0]} slug={g.slug} />
     </div>
   );
 }

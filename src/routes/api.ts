@@ -72,21 +72,78 @@ api.post('/auth/logout', async (c) => {
 });
 
 // ----- marketplace -----------------------------------------------------------------------------
-api.get('/games', async (c) => {
-  const sort = c.req.query('sort') || 'trending', q = (c.req.query('q') || '').trim().slice(0, 60), tag = (c.req.query('tag') || '').trim().toLowerCase().slice(0, 24), price = c.req.query('price') || '';
+// ---- the catalogue -------------------------------------------------------------------------------
+// Built for tens of thousands of games: every list is paged (limit and offset, with the total), and the home
+// page gets all of its shelves in one request. "Playing now" counts players with a heartbeat in the last minute.
+type ListOpts = { sort?: string; q?: string; tag?: string; price?: string; limit?: number; offset?: number; newSince?: number };
+const ORDER: Record<string, string> = {
+  new: 'p.published_at DESC',
+  top: '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC',
+  played: 'p.plays DESC',
+  playing: 'playing DESC, recent DESC, p.plays DESC',
+  trending: 'p.featured DESC, recent DESC, p.plays DESC, p.published_at DESC',
+};
+async function listGames(c: Ctx, o: ListOpts) {
+  const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 24);
+  const limit = Math.max(1, Math.min(60, o.limit || 24)), offset = Math.max(0, Math.min(100000, o.offset || 0));
   const where = ["p.status = 'live'"], args: unknown[] = [];
-  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like); }
+  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase()); }
   if (tag) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%'); }
-  if (price === 'free') where.push('p.price_cents = 0'); else if (price === 'paid') where.push('p.price_cents > 0');
-  const order = sort === 'new' ? 'p.published_at DESC' : sort === 'top' ? '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC' : sort === 'played' ? 'p.plays DESC' : 'p.featured DESC, recent DESC, p.plays DESC, p.published_at DESC';
-  const rows = await c.env.DB.prepare(
-    `SELECT p.*, u.name AS author, COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?), 0) AS recent,
-       (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl WHERE pl.project_id = p.id AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
-     FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 60`).bind(addDays(dayOf(now()), -7), now() - ONLINE_WINDOW_MS, ...args).all();
-  const tags = await c.env.DB.prepare("SELECT tags FROM projects WHERE status = 'live' LIMIT 500").all<{ tags: string }>();
+  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0');
+  if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
+  const t = now(), w = where.join(' AND ');
+  const [rows, total] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT p.*, u.name AS author, COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?), 0) AS recent,
+         (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl WHERE pl.project_id = p.id AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
+       FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${ORDER[sort]} LIMIT ? OFFSET ?`).bind(addDays(dayOf(t), -7), t - ONLINE_WINDOW_MS, ...args, limit, offset).all(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${w}`).bind(...args).first<{ n: number }>(),
+  ]);
+  const games = rows.results.map((r) => card(c.get('origin'), r)), n = total?.n || 0;
+  return { games, total: n, next_offset: offset + games.length < n ? offset + games.length : null };
+}
+/** Genres: the most used tags with how many live games carry each. */
+async function genreCounts(c: Ctx, top = 16) {
+  const tags = await c.env.DB.prepare("SELECT tags FROM projects WHERE status = 'live' ORDER BY plays DESC LIMIT 2000").all<{ tags: string }>();
   const counts = new Map<string, number>();
   for (const r of tags.results) for (const t of parseJson<string[]>(r.tags, [])) counts.set(t, (counts.get(t) || 0) + 1);
-  return c.json({ games: rows.results.map((r) => card(c.get('origin'), r)), tags: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 16).map(([t]) => t) });
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).map(([tag, n]) => ({ tag, n }));
+}
+const num = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
+
+api.get('/games', async (c) => {
+  const qy = (k: string) => c.req.query(k);
+  const [list, genres] = await Promise.all([
+    listGames(c, { sort: qy('sort'), q: qy('q'), tag: qy('tag'), price: qy('price'), limit: num(qy('limit')) || 60, offset: num(qy('offset')), newSince: num(qy('since')) }),
+    num(qy('offset')) || qy('facets') === '0' ? Promise.resolve(null) : genreCounts(c),   // facets=0: just the games (instant search, shelves)
+  ]);
+  return c.json({ ...list, ...(genres && { tags: genres.map((g) => g.tag), genres }) });
+});
+
+/** Everything the home page shows, in one request: the spotlight, the shelves, the genres and the key numbers. */
+api.get('/home', async (c) => {
+  const t = now(), weekAgo = t - 7 * 86400000;
+  const [trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+    listGames(c, { sort: 'trending', limit: 16 }),
+    listGames(c, { sort: 'playing', limit: 12 }),
+    listGames(c, { sort: 'new', limit: 12 }),
+    listGames(c, { sort: 'top', limit: 12 }),
+    listGames(c, { sort: 'trending', price: 'free', limit: 12 }),
+    genreCounts(c, 18),
+    c.env.DB.prepare(`SELECT
+        (SELECT COUNT(*) FROM projects WHERE status = 'live') AS games,
+        (SELECT COUNT(*) FROM projects WHERE status = 'live' AND published_at > ?) AS new_week,
+        (SELECT COUNT(DISTINCT user_id) FROM plays WHERE env = 'live' AND last_beat_at > ? AND kind != 'verify') AS playing,
+        (SELECT COUNT(DISTINCT owner_id) FROM projects WHERE status = 'live') AS creators`).bind(weekAgo, t - ONLINE_WINDOW_MS).first<{ games: number; new_week: number; playing: number; creators: number }>(),
+  ]);
+  c.header('cache-control', 'public, max-age=20');
+  return c.json({
+    stats: { games: stats?.games || 0, new_week: stats?.new_week || 0, playing: stats?.playing || 0, creators: stats?.creators || 0 },
+    shelves: {
+      trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
+    },
+    genres,
+  });
 });
 
 async function liveGame(c: Ctx, slug: string): Promise<Project & { author: string }> {
