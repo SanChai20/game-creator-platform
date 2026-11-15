@@ -1,7 +1,13 @@
 import { StrictMode, useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { TOKENS_CSS } from './ui/tokens';
+import './ui/ui.css';
 import './styles.css';
-import { api, AppCtx, Link, loginUrl, navigate, setLang, Spinner, t, useLang, useLocation, type Config, type Me } from './lib';
+import { api, AppCtx, Link, loginUrl, navigate, setLang, t, useLang, useLocation, type Config, type Me } from './lib';
+import { Button, EmptyState, Spinner } from './ui';
+
+// The design tokens are defined once in ui/tokens.ts and shared with the Worker's server-rendered pages.
+document.head.insertAdjacentHTML('afterbegin', `<style id="tokens">${TOKENS_CSS}</style>`);
 import { Home } from './pages/Home';
 import { Game } from './pages/Game';
 import { Auth, ClaimAdmin } from './pages/Auth';
@@ -21,7 +27,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
   return (
     <nav className="nav">
       <div className="wrap">
-        <Link to="/" className="brand"><i /><span>{brand}</span></Link>
+        <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
         <Link to="/" className={on('/')}>{t('Games', '游戏')}</Link>
         <Link to="/create" className={on('/create')}>{t('For creators', '创作者')}</Link>
         {user && <Link to="/console" className={on('/console') + ' hide-s'}>{t('Console', '控制台')}</Link>}
@@ -44,7 +50,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
         ) : (
           <>
             <Link to={onAuth ? '/login' + keep : loginUrl()} className="nl">{t('Sign in', '登录')}</Link>
-            <Link to={'/signup' + keep} className="btn pri sm">{t('Join', '注册')}</Link>
+            <Button to={'/signup' + keep} variant="primary" size="sm" className="nav-join">{t('Join', '注册')}</Button>
           </>
         )}
       </div>
@@ -53,7 +59,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
 }
 
 function NotFound() {
-  return <div className="wrap page"><div className="empty"><h3>{t('Nothing here', '页面不存在')}</h3><p>{t('That page does not exist, or it was moved.', '该页面不存在或已被移动。')}</p><p style={{ marginTop: 18 }}><Link to="/" className="btn">{t('Back to the games', '返回游戏列表')}</Link></p></div></div>;
+  return <div className="wrap page"><EmptyState title={t('Nothing here', '页面不存在')} action={<Button to="/">{t('Back to the games', '返回游戏列表')}</Button>}>{t('That page does not exist, or it was moved.', '该页面不存在或已被移动。')}</EmptyState></div>;
 }
 
 function Routes({ user }: { user: Me | null }) {
@@ -86,7 +92,7 @@ function App() {
   useEffect(() => { refresh().catch(() => setFailed(true)); }, [refresh]);
   const toast = useCallback((msg: string, bad = false) => { setToast({ msg, bad }); clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), bad ? 5200 : 2600); }, []);
   useEffect(() => { if (state) document.title = `${state.config.settings.brand_name} — ${state.config.settings.tagline}`; }, [state]);
-  if (failed) return <div className="wrap page"><div className="empty"><h3>{t('The site did not respond', '站点暂时无法响应')}</h3><p><button className="btn" onClick={() => location.reload()}>{t('Reload', '刷新')}</button></p></div></div>;
+  if (failed) return <div className="wrap page"><EmptyState title={t('The site did not respond', '站点暂时无法响应')} action={<Button onClick={() => location.reload()}>{t('Reload', '刷新')}</Button>} /></div>;
   if (!state) return <Spinner />;
   const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); await refresh(); navigate('/'); };
   const brand = state.config.settings.brand_name as string;
@@ -95,8 +101,10 @@ function App() {
       <Nav user={state.user} brand={brand} onLogout={logout} />
       <main><Routes user={state.user} /></main>
       <footer className="foot"><div className="wrap">
-        <span>© {new Date().getFullYear()} {brand}</span><span>{state.config.settings.tagline}</span><span className="grow" />
-        <Link to="/create">{t('Make a game', '创作游戏')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a>
+        <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
+        <span>{state.config.settings.tagline}</span><span className="grow" />
+        <Link to="/">{t('Games', '游戏')}</Link><Link to="/create">{t('Make a game', '创作游戏')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a>
+        <span className="foot-note">© {new Date().getFullYear()} {brand} · {t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</span>
       </div></footer>
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
     </AppCtx.Provider>
