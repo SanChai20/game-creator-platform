@@ -75,7 +75,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/create') return <Creators />;
   if (path === '/console') return <Console />;
   if (path === '/console/earnings') return <Earnings />;
-  if ((m = path.match(/^\/console\/p\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
+  if ((m = path.match(/^\/console\/(?:p|projects)\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
   if ((m = path.match(/^\/console\/p\/([^/]+)\/analytics$/))) return <Analytics key={m[1]} id={m[1]} />;
   if (path === '/claim-admin') return <ClaimAdmin />;
   if (path === '/device') return <Device />;

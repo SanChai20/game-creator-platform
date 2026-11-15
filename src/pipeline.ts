@@ -5,6 +5,7 @@ import type { Env, Project, Version } from './env';
 import { deployGame, playKey, waitHealthy } from './deploy';
 import { getProject, getVersion, logEvent } from './projects';
 import { browserVerify } from './verify';
+import { afterPublish } from './implementations';
 import { now, parseJson, rid } from './util';
 // @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
@@ -89,4 +90,5 @@ async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<v
     env.DB.prepare('UPDATE versions SET published_at = ? WHERE project_id = ? AND n = ?').bind(t, p.id, v.n),
   ]);
   await logEvent(env, p.id, 'published', `Version ${v.n} is live`, v.n, job.actor);
+  await afterPublish(env, p.id);
 }

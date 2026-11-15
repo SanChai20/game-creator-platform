@@ -110,6 +110,7 @@ export function Game({ slug }: { slug: string }) {
             <div className="row"><b className="price-big">{g.rating != null ? g.rating.toFixed(1) : '—'}</b><span className="mute">{count(g.rating_count, 'rating', 'ratings', '个评分')}</span></div>
             <div className="dist">{[5, 4, 3, 2, 1].map((n) => <div key={n}><span>{n}</span><i><b style={{ width: `${total ? (data.rating_dist[n - 1] / total) * 100 : 0}%` }} /></i><span className="num">{data.rating_dist[n - 1]}</span></div>)}</div>
           </Card>
+          {g.open_implementation && <p className="dim fs-sm">{t('Open implementation: its creator lets other developers\' agents learn how it is built, never its code.', '开放实现：作者允许其他开发者的智能体了解它的实现方式，但不包括代码。')}</p>}
           <p className="dim fs-sm">✓ {t('Every game here was run in a real browser and checked for playability before it went live.', '这里的每款游戏在上线前都在真实浏览器中运行并通过了可玩性验证。')}</p>
         </aside>
       </div>

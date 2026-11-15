@@ -8,6 +8,7 @@ import { enqueue } from '../pipeline';
 import { getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, onlineNow } from '../analytics';
+import { implementationCard, setOpenImplementation } from '../implementations';
 import { stripe, stripeReady, verifyWebhook } from '../stripe';
 import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
 // @ts-ignore plain JS module
@@ -23,7 +24,7 @@ function card(origin: string, r: Record<string, any>) {
   return {
     id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: parseJson<string[]>(r.tags, []), cover: media(origin, r.cover_key), price_cents: r.price_cents,
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
-    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status,
+    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation,
   };
 }
 
@@ -313,12 +314,13 @@ api.get('/console/projects/:id', async (c) => {
   ]);
   const s = await getSettings(c.env);
   return c.json({
-    project: { ...card(origin, { ...p, author: u.name }), description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
+    project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s) : null,
     online: await onlineNow(c.env, p.id),
+    implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
   });
 });
 
@@ -361,8 +363,15 @@ api.post('/console/projects/:id/online', async (c) => {
 api.patch('/console/projects/:id', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
   const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, any>));
-  await updateProjectMeta(c.env, p, { price_cents: b.price_cents });
+  if (b.price_cents !== undefined) await updateProjectMeta(c.env, p, { price_cents: b.price_cents });
+  if (typeof b.open_implementation === 'boolean') await setOpenImplementation(c.env, p, b.open_implementation, 'console');
   return c.json({ ok: true });
+});
+// What other developers' agents see when this game's implementation is open (a preview while it is not).
+api.get('/console/projects/:id/implementation', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  if (!p.live_version) return c.json({ card: null });
+  return c.json({ card: await implementationCard(c.env, c.get('origin'), u, p.id) });
 });
 
 api.get('/console/earnings', async (c) => {

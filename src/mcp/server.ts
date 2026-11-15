@@ -9,7 +9,7 @@ const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
 const INSTRUCTIONS = `${WEB_ONLY}
-This server deploys, verifies, publishes and versions web games for the account that authorized you, and hosts their services: player saves, shared game data and leaderboards in the platform database (game_data), and realtime multiplayer rooms (game_room). How you make the game is up to you; the platform does not prescribe engines, renderers or art.
+This server deploys, verifies, publishes and versions web games for the account that authorized you, and hosts their services: player saves, shared game data and leaderboards in the platform database (game_data), and realtime multiplayer rooms (game_room). How you make the game is up to you; the platform does not prescribe engines, renderers or art. find_implementations and get_implementation show how other creators' live games were built when they chose to share it (never their code).
 Call get_started first: it returns the rules a game must meet, the workflow, the account status and the platform services.
 Typical loop: create_project → upload_files (or create_upload_url for big files and folders) → deploy_preview → read the report → fix → deploy_preview → publish.
 A game is index.html plus the files it loads. The platform injects a global GCP; call GCP.ready() after the first playable frame.`;

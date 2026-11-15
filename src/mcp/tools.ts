@@ -13,6 +13,7 @@ import { takeOffline } from '../routes/api';
 import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
 import { gameAnalytics, onlineNow } from '../analytics';
+import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
 
@@ -48,6 +49,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const envOf = (v: unknown): 'preview' | 'live' => { if (v === undefined || v === null || v === '') return 'live'; if (v === 'preview' || v === 'live') return v; throw bad('env must be "preview" or "live".'); };
 const issueLine = (i: Issue) => `${i.level.toUpperCase()}${i.file ? ` ${i.file}${i.line ? `:${i.line}` : ''}` : ''}: ${i.message}${i.frame ? `\n${i.frame}` : ''}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
 const RUNNING = ['queued', 'deploying', 'verifying'];
+const sharing = (p: { open_implementation: number }) => (p.open_implementation ? 'on: other agents can read how the live game is built through get_implementation (never its code)' : 'off: nothing about how this game is built is shared');
 
 async function account(c: ToolCtx) {
   const s = await getSettings(c.env), u = c.user, bal = await balanceOf(c.env, u.id);
@@ -121,6 +123,7 @@ export const TOOLS: Tool[] = [
           leaderboards: 'GCP.leaderboard.submit(board, score, order) and GCP.leaderboard.top(board, n, order). game_data {action: "leaderboard"} reads or clears one.',
           multiplayer: 'GCP.room(code): a realtime room per code on the platform\'s multiplayer servers, with a host and host migration. game_room inspects or resets one. get_started {topic: "multiplayer"}.',
           server_code: s.allow_server_code ? 'Optional server/index.js runs in the game\'s own Worker and is reached with GCP.server. get_started {topic: "saves"}.' : 'Disabled on this platform.',
+          open_implementations: `Learn how other developers' live games were built, when they chose to share it: find_implementations searches them by kind of game, engine or technique and shows the patterns across them; get_implementation {game} returns one card (engine, rendering, input, audio, assets, platform services, loop and performance techniques, structure, verified play-through, summary). ${NEVER_SHARED} To share your own, ask the user, then update_project {open_implementation: true} or publish {open_implementation: true}.`,
           verification_hooks: 'GCP.test.onPlaythrough(fn) lets the verifier play your rules to the end; GCP.test.onTwoPlayers(fn) checks a two-player session. Both optional. get_started {topic: "contract"}.',
         },
         account: await account(c),
@@ -148,6 +151,7 @@ export const TOOLS: Tool[] = [
         workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) },
         latest_version: latest ? await versionReport(c, p, latest.n, latest) : null,
         game_page: p.status === 'live' ? `${c.origin}/g/${p.slug}` : null, console_page: `${c.origin}/console/projects/${p.id}`,
+        open_implementation: sharing(p),
       };
     },
   },
@@ -166,13 +170,14 @@ export const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'update_project', title: 'Update listing, price or cover',
-    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, price and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used.',
+    name: 'update_project', title: 'Update listing, price, cover or sharing',
+    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, price and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share.',
     inputSchema: obj({
       project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
       controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
       price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
       cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png".' },
+      open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code). Default off.' },
     }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
@@ -187,10 +192,11 @@ export const TOOLS: Tool[] = [
         await c.env.DB.prepare('UPDATE projects SET cover_key = ? WHERE id = ?').bind(key, p.id).run();
         cover = `${c.origin}/api/media/${key}`;
       }
-      const { cover: _c, ...meta } = a;
+      const { cover: _c, open_implementation: open, ...meta } = a;
       await updateProjectMeta(c.env, p, meta);
+      if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
       const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s).net) : null, ...(cover ? { cover } : {}) };
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s).net) : null, ...(cover ? { cover } : {}), open_implementation: sharing(q) };
     },
   },
   {
@@ -293,8 +299,8 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'publish', title: 'Publish a verified version',
-    description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one.',
-    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' } }, ['project']),
+    description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. open_implementation sets whether other developers\' agents may learn how the game is built (never its code); leave it out to keep the current choice, and ask the user before turning it on.',
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
       if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
@@ -314,13 +320,14 @@ export const TOOLS: Tool[] = [
       const el = versionEligible(v, s.verify_browser_required);
       if (!el.ok) throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
       if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
+      if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
       await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
       await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
       const end = Date.now() + 45000;
       let q = await ownedProject(c.env, c.user, p.id);
       while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
       const live = q.status === 'live' && q.live_version === v.n;
-      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
     },
   },
   {
@@ -446,6 +453,24 @@ export const TOOLS: Tool[] = [
         console_page: `${c.origin}/console/p/${p.id}/analytics`,
       };
     },
+  },
+  {
+    name: 'find_implementations', title: 'Find how other games were built',
+    description: `Searches live games whose creators chose to share how they were built, and shows the patterns across the matches: which engines, rendering, input, audio, art approach, platform services and loop techniques games of that kind use. Use it before building a kind of game you have not built here, e.g. {query: "multiplayer racing"} or {tags: ["puzzle"], uses: ["touch"]}. Each match has a short summary; get_implementation {game} returns the full card. ${NEVER_SHARED}`,
+    inputSchema: obj({
+      query: { type: 'string', description: 'Words about the kind of game or technique, e.g. "3d platformer", "turn-based card game", "procedural audio".' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Only games with all of these marketplace tags.' },
+      engine: { type: 'string', description: 'Only games built with this engine, e.g. "three.js", "Phaser", "Godot", "none".' },
+      uses: { type: 'array', items: { type: 'string' }, description: 'Only games that use all of these, e.g. ["multiplayer rooms", "leaderboards", "touch", "WebGL"].' },
+      limit: { type: 'integer', description: 'Games to return, 1 to 25. Default 10.' },
+    }), annotations: { readOnlyHint: true },
+    run: async (a, c) => findImplementations(c.env, c.origin, c.user, a),
+  },
+  {
+    name: 'get_implementation', title: 'Read how one game was built',
+    description: `Returns the implementation card of one live game whose creator shares it: engine and libraries, rendering and graphics techniques, input, audio, art approach, platform services (saves, leaderboards, rooms, server code), loop and performance techniques, code structure in numbers, the verified play-through, and a summary for building something similar. Your own games can always be read (marked as a preview when not shared). ${NEVER_SHARED}`,
+    inputSchema: obj({ game: { type: 'string', description: 'The game slug from find_implementations or its marketplace address (/g/<slug>).' } }, ['game']), annotations: { readOnlyHint: true },
+    run: async (a, c) => implementationCard(c.env, c.origin, c.user, a.game),
   },
 ];
 

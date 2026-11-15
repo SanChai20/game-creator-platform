@@ -100,7 +100,7 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 15, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 17, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
@@ -386,6 +386,35 @@ async function main() {
   const drpc = async (bearer, method, params) => { const r = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${bearer}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }); return { status: r.status, json: await r.json().catch(() => null) }; };
   const mine = await drpc(dtok.json.access_token, 'tools/call', { name: 'list_projects', arguments: {} });
   assert.equal(mine.status, 200); assert.ok(!mine.json.result.isError, JSON.stringify(mine.json));
+
+  // open implementation: another creator's agent learns how a live game is built only when its creator opts in, never its code
+  const ctool = async (name, args, expectError = false) => { const r = await drpc(dtok.json.access_token, 'tools/call', { name, arguments: args }); assert.equal(r.status, 200); const x = r.json.result; assert.equal(!!x.isError, expectError, `${name}: ${x.content[0].text.slice(0, 400)}`); try { return JSON.parse(x.content[0].text); } catch { return x.content[0].text; } };
+  assert.match(await ctool('get_implementation', { game: slug }, true), /no open implementation/);
+  assert.ok(!(await ctool('find_implementations', {})).games.some((g) => g.game === slug));
+  const own = await tool('get_implementation', { game: slug });
+  assert.ok(own.yours && own.shared === false && /Preview only/.test(own.not_shared) && own.built_with.engine === 'three.js' && own.built_with.rendering.includes('WebGL'), JSON.stringify(own).slice(0, 600));
+  assert.match((await tool('update_project', { project: pid, open_implementation: true })).open_implementation, /^on/);
+  const found = await ctool('find_implementations', { query: 'island', uses: ['WebGL'] });
+  const hit = found.games.find((g) => g.game === slug);
+  assert.ok(hit && hit.engine === 'three.js' && hit.summary.length > 40 && /never shared/.test(found.note), JSON.stringify(found).slice(0, 600));
+  assert.equal((await ctool('find_implementations', { engine: 'phaser' })).games.some((g) => g.game === slug), false);
+  const icard = await ctool('get_implementation', { game: `${BASE}/g/${slug}` });
+  assert.ok(icard.game.slug === slug && icard.built_with.engine === 'three.js' && icard.built_with.input.length && icard.summary.length > 200 && /never shared/.test(icard.never_shared) && !icard.yours, JSON.stringify(icard).slice(0, 600));
+  const src = readFileSync(new URL('three-explorer/src/main.js', tplDir), 'utf8').split('\n').map((l) => l.trim()).filter((l) => l.length > 30);
+  const cardText = JSON.stringify(icard);
+  assert.ok(src.every((l) => !cardText.includes(l)), 'the card must not contain source code');
+  const conImpl = must(await A.get(`/api/console/projects/${pid}`));
+  assert.ok(conImpl.project.open_implementation === true && conImpl.implementation.reads >= 1 && conImpl.implementation.version === 1, JSON.stringify(conImpl.implementation));
+  assert.equal(must(await A.get(`/api/console/projects/${pid}/implementation`)).card.shared, true);
+  assert.ok([403, 404].includes((await B.get(`/api/console/projects/${pid}/implementation`)).status));
+  assert.equal(must(await B.get(`/api/games/${slug}`)).game.open_implementation, true);
+  must(await A.patch(`/api/console/projects/${pid}`, { open_implementation: false }));
+  assert.match(await ctool('get_implementation', { game: slug }, true), /no open implementation/);
+  assert.ok(!(await ctool('find_implementations', { query: 'island' })).games.some((g) => g.game === slug));
+  const repub = await tool('publish', { project: pid, version: 1, open_implementation: true });
+  assert.match(repub.open_implementation, /^on/);
+  assert.equal((await ctool('get_implementation', { game: slug })).version, 1);
+  ok(`open implementation: hidden until the creator opts in, then found by kind and technique and read as a card with no code (${icard.built_with.engine}, ${icard.built_with.input.join(', ')}), counted, and gone again when switched off; publish can opt in`);
   const fresh = await agent('/oauth/token', { grant_type: 'refresh_token', refresh_token: dtok.json.refresh_token, client_id: dtok.json.client_id });
   assert.equal(fresh.status, 200, JSON.stringify(fresh.json)); assert.ok(fresh.json.access_token && fresh.json.access_token !== dtok.json.access_token);
   const cAgents = must(await C.get('/api/console/agents')).agents;
