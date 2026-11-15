@@ -29,6 +29,8 @@ img { display: block; max-width: 100%; }
 h1, h2, h3, h4, p { margin: 0; }
 h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; text-wrap: balance; letter-spacing: -.025em; line-height: 1.08; }
 p { text-wrap: pretty; }
+/* Text that people type (titles, taglines, reviews) can be one long word; let it break instead of pushing the layout wide. */
+p, h1, h2, h3, h4, li, dd, .lede, .prose { overflow-wrap: anywhere; }
 b, strong { font-weight: 650; }
 ::selection { background: var(--accent); color: var(--accent-ink); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-xs); }
@@ -121,7 +123,7 @@ textarea.input { height: auto; padding: 12px 14px; resize: vertical; min-height:
 .chip:hover { color: var(--text); border-color: var(--line-3); background: var(--bg-2); }
 .chip.on { background: var(--text); color: var(--bg-0); border-color: var(--text); }
 
-.badge { display: inline-flex; align-items: center; gap: 6px; height: 23px; padding: 0 9px; border-radius: var(--r-pill); font: 600 10.5px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; background: var(--bg-3); color: var(--text-2); white-space: nowrap; border: 1px solid var(--line); }
+.badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 6px; height: 23px; padding: 0 9px; border-radius: var(--r-pill); font: 600 10.5px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; background: var(--bg-3); color: var(--text-2); white-space: nowrap; border: 1px solid var(--line); }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
 .badge.good { color: var(--good); background: var(--good-wash); border-color: transparent; } .badge.bad { color: var(--bad); background: var(--bad-wash); border-color: transparent; }
 .badge.sig { color: var(--accent); background: var(--accent-wash); border-color: transparent; } .badge.info { color: var(--info); background: var(--info-wash); border-color: transparent; }
