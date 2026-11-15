@@ -48,6 +48,13 @@ export function bundlePrints(texts, baseline) {
   return [...all].sort((a, b) => a - b).slice(0, MAX_PRINTS);
 }
 
+/** True when a code file is mostly the game's own (not a template or kit file copied in), so an identical copy of it means something. */
+export function distinctFile(path, text, baseline) {
+  let all = 0, own = 0;
+  for (const p of /\.html?$/i.test(path) ? inlineScripts(text) : [text]) for (const h of fingerprints(p)) { all++; if (!baseline || !baseline.has(h)) own++; }
+  return own >= 10 && own >= all / 2;
+}
+
 /** The candidate-index sketch: the smallest fingerprints, which similar sets tend to share. */
 export const sketchOf = (prints) => prints.slice(0, SKETCH);
 

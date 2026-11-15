@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { bundlePrints, compare, containment, fingerprints, gameness, inlineScripts, lookDistance, lookOf, tokens } from '../src/originality.js';
+import { bundlePrints, compare, containment, distinctFile, fingerprints, gameness, inlineScripts, lookDistance, lookOf, tokens } from '../src/originality.js';
 import { analyzeBundle } from '../src/implementation.js';
 
 const tpl = (name, path) => readFileSync(new URL(`../web/public/templates/${name}/${path}`, import.meta.url), 'utf8');
@@ -35,6 +35,13 @@ test('code everyone starts from is ignored', () => {
   assert.equal(left.length, 0);
   const own = bundlePrints([{ path: 'src/main.js', text: game + '\n' + tpl('three-explorer', 'src/main.js') }], base);
   assert.ok(own.length > 50);
+});
+
+test('a template file copied in unchanged is not a distinct file', () => {
+  const base = new Set(fingerprints(game));
+  assert.equal(distinctFile('src/main.js', game, base), false);
+  assert.equal(distinctFile('src/main.js', game, new Set()), true);
+  assert.equal(distinctFile('src/tiny.js', 'let a = 1;', new Set()), false);
 });
 
 test('inline scripts of a page are read, the import map is not', () => {

@@ -10,7 +10,7 @@ import { dayOf, now, parseJson } from './util';
 // @ts-ignore plain JS modules
 import { READABLE, analyzeBundle, isVendor } from './implementation.js';
 // @ts-ignore plain JS modules
-import { bundlePrints, compare, gameness, lookDistance, lookOf, sketchOf } from './originality.js';
+import { bundlePrints, compare, distinctFile, gameness, lookDistance, lookOf, sketchOf } from './originality.js';
 // @ts-ignore plain JS module
 import { decodePng } from './craft-review.js';
 
@@ -43,8 +43,9 @@ export async function printVersion(env: Env, p: Project, v: Version): Promise<Bu
   const list = parseJson<{ path: string; size: number; sha: string }[]>(v.files, []);
   const texts = await readTexts(env, p.id, v.n, list);
   const own = texts.filter((t) => t.text !== null && CODE.test(t.path) && !/^server\//.test(t.path) && !isVendor(t.path, t.text)) as { path: string; text: string }[];
-  const prints: number[] = bundlePrints(own, await baselineOf(env));
-  const ownPaths = new Set(own.map((t) => t.path));
+  const base = await baselineOf(env), prints: number[] = bundlePrints(own, base);
+  // files copied from a template or kit say nothing about copying another creator, so only distinct files count
+  const ownPaths = new Set(own.filter((t) => distinctFile(t.path, t.text, base)).map((t) => t.path));
   const files = list.filter((f) => ownPaths.has(f.path) && f.size > 512).map((f) => f.sha);
   const assets = [...new Set(list.filter((f) => ASSET.test(f.path) && f.size > 2048).map((f) => f.sha))];
   let look = null;
