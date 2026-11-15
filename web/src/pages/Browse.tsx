@@ -1,84 +1,154 @@
-// The whole catalogue: search, sort, price and genre, with the filters in the address so any view can be shared.
-// Results come 36 at a time and the next page loads as you near the end (a button does the same for keyboards
-// and for browsers without IntersectionObserver). Cards off screen skip layout and paint (content-visibility).
-import { useEffect, useRef, useState } from 'react';
-import { api, ApiError, Fail, GameTile, navigate, num, query, t, useLocation, type GameCard } from '../lib';
-import { Button, Chip, EmptyState, Segmented, Spinner } from '../ui';
-import { genreName, lastVisit, SearchBox } from '../store';
+// The whole catalogue: search, sort, genres (several at once), price and rating, with every filter and the page
+// number in the address so any view can be shared or bookmarked. Results come 30 to a page with numbered pages,
+// as a grid of cards or as a dense list. The same engine (Catalogue) runs the browse page and each category page.
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { api, ApiError, Fail, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, query, t, useLocation, type GameCard } from '../lib';
+import { Button, EmptyState, Spinner } from '../ui';
+import { GameRow, Pager, SearchBox, useGenres, type Genre } from '../store';
 
-const PAGE = 36;
-interface Page { games: GameCard[]; total: number; next_offset: number | null; genres?: { tag: string; n: number }[] }
+const PAGE = 30;
+interface Page { games: GameCard[]; total: number; next_offset: number | null }
 
-export function Browse() {
-  const loc = useLocation(), q = query();
-  const sort = q.get('sort') || 'trending', tag = q.get('tag') || '', priceF = q.get('price') || '', search = q.get('q') || '', since = q.get('since') || '';
-  const set = (k: string, v: string) => { const n = query(); if (v) n.set(k, v); else n.delete(k); const s = n.toString(); navigate('/browse' + (s ? '?' + s : ''), true); };
-  const base = new URLSearchParams({ sort, limit: String(PAGE), ...(tag && { tag }), ...(priceF && { price: priceF }), ...(search && { q: search }), ...(since && { since }) }).toString();
+const radio = <T extends string>(name: string, value: T, options: [T, ReactNode][], set: (v: T) => void) => (
+  <div className="fl-opts" role="radiogroup" aria-label={name}>
+    {options.map(([k, l]) => <button key={k} type="button" role="radio" aria-checked={value === k} className={'fl-opt' + (value === k ? ' on' : '')} onClick={() => set(k)}><i aria-hidden="true" />{l}</button>)}
+  </div>
+);
 
-  const [list, setList] = useState<GameCard[]>([]), [total, setTotal] = useState(0), [next, setNext] = useState<number | null>(0);
-  const [genres, setGenres] = useState<{ tag: string; n: number }[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState<ApiError | null>(null);
-  const seq = useRef(0), sentinel = useRef<HTMLDivElement>(null), [fresh] = useState(() => lastVisit());
-
-  const load = (offset: number) => {
-    const n = ++seq.current; setBusy(true); setError(null);
-    api<Page>(`/games?${base}&offset=${offset}`).then((r) => {
-      if (n !== seq.current) return;
-      setList((l) => (offset ? [...l, ...r.games] : r.games)); setTotal(r.total); setNext(r.next_offset);
-      if (r.genres) setGenres(r.genres);
-      setBusy(false);
-    }, (e) => { if (n === seq.current) { setError(e); setBusy(false); } });
+/**
+ * The catalogue engine. `pinned` is a genre fixed by the page (a category page); `base` is the page's own path;
+ * `genres` replaces the genre list in the sidebar (a category page offers its related genres).
+ */
+export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pinned?: string; base?: string; genres?: Genre[]; head?: ReactNode }) {
+  const loc = useLocation(), q = query(), all = useGenres(), genres = own || all;
+  const sort = q.get('sort') || 'trending', priceF = q.get('price') || '', search = q.get('q') || '', since = q.get('since') || '', rating = q.get('rating') || '';
+  const by = q.get('by') || '', who = q.get('who') || '', view = q.get('view') === 'list' ? 'list' : 'grid', page = Math.max(1, Number(q.get('page')) || 1);
+  const tags = (q.get('tag') || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const href = (patch: Record<string, string | null>, keepPage = false) => {
+    const n = query(); for (const [k, v] of Object.entries(patch)) { if (v) n.set(k, v); else n.delete(k); }
+    if (!keepPage && !('page' in patch)) n.delete('page');
+    const s = n.toString(); return base + (s ? '?' + s : '');
   };
-  useEffect(() => { setList([]); setNext(0); load(0); }, [base]); // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (patch: Record<string, string | null>) => navigate(href(patch), true);
+  const toggleTag = (tag: string) => { const has = tags.includes(tag); set({ tag: (has ? tags.filter((x) => x !== tag) : [...tags, tag]).join(',') || null }); };
 
-  // the next page, as the end of the list comes into view
-  useEffect(() => {
-    const el = sentinel.current; if (!el || next == null || busy || !list.length || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) load(next); }, { rootMargin: '900px 0px' });
-    io.observe(el); return () => io.disconnect();
-  }, [next, busy, list.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const api_q = new URLSearchParams({ sort, limit: String(PAGE), offset: String((page - 1) * PAGE), facets: '0' });
+  const tagParam = [pinned, ...tags].filter(Boolean).join(',');
+  if (tagParam) api_q.set('tag', tagParam); if (priceF) api_q.set('price', priceF); if (search) api_q.set('q', search);
+  if (since) api_q.set('since', since); if (rating) api_q.set('rating', rating); if (by) api_q.set('by', by);
+  const key = api_q.toString();
 
-  const sorts: [string, string][] = [['trending', t('Trending', '热门')], ['playing', t('Playing now', '在玩')], ['new', t('New', '最新')], ['top', t('Top rated', '好评')], ['played', t('Most played', '最多游玩')]];
-  const prices: [string, string][] = [['', t('Any price', '全部')], ['free', t('Free', '免费')], ['paid', t('Paid', '付费')]];
-  const filtered = !!(tag || priceF || search || since);
-  const title = search ? t(`Results for “${search}”`, `“${search}”的搜索结果`) : tag ? genreName(tag) : since ? t('New since your last visit', '你上次来访后的新游戏') : t('All games', '全部游戏');
+  const [res, setRes] = useState<Page | null>(null), [busy, setBusy] = useState(true), [error, setError] = useState<ApiError | null>(null), [drawer, setDrawer] = useState(false);
+  const seq = useRef(0), top = useRef<HTMLDivElement>(null), [fresh] = useState(() => lastVisit()), first = useRef(true);
+  const load = () => {
+    const n = ++seq.current; setBusy(true); setError(null);
+    api<Page>(`/games?${key}`).then((r) => { if (n === seq.current) { setRes(r); setBusy(false); } }, (e) => { if (n === seq.current) { setError(e); setBusy(false); } });
+  };
+  useEffect(load, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a new page of results starts at the top of the results, not wherever the pager was
+  useEffect(() => { if (first.current) { first.current = false; return; } const el = top.current; if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' }); }, [page]);
+  useEffect(() => { setDrawer(false); }, [loc]);
+
+  const total = res?.total ?? 0, pages = Math.max(1, Math.ceil(total / PAGE)), from = total ? (page - 1) * PAGE + 1 : 0, to = Math.min(total, page * PAGE);
+  const sorts: [string, string][] = [['trending', t('Trending', '热门')], ['new', t('Newest', '最新')], ['top', t('Top rated', '好评')], ['playing', t('Playing now', '在玩')], ['played', t('Most played', '最多游玩')]];
+  const prices: [string, string][] = [['', t('Any price', '任意价格')], ['free', t('Free', '免费')], ['under5', t('Under $5', '5 美元以下')], ['paid', t('Paid', '付费')]];
+  const ratings: [string, string][] = [['', t('Any rating', '任意评分')], ['3', '★ 3+'], ['4', '★ 4+'], ['4.5', '★ 4.5+']];
+  const [gq, setGq] = useState(''), [moreG, setMoreG] = useState(false);
+  const glist = useMemo(() => genres.filter((g) => g.tag !== pinned && (!gq || g.tag.includes(gq.toLowerCase()))), [genres, gq, pinned]);
+  const shownG = moreG || gq ? glist : glist.slice(0, 12);
+
+  const active: [string, () => void][] = [
+    ...tags.map((x) => [genreName(x), () => toggleTag(x)] as [string, () => void]),
+    ...(priceF ? [[prices.find((p) => p[0] === priceF)?.[1] || priceF, () => set({ price: null })] as [string, () => void]] : []),
+    ...(rating ? [[`★ ${rating}+`, () => set({ rating: null })] as [string, () => void]] : []),
+    ...(search ? [[`“${search}”`, () => set({ q: null })] as [string, () => void]] : []),
+    ...(since ? [[t('Since your last visit', '自上次来访'), () => set({ since: null })] as [string, () => void]] : []),
+    ...(by ? [[t(`By ${who || 'this creator'}`, `作者：${who || '该创作者'}`), () => set({ by: null, who: null })] as [string, () => void]] : []),
+  ];
 
   return (
-    <div className="wrap page browse" key={loc.split('?')[0]}>
-      <header className="browse-h">
-        <div className="grow">
-          <h1>{title}</h1>
-          <p className="mute" aria-live="polite">{busy && !list.length ? t('Searching…', '搜索中…') : t(`${num(total)} ${total === 1 ? 'game' : 'games'}`, `共 ${num(total)} 款游戏`)}</p>
-        </div>
-        <SearchBox initial={search} onSubmit={(s) => set('q', s)} />
-      </header>
-
-      <div className="browse-bar">
-        <Segmented label={t('Sort', '排序')} options={sorts} value={sort} onChange={(k) => set('sort', k === 'trending' ? '' : k)} />
-        <Segmented label={t('Price', '价格')} options={prices} value={priceF} onChange={(k) => set('price', k)} />
-        {filtered && <Button size="sm" variant="ghost" onClick={() => navigate('/browse' + (sort !== 'trending' ? '?sort=' + sort : ''), true)}>✕ {t('Clear filters', '清除筛选')}</Button>}
-      </div>
-      {!!genres.length && (
-        <div className="tags genre-chips" role="group" aria-label={t('Genres', '类型')}>
-          {genres.map((g) => <Chip key={g.tag} active={tag === g.tag} onClick={() => set('tag', tag === g.tag ? '' : g.tag)}>{genreName(g.tag)} <span className="n">{num(g.n)}</span></Chip>)}
-        </div>
-      )}
-
-      {error && !list.length ? <div className="home-empty"><Fail error={error} retry={() => load(0)} /></div> : busy && !list.length ? <Spinner /> : list.length ? (
-        <>
-          <div className="grid browse-grid">{list.map((g) => <GameTile key={g.id} g={g} fresh={!!fresh && !!g.published_at && g.published_at > fresh} />)}</div>
-          <div ref={sentinel} className="browse-more">
-            {next != null ? <Button onClick={() => load(next)} disabled={busy}>{busy ? t('Loading…', '加载中…') : t(`Show more · ${num(total - list.length)} left`, `加载更多 · 还有 ${num(total - list.length)} 款`)}</Button>
-              : <span className="mute fs-sm">{t(`That's all ${num(total)}.`, `已显示全部 ${num(total)} 款。`)}</span>}
-            {error && <Fail error={error} retry={() => next != null && load(next)} />}
+    <div className="catalog">
+      {head}
+      <div className="cat-layout">
+        <aside className={'filters-side' + (drawer ? ' open' : '')} aria-label={t('Filters', '筛选')}>
+          <div className="fl-head"><b>{t('Filters', '筛选')}</b><button type="button" className="btn btn-ghost btn-sm fl-close" onClick={() => setDrawer(false)}>✕ {t('Close', '关闭')}</button></div>
+          <div className="fl-sec"><SearchBox initial={search} onSubmit={(s) => set({ q: s || null })} /></div>
+          <div className="fl-sec"><h4>{t('Price', '价格')}</h4>{radio(t('Price', '价格'), priceF, prices, (v) => set({ price: v || null }))}</div>
+          <div className="fl-sec"><h4>{t('Players say', '玩家评分')}</h4>{radio(t('Rating', '评分'), rating, ratings, (v) => set({ rating: v || null }))}</div>
+          <div className="fl-sec">
+            <h4>{pinned ? t('Narrow by genre', '再按类型筛选') : t('Genres', '类型')} {tags.length > 0 && <span className="fl-n">{tags.length}</span>}</h4>
+            {genres.length > 12 && <input className="input fl-find" type="search" placeholder={t('Find a genre', '查找类型')} value={gq} onChange={(e) => setGq(e.target.value)} aria-label={t('Find a genre', '查找类型')} />}
+            <div className="fl-genres">
+              {shownG.map((g) => (
+                <label key={g.tag} className={'fl-g' + (tags.includes(g.tag) ? ' on' : '')} style={{ '--h': genreHue(g.tag) } as CSSProperties}>
+                  <input type="checkbox" checked={tags.includes(g.tag)} onChange={() => toggleTag(g.tag)} /><i aria-hidden="true" /><span className="clip">{genreName(g.tag)}</span><small className="num">{num(g.n)}</small>
+                </label>
+              ))}
+              {!shownG.length && <span className="dim fs-sm">{t('No genre by that name.', '没有这个类型。')}</span>}
+            </div>
+            {!gq && glist.length > 12 && <button type="button" className="fl-more" onClick={() => setMoreG(!moreG)}>{moreG ? t('Show fewer', '收起') : t(`Show all ${glist.length}`, `显示全部 ${glist.length} 个`)}</button>}
+            {!pinned && <Link to="/categories" className="fl-more">{t('All categories', '全部分类')} →</Link>}
           </div>
-        </>
-      ) : (
-        <div className="home-empty">
-          <EmptyState title={t('No games match that', '没有符合条件的游戏')} action={<Button onClick={() => navigate('/browse', true)}>{t('Clear filters', '清除筛选')}</Button>}>
-            {t('Try a different search or another genre.', '换个关键词或其他类型试试。')}
-          </EmptyState>
+        </aside>
+
+        <div className="cat-main" ref={top}>
+          <div className="cat-bar">
+            <button type="button" className="btn btn-sm fl-open" onClick={() => setDrawer(true)}>⚙ {t('Filters', '筛选')}{active.length > 0 && <span className="fl-n">{active.length}</span>}</button>
+            <p className="cat-count" aria-live="polite">{busy && !res ? t('Searching…', '搜索中…') : total ? t(`${num(from)}–${num(to)} of ${num(total)} games`, `第 ${num(from)}–${num(to)} 款，共 ${num(total)} 款`) : t('No games', '没有游戏')}</p>
+            <label className="cat-sort"><span>{t('Sort by', '排序')}</span>
+              <select className="input" value={sort} onChange={(e) => set({ sort: e.target.value === 'trending' ? null : e.target.value })}>{sorts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            </label>
+            <div className="seg cat-view" role="group" aria-label={t('View', '视图')}>
+              <button type="button" className={view === 'grid' ? 'on' : ''} aria-pressed={view === 'grid'} onClick={() => set({ view: null })} title={t('Cards', '卡片')}>▦</button>
+              <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => set({ view: 'list' })} title={t('List', '列表')}>☰</button>
+            </div>
+          </div>
+          {active.length > 0 && (
+            <div className="cat-active">
+              {active.map(([l, off], k) => <button key={k} type="button" className="act-chip" onClick={off}>{l} <em aria-hidden="true">✕</em></button>)}
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => navigate(base + (sort !== 'trending' ? '?sort=' + sort : ''), true)}>{t('Clear all', '全部清除')}</button>
+            </div>
+          )}
+
+          {error && !res ? <div className="home-empty"><Fail error={error} retry={load} /></div> : !res ? <Spinner /> : res.games.length ? (
+            <div className={busy ? 'cat-res busy' : 'cat-res'}>
+              {view === 'list'
+                ? <div className="glist">{res.games.map((g, i) => <GameRow key={g.id} g={g} rank={sort === 'trending' || sort === 'top' || sort === 'played' ? from + i : undefined} />)}</div>
+                : <div className="grid browse-grid">{res.games.map((g) => <GameTile key={g.id} g={g} fresh={!!fresh && !!g.published_at && g.published_at > fresh} />)}</div>}
+              <Pager page={Math.min(page, pages)} pages={pages} href={(p) => href({ page: p > 1 ? String(p) : null }, true)} />
+            </div>
+          ) : (
+            <div className="home-empty">
+              <EmptyState title={page > 1 ? t('There is no page that far', '没有这么多页') : t('No games match that', '没有符合条件的游戏')} action={<Button onClick={() => navigate(page > 1 ? href({ page: null }) : base, true)}>{page > 1 ? t('Back to page 1', '回到第 1 页') : t('Clear filters', '清除筛选')}</Button>}>
+                {t('Try a different search, another genre or fewer filters.', '换个关键词、换个类型，或者少选几个筛选条件。')}
+              </EmptyState>
+            </div>
+          )}
         </div>
-      )}
+      </div>
+      {drawer && <div className="fl-scrim" onClick={() => setDrawer(false)} aria-hidden="true" />}
+    </div>
+  );
+}
+
+export function Browse() {
+  const q = query(), sort = q.get('sort') || '', tag = q.get('tag') || '', search = q.get('q') || '', since = q.get('since') || '', priceF = q.get('price') || '', who = q.get('who') || '';
+  const tags = tag.split(',').filter(Boolean);
+  const title = search ? t(`Results for “${search}”`, `“${search}”的搜索结果`)
+    : who ? t(`Games by ${who}`, `${who} 的游戏`)
+    : since ? t('New since your last visit', '你上次来访后的新游戏')
+    : tags.length === 1 ? t(`${genreName(tags[0])} games`, `${genreName(tags[0])}游戏`)
+    : priceF === 'free' ? t('Free to play', '免费畅玩') : priceF === 'under5' ? t('Under $5', '5 美元以下')
+    : sort === 'new' ? t('New releases', '新品上架') : sort === 'top' ? t('Top rated', '好评榜') : sort === 'playing' ? t('Playing now', '正在热玩') : sort === 'played' ? t('Most played', '最多游玩')
+    : t('All games', '全部游戏');
+  return (
+    <div className="wrap page browse">
+      <Catalogue head={
+        <header className="browse-h">
+          <nav className="crumbs" aria-label={t('Breadcrumb', '导航路径')}><Link to="/">{t('Store', '商店')}</Link><i>/</i><span>{t('Browse', '浏览')}</span></nav>
+          <h1>{title}</h1>
+        </header>
+      } />
     </div>
   );
 }

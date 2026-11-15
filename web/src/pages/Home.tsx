@@ -1,12 +1,22 @@
-// The store front. One request (/api/home) brings the spotlight, the shelves, the genres and the key numbers, so
-// the page is the same size whether the catalogue holds ten games or fifty thousand. The full catalogue, with
-// search and filters, is the browse page.
+// The store front. One request (/api/home) brings the featured picks, the lists, the categories and the key numbers,
+// so the page is the same size whether the catalogue holds ten games or fifty thousand. The full catalogue, with
+// filters and numbered pages, is the browse page; every category has its own page under /c/.
 import { useEffect, useState } from 'react';
-import { api, Fail, t, useApp, useData, type GameCard } from '../lib';
+import { api, Fail, num, price, t, useApp, useData, type GameCard } from '../lib';
 import { Button, Eyebrow, Spinner } from '../ui';
-import { Genres, lastVisit, SearchBox, Shelf, Since, Spotlight, Stats, type StoreStats } from '../store';
+import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, Ticker, type Genre, type StoreStats } from '../store';
 
-interface HomeData { stats: StoreStats; shelves: { trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: { tag: string; n: number }[] }
+interface HomeData { stats: StoreStats; shelves: { trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: Genre[] }
+
+function tickerItems(sh: HomeData['shelves']) {
+  const out: { to: string; kind: string; tone: string; text: string }[] = [];
+  const at = (g: GameCard) => `/g/${g.slug}`;
+  sh.playing.slice(0, 4).forEach((g) => out.push({ to: at(g), kind: `● ${num(g.playing || 0)} ${t('live', '在线')}`, tone: 'live', text: g.title }));
+  sh.new.slice(0, 4).forEach((g) => out.push({ to: at(g), kind: t('New', '新'), tone: 'new', text: g.title }));
+  sh.top.slice(0, 3).forEach((g) => out.push({ to: at(g), kind: `★ ${g.rating?.toFixed(1)}`, tone: 'top', text: g.title }));
+  sh.free.slice(0, 3).forEach((g) => out.push({ to: at(g), kind: price(0), tone: 'free', text: g.title }));
+  const seen = new Set<string>(); return out.filter((x) => (seen.has(x.to + x.tone) ? false : (seen.add(x.to + x.tone), true)));
+}
 
 export function Home() {
   const { config } = useApp();
@@ -27,14 +37,17 @@ export function Home() {
     </div></div></section>
   );
 
-  // the spotlight takes the top picks; the trending shelf carries on from there
-  const spot = sh.trending.slice(0, 5), more = sh.trending.slice(5);
+  // the carousel takes the top picks; the trending lists carry on from there
+  const spot = sh.trending.slice(0, 6), more = sh.trending.slice(6);
+  const pool = [...sh.trending, ...sh.new, ...sh.top].filter((g, i, a) => a.findIndex((x) => x.id === g.id) === i);
+  let n = 0; const next = () => String(++n).padStart(2, '0');
   return (
     <div className="store">
+      <Ticker items={tickerItems(sh)} />
       <div className="wrap store-top">
         <div className="store-intro">
-          <h1>{t('Play web games made by creators', '畅玩创作者与')} <span className="hl-a">{t('and their AI agents', 'AI 智能体打造的网页游戏')}</span></h1>
-          <SearchBox big />
+          <h1>{t('Web games made by creators', '创作者与')} <span className="hl-a">{t('and their AI agents', 'AI 智能体打造的网页游戏')}</span></h1>
+          <p>{t('Every one runs in your browser. Nothing to install, nothing to wait for.', '每一款都在浏览器里运行，无需安装，即点即玩。')}</p>
         </div>
         <Stats s={d.stats} />
       </div>
@@ -42,12 +55,17 @@ export function Home() {
       <div className="wrap">
         <Spotlight games={spot} />
         <Since newCount={newCount} since={since} />
-        <Shelf live title={t('Playing right now', '正在热玩')} note={t('Games with players in them this minute.', '此刻有玩家在线的游戏。')} to="/browse?sort=playing" games={sh.playing} />
-        <Genres list={d.genres} />
-        <Shelf rank title={t('Trending this week', '本周热门')} note={t('Most played and talked about in the last seven days.', '过去七天游玩与讨论最多。')} to="/browse" games={more.length >= 4 ? more : sh.trending} />
-        <Shelf title={t('New arrivals', '新上架')} note={t('Fresh from creators and their agents.', '创作者与智能体的最新作品。')} to="/browse?sort=new" games={sh.new} freshSince={since} />
-        <Shelf title={t('Top rated', '好评榜')} note={t('What players rate highest.', '玩家评分最高。')} to="/browse?sort=top" games={sh.top} />
-        <Shelf title={t('Free to play', '免费畅玩')} to="/browse?price=free" games={sh.free} />
+        <Cartridges n={next()} list={d.genres} />
+        <TabbedLists n={next()} title={t('New and noteworthy', '新鲜热门')} tabs={[
+          { key: 'trending', label: t('Trending', '热门'), to: '/browse', games: more.length >= 5 ? more : sh.trending },
+          { key: 'new', label: t('New releases', '新品'), to: '/browse?sort=new', games: sh.new },
+          { key: 'top', label: t('Top rated', '好评'), to: '/browse?sort=top', games: sh.top },
+          { key: 'free', label: t('Free', '免费'), to: '/browse?price=free', games: sh.free },
+        ]} />
+        <Shelf n={sh.playing.length ? next() : undefined} live title={t('Playing right now', '正在热玩')} note={t('Games with players in them this minute.', '此刻有玩家在线的游戏。')} to="/browse?sort=playing" games={sh.playing} />
+        <QueueBand pool={pool} />
+        <Shelf n={next()} rank title={t('Trending this week', '本周热门')} note={t('Most played and talked about in the last seven days.', '过去七天游玩与讨论最多。')} to="/browse" games={sh.trending} />
+        <Shelf n={next()} title={t('New arrivals', '新上架')} note={t('Fresh from creators and their agents.', '创作者与智能体的最新作品。')} to="/browse?sort=new" games={sh.new} freshSince={since} />
 
         <div className="pitch store-pitch">
           <div className="grow stack s">

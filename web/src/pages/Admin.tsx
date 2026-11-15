@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Pager } from '../store';
 import { ago, api, date, dateTime, Fail, Link, num, playTime, series, t, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Spinner, Stat, StatGrid, StatusBadge, Switch, Table, Tabs } from '../ui';
 
@@ -87,14 +88,18 @@ function Settings() {
   );
 }
 
+/** A searched, paged admin list: the search waits for typing to pause, and a new search starts at page 1. */
 function useSearch(base: string) {
-  const [q, setQ] = useState(''), [applied, setApplied] = useState('');
-  useEffect(() => { const i = setTimeout(() => setApplied(q), 300); return () => clearTimeout(i); }, [q]);
-  return { q, setQ, ...useData<any>(`${base}?q=${encodeURIComponent(applied)}`) };
+  const [q, setQ] = useState(''), [applied, setApplied] = useState(''), [page, setPage] = useState(1);
+  useEffect(() => { const i = setTimeout(() => { setApplied(q); setPage(1); }, 300); return () => clearTimeout(i); }, [q]);
+  const d = useData<any>(`${base}?q=${encodeURIComponent(applied)}&page=${page}`);
+  const pages = d.data ? Math.max(1, Math.ceil(d.data.total / d.data.per_page)) : 1;
+  const pager = d.data && pages > 1 ? <div className="list-foot"><span className="dim fs-sm">{t(`${num(d.data.total)} in all`, `共 ${num(d.data.total)} 条`)}</span><Pager page={page} pages={pages} onPage={(p) => { setPage(p); scrollTo({ top: 0 }); }} /></div> : null;
+  return { q, setQ, pager, ...d };
 }
 
 function Users() {
-  const { user: me } = useApp(), { busy, act } = useAct(), { q, setQ, data, error, loading, reload } = useSearch('/admin/users');
+  const { user: me } = useApp(), { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/users');
   const patch = (id: string, body: Record<string, unknown>, msg: string) => act(id, async () => { await api(`/admin/users/${id}`, { method: 'PATCH', body }); await reload(); }, msg);
   const adjust = (u: any) => {
     const raw = prompt(t(`Adjust the balance of ${u.email} by how many dollars? Use a minus sign to deduct.`, `将 ${u.email} 的余额调整多少美元？扣减请加负号。`)); if (!raw) return;
@@ -120,14 +125,14 @@ function Users() {
                 {u.id !== me!.id && <Button size="sm" variant="danger" disabled={busy === u.id} onClick={() => patch(u.id, { status: u.status === 'active' ? 'suspended' : 'active' }, t('Updated.', '已更新。'))}>{u.status === 'active' ? t('Suspend', '停用') : t('Restore', '恢复')}</Button>}
               </div></td>
             </tr>))}</tbody>
-        </Table>{!data.users.length && <div className="pad mute">{t('No users match.', '没有匹配的用户。')}</div>}</Card>
+        </Table>{!data.users.length && <div className="pad mute">{t('No users match.', '没有匹配的用户。')}</div>}{pager}</Card>
       )}
     </div>
   );
 }
 
 function Games() {
-  const { busy, act } = useAct(), { q, setQ, data, error, loading, reload } = useSearch('/admin/games');
+  const { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/games');
   const patch = (id: string, body: Record<string, unknown>, msg: string) => act(id, async () => { await api(`/admin/games/${id}`, { method: 'PATCH', body }); await reload(); }, msg);
   const remove = (g: any) => { const reason = prompt(t(`Remove "${g.title}" from the platform? Give the reason shown to its creator.`, `确定将《${g.title}》从平台移除吗？请填写向创作者显示的原因。`)); if (reason !== null) void patch(g.id, { action: 'remove', reason }, t('Game removed.', '游戏已移除。')); };
   return (
@@ -149,7 +154,7 @@ function Games() {
                 {g.status === 'removed' ? <Button size="sm" disabled={busy === g.id} onClick={() => patch(g.id, { action: 'restore' }, t('Game restored.', '游戏已恢复。'))}>{t('Restore', '恢复')}</Button> : <Button size="sm" variant="danger" disabled={busy === g.id} onClick={() => remove(g)}>{t('Remove', '移除')}</Button>}
               </div></td>
             </tr>))}</tbody>
-        </Table>{!data.games.length && <div className="pad mute">{t('No games match.', '没有匹配的游戏。')}</div>}</Card>
+        </Table>{!data.games.length && <div className="pad mute">{t('No games match.', '没有匹配的游戏。')}</div>}{pager}</Card>
       )}
     </div>
   );

@@ -38,8 +38,12 @@ admin.get('/overview', async (c) => {
 admin.get('/settings', async (c) => c.json({ defs: SETTING_DEFS, values: await getSettings(c.env, true) }));
 admin.put('/settings', async (c) => c.json({ values: await putSettings(c.env, await c.req.json<Record<string, unknown>>()) }));
 
+// Admin lists are paged (50 a page, with the total) so they stay quick however many users and games there are.
+const ADMIN_PAGE = 50;
+const pageOf = (c: { req: { query: (k: string) => string | undefined } }) => Math.max(0, Math.min(10000, (Number(c.req.query('page')) || 1) - 1)) * ADMIN_PAGE;
+
 admin.get('/users', async (c) => {
-  const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%';
+  const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%', off = pageOf(c);
   const rows = await c.env.DB.prepare(
     `SELECT u.id, u.email, u.name, u.role, u.status, u.creator, u.created_at, u.last_seen_at, u.stripe_payouts_enabled, u.payout_country,
        (SELECT COUNT(*) FROM projects p WHERE p.owner_id = u.id AND p.status != 'removed') AS projects,
@@ -47,8 +51,9 @@ admin.get('/users', async (c) => {
        (SELECT COALESCE(SUM(amount_cents), 0) FROM ledger l WHERE l.user_id = u.id) AS balance,
        (SELECT COUNT(*) FROM purchases x WHERE x.user_id = u.id AND x.status = 'paid') AS bought,
        (SELECT COALESCE(SUM(seconds), 0) FROM plays y WHERE y.user_id = u.id AND y.kind = 'player') AS played
-     FROM users u WHERE ?1 = '' OR u.email LIKE ?2 ESCAPE '\\' OR u.name LIKE ?2 ESCAPE '\\' ORDER BY u.created_at DESC LIMIT 200`).bind(q, like).all();
-  return c.json({ users: rows.results });
+     FROM users u WHERE ?1 = '' OR u.email LIKE ?2 ESCAPE '\\' OR u.name LIKE ?2 ESCAPE '\\' ORDER BY u.created_at DESC LIMIT ?3 OFFSET ?4`).bind(q, like, ADMIN_PAGE, off).all();
+  const total = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM users u WHERE ?1 = '' OR u.email LIKE ?2 ESCAPE '\\' OR u.name LIKE ?2 ESCAPE '\\'").bind(q, like).first<{ n: number }>();
+  return c.json({ users: rows.results, total: total?.n || 0, per_page: ADMIN_PAGE });
 });
 
 admin.patch('/users/:id', async (c) => {
@@ -70,7 +75,7 @@ admin.patch('/users/:id', async (c) => {
 });
 
 admin.get('/games', async (c) => {
-  const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%', since = addDays(dayOf(now()), -6);
+  const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%', since = addDays(dayOf(now()), -6), off = pageOf(c);
   const rows = await c.env.DB.prepare(
     `SELECT p.id, p.slug, p.title, p.status, p.featured, p.price_cents, p.sales, p.plays, p.seconds, p.rating_sum, p.rating_count, p.live_version, p.preview_version, p.created_at, p.published_at, p.removed_reason, p.cover_key,
        u.name AS author, u.email AS author_email,
@@ -79,8 +84,9 @@ admin.get('/games', async (c) => {
        (SELECT COALESCE(SUM(fee_cents), 0) FROM purchases x WHERE x.project_id = p.id AND x.status = 'paid') AS fees,
        (SELECT COALESCE(SUM(count), 0) FROM client_errors e WHERE e.project_id = p.id AND e.env = 'live') AS errors
      FROM projects p JOIN users u ON u.id = p.owner_id WHERE ?1 = '' OR p.title LIKE ?2 ESCAPE '\\' OR p.slug LIKE ?2 ESCAPE '\\' OR u.email LIKE ?2 ESCAPE '\\'
-     ORDER BY (p.status = 'live') DESC, p.plays DESC, p.updated_at DESC LIMIT 300`).bind(q, like, since).all<any>();
-  return c.json({ games: rows.results.map((g) => ({ ...g, cover: g.cover_key ? `${c.get('origin')}/api/media/${g.cover_key}` : null })) });
+     ORDER BY (p.status = 'live') DESC, p.plays DESC, p.updated_at DESC LIMIT ?4 OFFSET ?5`).bind(q, like, since, ADMIN_PAGE, off).all<any>();
+  const total = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM projects p JOIN users u ON u.id = p.owner_id WHERE ?1 = '' OR p.title LIKE ?2 ESCAPE '\\' OR p.slug LIKE ?2 ESCAPE '\\' OR u.email LIKE ?2 ESCAPE '\\'").bind(q, like).first<{ n: number }>();
+  return c.json({ total: total?.n || 0, per_page: ADMIN_PAGE, games: rows.results.map((g) => ({ ...g, cover: g.cover_key ? `${c.get('origin')}/api/media/${g.cover_key}` : null })) });
 });
 
 admin.patch('/games/:id', async (c) => {

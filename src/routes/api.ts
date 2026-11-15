@@ -75,7 +75,7 @@ api.post('/auth/logout', async (c) => {
 // ---- the catalogue -------------------------------------------------------------------------------
 // Built for tens of thousands of games: every list is paged (limit and offset, with the total), and the home
 // page gets all of its shelves in one request. "Playing now" counts players with a heartbeat in the last minute.
-type ListOpts = { sort?: string; q?: string; tag?: string; price?: string; limit?: number; offset?: number; newSince?: number };
+type ListOpts = { sort?: string; q?: string; tag?: string; price?: string; limit?: number; offset?: number; newSince?: number; by?: string; minRating?: number };
 const ORDER: Record<string, string> = {
   new: 'p.published_at DESC',
   top: '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC',
@@ -84,13 +84,16 @@ const ORDER: Record<string, string> = {
   trending: 'p.featured DESC, recent DESC, p.plays DESC, p.published_at DESC',
 };
 async function listGames(c: Ctx, o: ListOpts) {
-  const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 24);
+  const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
   const limit = Math.max(1, Math.min(60, o.limit || 24)), offset = Math.max(0, Math.min(100000, o.offset || 0));
   const where = ["p.status = 'live'"], args: unknown[] = [];
   if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase()); }
-  if (tag) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%'); }
-  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0');
+  // tag can name several genres, comma separated: a game must carry all of them
+  for (const one of tag.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5)) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + one.replace(/[\\%_]/g, '\\$&') + '"%'); }
+  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') where.push('p.price_cents > 0 AND p.price_cents < 500');
+  if (o.minRating) { where.push('p.rating_count > 0 AND p.rating_sum >= ? * p.rating_count'); args.push(Math.max(1, Math.min(5, o.minRating))); }
   if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
+  if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
   const t = now(), w = where.join(' AND ');
   const [rows, total] = await Promise.all([
     c.env.DB.prepare(
@@ -102,22 +105,49 @@ async function listGames(c: Ctx, o: ListOpts) {
   const games = rows.results.map((r) => card(c.get('origin'), r)), n = total?.n || 0;
   return { games, total: n, next_offset: offset + games.length < n ? offset + games.length : null };
 }
-/** Genres: the most used tags with how many live games carry each. */
-async function genreCounts(c: Ctx, top = 16) {
-  const tags = await c.env.DB.prepare("SELECT tags FROM projects WHERE status = 'live' ORDER BY plays DESC LIMIT 2000").all<{ tags: string }>();
-  const counts = new Map<string, number>();
-  for (const r of tags.results) for (const t of parseJson<string[]>(r.tags, [])) counts.set(t, (counts.get(t) || 0) + 1);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).map(([tag, n]) => ({ tag, n }));
+/**
+ * Genres: the most used tags with how many live games carry each, and the covers of the three most played games
+ * in each (for the category tiles). With `within`, only games carrying that tag count: its related genres.
+ * Reads the 5,000 most played games, which is plenty to rank genres however big the catalogue grows.
+ */
+async function genreCounts(c: Ctx, top = 16, within = '') {
+  const w = within ? " AND tags LIKE ? ESCAPE '\\'" : '', a = within ? ['%"' + within.replace(/[\\%_]/g, '\\$&') + '"%'] : [];
+  const rows = await c.env.DB.prepare(`SELECT tags, cover_key FROM projects WHERE status = 'live'${w} ORDER BY plays DESC LIMIT 5000`).bind(...a).all<{ tags: string; cover_key: string | null }>();
+  const counts = new Map<string, { n: number; covers: string[] }>(), origin = c.get('origin');
+  for (const r of rows.results) for (const t of parseJson<string[]>(r.tags, [])) {
+    if (t === within) continue;
+    const e = counts.get(t) || { n: 0, covers: [] }; e.n++;
+    if (r.cover_key && e.covers.length < 3) e.covers.push(media(origin, r.cover_key)!);
+    counts.set(t, e);
+  }
+  return [...counts.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, top).map(([tag, e]) => ({ tag, n: e.n, covers: e.covers }));
 }
 const num = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
 
 api.get('/games', async (c) => {
   const qy = (k: string) => c.req.query(k);
   const [list, genres] = await Promise.all([
-    listGames(c, { sort: qy('sort'), q: qy('q'), tag: qy('tag'), price: qy('price'), limit: num(qy('limit')) || 60, offset: num(qy('offset')), newSince: num(qy('since')) }),
+    listGames(c, { sort: qy('sort'), q: qy('q'), tag: qy('tag'), price: qy('price'), limit: num(qy('limit')) || 60, offset: num(qy('offset')), newSince: num(qy('since')), by: qy('by'), minRating: Number(qy('rating')) || undefined }),
     num(qy('offset')) || qy('facets') === '0' ? Promise.resolve(null) : genreCounts(c),   // facets=0: just the games (instant search, shelves)
   ]);
   return c.json({ ...list, ...(genres && { tags: genres.map((g) => g.tag), genres }) });
+});
+
+/** Every genre with its count and covers (the categories index), or one genre's numbers and related genres. */
+api.get('/categories', async (c) => {
+  c.header('cache-control', 'public, max-age=60');
+  return c.json({ genres: await genreCounts(c, 120) });
+});
+api.get('/categories/:tag', async (c) => {
+  const tag = c.req.param('tag').trim().toLowerCase().slice(0, 24), like = '%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%', t = now();
+  const [related, nums] = await Promise.all([
+    genreCounts(c, 14, tag),
+    c.env.DB.prepare(`SELECT COUNT(*) AS games, COALESCE(SUM(price_cents = 0), 0) AS free, COALESCE(SUM(published_at > ?), 0) AS new_week,
+        (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl JOIN projects q ON q.id = pl.project_id WHERE q.status = 'live' AND q.tags LIKE ? ESCAPE '\\' AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
+      FROM projects WHERE status = 'live' AND tags LIKE ? ESCAPE '\\'`).bind(t - 7 * 86400000, like, t - ONLINE_WINDOW_MS, like).first<{ games: number; free: number; new_week: number; playing: number }>(),
+  ]);
+  c.header('cache-control', 'public, max-age=30');
+  return c.json({ tag, games: nums?.games || 0, free: nums?.free || 0, new_week: nums?.new_week || 0, playing: nums?.playing || 0, related });
 });
 
 /** Everything the home page shows, in one request: the spotlight, the shelves, the genres and the key numbers. */
@@ -163,9 +193,12 @@ api.get('/games/:slug', async (c) => {
     played = !!(await c.env.DB.prepare("SELECT 1 FROM plays WHERE project_id = ? AND user_id = ? AND env = 'live' AND counted = 1 LIMIT 1").bind(p.id, u.id).first());
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
   }
-  const v = p.live_version ? await getVersion(c.env, p.id, p.live_version) : null;
+  const [v, on] = await Promise.all([
+    p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
+    c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND last_beat_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
+  ]);
   return c.json({
-    game: { ...card(origin, p), description: p.description, controls: p.controls, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
+    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,

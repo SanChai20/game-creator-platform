@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, Link, navigate, query, t, useApp } from '../lib';
+import { api, artStyle, Link, navigate, num, query, t, useApp, useData, type GameCard } from '../lib';
 import { Button, Eyebrow, Field, Input, Notice, Spinner } from '../ui';
 
 /** Only same-site paths are allowed as a return target. */
@@ -19,7 +19,8 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
   };
   const other = `${mode === 'login' ? '/signup' : '/login'}?next=${encodeURIComponent(next)}`;
   return (
-    <div className="auth">
+    <div className="auth split">
+      {!forAgent && <Showcase />}
       <form onSubmit={submit} className="auth-card">
         <div className="stack">
           <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
@@ -35,6 +36,23 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
         <p className="mute switch-line">{mode === 'login' ? t('New here?', '还没有账户？') : t('Already have an account?', '已有账户？')} <Link to={other} className="sig">{mode === 'login' ? t('Create an account', '立即注册') : t('Sign in', '登录')}</Link></p>
       </form>
     </div>
+  );
+}
+
+/** The other half of the sign-in page: a wall of the store's covers, so you can see what you are signing in to. */
+function Showcase() {
+  const { data } = useData<{ stats: { games: number; creators: number }; shelves: { trending: GameCard[]; new: GameCard[] } }>('/home');
+  const covers = data ? [...data.shelves.trending, ...data.shelves.new].filter((g, i, a) => a.findIndex((x) => x.id === g.id) === i).slice(0, 12) : [];
+  return (
+    <aside className="auth-show" aria-hidden="true">
+      <div className="auth-wall">{(covers.length ? covers : Array.from({ length: 12 }, (_, k) => ({ id: String(k), slug: 'x' + k, cover: null }) as unknown as GameCard)).map((g, k) => (
+        <span key={g.id} className={'aw' + (k % 3)} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>
+      ))}</div>
+      <div className="auth-pitch">
+        <b>{data ? t(`${num(data.stats.games)} web games. One account.`, `${num(data.stats.games)} 款网页游戏，一个账户。`) : t('Web games. One account.', '网页游戏，一个账户。')}</b>
+        <span>{t('Play in your browser, keep your library, rate what you love, and publish your own with your agent.', '在浏览器里畅玩，收藏游戏库，为喜欢的作品评分，还能用智能体发布你自己的游戏。')}</span>
+      </div>
+    </aside>
   );
 }
 
