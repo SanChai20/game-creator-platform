@@ -329,7 +329,7 @@ export function renderTheme(spec) {
     "  sell: (s) => s.sold > 0, fight: (s) => s.slain > 0, climb: (s) => s.climbed > 0, build: (s, inv) => inv.has('wall') || inv.has('pillar') || s.built > 0,", '};',
     'export const STEPS = [', spec.steps.map((s) => '  ' + js(s) + ',').join('\n'), '].map(([id, text]) => ({ id, text, when: WHEN[id] }));',
     `export const CONTROLS = ${js(controls)};`,
-    `export const HINT = ${js(d3 ? 'WASD move · drag to look · E gather · F use what you hold · Tab backpack' : 'WASD move · E gather · Space use what you hold · Tab backpack')};`, '');
+    `export const HINT = ${js(d3 ? 'WASD move · click to look around · E gather · F use what you hold · Tab backpack' : 'WASD move · E gather · Space use what you hold · Tab backpack')};`, '');
   return L.join('\n');
 }
 

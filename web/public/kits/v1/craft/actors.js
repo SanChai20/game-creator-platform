@@ -258,7 +258,8 @@ export function wander(actor, opts = {}) {
  * Player movement with a camera, done: reads the input, moves the actor over the ground, stops at solid things,
  * jumps, animates the actor, and keeps the camera behind it. Call controller.update(dt) once per frame.
  *   const player = control(hero, { input, heightAt: land.heightAt, solids: forest.solids });
- * Options: input (from createInput in @gcp/input.js; required), stage, mode ('third' behind the player with drag-to-look,
+ * Options: input (from createInput in @gcp/input.js; required), stage, mode ('third' behind the player: a click captures the
+ * mouse to look around and Esc frees it; pointerLock: false keeps drag-to-look instead,
  * 'top' a fixed high camera, 'side' a side-scroller view), heightAt (x, z) -> y (any function: return the top of a
  * floor, a bridge or a player-built block where there is one and the land elsewhere, and the hero stands on it),
  * solids [{ x, z, r }] (circles the player cannot enter; scatter() returns them as .solids. The array is read every
@@ -276,6 +277,8 @@ export function wander(actor, opts = {}) {
 export function control(actor, opts = {}) {
   const st = opts.stage || currentStage(), cam = st.camera, input = opts.input, { mode = 'third', heightAt = () => 0, speed = 4.5, runSpeed = 7.5, jump = 7.5, gravity = 22, bounds = Infinity, minY = -Infinity } = opts;
   if (!input) throw new Error('control() needs { input }: const input = createInput(canvas) from "@gcp/input.js".');
+  // Third person looks with the mouse the way web games do: a click captures and hides it, Esc frees it. pointerLock: false keeps drag-to-look.
+  if (mode === 'third' && input.setPointerLock && (opts.pointerLock ?? true)) input.setPointerLock(true);
   const C = { position: actor.position, velocity: new THREE.Vector3(), grounded: true, moving: false, speedNow: 0, yaw: actor.rotation.y, camYaw: opts.camYaw ?? Math.PI, camPitch: opts.pitch ?? (mode === 'top' ? 1.0 : 0.35), distance: opts.distance ?? (mode === 'top' ? 16 : mode === 'side' ? 11 : 7), enabled: true, solids: opts.solids || [], more: [], target: null, stepT: 0 };
   C.addSolids = (list) => { if (list) C.more.push(list); return C; };
   const look = new THREE.Vector3(), want = new THREE.Vector3(); let camReady = false;
