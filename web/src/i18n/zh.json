@@ -65,6 +65,6 @@
  "Most storage a creator can ask for, for one game (MB; an admin can still set more)": "创作者可为单款游戏申请的最大存储空间（MB；管理员仍可设置更多）",
  "Check each verified version for content that is never allowed (hate, scams, phishing, sexual content involving minors), adult content it does not declare, and abusive code (miners, password forms, hidden servers)": "检查每个已验证版本：是否含有一律禁止的内容（仇恨、诈骗、钓鱼、涉及未成年人的性内容）、未声明的成人内容，以及滥用代码（挖矿、密码表单、隐藏服务器）",
  "Allow adult (18+) games that declare sexual content or graphic violence (shown blurred, with a warning players confirm)": "允许声明了性内容或血腥暴力的成人（18+）游戏（封面模糊显示，玩家需确认警告）",
- "Most Workers AI content reviews per day (Clef with up to 8 frames of the game in play, about $0.001 each; past the cap a small rule set decides)": "每天最多进行的 Workers AI 内容审核次数（Clef 读取最多 8 帧游玩画面，每次约 $0.001；超出上限后由小型规则集判定）",
- "How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it": "内容审核判定版本有害或含有未声明成人内容的可能性（百分比）达到多少时拒绝该版本"
+ "How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it": "内容审核判定版本有害或含有未声明成人内容的可能性（百分比）达到多少时拒绝该版本",
+ "Most Workers AI content reviews per day (Clef with up to 4 frames of the game in play, about $0.001 each; past the cap a small rule set decides)": "每天最多进行的 Workers AI 内容审核次数（Clef 读取最多 4 帧游玩画面，每次约 $0.001；超出上限后由小型规则集判定）"
 }

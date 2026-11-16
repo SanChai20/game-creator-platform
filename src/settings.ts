@@ -57,7 +57,7 @@ export const SETTING_DEFS = {
   content_check: { v: true, type: 'bool', group: 'Content and conduct', label: 'Check each verified version for content that is never allowed (hate, scams, phishing, sexual content involving minors), adult content it does not declare, and abusive code (miners, password forms, hidden servers)' },
   mature_allowed: { v: true, type: 'bool', group: 'Content and conduct', label: 'Allow adult (18+) games that declare sexual content or graphic violence (shown blurred, with a warning players confirm)' },
   content_block: { v: true, type: 'bool', group: 'Content and conduct', label: 'Block publishing a version the content check refuses (off: report it as a warning only)' },
-  content_ai_daily: { v: 1000, type: 'int', group: 'Content and conduct', label: 'Most Workers AI content reviews per day (Clef with up to 8 frames of the game in play, about $0.001 each; past the cap a small rule set decides)' },
+  content_ai_daily: { v: 1000, type: 'int', group: 'Content and conduct', label: 'Most Workers AI content reviews per day (Clef with up to 4 frames of the game in play, about $0.001 each; past the cap a small rule set decides)' },
   content_ai_threshold: { v: 50, type: 'int', group: 'Content and conduct', label: 'How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it' },
 
   open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },

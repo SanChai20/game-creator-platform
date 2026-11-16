@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { compareDeclared, conductRules, contentCheck, contentRules, credentialForms, declaredLevels, SEXUAL_LEVELS, VIOLENCE_LEVELS } from '../src/content-check.js';
+import { compareDeclared, conductRules, contentCheck, contentRules, credentialForms, declaredLevels, MAX_IMAGES, SEXUAL_LEVELS, spread, VIOLENCE_LEVELS } from '../src/content-check.js';
 import { pixelChange } from '../src/verify-core.js';
 import { bundlePrints, compare, containment } from '../src/originality.js';
 
@@ -144,4 +144,13 @@ test('declaredLevels reads missing descriptors as none', () => {
   assert.deepEqual(declaredLevels(null), { sexual: 0, violence: 0, blood: false, adult: false, declared: false });
   assert.equal(declaredLevels({ sexual: 'nudity', violence: 'graphic' }).sexual, SEXUAL_LEVELS.indexOf('nudity'));
   assert.equal(declaredLevels({ violence: 'graphic' }).violence, VIOLENCE_LEVELS.length - 1);
+});
+
+test('the review sends at most the image count Clef accepts, spread over the play', async () => {
+  assert.deepEqual(spread([0, 1, 2, 3, 4, 5, 6], 4), [0, 2, 4, 6]);
+  assert.deepEqual(spread([0, 1], 4), [0, 1]);
+  let got = 0;
+  const f = (i) => new Uint8Array([0xff, 0xd8, i]);
+  await contentCheck({ listing: {}, frames: [0, 1, 2, 3, 4, 5, 6].map(f), ai: async (_m, _s, _q, extra) => { got = extra.images.length; return null; } });
+  assert.equal(got, MAX_IMAGES);
 });
