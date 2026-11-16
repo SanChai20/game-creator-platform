@@ -177,6 +177,8 @@ export default {
 
 It runs on the standard Workers runtime (fetch, Web Crypto, streams) with no access to the platform's own data or secrets and no bindings of its own (no KV, D1, Durable Objects, cron or AI). Use it to validate scores, run daily challenges or keep a world that lasts between sessions.
 
+**Limits per request.** Each request to server code has a CPU time budget and a budget of outgoing requests (`fetch()` and every `env.store` call count); the numbers for this platform are in `platform_services` under `server_code.limits` (`cpu_ms_per_request`, `outgoing_requests_per_request`, and any `blocked_hosts`). A request past either budget fails with HTTP 503 and `{"code": "limit_exceeded"}`: tell the developer which budget was hit and move the heavy part out of the request (precompute while building, cache in `env.store`, or split the work over several calls). Read everything from the `env` argument of `fetch`: `import { env } from 'cloudflare:workers'` and `process.env` are empty in game Workers.
+
 **`server/` is never served.** The game Worker answers 404 for every path under `server/`, in preview and live, so players cannot download your server code; every other file in the bundle is public. There is no secrets store: a key written into `server/` stays readable to you through MCP and to the platform's automated checks, so use keys you can revoke and never put one in a client file.
 
 Whether server code is allowed on this platform is shown by `get_started` under `account.limits.server_code`.
@@ -205,7 +207,7 @@ Limits (defaults): play-through 30 seconds and 60 steps. WebGPU-only games are v
 
 ## Publish checks
 
-Before a verified version goes live it is compared with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and common libraries ignored), checked for harmful content and abusive code, and confirmed to be a web game. Workers AI decision models review only borderline cases. `publish` says which check refused a version and how to fix it.
+Before a verified version goes live it is compared with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and common libraries ignored), checked for content and abusive code, and confirmed to be a web game. Workers AI decision models review only borderline copies; every version's content is reviewed from frames taken while the verification browser plays it. Adult games (sexual content, graphic violence, other mature themes) are allowed when `content` declares them: they are listed as 18+ with a blurred cover, and players confirm a warning before they start. Undeclared sexual content or realistic violence fails the review (`get_started {topic: "metadata"}`). `publish` says which check refused a version and how to fix it.
 
 ## Marketplace, payments and payouts
 

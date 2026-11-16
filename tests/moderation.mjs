@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { conductRules, contentCheck, contentRules, credentialForms } from '../src/content-check.js';
+import { compareDeclared, conductRules, contentCheck, contentRules, credentialForms, declaredLevels, SEXUAL_LEVELS, VIOLENCE_LEVELS } from '../src/content-check.js';
 import { pixelChange } from '../src/verify-core.js';
 import { bundlePrints, compare, containment } from '../src/originality.js';
 
@@ -73,4 +73,75 @@ test('a small game copied whole is a copy, a small shared helper is not', () => 
   const src = readFileSync(new URL('./moderation/corpus/g-memory/index.html', import.meta.url), 'utf8');
   const P = (t) => ({ prints: bundlePrints([{ path: 'index.html', text: t }]), files: [], assets: [], look: null });
   assert.equal(compare(P(src.replace(/\bdeck\b/g, 'pile')), P(src)).verdict, 'copy');
+});
+
+// ---- adult games: allowed when declared, refused when not --------------------------------------------------------------
+const said = (verdict, sexual, violence) => async (_m, _s, _q, extra) => ({ verdict: { type: 'choice', choice: 'fine', probabilities: verdict }, sexual: { type: 'choice', choice: 'x', probabilities: sexual }, violence: { type: 'choice', choice: 'x', probabilities: violence }, images: extra.images?.length || 0 });
+const none = { none: 0.9, suggestive: 0.1, nudity: 0, explicit: 0 }, calm = { none: 0.9, cartoon: 0.1, fantasy: 0, realistic: 0, graphic: 0 };
+
+test('declared sexual content passes; the same content undeclared fails', async () => {
+  const seen = { none: 0.05, suggestive: 0.1, nudity: 0.25, explicit: 0.6 };
+  const undeclared = await contentCheck({ listing: { title: 'Night Club' }, content: { sexual: 'none' }, ai: said({ fine: 0.95 }, seen, calm) });
+  assert.equal(undeclared.ok, false); assert.equal(undeclared.undeclared, true); assert.equal(undeclared.category, 'sexual');
+  assert.match(undeclared.reason, /explicit sexual content/);
+  const declared = await contentCheck({ listing: { title: 'Night Club' }, content: { sexual: 'explicit' }, ai: said({ fine: 0.95 }, seen, calm) });
+  assert.equal(declared.ok, true);
+  // nudity declared, explicit seen: still more than declared
+  assert.equal((await contentCheck({ listing: {}, content: { sexual: 'nudity' }, ai: said({ fine: 0.95 }, seen, calm) })).ok, false);
+});
+
+test('undeclared realistic or graphic violence fails; smaller gaps are notes', async () => {
+  const gore = { none: 0, cartoon: 0, fantasy: 0.1, realistic: 0.3, graphic: 0.6 };
+  const r = await contentCheck({ listing: {}, content: { violence: 'fantasy' }, ai: said({ fine: 0.9 }, none, gore) });
+  assert.equal(r.ok, false); assert.equal(r.category, 'violence'); assert.equal(r.undeclared, true);
+  assert.equal((await contentCheck({ listing: {}, content: { violence: 'graphic', blood: true }, ai: said({ fine: 0.9 }, none, gore) })).ok, true);
+  const cartoon = await contentCheck({ listing: {}, content: { violence: 'none' }, ai: said({ fine: 0.9 }, none, { none: 0.2, cartoon: 0.7, fantasy: 0.1, realistic: 0, graphic: 0 }) });
+  assert.equal(cartoon.ok, true);
+  assert.match(cartoon.notes.join(' '), /cartoon violence/);
+  // no declaration at all is read as none
+  assert.equal((await contentCheck({ listing: {}, content: null, ai: said({ fine: 0.9 }, none, gore) })).ok, false);
+});
+
+test('compareDeclared needs the review to be sure enough', () => {
+  const maybe = { none: 0.6, suggestive: 0.1, nudity: 0.2, explicit: 0.1 };
+  assert.equal(compareDeclared(maybe, null, { sexual: 'none' }, 0.5).reason, null);
+  assert.match(compareDeclared(maybe, null, { sexual: 'none' }, 0.25).reason, /nudity/);
+});
+
+test('content never allowed is refused even when adult content is declared', async () => {
+  const r = await contentCheck({ listing: { title: 'Loli hentai dating' }, content: { sexual: 'explicit' }, ai: said({ fine: 0.99 }, none, calm) });
+  assert.equal(r.ok, false); assert.equal(r.category, 'dangerous');
+  const ai = await contentCheck({ listing: {}, content: { sexual: 'explicit' }, ai: said({ fine: 0.1, dangerous: 0.9 }, none, calm) });
+  assert.equal(ai.ok, false); assert.equal(ai.category, 'dangerous');
+  assert.equal((await contentCheck({ listing: {}, content: { sexual: 'explicit' }, ai: said({ fine: 0.2, scam: 0.8 }, none, calm) })).category, 'scam');
+});
+
+test('fallback rules: declared sexual words pass, undeclared fail, minors never', () => {
+  assert.equal(contentRules('An nsfw visual novel', { sexual: 'explicit' }), null);
+  assert.equal(contentRules('An nsfw visual novel', { sexual: 'suggestive' })?.undeclared, true);
+  assert.equal(contentRules('An nsfw visual novel', null)?.category, 'sexual');
+  assert.equal(contentRules('underage nsfw', { sexual: 'explicit' })?.category, 'dangerous');
+  assert.match(contentRules('Gore everywhere', { violence: 'cartoon' }).notes[0], /realistic or graphic/);
+});
+
+test('the review sees the frames taken while the game was played', async () => {
+  let got = 0;
+  const ai = async (_m, state, _q, extra) => { got = extra.images.length; assert.ok(extra.images.every((u) => u.startsWith('data:image/'))); assert.ok(state.pictures); return null; };
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  await contentCheck({ listing: {}, frames: [jpeg, jpeg, jpeg], shot: png, ai });
+  assert.equal(got, 3);
+  await contentCheck({ listing: {}, shot: png, ai });
+  assert.equal(got, 1);
+});
+
+test('adult games can be switched off by the admin', async () => {
+  const r = await contentCheck({ listing: {}, content: { violence: 'graphic' }, matureAllowed: false });
+  assert.equal(r.ok, false); assert.equal(r.category, 'mature');
+  assert.equal((await contentCheck({ listing: {}, content: { violence: 'fantasy' }, matureAllowed: false })).ok, true);
+});
+
+test('declaredLevels reads missing descriptors as none', () => {
+  assert.deepEqual(declaredLevels(null), { sexual: 0, violence: 0, blood: false, adult: false, declared: false });
+  assert.equal(declaredLevels({ sexual: 'nudity', violence: 'graphic' }).sexual, SEXUAL_LEVELS.indexOf('nudity'));
+  assert.equal(declaredLevels({ violence: 'graphic' }).violence, VIOLENCE_LEVELS.length - 1);
 });

@@ -89,7 +89,7 @@ const record = await GCP.playRecord();`} />
                 ['requirements', t('Graphics, browser features, input, devices and orientation', '图形接口、浏览器功能、操作方式、设备与屏幕方向'), true],
                 ['languages', t('Each language with interface, voice and subtitles, and whether the game follows the platform language', '每种语言的界面、语音与字幕支持，以及游戏是否跟随平台语言'), true],
                 ['players', t('Minimum and maximum players, and the modes: single, co-op or versus, local or online', '最少与最多玩家人数，以及模式：单人、合作或对战，同屏或在线'), true],
-                ['content', t('Violence, blood, language, fear, suggestive themes, drugs, gambling, flashing lights, player chat. The platform works out the age rating from these.', '暴力、血腥、粗口、恐怖、性暗示、药物、赌博、闪烁画面、玩家聊天。平台据此得出年龄分级。'), true],
+                ['content', t('Violence, blood, language, fear, sexual content, drugs, gambling, adult themes, flashing lights, player chat. The platform works out the age rating from these. Adult games are allowed when declared: they are shown as 18+, blurred, behind a warning players confirm. The review plays the game and refuses undeclared sexual content or violence.', '暴力、血腥、粗口、恐怖、性内容、药物、赌博、成人主题、闪烁画面、玩家聊天。平台据此得出年龄分级。成人游戏在如实声明后允许发布：显示为 18+、封面模糊，并在玩家确认警告后才能开始。审核会实际游玩游戏，未声明的性内容或暴力将被拒绝。'), true],
                 ['session_minutes', t('How long a typical session lasts', '一局通常持续多久'), false],
                 ['progress', t('Cloud saves, leaderboards, offline play', '云存档、排行榜、离线游玩'), false],
                 ['accessibility', t('Remappable controls, colour-blind modes, subtitles and seven more', '可自定义按键、色盲模式、字幕等十项功能'), false],

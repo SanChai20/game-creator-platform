@@ -5,6 +5,8 @@ import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
 import { userFromRequest } from './auth';
 import { gameBindings, rolloutRuntime } from './deploy';
+import { dispatchGame, type Namespace } from './dispatch';
+import { hostKind, matchGameRequest } from './hosting';
 
 const DAILY_CRON = '17 3 * * *';   // must match the first cron in wrangler.jsonc
 import { handleMcp } from './mcp/server';
@@ -18,6 +20,7 @@ import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now } from './util';
 import { backfill } from './originality-check';
+import { backfillMature } from './mature';
 import { TOKENS_CSS } from '../web/src/ui/tokens';
 import { langTag, pageLang, TEXT } from './consent-text';
 import type { Lang } from '../web/src/i18n/langs';
@@ -83,16 +86,25 @@ app.get('/:kind{sdk|kits|vendor|guides|templates}/*', async (c) => {
   return new Response(r.body, { status: r.status, headers: h });
 });
 
-// Local driver (wrangler dev): serve games from this Worker with the exact runtime the deployed Workers use.
+// Local driver (wrangler dev): serve games from this Worker with the exact runtime the deployed Workers use, through
+// the same dispatch code the Workers for Platforms dispatch Worker runs, with this namespace standing in for the real one.
 app.all('/__game/:pid/:env/*', async (c) => {
-  if (c.env.DEPLOY_DRIVER !== 'local') return c.text('Not found', 404);
-  const pid = c.req.param('pid'), e = c.req.param('env') === 'live' ? 'live' : 'preview';
-  const p = await getProject(c.env, pid);
-  const n = p && (e === 'live' ? (p.status === 'live' ? p.live_version : null) : p.preview_version);
-  const v = p && n ? await getVersion(c.env, p.id, n) : null;
-  if (!p || !v) return c.text('This game is not deployed.', 404);
-  const fake = { FILES: c.env.FILES, ...(await gameBindings(c.env, c.get('origin'), p, v, e)) };
-  return handleGame(c.req.raw, fake, c.executionCtx, `/__game/${pid}/${e}`);
+  const m = hostKind(c.env) === 'local' ? matchGameRequest(c.env, new URL(c.req.url)) : null;
+  if (!m || !m.script) return c.text('Not found', 404);
+  const route = m, env = c.env, origin = c.get('origin'), ctx = c.executionCtx;
+  const local: Namespace = {
+    get: () => ({
+      fetch: async (req: Request) => {
+        const p = await getProject(env, route.pid);
+        const n = p && (route.env === 'live' ? (p.status === 'live' ? p.live_version : null) : p.preview_version);
+        const v = p && n ? await getVersion(env, p.id, n) : null;
+        if (!p || !v) throw new Error(`Worker not found: ${route.script}`);
+        const fake = { FILES: env.FILES, ...(await gameBindings(env, origin, p, v, route.env)) };
+        return handleGame(req, fake, ctx, route.base);
+      },
+    }),
+  };
+  return dispatchGame(c.req.raw, env, local, await getSettings(env), m, origin);
 });
 
 // ----- OAuth consent ---------------------------------------------------------------------------
@@ -252,6 +264,8 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // every few minutes: bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
     ctx.waitUntil(rolloutRuntime(env).catch((e) => console.error('runtime rollout failed', e)));
+    // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
+    ctx.waitUntil(backfillMature(env, 20).catch((e) => console.error('mature backfill failed', e)));
     if (event.cron !== DAILY_CRON) return;
     const t = now();
     ctx.waitUntil(env.DB.batch([

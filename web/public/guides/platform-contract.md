@@ -76,7 +76,7 @@ Every call that talks to the platform resolves instead of throwing, so a network
 | clean | No uncaught errors and no unhandled promise rejections. |
 | original | Once the checks above pass: the game is not a copy of another creator's live game. Code everyone starts from (platform templates, kits, libraries such as three.js) is ignored, so building on them is fine. |
 | is_game | Once the checks above pass: it is a game the player acts on, not a page, a form or a link to somewhere else. |
-| content | Once the checks above pass: no sexual content, hate, scams or phishing, and no abusive code (miners, forms that send passwords away, background workers talking to outside servers). Violence, horror and dark themes in games are fine. |
+| content | Once the checks above pass, a vision model reviews frames taken while the game was played: no hate, scams, phishing or sexual content involving minors, sexual content and violence no greater than `content` declares, and no abusive code (miners, forms that send passwords away, background workers talking to outside servers). Adult games are allowed when declared; they are shown as 18+. |
 
 The browser that runs the check has a software GPU. It is slow, so the frame count needed is low, but a scene that takes ten seconds per frame will fail. If your game has a menu, register a way past it so the check sees real play:
 

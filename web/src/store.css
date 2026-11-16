@@ -514,3 +514,20 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 @media (max-width: 900px) { .sk-hero { min-height: 420px; } .sk-hero > .sk-stack { max-width: 100%; } }
 .meta-missing { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; font-weight: 600; }
 .meta-missing li::marker { color: var(--warn); }
+
+/* Adults-only (18+) games: the cover is blurred everywhere in the store and carries a label naming what it contains.
+   The game page keeps its picture blurred until the player confirms the warning. */
+img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: scale(1.15); }
+.art:has(> .mature-tag), .tl-prev .art { position: relative; }
+.mature-tag { position: absolute; left: 8px; bottom: 8px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 16px); padding: 3px 8px 3px 3px; border-radius: 4px; background: rgb(0 0 0 / .72); color: #fff; font-size: 11px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.mature-tag b { padding: 2px 5px; border-radius: 3px; background: var(--bad); color: #fff; font: 800 11px/1 var(--font-display); }
+.hero-art .mature-tag { left: auto; right: 12px; bottom: 12px; }
+.stage .poster.mature-blur { filter: blur(28px) saturate(.6) brightness(.6); transform: scale(1.15); }
+.mature-note { display: flex; gap: 12px; align-items: flex-start; margin: -6px 0 20px; padding: 14px 16px; border-radius: 6px; border: 1px solid rgb(var(--bad-rgb) / .4); background: rgb(var(--bad-rgb) / .08); }
+.mature-note > .age { flex: none; }
+.mgate { display: grid; gap: 12px; justify-items: center; max-width: 420px; padding: 20px; border-radius: 8px; background: rgb(0 0 0 / .78); color: #fff; text-align: center; }
+.mgate h3 { margin: 0; font-size: 18px; }
+.mgate ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.mgate li { padding: 2px 8px; border-radius: 999px; border: 1px solid rgb(255 255 255 / .35); font-size: 12px; }
+.mgate p { margin: 0; font-size: 13px; color: rgb(255 255 255 / .82); }
+@media (prefers-reduced-motion: reduce) { img.mature-blur, .stage .poster.mature-blur { transform: none; } }

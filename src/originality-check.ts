@@ -3,7 +3,7 @@
 // before this one). Code everyone starts from (templates, kits, libraries) is ignored. Clear copies and uploads
 // that are not games fail the check; Workers AI's decision models (Clef) are asked only about borderline cases, under a daily cap.
 import type { Env, Project, Version } from './env';
-import { logEvent, verKey } from './projects';
+import { ensureVersionMeta, logEvent, verKey } from './projects';
 import { getSettings } from './settings';
 import { aiDecide, type Question } from './ai';
 import { b64, dayOf, now, parseJson } from './util';
@@ -20,7 +20,7 @@ const ASSET = /\.(png|jpe?g|webp|gif|avif|ktx2|basis|mp3|ogg|wav|m4a|aac|opus|fl
 const CODE = /\.(m?js|cjs|html?)$/i;
 
 interface Print { prints: number[]; files: string[]; assets: string[]; look: { dhash: string; palette: number[] } | null }
-interface Built extends Print { facts: any; html: string; texts: { path: string; text: string }[]; shot: Uint8Array | null }
+interface Built extends Print { facts: any; html: string; texts: { path: string; text: string }[]; shot: Uint8Array | null; frames: Uint8Array[] }
 
 let baseline: Promise<Set<number>> | null = null;
 function baselineOf(env: Env): Promise<Set<number>> {
@@ -59,7 +59,10 @@ export async function printVersion(env: Env, p: Project, v: Version): Promise<Bu
     ...keys.map((h) => env.DB.prepare('INSERT OR IGNORE INTO fp_index (h, project_id, version) VALUES (?, ?, ?)').bind(h, p.id, v.n)),
   ]);
   const readable = texts.filter((t) => t.text !== null && /\.(m?js|cjs|html?|json|css)$/i.test(t.path)) as { path: string; text: string }[];
-  return { prints, files, assets, look, facts: analyzeBundle(texts, parseJson(v.report, {})), html: texts.find((t) => t.path === 'index.html')?.text || '', texts: readable, shot };
+  // the frames the verification browser took while it played the game, for the content review
+  const frames: Uint8Array[] = [];
+  for (const k of (parseJson<{ frames?: string[] }>(v.report, {}).frames || []).slice(0, 8)) { const o = await env.FILES.get(k); if (o) frames.push(new Uint8Array(await o.arrayBuffer())); }
+  return { prints, files, assets, look, facts: analyzeBundle(texts, parseJson(v.report, {})), html: texts.find((t) => t.path === 'index.html')?.text || '', texts: readable, shot, frames };
 }
 
 const rowPrint = (r: any): Print => ({ prints: parseJson(r.prints, []), files: parseJson(r.files, []), assets: parseJson(r.assets, []), look: parseJson(r.look, null) });
@@ -156,18 +159,22 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
     await logEvent(env, p.id, 'not_game_flagged', g.reason, v.n, 'originality');
   } else flag({ id: 'is_game', ok: true, label: 'It is a game', detail: g.verdict === 'unsure' ? 'An interactive page; nothing showed it is not a game.' : g.reason, hint: '' });
 
-  // 3. content and conduct: harmful content, miners, password forms, hidden servers
+  // 3. content and conduct: content never allowed, undeclared adult content, miners, password forms, hidden servers.
+  //    The review looks at frames taken while the game was played and compares what it saw with the declared content.
   let content: any = null;
   if (s.content_check) {
-    const ai = (await aiBudget(env, 'content_review')) ? (model: string, state: unknown, questions: Record<string, Question>, extra: Record<string, unknown>) => aiDecide(env, model as any, state, questions, 15000, extra) : null;
-    content = await contentCheck({ listing, html: me.html, pageText: report.page?.text || '', texts: me.texts, report, shot: me.shot, ai, threshold: s.content_ai_threshold / 100 });
+    const ai = (await aiBudget(env, 'content_review')) ? (model: string, state: unknown, questions: Record<string, Question>, extra: Record<string, unknown>) => aiDecide(env, model as any, state, questions, 20000, extra) : null;
+    const declared = await ensureVersionMeta(env, v).then((m) => m.meta.meta.content).catch(() => null);
+    content = await contentCheck({ listing, html: me.html, pageText: report.page?.text || '', texts: me.texts, report, shot: me.shot, frames: me.frames, content: declared, ai, threshold: s.content_ai_threshold / 100, matureAllowed: s.mature_allowed });
     if (content.notes?.length) report.notes = [...(report.notes || []), ...content.notes];
     if (!content.ok) {
-      const c = { id: 'content', ok: false, label: 'Safe for players', detail: content.reason, hint: 'The marketplace is open to all ages with no human review. Games may be violent, scary or dark, but not sexual, hateful, fraudulent or deceptive, and they may not mine, collect passwords or talk to hidden servers. If this was judged wrongly, change what the listing and first screen show, then deploy again.' };
+      const c = { id: 'content', ok: false, label: content.undeclared ? 'Content is declared' : 'Safe for players', detail: content.reason, hint: content.undeclared
+        ? 'Adult games are allowed, but what players see must be declared. Declare it with game_metadata (action "declare", content: sexual "suggestive" | "nudity" | "explicit", violence "realistic" | "graphic", blood, adult_themes), then deploy a new preview: the game is listed as 18+, its cover is blurred and players confirm before it starts. If the review saw something the game does not show, change what the listing and screens show, then deploy again.'
+        : 'Adult content is allowed when declared, but some content is never allowed: sexual content involving minors, hate, scams, phishing, promotion of self-harm, and code that mines, collects passwords or talks to hidden servers. If this was judged wrongly, change what the listing and screens show, then deploy again.' };
       if (!s.content_block) { c.ok = true; c.detail = `Warning: ${c.detail}`; report.warnings = [...(report.warnings || []), `${c.label}: ${content.reason}`]; }
       checks.push(c);
       await logEvent(env, p.id, 'content_flagged', `${content.category}: ${content.reason}`.slice(0, 300), v.n, 'content');
-    } else checks.push({ id: 'content', ok: true, label: 'Safe for players', detail: content.by === 'ai' ? 'Reviewed: nothing harmful found.' : 'Rule check: nothing harmful found (the AI review was not available).', hint: '' });
+    } else checks.push({ id: 'content', ok: true, label: 'Safe for players', detail: content.by === 'ai' ? `Reviewed from ${content.ai?.frames || 0} frame(s) of the game in play: nothing disallowed, and nothing beyond the declared content.` : 'Rule check: nothing disallowed found (the AI review was not available).', hint: '' });
   }
 
   const failed = checks.filter((c) => !c.ok && c.id !== 'content');
@@ -177,7 +184,7 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
   }
   report.checks = [...(report.checks || []), ...checks];
   report.originality = { matches: matches.slice(0, 3).map(({ listing: _l, project_id: _p, ...m }) => m), game: g.verdict, ai: { judge: judged?.verdict || null, judge_p: judged?.probabilities || null, gameness: aiSaid ? aiSaid.is_game : null, gameness_p: aiSaid ? aiSaid.p : null, content: content?.ai?.probabilities || null }, ms: Date.now() - t0 };
-  report.content = content ? { ok: content.ok, category: content.category, by: content.by } : null;
+  report.content = content ? { ok: content.ok, category: content.category, undeclared: !!content.undeclared, by: content.by, sexual: content.ai?.sexual || null, violence: content.ai?.violence || null, frames: content.ai?.frames || 0 } : null;
   if (report.checks.some((c: any) => !c.ok)) { report.ok = false; report.summary = `Not publishable: ${report.checks.filter((c: any) => !c.ok).map((c: any) => c.label.toLowerCase()).join('; ')}.`; }
 }
 

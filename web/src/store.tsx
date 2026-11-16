@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { CountUp } from './ui/count';
 import { SkHits, SkShelf } from './skeletons';
-import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, useLocation, Verdict, type GameCard } from './lib';
+import { ago, api, artStyle, blurb, count, CoverImg, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, MatureTag, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[]; group?: string | null }
@@ -81,7 +81,7 @@ export function SearchBox({ initial = '', autoFocus, big, hotkey, onSubmit }: { 
         <div className="sbox-pop" id={id} role="listbox">
           {hits.map((g, i) => (
             <Link key={g.id} to={`/g/${g.slug}`} className={'sbox-row' + (i === sel ? ' on' : '')} onClick={() => setOpen(false)}>
-              <span className="thumb" id={`${id}-${i}`} role="option" aria-selected={i === sel} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>
+              <span className="thumb" id={`${id}-${i}`} role="option" aria-selected={i === sel} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}</span>
               <span className="grow"><b className="clip">{g.title}</b><small className="clip">{g.author} · {g.tags.slice(0, 2).map(genreName).join(' · ')}</small></span>
               <span className="sbox-p">{price(g.price_cents)}</span>
             </Link>
@@ -161,7 +161,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
   return (
     <section className="hero ink" style={hue(g.tags[0])} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)} aria-roledescription={t('carousel', '轮播')} aria-label={t('Featured', '精选推荐')}>
       <Link to={to} className="hero-art" key={'a' + g.id} tabIndex={-1} aria-hidden="true">
-        <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</span>
+        <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}<MatureTag g={g} /></span>
       </Link>
       <div className="hero-body" key={'b' + g.id} aria-live={paused ? 'polite' : 'off'}>
         <span className="stick">{g.featured ? t('Featured', '精选') : i === 0 ? t('#1 this week', '本周第一') : t('Trending', '热门')}</span>
@@ -184,7 +184,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
           <div className="hero-strip" role="tablist" aria-label={t('Featured picks', '精选列表')}>
             {picks.map((x, k) => (
               <button key={x.id} role="tab" aria-selected={k === i} aria-label={x.title} className={'hero-pick' + (k === i ? ' on' : '') + (paused || calm ? ' held' : '')} onClick={() => setI(k)}>
-                <span className="thumb" style={x.cover ? undefined : artStyle(x.slug)}>{x.cover && <img src={x.cover} alt="" loading="lazy" />}</span>
+                <span className="thumb" style={x.cover ? undefined : artStyle(x.slug)}>{x.cover && <CoverImg g={x} src={x.cover} />}</span>
                 {k === i && <i className="hero-bar" key={i + (paused ? 'p' : '')} aria-hidden="true" />}
               </button>
             ))}
@@ -222,7 +222,7 @@ export function GameRow({ g, onFocus, active, rank }: { g: GameCard; onFocus?: (
   return (
     <Link to={`/g/${g.slug}`} className={'grow-row' + (active ? ' on' : '') + (rank != null ? ' has-rank' : '')} onMouseEnter={onFocus} onFocus={onFocus}>
       {rank != null && <span className="gr-rank num">{rank}</span>}
-      <span className="thumb" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" decoding="async" />}</span>
+      <span className="thumb" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}</span>
       <span className="gr-main">
         <b className="clip">{g.title}</b>
         <span className="gr-tags">{g.tags.slice(0, 3).map((x) => <i key={x} style={hue(x)}>{genreName(x)}</i>)}</span>
@@ -238,7 +238,7 @@ function Preview({ g }: { g: GameCard }) {
   const R = RARITY[rarity(g)];
   return (
     <Link to={`/g/${g.slug}`} className="tl-prev" key={g.id} style={hue(g.tags[0])}>
-      <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</span>
+      <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}<MatureTag g={g} /></span>
       <span className="tl-prev-b">
         <b>{g.title}</b>
         {blurb(g) && <span className="mute fs-sm">{blurb(g)}</span>}
@@ -348,7 +348,7 @@ export function QueueBand({ pool }: { pool: GameCard[] }) {
   const fan = (left.length ? left : pool).slice(0, 3);
   return (
     <Link to="/queue" className="qband ink">
-      <span className="qband-fan" aria-hidden="true">{fan.map((g, k) => <span key={g.id} className={'q' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>)}</span>
+      <span className="qband-fan" aria-hidden="true">{fan.map((g, k) => <span key={g.id} className={'q' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}</span>)}</span>
       <span className="grow">
         <span className="eyebrow sig">{t('Your discovery queue', '你的探索队列')}</span>
         <b>{left.length ? (left.length === 1 ? t('1 game you haven\'t opened yet', '1 款你还没打开过的游戏') : t('{n} games you haven\'t opened yet', '{n} 款你还没打开过的游戏', { n: left.length })) : t('You have seen every pick. New ones arrive daily.', '推荐已全部看完，每天都有新游戏。')}</b>
