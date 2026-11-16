@@ -8,6 +8,7 @@ import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
 import { undeployGame } from '../deploy';
 import { hostId, hostingProblems } from '../hosting';
+import { decideRequest, setGameStorage, MB } from '../storage';
 import { addDays, dayOf, now, rid } from '../util';
 import { grantCreator, reverseWithdrawal, takeOffline } from './api';
 
@@ -78,7 +79,8 @@ admin.patch('/users/:id', async (c) => {
 admin.get('/games', async (c) => {
   const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%', since = addDays(dayOf(now()), -6), off = pageOf(c);
   const rows = await c.env.DB.prepare(
-    `SELECT p.id, p.slug, p.title, p.status, p.featured, p.price_cents, p.sales, p.plays, p.seconds, p.rating_sum, p.rating_count, p.live_version, p.preview_version, p.created_at, p.published_at, p.removed_reason, p.cover_key,
+    `SELECT p.id, p.slug, p.title, p.status, p.featured, p.price_cents, p.sales, p.plays, p.seconds, p.rating_sum, p.rating_count, p.live_version, p.preview_version, p.created_at, p.published_at, p.removed_reason, p.cover_key, p.storage_bytes,
+       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.project_id = p.id) AS used_bytes,
        u.name AS author, u.email AS author_email,
        (SELECT COALESCE(SUM(plays), 0) FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?3) AS plays7,
        (SELECT COALESCE(SUM(net_cents), 0) FROM purchases x WHERE x.project_id = p.id AND x.status = 'paid') AS net,
@@ -100,7 +102,26 @@ admin.patch('/games/:id', async (c) => {
     await undeployGame(c.env, p.id, 'live'); await undeployGame(c.env, p.id, 'preview');
     await logEvent(c.env, p.id, 'removed', String(b.reason || ''), null, 'admin');
   }
+  // storage: a number of MB for this game, or null for the platform default
+  if (b.storage_mb !== undefined) await setGameStorage(c.env, p, b.storage_mb === null || b.storage_mb === '' ? null : Math.round(Number(b.storage_mb) * MB), 'admin');
   if (b.action === 'restore' && p.status === 'removed') await c.env.DB.prepare("UPDATE projects SET status = ?, removed_reason = NULL WHERE id = ?").bind(p.live_version ? 'offline' : 'draft', p.id).run();
+  return c.json({ ok: true });
+});
+
+// Creators' requests for more storage: pending first, then the latest decisions.
+admin.get('/storage-requests', async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT r.*, p.title, p.slug, p.status AS game_status, p.storage_bytes, u.name AS author, u.email AS author_email,
+       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.project_id = r.project_id) AS used_now
+     FROM storage_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.user_id
+     WHERE r.status = 'pending' OR r.decided_at > ? ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 100`).bind(now() - 30 * 86400000).all();
+  return c.json({ requests: rows.results, default_bytes: (await getSettings(c.env)).bundle_max_bytes });
+});
+
+admin.post('/storage-requests/:id', async (c) => {
+  const me = requireAdmin(c as any), b = await c.req.json<{ action?: string; megabytes?: number | string; note?: string }>().catch(() => ({} as any));
+  if (b.action !== 'approve' && b.action !== 'deny') throw bad('action must be "approve" or "deny".');
+  await decideRequest(c.env, me, c.req.param('id'), b.action === 'approve', b.megabytes, b.note);
   return c.json({ ok: true });
 });
 

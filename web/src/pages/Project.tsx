@@ -220,6 +220,7 @@ export function Project({ id }: { id: string }) {
               <KeyValue items={[
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],
                 [t('Working files', '工作区文件'), `${data.files.count} · ${bytes(data.files.bytes)}`],
+                [t('Storage', '存储空间'), <span className={data.files.bytes > data.files.storage_bytes ? 'bad' : data.files.bytes >= data.files.storage_bytes * 0.8 ? 'sig' : undefined}>{t('{used} of {size} ({pct}%)', '已用 {used}，共 {size}（{pct}%）', { used: bytes(data.files.bytes), size: bytes(data.files.storage_bytes), pct: Math.round((data.files.bytes / Math.max(1, data.files.storage_bytes)) * 100) })}{data.files.request?.status === 'pending' && <span className="mute"> · {t('asked for {size}', '已申请 {size}', { size: bytes(data.files.request.bytes) })}</span>}</span>],
                 [t('Tags', '标签'), p.tags.join(', ') || '—'],
                 [t('Rating', '评分'), <Stars rating={p.rating} count={p.rating_count} />],
                 [t('Project id', '项目 ID'), p.id, 'mono'],

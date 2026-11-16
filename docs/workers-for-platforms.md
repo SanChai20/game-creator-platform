@@ -20,7 +20,7 @@ The code is already shaped for that move. Switching is configuration plus a few 
 | Local dev | `/__game/<pid>/<env>/` | runs through the same `dispatchGame()` with an emulated namespace | unchanged |
 | Health checks | `waitHealthy()` | HTTP to the game | in-process through the platform's `DISPATCHER` binding |
 | Moving games | `rolloutRuntime()` (every 10 minutes) | redeploys scripts with an older runtime or limits | also redeploys scripts whose `game_workers.host` differs from the configured host, then retires the old copy |
-| Where each game lives | `game_workers.host` (migration 0012) | `workers`, or `workers:<GAME_HOST>` on per-script routes | `dispatch:<namespace>` |
+| Where each game lives | `game_workers.host` (migration 0013) | `workers`, or `workers:<GAME_HOST>` on per-script routes | `dispatch:<namespace>` |
 
 The game runtime (`src/runtime/game-worker.js`) is the same file in every host. It reads nothing host-specific (no `request.cf`, no Cache API), which matters because user Workers run in untrusted mode.
 
@@ -54,7 +54,7 @@ From then on, the address a game has is exactly the one the dispatch Worker will
    "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "gcp-games" }],
    "vars": { "DEPLOY_DRIVER": "dispatch", "DISPATCH_NAMESPACE": "gcp-games", "GAME_HOST": "play.example.com", ... }
    ```
-   Apply D1 migrations (`npm run db:remote`, migration 0012 if it is not applied yet) and deploy. The admin overview shows `hosting: dispatch:gcp-games` and lists anything missing under `hosting_problems`.
+   Apply D1 migrations (`npm run db:remote`, migration 0013 if it is not applied yet) and deploy. The admin overview shows `hosting: dispatch:gcp-games` and lists anything missing under `hosting_problems`.
 6. **Let the rollout move the games.** Every 10 minutes it redeploys up to 8 scripts whose `game_workers.host` is not `dispatch:gcp-games` into the namespace, live versions first, with the version each already serves:
    - With per-script routes (same address), the old route and standard Worker are deleted as soon as the new copy is up; sessions carry on because the play key does not change.
    - With `workers.dev` addresses, play sessions started on the old address keep working; the old Worker is deleted 6 hours later (`RETIRE_AFTER_MS`). New sessions get the new address as soon as the game moves.

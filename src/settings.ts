@@ -38,9 +38,13 @@ export const SETTING_DEFS = {
   metadata_required: { v: true, type: 'bool', group: 'Verification', label: 'Require complete game metadata to publish (genre, requirements, languages, players, content descriptors)' },
   verify_human_min_seconds: { v: 20, type: 'int', group: 'Verification', label: 'Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it' },
 
-  bundle_max_files: { v: 300, type: 'int', group: 'Limits', label: 'Files per game bundle', public: true },
-  bundle_max_bytes: { v: 50 * 1024 * 1024, type: 'int', group: 'Limits', label: 'Bundle size (bytes)', public: true },
-  file_max_bytes: { v: 20 * 1024 * 1024, type: 'int', group: 'Limits', label: 'Single file size (bytes)', public: true },
+  // Storage: what a game's files may add up to. bundle_max_bytes is the default; Admin, Games raises or lowers it for one game.
+  bundle_max_bytes: { v: 50 * 1024 * 1024, type: 'bytes', group: 'Storage', label: 'Default storage per game: the most one game\'s files may add up to (MB)', public: true },
+  file_max_bytes: { v: 20 * 1024 * 1024, type: 'bytes', group: 'Storage', label: 'Largest single file (MB)', public: true },
+  bundle_max_files: { v: 300, type: 'int', group: 'Storage', label: 'Files per game', public: true },
+  storage_requests_open: { v: true, type: 'bool', group: 'Storage', label: 'Let creators ask for more storage for a game (each request waits for an admin unless it is under the automatic limit)', public: true },
+  storage_auto_approve_bytes: { v: 0, type: 'bytes', group: 'Storage', label: 'Approve requests at once up to this much storage per game (MB; 0: an admin reviews every request)' },
+  storage_max_bytes: { v: 200 * 1024 * 1024, type: 'bytes', group: 'Storage', label: 'Most storage a creator can ask for, for one game (MB; an admin can still set more)', public: true },
   projects_per_user: { v: 50, type: 'int', group: 'Limits', label: 'Projects per creator' },
   allow_server_code: { v: true, type: 'bool', group: 'Limits', label: 'Allow games to ship server code (server/index.js)' },
   room_max_peers: { v: 16, type: 'int', group: 'Limits', label: 'Players per multiplayer room' },
@@ -88,7 +92,7 @@ export async function putSettings(env: Env, patch: Record<string, unknown>): Pro
     if (!def) continue;
     let val: unknown = v;
     if (def.type === 'bool') val = !!v;
-    else if (def.type === 'int' || def.type === 'cents') { val = Math.round(Number(v)); if (!Number.isFinite(val as number) || (val as number) < 0) continue; }
+    else if (def.type === 'int' || def.type === 'cents' || def.type === 'bytes') { val = Math.round(Number(v)); if (!Number.isFinite(val as number) || (val as number) < 0) continue; }
     else if (def.type === 'number') { val = Number(v); if (!Number.isFinite(val as number) || (val as number) < 0) continue; }
     else if (def.type === 'select') { if (!def.options!.includes(String(v))) continue; val = String(v); }
     else val = String(v).slice(0, 300);
