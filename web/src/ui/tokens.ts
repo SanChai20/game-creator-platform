@@ -3,25 +3,36 @@
 // (the agent consent screen), so both stay in step. Change a value here and every surface follows.
 // Plain data and strings only: this file is imported by the Worker as well as the browser.
 
-export const color = {
-  // Surfaces, darkest to lightest: a violet-black, like a cabinet screen with the power on.
-  bg0: '#0a0910', bg1: '#110f18', bg2: '#17151f', bg3: '#201d2a', bg4: '#2c2838',
-  line: 'rgba(196, 184, 255, .08)', line2: 'rgba(196, 184, 255, .15)', line3: 'rgba(196, 184, 255, .28)',
-  // Text
-  text: '#f2f0f7', text2: '#a9a4b8', text3: '#6c6780',
-  // Brand: acid lime on ink for the one thing to do; hot pink only as a rare highlight (new, chart series).
-  accent: '#c6ff3d', accent2: '#8cf23a', accentHi: '#e4ff7a', accentInk: '#0d1400',
-  accentWash: 'rgba(198, 255, 61, .1)', accentLine: 'rgba(198, 255, 61, .34)', accentGlow: 'rgba(198, 255, 61, .3)',
-  hot: '#ff4fa3', hotWash: 'rgba(255, 79, 163, .12)',
-  // Atmosphere: glows and charts, never meaning.
-  violet: '#8b6bff', cyan: '#3fe0ff', pink: '#ff4fa3', gold: '#ffc845',
-  // Meaning
-  good: '#3ee8b5', bad: '#ff5d6c', info: '#6cb6ff',
-  goodWash: 'rgba(62, 232, 181, .11)', badWash: 'rgba(255, 93, 108, .1)', infoWash: 'rgba(108, 182, 255, .11)',
+/** "r, g, b" of a #rrggbb colour, so CSS can use a token at any opacity: rgb(var(--accent-rgb) / .3). */
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
+const a = (hex: string, alpha: number) => `rgba(${rgb(hex)}, ${alpha})`;
+
+// The palette: a deep indigo night, warm gold for the one thing to do (the colour of coins, stars and rewards), and
+// an electric violet as its partner for the chosen tab, highlights and glows. Cyan, coral and mint are spot colours
+// for meaning and charts. Every colour in the CSS is one of these, or black and white for shading.
+const base = {
+  bg0: '#090b1a', bg1: '#10132b', bg2: '#161a38', bg3: '#1f2449', bg4: '#2b315f',
+  tint: '#a9b2ff', // the cool white that lines and hover washes are made of
+  text: '#eef0ff', text2: '#a6acd2', text3: '#7a80aa',
+  accent: '#ffc53d', accent2: '#ff9f1c', accentHi: '#ffe27a', accentInk: '#2b1700', accentLip: '#9a5300',
+  violet: '#8b6cff', violetHi: '#b3a0ff', cyan: '#3fd4ff', hot: '#ff5e8e', gold: '#ffc53d',
+  good: '#3ee8a5', bad: '#ff5d6c', info: '#5fb3ff',
   // Game UI materials (ui/skin.css): the ink outline round every pressable thing, the frame of a panel and its lit
   // edge, the recessed well a field or a tab bar sits in, and the solid "lip" under a raised thing that gives it depth.
-  ink: '#07050d', frame: '#2c2643', frameHi: '#463d6c', well: '#0b0914', lip: '#040308', accentLip: '#4b7806', badLip: '#7a1f2c',
+  ink: '#05061a', frame: '#2a3068', frameHi: '#454d9a', well: '#0a0c20', lip: '#03040e', badLip: '#7a1f2c',
+  key: '#343a75', keyLo: '#252a58', keyHi: '#424a8f', keyHiLo: '#30366d', // a plain keycap, its hover
+  plate: '#4a37a8', plateLo: '#36288a', // the raised plate under the chosen tab: violet
 } as const;
+export const color = {
+  ...base,
+  pink: base.hot,
+  line: a(base.tint, 0.08), line2: a(base.tint, 0.15), line3: a(base.tint, 0.28),
+  accentWash: a(base.accent, 0.1), accentLine: a(base.accent, 0.4), accentGlow: a(base.accent, 0.32),
+  hotWash: a(base.hot, 0.12), violetWash: a(base.violet, 0.14), violetLine: a(base.violet, 0.45),
+  goodWash: a(base.good, 0.11), badWash: a(base.bad, 0.1), infoWash: a(base.info, 0.11),
+} as const;
+/** The channels behind the tokens that CSS needs at several opacities (--accent-rgb and so on). */
+const RGB_KEYS = ['bg0', 'bg1', 'bg2', 'bg3', 'tint', 'text', 'accent', 'accentLip', 'violet', 'cyan', 'hot', 'good', 'bad', 'info', 'ink'] as const;
 
 /** Series colours for charts, in order. Readable on the dark surfaces and distinct from one another. */
 export const chart = {
@@ -74,7 +85,7 @@ export const shadow = {
   glow: `0 10px 34px -6px ${color.accentGlow}`,
   inset: 'inset 0 1px 0 rgba(255, 255, 255, .05)',
   // Pressable things: a top highlight and a soft lime bloom underneath, so the one action glows rather than shouts.
-  pop: 'inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 22px -10px rgba(198, 255, 61, .6)',
+  pop: `inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 22px -10px ${a(base.accent, 0.6)}`,
   // Raised panels (menus, dialogs, cards on cards): a hairline highlight and a long, soft fall-off.
   'pop-lg': 'inset 0 1px 0 rgba(255, 255, 255, .05), 0 1px 0 rgba(0, 0, 0, .4), 0 28px 64px -24px rgba(0, 0, 0, .85)',
   'pop-ink': '0 10px 26px -12px rgba(0, 0, 0, .7)',
@@ -85,6 +96,7 @@ export const z = { nav: 50, sticky: 20, modal: 120, toast: 200 } as const;
 
 const vars: Record<string, string | number> = {
   ...Object.fromEntries(Object.entries(color).map(([k, v]) => [k.replace(/[A-Z0-9]/g, (m) => '-' + m.toLowerCase()), v])),
+  ...Object.fromEntries(RGB_KEYS.map((k) => [k.replace(/[A-Z0-9]/g, (m) => '-' + m.toLowerCase()) + '-rgb', rgb(base[k])])),
   'grad-accent': `linear-gradient(135deg, ${color.accentHi} 0%, ${color.accent} 45%, ${color.accent2} 100%)`,
   'grad-surface': `linear-gradient(180deg, rgba(255, 255, 255, .025), rgba(255, 255, 255, 0) 60%)`,
   'grad-text': `linear-gradient(100deg, ${color.accentHi} 0%, ${color.accent} 50%, ${color.cyan})`,

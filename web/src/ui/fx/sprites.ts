@@ -3,10 +3,11 @@
 // painted once into an atlas canvas at the device's pixel density and reused by the particle overlay and, as a
 // texture, by the Three.js world.
 import { palette } from './gl';
+import { color } from '../tokens';
 
 export type SpriteKind = 'star' | 'coin' | 'sparkle' | 'heart' | 'gem' | 'plus' | 'bolt';
 export const SPRITES: SpriteKind[] = ['star', 'coin', 'sparkle', 'heart', 'gem', 'plus', 'bolt'];
-const OUTLINE = '#1a1030';
+const OUTLINE = color.ink;
 
 /** Mixes a hex colour toward white (k > 0) or black (k < 0). */
 export function shade(hex: string, k: number) {

@@ -20,13 +20,14 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { fxForced, fxHeld, loop, palette, rng, type FxTheme, type FxTier } from './gl';
 import { paintSprite } from './sprites';
+import { color } from '../tokens';
 
 THREE.ColorManagement.enabled = false; // colours are the design tokens' sRGB values, used as they are
 
 export type WorldStats = { fps: number; ms: number; surfaces: number; scale: number; tier: FxTier; engine: 'three'; props: number; draws: number };
 
 const C = (hex: string) => new THREE.Color(hex);
-const OUTLINE = C('#140c26');
+const OUTLINE = C(color.ink);
 
 // ---- generated textures --------------------------------------------------------------------------------------------
 function noise2(seed: number) {
@@ -247,7 +248,7 @@ void main(){
   // cartoon sky: a few flat bands of colour, softly stepped, from ink at the top to a warm glow at the horizon
   float y = uv.y;
   float b = floor((1. - y) * 6. + .5 * sin(uv.x * 3. + t * .05)) / 6.;
-  vec3 low = mix(hot, cyan, work);
+  vec3 low = mix(violet * 1.1, cyan, work); // an indigo-violet horizon for the store, a cool one for the console
   vec3 c = mix(ink, mix(violet * .45, low * .3, smoothstep(.55, 1., b)), smoothstep(.2, 1., b) * .42);
   // keep the reading area calm: darker toward the middle column
   float mid = 1. - smoothstep(.0, .55, abs(uv.x - .5));
