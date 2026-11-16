@@ -331,7 +331,7 @@
  "More from {author}": "{author} の他の作品",
  "More {tag} games": "{tag} のゲームをもっと",
  "Most AI summaries written per day (the rest use the rule-based summary)": "1日あたりの AI 概要作成の上限数（残りはルールベースの概要を使用）",
- "Most Workers AI originality calls per day (about $0.0005 each; past the cap the rules decide)": "1日あたりの Workers AI オリジナリティ判定の上限回数（1回約 $0.0005。上限を超えるとルールで判定）",
+ "Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)": "1日あたりの Workers AI オリジナリティ判定の上限回数（Clef 判定モデル、1回約 $0.00002〜$0.00013。上限を超えるとルールで判定）",
  "Most played": "プレイ数順",
  "Most played and talked about in the last seven days.": "この7日間で最もプレイされ、話題になったゲーム。",
  "Motion sensors": "モーションセンサー",

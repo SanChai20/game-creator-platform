@@ -338,7 +338,7 @@
  "More from {author}": "{author} 的更多作品",
  "More {tag} games": "更多{tag}遊戲",
  "Most AI summaries written per day (the rest use the rule-based summary)": "每天 AI 概述的數量上限（其餘使用基於規則的概述）",
- "Most Workers AI originality calls per day (about $0.0005 each; past the cap the rules decide)": "每天 Workers AI 原創性檢查次數上限（每次約 $0.0005；超出上限後由規則判斷）",
+ "Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)": "每天 Workers AI 原創性檢查次數上限（Clef 決策模型，每次約 $0.00002 至 $0.00013；超出上限後由規則判斷）",
  "Most played": "最多遊玩",
  "Most played and talked about in the last seven days.": "過去七天遊玩與討論最多。",
  "Motion sensors": "動作感測器",

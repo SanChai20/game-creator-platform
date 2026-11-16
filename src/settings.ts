@@ -47,7 +47,7 @@ export const SETTING_DEFS = {
   dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },
   dup_block: { v: true, type: 'bool', group: 'Originality', label: 'Block publishing a copy or a non-game (off: report it as a warning only)' },
   dup_ai: { v: true, type: 'bool', group: 'Originality', label: 'Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)' },
-  dup_ai_daily: { v: 300, type: 'int', group: 'Originality', label: 'Most Workers AI originality calls per day (about $0.0005 each; past the cap the rules decide)' },
+  dup_ai_daily: { v: 300, type: 'int', group: 'Originality', label: 'Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)' },
 
   open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },
   open_impl_ai_daily: { v: 200, type: 'int', group: 'Open implementation', label: 'Most AI summaries written per day (the rest use the rule-based summary)' },
