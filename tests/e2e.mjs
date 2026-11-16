@@ -178,7 +178,7 @@ async function main() {
   // every template deploys and verifies
   const projects = {};
   for (const t of ['blank', 'three-blank', 'canvas2d-arcade', 'three-explorer']) {
-    const p = await fromTemplate(t, { title: `${t} ${run}`, tagline: 'An e2e game', tags: ['test', t] });
+    const p = await fromTemplate(t, { title: `${t} ${run}`, tagline: 'An e2e game', tags: ['minimalist', 'short-sessions'] });
     if (t !== 'canvas2d-arcade') await declareMeta(tool, p.project, { genre: t === 'three-explorer' ? 'adventure' : 'casual' });   // the arcade declares its own below
     const c = await tool('deploy_preview', { project: p.project, dry_run: true });
     assert.equal(c.ok, true, c.errors.join('\n'));
@@ -580,17 +580,22 @@ async function main() {
   // duplication check: a renamed copy of another creator's live game and a page that is not a game are refused before publishing
   const fix = (f) => readFileSync(new URL(`fixtures/comet-herder/${f}`, import.meta.url), 'utf8');
   const waitV = async (call, project, d) => { for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(2000); d = await call('list_versions', { project, version: d.version }); } return d; };
-  const orig = await tool('create_project', { title: `Comet Herder ${run}`, tagline: 'Herd comets into the corral', tags: ['arcade', 'space'] });
+  const orig = await tool('create_project', { title: `Comet Herder ${run}`, tagline: 'Herd comets into the corral', tags: ['arcade', 'space'] });   // one tag besides the genre: publishing asks for a second
   await tool('upload_files', { project: orig.project, files: [{ path: 'index.html', content: fix('index.html') }, { path: 'game.js', content: fix('game.js') }] });
   const ov = await waitV(tool, orig.project, await tool('deploy_preview', { project: orig.project, note: 'original' }));
   assert.equal(ov.status, 'verified', JSON.stringify(ov.report, null, 1).slice(0, 1500));
   assert.ok(ov.report.checks.find((c) => c.id === 'original').ok && ov.report.checks.find((c) => c.id === 'is_game').ok, JSON.stringify(ov.report.checks));
   // publishing is refused until the store metadata is complete; the checklist walks through it, and the next version publishes
   const refusedMeta = await rpc('tools/call', { name: 'publish', arguments: { project: orig.project } });
-  assert.ok(refusedMeta.isError && /store metadata is complete/.test(refusedMeta.content[0].text) && /languages/.test(refusedMeta.content[0].text) && !/Missing: genre/.test(refusedMeta.content[0].text), refusedMeta.content[0].text.slice(0, 800));
+  assert.ok(refusedMeta.isError && /store metadata is complete/.test(refusedMeta.content[0].text) && /languages/.test(refusedMeta.content[0].text) && /at least 2 from the platform list/.test(refusedMeta.content[0].text) && !/Missing: genre/.test(refusedMeta.content[0].text), refusedMeta.content[0].text.slice(0, 800));
   const mchk = await tool('game_metadata', { project: orig.project });
-  assert.equal(mchk.checklist.length, 10);
-  assert.deepEqual(mchk.checklist.filter((x) => x.required && x.status === 'missing').map((x) => x.field), ['requirements', 'languages', 'players', 'content']);
+  assert.equal(mchk.checklist.length, 11);
+  assert.deepEqual(mchk.checklist.filter((x) => x.required && x.status === 'missing').map((x) => x.field), ['tags', 'requirements', 'languages', 'players', 'content']);
+  assert.ok(mchk.checklist.find((x) => x.field === 'tags').suggestion.includes('2d') && mchk.checklist.find((x) => x.field === 'tags').allowed.style.includes('pixel-art'), JSON.stringify(mchk.checklist[1]));
+  // tags come only from the platform list: other words are refused with the closest ones, aliases are mapped
+  const offList = await rpc('tools/call', { name: 'game_metadata', arguments: { project: orig.project, action: 'declare', tags: ['spaceship', 'retro'] } });
+  assert.ok(offList.isError && /platform list/.test(offList.content[0].text) && /space/.test(offList.content[0].text), offList.content[0].text.slice(0, 400));
+  assert.deepEqual((await tool('game_metadata', { project: orig.project, action: 'declare', tags: ['Space', 'pixel', 'chill'] })).listing.tags, ['space', 'pixel-art', 'relaxing']);
   assert.ok(mchk.checklist.every((x) => x.status === 'done' || (x.call && x.ask && x.allowed)), JSON.stringify(mchk.checklist).slice(0, 800));
   assert.equal((await rpc('tools/call', { name: 'game_metadata', arguments: { project: orig.project, action: 'declare', players: { min: 0, max: 1, modes: ['solo'] }, content: { violence: 'extreme' } } })).isError, true);
   const decl = await declareMeta(tool, orig.project, { content: { violence: 'cartoon' }, session_minutes: 5, accessibility: ['pause-anytime'] });

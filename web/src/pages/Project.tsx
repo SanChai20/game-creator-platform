@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ago, api, bytes, dateTime, Fail, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
+import { ago, api, bytes, dateTime, Fail, genreName, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
@@ -8,7 +8,7 @@ import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
 import { AgeBadge, ageLabel } from '../meta-ui';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
-const metaField = (f: string) => ({ genre: t('Genre', '类型'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
+const metaField = (f: string) => ({ genre: t('Genre', '类型'), tags: t('Tags from the platform list', '平台标签'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
 
 /** What the store page shows about the newest version, and what publishing still needs. */
 function StoreMetadata({ m }: { m: { version: number; required: boolean; missing: string[]; age: number | null } }) {
@@ -220,7 +220,7 @@ export function Project({ id }: { id: string }) {
               <KeyValue items={[
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],
                 [t('Working files', '工作区文件'), `${data.files.count} · ${bytes(data.files.bytes)}`],
-                [t('Tags', '标签'), p.tags.join(', ') || '—'],
+                [t('Tags', '标签'), p.tags.map(genreName).join(', ') || '—'],
                 [t('Rating', '评分'), <Stars rating={p.rating} count={p.rating_count} />],
                 [t('Project id', '项目 ID'), p.id, 'mono'],
               ]} />

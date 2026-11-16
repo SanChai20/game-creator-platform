@@ -8,7 +8,7 @@ import { SkHits, SkShelf } from './skeletons';
 import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
-export interface Genre { tag: string; n: number; covers?: string[] }
+export interface Genre { tag: string; n: number; covers?: string[]; group?: string | null }
 const still = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const hue = (tag?: string) => ({ '--h': tag ? genreHue(tag) : 350 } as CSSProperties);
 

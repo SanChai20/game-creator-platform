@@ -102,17 +102,16 @@ await check('get_started: unknown topic is refused with the topic list', () => f
 
 // ---- 2. create_project
 await check('create_project: missing title is refused', () => fails('create_project', { tagline: 'no title' }));
-const GAME = await ok('create_project', { title: 'MCP live game ' + run, tagline: 'Live test', tags: ['Adventure', 'Two Words!', 'x'.repeat(30), 'a', 'b', 'c', 'd', 'e', 'f', 'g'] });
+await check('create_project: tags off the platform list are refused with the closest matches', () => fails('create_project', { title: 'MCP live refused ' + run, tags: ['space', 'Two Words!'] }, /platform list/));
+const GAME = await ok('create_project', { title: 'MCP live game ' + run, tagline: 'Live test', tags: ['Adventure', 'Sci Fi', 'pixel', 'relaxing'] });
 const EMPTY = await ok('create_project', { title: 'MCP live empty ' + run });
 const BAD = await ok('create_project', { title: 'MCP live broken ' + run });
 state.projects = { game: GAME.project, empty: EMPTY.project, bad: BAD.project }; const save = () => writeFileSync(process.env.MCP_LIVE_STATE || 'mcp-live-state.json', JSON.stringify(state, null, 1));
 save();
 const gameInfo = await ok('list_projects', { project: GAME.project });
 const SLUG = gameInfo.slug;
-await check('create_project: tags are cleaned to at most 8 and lowercase', () => {
-  assert.equal(gameInfo.tags.length, 8, JSON.stringify(gameInfo.tags));
-  assert.ok(gameInfo.tags.includes('two words'), JSON.stringify(gameInfo.tags));
-  assert.ok(gameInfo.tags.every((t) => t.length <= 24));
+await check('create_project: tags are mapped onto the platform list, genres first', () => {
+  assert.deepEqual(gameInfo.tags, ['adventure', 'sci-fi', 'pixel-art', 'relaxing'], JSON.stringify(gameInfo.tags));
 });
 
 // ---- 3. list_projects
