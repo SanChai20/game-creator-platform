@@ -205,10 +205,11 @@
 
 
 .shelf-nav button:disabled { opacity: .35; cursor: default; }
-/* a ranked shelf: the place drawn as an outline numeral beside the cover; the first three are filled */
+/* a ranked shelf: the place drawn as an outline numeral beside the cover (never under it: the whole numeral
+   stays readable); the first three are filled */
 .shelf.ranked .shelf-row { grid-auto-columns: clamp(270px, 25vw, 350px); }
 .shelf.ranked .shelf-cell { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; }
-.rank { align-self: start; margin: 0 -10px 0 0; padding-top: 6px; font: 800 clamp(84px, 8.4vw, 128px)/.8 var(--font-display); font-stretch: 75%; letter-spacing: -.06em; color: transparent; -webkit-text-stroke: 2px var(--text-3); user-select: none; }
+.rank { position: relative; z-index: 1; align-self: start; min-width: .62em; margin: 0 10px 0 0; padding-top: 6px; text-align: right; font: 800 clamp(84px, 8.4vw, 128px)/.8 var(--font-display); font-stretch: 75%; letter-spacing: -.06em; color: transparent; -webkit-text-stroke: 2px var(--text-3); user-select: none; }
 .shelf-cell:nth-child(-n + 3) .rank { color: var(--accent); -webkit-text-stroke: 0; }
 
 /* ---- the game card ------------------------------------------------------------------------------ */
