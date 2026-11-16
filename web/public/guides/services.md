@@ -34,7 +34,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Game hosting and delivery | available | `GCP.env`, `GCP.version` | `create_project`, `upload_files`, `create_upload_url`, `deploy_preview`, `publish`, `rollback`, `unpublish`, `list_versions` | versions |
 | Hosted libraries and import map | available | `import 'three'`, `@gcp/…` | `get_started` (`import_map`) | contract |
 | SDK and game lifecycle | available | `GCP.ready`, `GCP.progress`, `GCP.fatal` | `get_started` | contract |
-| Player accounts and play sessions | available | `GCP.player` | none | saves |
+| Player accounts and play sessions | available | `GCP.player`, `GCP.lang` | none | saves |
 | Cloud saves | available | `GCP.save` | `game_data` (summary) | saves |
 | Player stats | available | `GCP.playerStats` | `game_data` (summary) | saves |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
@@ -47,7 +47,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Compatibility requirements | available | none | `compatibility` | contract |
 | Verification and test hooks | automatic | `GCP.test.*` | `deploy_preview`, `list_versions` | versions |
 | Publish checks (originality, content, web only) | automatic | none | `publish`, `list_versions` | versions |
-| Marketplace listing, ratings and reviews | available | none | `update_project` | none |
+| Marketplace listing, ratings and reviews | available | none | `update_project`, `game_metadata` | metadata |
 | Paid games, free trials and payouts | available unless switched off | none (handled by the platform) | `update_project`, `get_stats` | none |
 | Analytics and runtime errors | automatic | none (heartbeats are automatic) | `get_stats` | none |
 | Open implementations | available | none | `find_implementations`, `get_implementation` | none |
@@ -92,7 +92,7 @@ The SDK also records uncaught errors, failed file loads and `console.error` for 
 
 ## Player accounts and play sessions
 
-Every game is opened by a signed-in platform account. `GCP.player` is `{ id, name }`: a stable account id and the display name the player chose. Pressing Play signs a play session (valid six hours; for a free trial, only as long as the trial has left) that names the game, the environment and the player. The SDK keeps the token away from your page's scripts and attaches it to every service call.
+Every game is opened by a signed-in platform account. `GCP.player` is `{ id, name }`: a stable account id and the display name the player chose. `GCP.lang` is the player's platform language (en, zh, zh-TW, ja, ko, es), for games that declare `languages.follows_platform`. Pressing Play signs a play session (valid six hours; for a free trial, only as long as the trial has left) that names the game, the environment and the player. The SDK keeps the token away from your page's scripts and attaches it to every service call.
 
 Accounts, sign-in, purchases and the store page belong to the platform. A game never handles passwords or emails and must not ask for anything personal.
 
@@ -197,7 +197,7 @@ Before a verified version goes live it is compared with other creators' live gam
 
 ## Marketplace, payments and payouts
 
-- `update_project` sets the title, tagline, description, tags, controls text and cover (png, jpg or webp under 2 MB). Players rate and review from the game page after a counted play (30 seconds of active play by default).
+- `update_project` sets the title, tagline, description, tags, controls text and cover (png, jpg or webp under 2 MB). `game_metadata` detects, suggests and declares the standardized store metadata (genre, languages, players, content and age rating, session length, progress, accessibility); publishing is refused until the required fields are on record (`get_started {topic: "metadata"}`). Players rate and review from the game page after a counted play (30 seconds of active play by default).
 - `update_project {price_cents}` sells the game for a one-time price (default range $1.99 to $99.99); the platform keeps its cut (default 10%) and credits the rest after a holding period (default 7 days). `trial_minutes` offers a free trial kept per account on the server; when it ends the SDK pauses the game and asks the player to buy, and the data services answer 402.
 - Payments run on Stripe Checkout and payouts on Stripe Connect; the creator withdraws from the console once the balance reaches the minimum (default $50). Publishing needs a one-time creator license; building and previewing are free.
 - The game never takes payments itself and never needs to check ownership: the platform only opens a paid game for owners and trial players.
@@ -219,7 +219,7 @@ The MCP server is at `{{ORIGIN}}/mcp` (Streamable HTTP, stateless). Sign-in is O
 How to discover services:
 
 - `platform_services`: the catalog with this platform's live limits; `platform_services {service: "multiplayer"}` for one entry.
-- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `versions`, `saves`, `multiplayer`, `services`).
+- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `metadata`, `versions`, `saves`, `multiplayer`, `services`).
 - MCP resources: `gcp://services` (the catalog as JSON) and `gcp://guides/<topic>`.
 - On the web: `{{ORIGIN}}/guides/services.md` and the Docs page, `{{ORIGIN}}/docs#services`.
 
