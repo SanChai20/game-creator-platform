@@ -331,7 +331,7 @@
  "More from {author}": "Más de {author}",
  "More {tag} games": "Más juegos de {tag}",
  "Most AI summaries written per day (the rest use the rule-based summary)": "Máximo de resúmenes de IA por día (el resto usa el resumen basado en reglas)",
- "Most Workers AI originality calls per day (about $0.0005 each; past the cap the rules decide)": "Máximo de consultas de originalidad a Workers AI por día (unos 0,0005 $ cada una; pasado el límite deciden las reglas)",
+ "Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)": "Máximo de consultas de originalidad a Workers AI por día (modelos de decisión Clef, entre 0,00002 $ y 0,00013 $ cada una; pasado el límite deciden las reglas)",
  "Most played": "Más jugados",
  "Most played and talked about in the last seven days.": "Lo más jugado y comentado de los últimos siete días.",
  "Motion sensors": "Sensores de movimiento",

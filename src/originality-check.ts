@@ -1,11 +1,11 @@
 // The pre-publish duplication check. After a version passes the browser check, the platform fingerprints its own
 // code, its files and its look, and compares them with the live games of other creators (only versions that existed
 // before this one). Code everyone starts from (templates, kits, libraries) is ignored. Clear copies and uploads
-// that are not games fail the check; Workers AI is asked only about borderline cases, under a daily cap.
+// that are not games fail the check; Workers AI's decision models (Clef) are asked only about borderline cases, under a daily cap.
 import type { Env, Project, Version } from './env';
 import { logEvent, verKey } from './projects';
 import { getSettings } from './settings';
-import { aiText } from './ai';
+import { aiDecide, type Question } from './ai';
 import { dayOf, now, parseJson } from './util';
 // @ts-ignore plain JS modules
 import { READABLE, analyzeBundle, isVendor } from './implementation.js';
@@ -100,17 +100,31 @@ async function aiBudget(env: Env, purpose: string): Promise<boolean> {
   await env.DB.prepare('INSERT INTO ai_usage (day, purpose, calls) VALUES (?, ?, 1) ON CONFLICT(day, purpose) DO UPDATE SET calls = calls + 1').bind(day, purpose).run();
   return true;
 }
-const jsonFrom = (text: string | null) => { const m = text && text.match(/\{[\s\S]*\}/); try { return m ? JSON.parse(m[0]) : null; } catch { return null; } };
 const facts4ai = (f: any) => ({ engine: f.engine, libraries: f.libraries, platform_kits: f.platform_kits, rendering: f.rendering, graphics: f.graphics, input: f.input, audio: f.audio, assets: f.assets, platform_services: f.platform_services, loop: f.loop_and_performance, play_through: f.gameplay?.playthrough_steps, own_code_lines: f.structure?.own_code_lines });
 
-const JUDGE = `You review web games before they are published on a marketplace. Decide whether a new game is a copy of an existing game by another creator.
-"copy": the same game with cosmetic changes (renamed, recoloured, re-titled). "derivative": clearly inspired, shares mechanics or style, but is its own work. "independent": unrelated apart from genre.
-You get both listings, facts about how each is built (never code) and similarity measurements: code = share of the new game's own code fingerprints found in the other (after removing shared templates and libraries), same_files and assets = shares of identical files, look_distance = screenshot hash distance (0 identical, 10 or less looks alike).
-Answer with JSON only: {"verdict": "copy" | "derivative" | "independent", "reason": "one sentence"}`;
+const pct = (x: number) => `${Math.round(x * 100)}%`;
 
-const GAMENESS = `You review uploads to a marketplace that hosts web games only. Decide whether an upload is a game: something a person plays, with rules, goals or play. Interactive toys and puzzles count. A landing page, a document, a form, a store, a link page, a tool or an app that is not a game does not.
-You get the listing, facts about the build (never code) and the start of the page's visible text.
-Answer with JSON only: {"is_game": true | false, "reason": "one sentence"}`;
+// Asked of @cf/cloudflare/clef: a copy can block a publish, so the larger model judges it.
+const JUDGE: Record<string, Question> = {
+  verdict: {
+    type: 'choice',
+    instructions: 'You review web games before they are published on a marketplace. Is the new game a copy of the existing game by another creator? You get both listings, facts about how each is built (never code) and similarity measurements: code = share of the new game\'s own code fingerprints found in the other (after removing shared templates and libraries), same_files and assets = shares of identical files, look_distance = screenshot hash distance (0 identical, 10 or less looks alike).',
+    criteria: {
+      copy: 'The same game with cosmetic changes (renamed, recoloured, re-titled).',
+      derivative: 'Clearly inspired, shares mechanics or style, but is its own work.',
+      independent: 'Unrelated apart from genre.',
+    },
+  },
+};
+
+// Asked of @cf/cloudflare/clef-flash.
+const GAMENESS: Record<string, Question> = {
+  is_game: {
+    type: 'noul',
+    instructions: 'This marketplace hosts web games only. Is this upload a game: something a person plays, with rules, goals or play? Interactive toys and puzzles count. You get the listing, facts about the build (never code) and the start of the page\'s visible text.',
+    criteria: { true: 'A game, an interactive toy or a puzzle.', false: 'A landing page, a document, a form, a store, a link page, a tool or an app that is not a game.' },
+  },
+};
 
 /**
  * Runs the check for a version that passed the browser check and adds its results to the report
@@ -132,12 +146,13 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
     const other = await env.DB.prepare('SELECT * FROM versions WHERE project_id = ? AND n = ?').bind(top.project_id, top.version).first<Version>();
     const otherFacts = other ? analyzeBundle(await readTexts(env, other.project_id, other.n, parseJson<any[]>(other.files, [])), parseJson(other.report, {})) : null;
     const { listing: theirs, project_id: _p, version: _v, slug: _s, title: _t, verdict: _x, ...measures } = top as any;
-    judged = jsonFrom(await aiText(env, JUDGE, JSON.stringify({ new_game: { listing, facts: facts4ai(me.facts) }, existing_game: { listing: theirs, facts: otherFacts && facts4ai(otherFacts) }, measurements: measures }), 1200));
+    const a = (await aiDecide(env, 'clef', { new_game: { listing, facts: facts4ai(me.facts) }, existing_game: { listing: theirs, facts: otherFacts && facts4ai(otherFacts) }, measurements: measures }, JUDGE))?.verdict;
+    if (a?.type === 'choice') judged = { verdict: a.choice, p: a.probabilities[a.choice] ?? a.confidence, probabilities: a.probabilities };
     if (judged && judged.verdict === 'copy') top = { ...top, verdict: 'copy' };
   }
   const measured = top ? `${top.code}% of its own code${top.assets ? `, ${top.assets}% of its asset files` : ''}${top.looks_alike ? ' and the same look' : ''}` : '';
   if (top && top.verdict === 'copy') {
-    flag({ id: 'original', ok: false, label: 'Original work', detail: `Matches "${top.title}" (/g/${top.slug}) by another creator: ${measured}.${judged?.reason ? ` Review: ${judged.reason}` : ''}`, hint: 'Publishing a copy of another creator\'s game is not allowed. Platform templates and kits are fine to start from; make the game your own, with your own code, rules and look. If the other game is yours under another account, contact the platform.' });
+    flag({ id: 'original', ok: false, label: 'Original work', detail: `Matches "${top.title}" (/g/${top.slug}) by another creator: ${measured}.${judged ? ` Review: judged a copy (${pct(judged.p)} likely).` : ''}`, hint: 'Publishing a copy of another creator\'s game is not allowed. Platform templates and kits are fine to start from; make the game your own, with your own code, rules and look. If the other game is yours under another account, contact the platform.' });
     await logEvent(env, p.id, 'copy_flagged', `Matches ${top.slug}: ${measured}`, v.n, 'originality');
   } else {
     flag({ id: 'original', ok: true, label: 'Original work', detail: top && top.verdict === 'similar' ? `Shares some code or look with "${top.title}" by another creator (${measured}), ${judged ? `judged ${judged.verdict}` : 'not enough to call it a copy'}.` : `No other creator's live game matches it.`, hint: '' });
@@ -148,8 +163,11 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
   let g = gameness(me.facts, report, me.html), aiSaid: any = null;
   if (g.verdict === 'unsure' && await aiBudget(env, 'dup_gameness')) {
     const text = me.html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
-    aiSaid = jsonFrom(await aiText(env, GAMENESS, JSON.stringify({ listing, facts: facts4ai(me.facts), visible_text: text }), 1000));
-    if (aiSaid && typeof aiSaid.is_game === 'boolean') g = { verdict: aiSaid.is_game ? 'game' : 'not_game', reason: String(aiSaid.reason || g.reason).slice(0, 300) };
+    const a = (await aiDecide(env, 'clef-flash', { listing, facts: facts4ai(me.facts), visible_text: text }, GAMENESS))?.is_game;
+    if (a?.type === 'noul') {
+      aiSaid = { is_game: a.noul >= 0.5, p: a.noul };
+      g = aiSaid.is_game ? { verdict: 'game', reason: `Reviewed as a game (${pct(a.noul)} likely).` } : { verdict: 'not_game', reason: `${g.reason} Reviewed as a page, tool or app rather than a game (${pct(1 - a.noul)} likely).` };
+    }
   }
   if (g.verdict === 'not_game') {
     flag({ id: 'is_game', ok: false, label: 'It is a game', detail: g.reason, hint: 'This platform hosts web games only: something a player plays, in this page. If it is a game, make sure the player can act on it (keyboard, mouse, touch or buttons) and register a play-through with GCP.test.onPlaythrough so the verifier can play it.' });
@@ -162,7 +180,7 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
     report.warnings = [...(report.warnings || []), ...failed.map((c) => `${c.label}: ${c.detail}`)];
   }
   report.checks = [...(report.checks || []), ...checks];
-  report.originality = { matches: matches.slice(0, 3).map(({ listing: _l, project_id: _p, ...m }) => m), game: g.verdict, ai: { judge: judged?.verdict || null, gameness: aiSaid ? aiSaid.is_game : null }, ms: Date.now() - t0 };
+  report.originality = { matches: matches.slice(0, 3).map(({ listing: _l, project_id: _p, ...m }) => m), game: g.verdict, ai: { judge: judged?.verdict || null, judge_p: judged?.probabilities || null, gameness: aiSaid ? aiSaid.is_game : null, gameness_p: aiSaid ? aiSaid.p : null }, ms: Date.now() - t0 };
   if (report.checks.some((c: any) => !c.ok)) { report.ok = false; report.summary = `Not publishable: ${report.checks.filter((c: any) => !c.ok).map((c: any) => c.label.toLowerCase()).join('; ')}.`; }
 }
 

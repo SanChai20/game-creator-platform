@@ -25,7 +25,7 @@
  "Lowest price a paid game can have": "付费游戏的最低价格",
  "Minimum balance to withdraw": "最低提现余额",
  "Most AI summaries written per day (the rest use the rule-based summary)": "每天 AI 概述的数量上限（其余使用基于规则的概述）",
- "Most Workers AI originality calls per day (about $0.0005 each; past the cap the rules decide)": "每天 Workers AI 原创性检查次数上限（每次约 $0.0005；超出上限后由规则判断）",
+ "Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)": "每天 Workers AI 原创性检查次数上限（Clef 决策模型，每次约 $0.00002 至 $0.00013；超出上限后由规则判断）",
  "Observation window after ready (seconds)": "ready 之后的观察窗口（秒）",
  "One-time creator fee": "一次性创作者费用",
  "Only players with a counted play can rate and review": "仅有计入游玩记录的玩家可以评分和评价",
