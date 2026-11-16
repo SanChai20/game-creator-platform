@@ -928,5 +928,13 @@
  "Light": "Claro",
  "Switch theme": "Cambiar tema",
  "Theme": "Tema",
- "Main": "Principal"
+ "Main": "Principal",
+ "Exit fullscreen": "Salir de pantalla completa",
+ "Turn your device": "Gira el dispositivo",
+ "Turn your phone sideways": "Pon el teléfono en horizontal",
+ "Turn your phone upright": "Pon el teléfono en vertical",
+ "This game is made for landscape.": "Este juego está pensado para horizontal.",
+ "This game is made for portrait.": "Este juego está pensado para vertical.",
+ "Play this way": "Jugar así",
+ "Fullscreen gives the game the whole screen.": "La pantalla completa le da al juego toda la pantalla."
 }

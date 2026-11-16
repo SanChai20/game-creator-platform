@@ -929,5 +929,13 @@
  "Light": "ライト",
  "Switch theme": "テーマを切り替え",
  "Theme": "テーマ",
- "Main": "メイン"
+ "Main": "メイン",
+ "Exit fullscreen": "全画面を終了",
+ "Turn your device": "端末を回転",
+ "Turn your phone sideways": "スマホを横向きにしてください",
+ "Turn your phone upright": "スマホを縦向きにしてください",
+ "This game is made for landscape.": "このゲームは横画面向けです。",
+ "This game is made for portrait.": "このゲームは縦画面向けです。",
+ "Play this way": "このまま遊ぶ",
+ "Fullscreen gives the game the whole screen.": "全画面にするとゲームが画面いっぱいに広がります。"
 }
