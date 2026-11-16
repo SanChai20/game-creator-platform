@@ -936,5 +936,11 @@
  "This game is made for landscape.": "Este juego está pensado para horizontal.",
  "This game is made for portrait.": "Este juego está pensado para vertical.",
  "Play this way": "Jugar así",
- "Fullscreen gives the game the whole screen.": "La pantalla completa le da al juego toda la pantalla."
+ "Fullscreen gives the game the whole screen.": "La pantalla completa le da al juego toda la pantalla.",
+ "1 minute free, then {price} to keep playing.": "1 minuto gratis y después {price} para seguir jugando.",
+ "Under a minute of your free minute left.": "Te queda menos de un minuto de tu minuto gratis.",
+ "1 minute before buying": "1 minuto antes de comprar",
+ "Sales clear after 1 day": "Las ventas se liberan tras 1 día",
+ "1 game you haven't opened yet": "1 juego que aún no has abierto",
+ "Games you have not opened yet, one at a time.": "Juegos que aún no has abierto, de uno en uno."
 }

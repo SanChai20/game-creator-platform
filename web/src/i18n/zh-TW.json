@@ -957,5 +957,11 @@
  "This game is made for landscape.": "這款遊戲為橫向設計。",
  "This game is made for portrait.": "這款遊戲為直向設計。",
  "Play this way": "就這樣玩",
- "Fullscreen gives the game the whole screen.": "全螢幕可讓遊戲佔滿整個螢幕。"
+ "Fullscreen gives the game the whole screen.": "全螢幕可讓遊戲佔滿整個螢幕。",
+ "1 minute free, then {price} to keep playing.": "免費 1 分鐘，之後 {price} 即可繼續遊玩。",
+ "Under a minute of your free minute left.": "1 分鐘免費試玩即將用完。",
+ "1 minute before buying": "購買前可玩 1 分鐘",
+ "Sales clear after 1 day": "銷售收入在 1 天後可提領",
+ "1 game you haven't opened yet": "1 款你還沒打開過的遊戲",
+ "Games you have not opened yet, one at a time.": "一次一款你還沒打開過的遊戲。"
 }

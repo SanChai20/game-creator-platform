@@ -36,7 +36,7 @@ export function Earnings() {
       <div className="stack l">
         <StatGrid>
           <Stat tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
-          <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days })} />
+          <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={(data.hold_days === 1 ? t('Sales clear after 1 day', '销售收入在 1 天后可提现') : t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days }))} />
           <Stat label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={t('The platform keeps {cut}% of each sale', '平台从每笔销售中收取 {cut}%', { cut: data.fee_percent })} />
         </StatGrid>
 

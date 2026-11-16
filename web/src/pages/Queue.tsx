@@ -30,7 +30,7 @@ export function Queue() {
       <header className="browse-h">
         <nav className="crumbs" aria-label={t('Breadcrumb', '导航路径')}><Link to="/">{t('Store', '商店')}</Link><i>/</i><span>{t('Discovery queue', '探索队列')}</span></nav>
         <h1>{t('Your discovery queue', '你的探索队列')}</h1>
-        <p className="mute">{t('Games you have not opened yet, one at a time. Press → to move on and Enter to open.', '一次一款你还没打开过的游戏。按 → 跳过，按 Enter 打开。')}</p>
+        <p className="mute">{matchMedia('(hover: none) and (pointer: coarse)').matches ? t('Games you have not opened yet, one at a time.', '一次一款你还没打开过的游戏。') : t('Games you have not opened yet, one at a time. Press → to move on and Enter to open.', '一次一款你还没打开过的游戏。按 → 跳过，按 Enter 打开。')}</p>
       </header>
       {g && R ? (
         <>

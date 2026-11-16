@@ -77,7 +77,7 @@ function FreeTrial({ id, paid, trial, max, reload }: { id: string; paid: boolean
   return (
     <Card title={t('Free trial', '免费试玩')} pad>
       <div className="row">
-        <span className="grow">{!paid ? t('Set a price first. A free game needs no trial.', '请先设置价格。免费游戏无需试玩。') : on ? <b>{t('{minutes} minutes before buying', '购买前可玩 {minutes} 分钟', { minutes: trial.minutes })}</b> : t('Players must buy before playing.', '玩家需购买后才能游玩。')}</span>
+        <span className="grow">{!paid ? t('Set a price first. A free game needs no trial.', '请先设置价格。免费游戏无需试玩。') : on ? <b>{trial.minutes === 1 ? t('1 minute before buying', '购买前可玩 1 分钟') : t('{minutes} minutes before buying', '购买前可玩 {minutes} 分钟', { minutes: trial.minutes })}</b> : t('Players must buy before playing.', '玩家需购买后才能游玩。')}</span>
         <Switch checked={on || mins !== null} disabled={!paid || busy === 'trial'} onChange={(e) => toggle(e.target.checked)} aria-label={t('Let players try it for free', '允许玩家免费试玩')} />
       </div>
       {mins !== null && (
