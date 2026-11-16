@@ -41,16 +41,31 @@ const state = (page) => page.evaluate(() => {
 
 /** Visible text elements on the page: the HUD, hints, menus. */
 const uiState = (page) => page.evaluate(() => {
-  let texts = 0, chars = 0; const seen = new Set(), w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let texts = 0, chars = 0, sample = ''; const seen = new Set(), w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   while (w.nextNode()) {
     const t = w.currentNode.nodeValue.trim(), el = w.currentNode.parentElement;
     if (!t || !el || seen.has(el) || /^(SCRIPT|STYLE|NOSCRIPT)$/.test(el.tagName)) continue;
     const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
     if (r.width < 2 || r.height < 2 || cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity < 0.05) continue;
-    seen.add(el); texts++; chars += t.length;
+    seen.add(el); texts++; chars += t.length; if (sample.length < 1500) sample += t.slice(0, 300) + ' ';
   }
-  return { texts, chars };
-}).catch(() => ({ texts: 0, chars: 0 }));
+  // what a player can act on without a canvas (DOM games), and password fields (a game never needs one for the platform)
+  const shown = (el) => { const r = el.getBoundingClientRect(), cs = getComputedStyle(el); return r.width > 4 && r.height > 4 && cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity >= 0.05; };
+  const controls = [...document.querySelectorAll('button, a[href], input, select, textarea, [onclick], [role="button"], [tabindex]')].filter(shown).length;
+  const passwords = [...document.querySelectorAll('input[type="password"]')].filter(shown).length;
+  return { texts, chars, controls, passwords, changes: window.__gcpChanges ? window.__gcpChanges() : 0, text: sample.trim().slice(0, 1500) };
+}).catch(() => ({ texts: 0, chars: 0, controls: 0, passwords: 0, changes: 0, text: '' }));
+
+/** Share of pixels that differ clearly between two decoded pictures of the same size (0..1). */
+export function pixelChange(a, b) {
+  if (!a || !b || a.w !== b.w || a.h !== b.h) return 0;
+  let n = 0, all = 0;
+  for (let y = 0; y < a.h; y += 2) for (let x = 0; x < a.w; x += 2) {
+    const i = y * a.stride + x * a.bpp, j = y * b.stride + x * b.bpp; all++;
+    if (Math.abs(a.px[i] - b.px[j]) + Math.abs(a.px[i + 1] - b.px[j + 1]) + Math.abs(a.px[i + 2] - b.px[j + 2]) > 36) n++;
+  }
+  return all ? n / all : 0;
+}
 
 /** A touch tap that works in Puppeteer and, through a raw protocol session, in Playwright without touch emulation. */
 async function tap(page, x, y) {
@@ -109,7 +124,33 @@ export async function verifyPage(page, url, opts = {}) {
   const add = (id, ok, label, detail = '', hint = '') => checks.push({ id, ok, label, detail, hint });
   page.on('pageerror', (e) => { if (pageErrors.length < 20) pageErrors.push(String(e && (e.message || e)).slice(0, 500)); });
   page.on('response', (r) => { try { const s = r.status(); if (s >= 400 && badResponses.length < 20 && !/favicon\.ico/.test(r.url())) badResponses.push(`${s} ${r.url().split('?')[0]}`); } catch { /* detached */ } });
-  page.on('dialog', (d) => { d.dismiss().catch(() => {}); });
+  // What the page does to the player's browser, besides the game: other sites it talks to, windows, downloads, dialogs,
+  // navigation away. Read by the conduct check below and by the content check (src/content-check.js).
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
+  const own = new Set([hostOf(url), ...(o.platformOrigin ? [hostOf(o.platformOrigin)] : [])].filter(Boolean));
+  const token = (() => { try { return new URL(url).searchParams.get('gcp_t') || ''; } catch { return ''; } })();
+  const conduct = { external: [], popups: [], downloads: [], navigations: [], dialogs: 0, workers: 0, passwordFields: 0 };
+  const outside = (u, type, method) => { const h = hostOf(u); if (!h || own.has(h) || !/^(https?|wss?):/.test(u)) return; if (conduct.external.length < 40 && !conduct.external.some((x) => x.host === h && x.type === type && x.method === method)) conduct.external.push({ host: h, type, method }); };
+  page.on('dialog', (d) => { conduct.dialogs++; d.dismiss().catch(() => {}); });
+  page.on('request', (r) => { try {
+    outside(r.url(), r.resourceType(), r.method());
+    // the player's play token (it signs them in to this game's saves and rooms) must never reach another site
+    if (token && !conduct.tokenSent && !own.has(hostOf(r.url())) && (r.url().includes(token) || String(r.postData() || '').includes(token))) conduct.tokenSent = hostOf(r.url());
+    // the top page asking for a document on another site is leaving, even when that site never answers
+    if (r.resourceType() === 'document' && r.frame() === page.mainFrame() && /^https?:/.test(r.url()) && !own.has(hostOf(r.url())) && conduct.navigations.length < 5) conduct.navigations.push(r.url().slice(0, 200));
+  } catch { /* detached */ } });
+  page.on('popup', (p) => { try { conduct.popups.push(String(p.url()).slice(0, 200)); p.close().catch(() => {}); } catch { /* gone */ } });
+  page.on('worker', () => { conduct.workers++; });          // Playwright
+  page.on('workercreated', () => { conduct.workers++; });   // Puppeteer
+  page.on('download', (d) => { try { conduct.downloads.push(String(d.suggestedFilename()).slice(0, 120)); d.cancel && d.cancel().catch(() => {}); } catch { /* gone */ } });
+  page.on('framenavigated', (f) => { try { if (f === page.mainFrame() && !own.has(hostOf(f.url())) && /^https?:/.test(f.url()) && conduct.navigations.length < 5) conduct.navigations.push(f.url().slice(0, 200)); } catch { /* detached */ } });
+  try {
+    const cdp = page.createCDPSession ? await page.createCDPSession() : await page.context().newCDPSession(page);
+    await cdp.send('Network.enable').catch(() => {}); await cdp.send('Page.enable').catch(() => {});
+    cdp.on('Network.webSocketCreated', (e) => outside(e.url, 'websocket', 'WS'));
+    // Puppeteer has no download event of its own; Playwright reports downloads above and here, so names are de-duplicated
+    cdp.on('Page.downloadWillBegin', (e) => { const n = String(e.suggestedFilename || e.url || '').slice(0, 120); if (!conduct.downloads.includes(n)) conduct.downloads.push(n); });
+  } catch { /* this browser has no protocol session */ }
 
   const report = { ok: false, summary: '', checks, metrics: {}, errors: [], warnings: [], missing: [], notes: [], caps: {}, gpuLimited: false, at: Date.now() };
   // A Worker that was deployed seconds ago can still be missing at some edge locations, so a 404 or 5xx gets a few more tries.
@@ -134,6 +175,9 @@ export async function verifyPage(page, url, opts = {}) {
   }
   if (!s) { add('boots', false, 'The game boots', 'The platform SDK never loaded in the page.'); report.summary = 'The page did not run.'; return { report, shots: [] }; }
   report.caps = s.caps;
+  report.conduct = conduct;
+  // count changes to the page from now on: a DOM game shows it is alive by changing when it is played
+  await page.evaluate(() => { let n = 0; try { new MutationObserver((l) => { n += l.length; }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true }); } catch { /* no DOM */ } Object.defineProperty(window, '__gcpChanges', { value: () => n }); }).catch(() => {});
   report.gpuLimited = !!o.usesWebGPU && !s.caps.webgpu;
   if (s.fatal) add('boots', false, 'The game boots', `GCP.fatal: ${s.fatal}`, report.gpuLimited ? 'The verification browser has no WebGPU. Add a WebGL fallback, or qualify this version by playing the preview yourself in a WebGPU browser.' : 'Fix the startup error and deploy a new preview.');
   else if (!s.ready) add('boots', false, 'The game boots', `GCP.ready() was not called within ${o.readyTimeoutS}s (progress ${Math.round(s.progress * 100)}%${s.label ? `, "${s.label}"` : ''}, ${s.frames} frames).`,
@@ -142,12 +186,16 @@ export async function verifyPage(page, url, opts = {}) {
 
   const shots = [];
   const shoot = async () => { try { const b = await page.screenshot({ type: 'png' }); shots.push(b); return pngStats(b); } catch { return null; } };
-  let pic1 = null, pic2 = null, picIdle = null, f1 = 0, f2 = 0, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false;
+  let pic1 = null, pic2 = null, picIdle = null, f1 = 0, f2 = 0, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
   if (s.ready && !s.fatal) {
     // 3. renders
     const a = await state(page); await sleep(o.observeS * 1000); const b = await state(page);
     f1 = b.frames - a.frames;
-    add('renders', f1 >= o.minFrames, 'Frames keep rendering', `${f1} frames in ${o.observeS}s (${Math.round(f1 / o.observeS)} fps in the verification browser)`,
+    // A page that never asked for an animation frame is event driven (cards, text, a board or canvas redrawn on clicks and keys):
+    // it is alive when it responds, which the "responds" check below measures, not when it animates. A still picture fails there.
+    domGame = b.frames === 0;
+    if (domGame) add('renders', true, 'Frames keep rendering', 'No animation loop: the page changes when the player acts (see "Responds to the player").');
+    else add('renders', f1 >= o.minFrames, 'Frames keep rendering', `${f1} frames in ${o.observeS}s (${Math.round(f1 / o.observeS)} fps in the verification browser)`,
       f1 >= o.minFrames ? '' : 'Drive the game from requestAnimationFrame and keep the loop alive even on menus. A software GPU runs this check, so heavy scenes should offer a lower quality level and pick it when the frame time is high.');
     // 4. picture
     pic1 = await shoot();
@@ -214,9 +262,33 @@ export async function verifyPage(page, url, opts = {}) {
         'Something reloads or leaves the page on a click, tap or key press. A common cause is a button or link that is invisible (opacity 0) but still clickable: hide inactive UI with display:none or visibility:hidden.');
     } else {
       s = d;
-      add('input', f2 >= Math.max(3, o.minFrames / 3), 'Survives keyboard, mouse and touch input', restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in 1.5s` : `${f2} frames in the 1.5s after input`, f2 >= 3 ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
+      const alive = domGame ? !restarted : f2 >= Math.max(3, o.minFrames / 3);
+      add('input', alive, 'Survives keyboard, mouse and touch input', domGame ? 'The page kept running after input.' : restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in 1.5s` : `${f2} frames in the 1.5s after input`, alive ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
       pic2 = await shoot(); ui2 = await uiState(page);
     }
+  }
+  // 5b. responds: something on screen changes, by itself or when played. A picture with a frame loop behind it never does.
+  if (pic1 && pic1.img && checks.every((c) => c.ok)) {
+    const moved = Math.max(pixelChange(pic1.img, picIdle && picIdle.img), pixelChange(pic1.img, pic2 && pic2.img), pixelChange(picIdle && picIdle.img, pic2 && pic2.img));
+    const changes = Math.max(ui1 ? ui1.changes : 0, ui2 ? ui2.changes : 0);
+    const played = !!(report.playthrough && report.playthrough.ok);
+    const responds = moved >= 0.002 || changes > 0;
+    report.metrics.change = { pixels: Math.round(moved * 10000) / 10000, dom: changes };
+    add('responds', responds, 'Responds to the player', responds ? (moved >= 0.002 ? `${(moved * 100).toFixed(1)}% of the screen changed while it ran and was played` : `the page changed ${changes} time(s) while it was played`) : `Nothing on screen changed in ${o.observeS + 4} s of running, input${played ? ' and its play-through' : ''}: it looks like a still picture.`,
+      responds ? '' : 'The verifier clicks the centre, presses Enter, Space, WASD and the arrows, drags and taps. A game must visibly react, or move by itself. If the game waits on a title screen, register GCP.test.onAutostart to skip it.');
+  }
+  report.page = { text: (ui2 && ui2.text) || (ui1 && ui1.text) || '', controls: Math.max(ui1 ? ui1.controls : 0, ui2 ? ui2.controls : 0), domGame };
+  // 5c. conduct: the page stays on its own address and does not open windows, start downloads or bury the player in dialogs
+  if (pic1) {
+    conduct.passwordFields = Math.max(ui1 ? ui1.passwords : 0, ui2 ? ui2.passwords : 0);
+    const bad = [];
+    if (conduct.navigations.length) bad.push(`it left for another site (${hostOf(conduct.navigations[0])})`);
+    if (conduct.downloads.length) bad.push(`it started a download (${conduct.downloads[0]})`);
+    if (conduct.popups.length >= 2) bad.push(`it opened ${conduct.popups.length} windows (${hostOf(conduct.popups[0]) || conduct.popups[0]})`);
+    if (conduct.dialogs >= 3) bad.push(`it opened ${conduct.dialogs} alert or confirm dialogs`);
+    add('conduct', !bad.length, 'Leaves the player\'s browser alone', bad.length ? `While it was checked, ${bad.join('; ')}.` : '',
+      bad.length ? 'A game runs on its own page: it may not redirect the player, open windows by itself, push downloads or stack dialogs. Links a player clicks on purpose (credits, a shop page) are fine.' : '');
+    if (conduct.popups.length === 1) report.notes.push(`It opened one window while it was played (${conduct.popups[0]}).`);
   }
   // 1b + 6
   const missing = [...new Set([...(s.missing || []), ...badResponses])];

@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Garden Moles</title>
+<style>html,body{margin:0;height:100%;background:#7cb342}svg{width:100%;height:100%;display:block}</style></head>
+<body><svg id="g" viewBox="0 0 800 450" preserveAspectRatio="xMidYMid meet"><rect width="800" height="450" fill="#8bc34a"/><text id="sc" x="20" y="36" font-size="26" fill="#1b5e20" font-family="sans-serif">Score 0</text></svg>
+<script>
+const NS = 'http://www.w3.org/2000/svg', svg = document.getElementById('g'), scoreEl = document.getElementById('sc');
+const holes = [], HOLE_POS = [[160, 160], [400, 160], [640, 160], [160, 330], [400, 330], [640, 330]];
+let score = 0, timeLeft = 60, spawnIn = 0;
+for (const [x, y] of HOLE_POS) {
+  const grp = document.createElementNS(NS, 'g');
+  const hole = document.createElementNS(NS, 'ellipse'); Object.entries({ cx: x, cy: y + 30, rx: 70, ry: 22, fill: '#4e342e' }).forEach(([k, v]) => hole.setAttribute(k, v));
+  const mole = document.createElementNS(NS, 'circle'); Object.entries({ cx: x, cy: y + 60, r: 40, fill: '#795548' }).forEach(([k, v]) => mole.setAttribute(k, v));
+  const clip = document.createElementNS(NS, 'clipPath'); clip.id = 'c' + holes.length; const cr = document.createElementNS(NS, 'rect'); Object.entries({ x: x - 80, y: y - 80, width: 160, height: 110 }).forEach(([k, v]) => cr.setAttribute(k, v)); clip.appendChild(cr); svg.appendChild(clip);
+  mole.setAttribute('clip-path', `url(#${clip.id})`);
+  grp.append(hole, mole); svg.appendChild(grp);
+  const h = { x, y, mole, up: 0, gold: false, hit: false };
+  mole.addEventListener('pointerdown', () => bonk(h)); holes.push(h);
+}
+function bonk(h) { if (h.up <= 0.3 || h.hit) return; h.hit = true; score += h.gold ? 3 : 1; scoreEl.textContent = 'Score ' + score; }
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; timeLeft = Math.max(0, timeLeft - dt);
+  spawnIn -= dt;
+  if (spawnIn <= 0 && timeLeft > 0) { const h = holes[Math.floor(Math.random() * holes.length)]; if (h.up <= 0) { h.up = 1.4; h.gold = Math.random() < 0.15; h.hit = false; } spawnIn = 0.5 + Math.random() * 0.6; }
+  for (const h of holes) {
+    if (h.up > 0) h.up -= dt * (h.hit ? 4 : 1);
+    const lift = Math.max(0, Math.min(1, h.up > 1 ? (1.4 - h.up) * 2.5 : h.up)) * 60;
+    h.mole.setAttribute('cy', h.y + 60 - lift); h.mole.setAttribute('fill', h.hit ? '#bcaaa4' : h.gold ? '#ffc107' : '#795548');
+  }
+  if (timeLeft === 0) scoreEl.textContent = `Time! Final score ${score}`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame); GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  t.step('bonk a mole'); const h = holes[0]; h.up = 0.9; h.hit = false; await t.frames(2); bonk(h);
+  t.assert(score >= 1, 'scored a bonk');
+});
+</script></body></html>

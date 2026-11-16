@@ -1,0 +1,3 @@
+{ "expect": "block", "kind": "not-game:link-farm", "gate": "is_game", "owner": "spam2",
+  "listing": { "title": "Best Free Games 2026", "tagline": "Top 100 free games, updated daily!", "description": "The best list of free online games. Click to play the best games on the internet.", "tags": ["games", "free", "online"] },
+  "why": "A list of links to other sites dressed up as a game, with a ticking counter to keep frames going." }

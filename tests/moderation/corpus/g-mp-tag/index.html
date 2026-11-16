@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Firefly Tag</title>
+<style>html,body{margin:0;height:100%;background:#1a2340;overflow:hidden;font-family:sans-serif}canvas{display:block}#ui{position:fixed;top:10px;left:12px;color:#fff}</style></head>
+<body><canvas id="m"></canvas><div id="ui"></div><script>
+const cv = document.getElementById('m'), g = cv.getContext('2d'), ui = document.getElementById('ui');
+function fit() { cv.width = innerWidth; cv.height = innerHeight; } fit(); addEventListener('resize', fit);
+const two = GCP.test.twoPlayers, code = two ? two.code : (GCP.test.param('room') || 'MEADOW');
+const room = GCP.room(code, { max: 8 });
+const me = { x: 100 + Math.random() * 300, y: 100 + Math.random() * 200 }, others = {}; let it = null, tags = 0, calm = 0; // no tag-backs for a moment after a tag
+room.on('open', (info) => { if (info.state && info.state.it) it = info.state.it; else if (room.isHost) { it = room.id; room.setState({ it }); } });
+room.on('message', (m, from) => { if (m.pos) others[from] = { ...others[from], ...m.pos }; if (m.tag) { it = m.tag; tags++; calm = performance.now() + 1500; if (room.isHost) room.setState({ it }); } });
+room.on('state', (s) => { if (s && s.it) it = s.it; });
+room.on('leave', (id) => { delete others[id]; });
+const held = {}; addEventListener('keydown', (e) => { held[e.code] = true; }); addEventListener('keyup', (e) => { held[e.code] = false; });
+let goal = null; addEventListener('pointerdown', (e) => { goal = { x: e.clientX, y: e.clientY }; });
+let last = 0, sendIn = 0;
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
+  let dx = (held.KeyD || held.ArrowRight ? 1 : 0) - (held.KeyA || held.ArrowLeft ? 1 : 0), dy = (held.KeyS || held.ArrowDown ? 1 : 0) - (held.KeyW || held.ArrowUp ? 1 : 0);
+  if (goal) { dx = goal.x - me.x; dy = goal.y - me.y; const l = Math.hypot(dx, dy); if (l < 4) goal = null; else { dx /= l; dy /= l; } }
+  me.x = Math.max(10, Math.min(cv.width - 10, me.x + dx * 200 * dt)); me.y = Math.max(10, Math.min(cv.height - 10, me.y + dy * 200 * dt));
+  if ((sendIn -= dt) <= 0) { room.send({ pos: { x: me.x, y: me.y } }); sendIn = 0.066; }
+  if (it === room.id && performance.now() > calm) for (const [id, o] of Object.entries(others)) if (Math.hypot(o.x - me.x, o.y - me.y) < 24) { it = id; tags++; room.send({ tag: id }); if (room.isHost) room.setState({ it }); break; }
+  g.fillStyle = '#1a2340'; g.fillRect(0, 0, cv.width, cv.height);
+  for (let i = 0; i < 40; i++) { g.fillStyle = `rgba(180,255,120,${0.2 + 0.2 * Math.sin(t / 400 + i)})`; g.fillRect((i * 137) % cv.width, (i * 89 + t / 50) % cv.height, 2, 2); }
+  const dot = (p, id, mine) => { g.fillStyle = id === it ? '#f9f871' : mine ? '#6ee7f9' : '#c4b5fd'; g.shadowColor = g.fillStyle; g.shadowBlur = id === it ? 25 : 0; g.beginPath(); g.arc(p.x, p.y, 12, 0, 7); g.fill(); g.shadowBlur = 0; };
+  for (const [id, o] of Object.entries(others)) dot(o, id, false); dot(me, room.id, true);
+  ui.textContent = `Room ${code} · ${Object.keys(others).length + 1} players · ${it === room.id ? 'You are it!' : 'Run!'}`;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame); GCP.ready();
+GCP.test.onTwoPlayers(async (t, role) => {
+  t.step('wait for the other player'); await t.until(() => Object.keys(others).length >= 1 && it, 20000, 'the other player');
+  t.step('the player who is it tags the other');
+  if (it === room.id) { const [id, o] = Object.entries(others)[0]; me.x = o.x; me.y = o.y; await t.until(() => it === id, 5000, 'the tag'); }
+  else await t.until(() => it === room.id, 8000, 'being tagged');
+  await t.wait(800);
+  return { players: Object.keys(others).length + 1, world: 'it=' + (it === room.id ? 'me' : 'other').replace(/me|other/, () => (role === 'host' ? (it === room.id ? 'host' : 'guest') : (it === room.id ? 'guest' : 'host'))) };
+});
+</script></body></html>

@@ -60,7 +60,7 @@
  "Any price": "任意價格",
  "Any rating": "任意評分",
  "Art": "美術",
- "Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)": "僅在難以判斷時詢問 Workers AI（相似但不明顯抄襲；可能不是遊戲的互動頁面）",
+ "Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game": "對邊界情況詢問 Workers AI（相似但不明顯是複製），並判斷每個未用遊戲引擎建置的上傳是否是遊戲",
  "Asking for a refund": "申請退款",
  "At least 8 characters.": "至少 8 個字元。",
  "Audio": "音訊",
@@ -963,5 +963,10 @@
  "1 minute before buying": "購買前可玩 1 分鐘",
  "Sales clear after 1 day": "銷售收入在 1 天後可提領",
  "1 game you haven't opened yet": "1 款你還沒打開過的遊戲",
- "Games you have not opened yet, one at a time.": "一次一款你還沒打開過的遊戲。"
+ "Games you have not opened yet, one at a time.": "一次一款你還沒打開過的遊戲。",
+ "Block publishing a version the content check refuses (off: report it as a warning only)": "阻止發佈內容檢查拒絕的版本（關閉：僅作為警告回報）",
+ "Check each verified version for harmful content (sexual content, hate, scams, phishing) and abusive code (miners, password forms, hidden servers)": "檢查每個已驗證版本是否含有有害內容（色情、仇恨、詐騙、釣魚）和濫用程式碼（挖礦、密碼表單、隱藏伺服器）",
+ "Content and conduct": "內容與行為",
+ "How likely (percent) the content review must find a version harmful to refuse it": "內容審核判定版本有害的可能性（百分比）達到多少才拒絕",
+ "Most Workers AI content reviews per day (Clef with the screenshot, about $0.0003 each; past the cap a small rule set decides)": "每天最多的 Workers AI 內容審核次數（Clef 附截圖，每次約 $0.0003；超過上限後由一小套規則決定）"
 }

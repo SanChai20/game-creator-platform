@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mini Sudoku</title>
+<style>body{margin:0;background:#f1f5f9;font-family:system-ui;display:flex;flex-direction:column;align-items:center;padding-top:30px}
+#grid{display:grid;grid-template-columns:repeat(6,48px);gap:2px;background:#334155;padding:3px;border-radius:6px}
+#grid input{width:48px;height:48px;border:0;text-align:center;font-size:24px;box-sizing:border-box}#grid input.fixed{background:#e2e8f0;font-weight:bold}#grid input.bad{background:#fecaca}
+#grid input:nth-child(6n+3){margin-right:3px}#status{margin:14px;font-size:18px}button{padding:8px 16px;border-radius:6px;border:0;background:#2563eb;color:#fff;margin:4px}</style></head>
+<body><h1>Mini Sudoku</h1><div id="grid"></div><div id="status"></div><div><button id="hint">Hint</button><button id="new">New puzzle</button></div>
+<script>
+const SOLVED = [[1,2,3,4,5,6],[4,5,6,1,2,3],[2,3,1,5,6,4],[5,6,4,2,3,1],[3,1,2,6,4,5],[6,4,5,3,1,2]];
+let solution, cells = [], mistakes = 0;
+function permute() {
+  const digits = [1,2,3,4,5,6].sort(() => Math.random() - 0.5), map = (d) => digits[d - 1];
+  solution = SOLVED.map((r) => r.map(map));
+  if (Math.random() < 0.5) solution = solution[0].map((_, c) => solution.map((r) => r[c])).map((col, i) => col);
+}
+function build() {
+  permute(); mistakes = 0; const grid = document.getElementById('grid'); grid.innerHTML = ''; cells = [];
+  for (let r = 0; r < 6; r++) for (let c = 0; c < 6; c++) {
+    const inp = document.createElement('input'); inp.inputMode = 'numeric'; inp.maxLength = 1; inp.dataset.r = r; inp.dataset.c = c;
+    if (Math.random() < 0.45) { inp.value = solution[r][c]; inp.readOnly = true; inp.className = 'fixed'; }
+    inp.addEventListener('input', () => check(inp)); grid.appendChild(inp); cells.push(inp);
+  }
+  status();
+}
+function check(inp) {
+  const v = +inp.value, ok = v === solution[inp.dataset.r][inp.dataset.c];
+  inp.classList.toggle('bad', !!inp.value && !ok); if (inp.value && !ok) mistakes++;
+  status();
+}
+function status() {
+  const done = cells.every((i) => +i.value === solution[i.dataset.r][i.dataset.c]);
+  document.getElementById('status').textContent = done ? `Solved with ${mistakes} mistake(s)!` : `Mistakes: ${mistakes}`;
+  return done;
+}
+document.getElementById('hint').onclick = () => { const e = cells.find((i) => !i.value); if (e) { e.value = solution[e.dataset.r][e.dataset.c]; check(e); } };
+document.getElementById('new').onclick = build;
+build(); GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  t.step('fill every empty cell'); for (const i of cells) if (!i.value) { i.value = solution[i.dataset.r][i.dataset.c]; i.dispatchEvent(new Event('input')); }
+  t.assert(status(), 'the puzzle is solved');
+});
+</script></body></html>

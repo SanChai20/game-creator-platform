@@ -3,24 +3,33 @@
 // to "is this upload a game at all". Plain JavaScript so node tests can import it directly.
 import { tokenizer } from 'acorn';
 
-const K = 24, W = 24;                     // k-gram length in tokens and winnowing window
+const K = 12, W = 24;                     // k-gram length in tokens and winnowing window
 export const SKETCH = 64;                  // fingerprints per game kept in the candidate index
 export const MAX_PRINTS = 6000;            // fingerprints stored per version (the smallest hashes, consistently)
+export const PRINTS_VERSION = 2;           // bump when tokens() or K change: stored fingerprints of older versions are recomputed
 
 const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return h | 0; };
 
-/** Tokens with names, strings and numbers folded, so renaming variables or changing constants does not hide a copy. */
+// Tokens a minifier adds, drops or swaps for one another. Leaving them out (and folding the swaps) makes the same code
+// give the same fingerprints before and after minification: esbuild, terser and the like rewrite "if (a) b(); else c();"
+// to "a ? b() : c()", merge declarations, drop braces and semicolons and turn true into !0.
+const DROP = new Set([';', ',', '(', ')', '{', '}', '[', ']', 'var', 'let', 'const', 'else', ':', '!', 'void', '`', '${']);
+const BRANCH = new Set(['if', '?', '&&', '||', '??']);
+
+/** Tokens with names, strings and numbers folded, so renaming variables, changing constants or minifying does not hide a copy. */
 export function tokens(src) {
   const out = [];
+  const push = (v) => { if (DROP.has(v)) return; out.push(BRANCH.has(v) ? 'if' : v === 'true' || v === 'false' ? 'n' : v); };
   try {
     for (const t of tokenizer(src, { ecmaVersion: 'latest', sourceType: 'module', allowHashBang: true, allowReturnOutsideFunction: true, allowImportExportEverywhere: true, allowAwaitOutsideFunction: true })) {
       const label = t.type.label;
-      out.push(label === 'name' ? 'v' : label === 'string' ? 's' : label === 'num' || label === 'bigint' ? 'n' : label === 'template' ? 't' : label === 'regexp' ? 'r' : t.type.keyword || label);
+      push(label === 'name' ? 'v' : label === 'string' ? 's' : label === 'num' || label === 'bigint' ? 'n' : label === 'template' ? 's' : label === 'regexp' ? 'r' : t.type.keyword || label);
     }
     return out;
   } catch {
     // not parseable as JavaScript: fall back to a plain word and punctuation split
-    return (src.match(/[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|[^\s\w]/g) || []).map((x) => (/^[A-Za-z_$]/.test(x) ? (KEYWORDS.has(x) ? x : 'v') : /^\d/.test(x) ? 'n' : x));
+    for (const x of src.match(/[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|&&|\|\||\?\?|[^\s\w]/g) || []) push(/^[A-Za-z_$]/.test(x) ? (KEYWORDS.has(x) ? x : 'v') : /^\d/.test(x) ? 'n' : x);
+    return out;
   }
 }
 const KEYWORDS = new Set('break case catch class const continue debugger default delete do else export extends finally for function if import in instanceof let new return super switch this throw try typeof var void while with yield async await of'.split(' '));
@@ -103,25 +112,62 @@ export function compare(a, b) {
   const dist = lookDistance(a.look, b.look), pal = paletteOverlap(a.look, b.look);
   const looksAlike = dist <= 10 && pal >= 0.5;
   const enough = a.prints.length >= 40;                 // a few lines of code say nothing either way
+  const small = a.prints.length >= 20;                  // a small game (a few KB) copied almost whole still counts
   let verdict = 'different';
-  if ((enough && code >= 0.8) || sameFiles >= 0.8 || (enough && code >= 0.6 && (assets >= 0.5 || looksAlike)) || (assets >= 0.8 && a.assets.length >= 4 && looksAlike)) verdict = 'copy';
-  else if ((enough && code >= 0.35) || (assets >= 0.5 && a.assets.length >= 3) || (looksAlike && enough && code >= 0.2) || sameFiles >= 0.5) verdict = 'similar';
+  if ((enough && code >= 0.8) || (small && code >= 0.9) || sameFiles >= 0.8 || (enough && code >= 0.6 && (assets >= 0.5 || looksAlike)) || (assets >= 0.8 && a.assets.length >= 4 && looksAlike)) verdict = 'copy';
+  else if ((enough && code >= 0.35) || (small && code >= 0.6) || (assets >= 0.5 && a.assets.length >= 3) || (looksAlike && enough && code >= 0.2) || sameFiles >= 0.5) verdict = 'similar';
   return { verdict, code: Math.round(code * 100), same_files: Math.round(sameFiles * 100), assets: Math.round(assets * 100), look_distance: dist, palette_overlap: Math.round(pal * 100), looks_alike: looksAlike };
 }
 
 const ENGINE_INPUT = /^(Unity|Godot|Construct|GameMaker|Defold|Cocos Creator|PlayCanvas|Phaser|Excalibur|KAPLAY \/ Kaboom|melonJS|LittleJS|Emscripten \/ WebAssembly)$/;
 /**
- * Is it a game? From the build facts (analyzeBundle) and the verification report.
- * 'game' when the player can act on it, 'not_game' when nothing in it takes input, 'unsure' for pages that take
- * input but look like documents or forms (the AI step decides those when it is on).
+ * Is it a game? From the build facts (analyzeBundle), the verification report and index.html.
+ *  - 'not_game' (sure) when nothing in it takes input;
+ *  - 'game' (sure) when it is built with a game engine;
+ *  - otherwise a lean ('game' or 'unsure') that is not sure: landing pages, shops, tools and articles also draw on canvases,
+ *    run frame loops, take clicks and can register a play-through that clicks a button. Those are decided by the
+ *    Workers AI decision model with the screenshot (see GAMENESS_QUESTIONS); when AI cannot answer, the lean stands.
+ * @returns {{ verdict: 'game' | 'not_game' | 'unsure', sure: boolean, reason: string, signals: object }}
  */
 export function gameness(facts, report, html) {
-  if (report && report.playthrough && report.playthrough.ok) return { verdict: 'game', reason: 'Its play-through hook played it to the end.' };
-  if (ENGINE_INPUT.test(facts.engine)) return { verdict: 'game', reason: `Built with ${facts.engine}, a game engine.` };
-  const interactive = facts.input.length > 0 || /<button\b|onclick=|<input\b/i.test(html || '');
-  if (!interactive) return { verdict: 'not_game', reason: 'Nothing in it responds to the player: no keyboard, mouse, touch, pointer or gamepad input and no buttons.' };
-  const drawn = facts.rendering.some((r) => /WebGL|WebGPU|Canvas/.test(r)), looped = facts.loop_and_performance.includes('requestAnimationFrame loop');
-  if (drawn || looped) return { verdict: 'game', reason: 'It draws frames in a loop and responds to input.' };
+  const page = (report && report.page) || {};
+  const drawn = facts.rendering.some((r) => /WebGL|WebGPU|Canvas|SVG/.test(r)), looped = facts.loop_and_performance.includes('requestAnimationFrame loop');
+  const played = !!(report && report.playthrough && report.playthrough.ok);
   const forms = (String(html || '').match(/<input\b[^>]*type=["']?(?:email|password|tel)|<form\b/gi) || []).length;
-  return { verdict: 'unsure', reason: forms ? 'A page with forms and no game loop.' : 'An interactive page with no canvas and no game loop.' };
+  const signals = { drawn, looped, played_through: played, play_steps: played ? report.playthrough.steps.length : 0, controls: page.controls || 0, text_chars: String(page.text || '').length, forms, changed: report && report.metrics && report.metrics.change || null };
+  if (ENGINE_INPUT.test(facts.engine)) return { verdict: 'game', sure: true, reason: `Built with ${facts.engine}, a game engine.`, signals };
+  const interactive = facts.input.length > 0 || /<button\b|onclick=|<input\b/i.test(html || '') || (page.controls || 0) > 0;
+  if (!interactive) return { verdict: 'not_game', sure: true, reason: 'Nothing in it responds to the player: no keyboard, mouse, touch, pointer or gamepad input and no buttons.', signals };
+  if (played) return { verdict: 'game', sure: false, reason: 'Its play-through hook played it to the end.', signals };
+  if (drawn || looped) return { verdict: 'game', sure: false, reason: 'It draws frames in a loop and responds to input.', signals };
+  return { verdict: 'unsure', sure: false, reason: forms ? 'A page with forms and no game loop.' : 'An interactive page with no canvas and no game loop.', signals };
 }
+
+// ---- the questions the Workers AI decision models answer (shared with the moderation harness) ----
+/** The build facts the AI checks see (never code). */
+export const facts4ai = (f) => ({ engine: f.engine, libraries: f.libraries, platform_kits: f.platform_kits, rendering: f.rendering, graphics: f.graphics, input: f.input, audio: f.audio, assets: f.assets, platform_services: f.platform_services, loop: f.loop_and_performance, play_through: f.gameplay?.playthrough_steps, own_code_lines: f.structure?.own_code_lines });
+
+// Asked of @cf/cloudflare/clef: a copy can block a publish, so the larger model judges it.
+export const JUDGE_QUESTIONS = {
+  verdict: {
+    type: 'choice',
+    instructions: 'You review web games before they are published on a marketplace. Is the new game a copy of the existing game by another creator? You get both listings, facts about how each is built (never code) and similarity measurements: code = share of the new game\'s own code fingerprints found in the other (after removing shared templates and libraries), same_files and assets = shares of identical files, look_distance = screenshot hash distance (0 identical, 10 or less looks alike).',
+    criteria: {
+      copy: 'The same game with cosmetic changes (renamed, recoloured, re-titled).',
+      derivative: 'Clearly inspired, shares mechanics or style, but is its own work.',
+      independent: 'Unrelated apart from genre.',
+    },
+  },
+};
+
+// Asked of @cf/cloudflare/clef-flash.
+export const GAMENESS_QUESTIONS = {
+  is_game: {
+    type: 'noul',
+    instructions: 'This marketplace hosts web games only, with no human review. Is this upload a game: something a person plays, with rules, goals, challenge or play? Interactive toys, puzzles, quizzes, interactive stories and simulations count, however simple, unfinished or text-based. You get the listing, facts about the build (never code), what the page showed in a test browser (its visible text, how many controls, whether its own play-through script passed) and a screenshot. A page can draw on a canvas, animate and take clicks without being a game, and its play-through can be a single button click.',
+    criteria: { true: 'A game, an interactive toy, a puzzle, a quiz or an interactive story.', false: 'A landing or promo page, an advert, an article or document, a link list, a shop, a sign-up or payment form, a video or slideshow, a calculator, tool or app: something to read, watch, buy or use rather than play.' },
+  },
+};
+
+/** The start of a page's visible text: what a player reads before anything runs. */
+export const visibleText = (html, max = 1500) => String(html || '').replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);

@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:slow-start", "owner": "lou",
+  "listing": { "title": "Terraform Tiles", "tagline": "Shape a hex island one tile at a time.", "description": "A relaxing tile-placing puzzle on a procedurally generated island. Generating the island takes a few seconds on first start.", "tags": ["puzzle", "relaxing", "procedural"] },
+  "why": "Spends about 12 seconds generating its world (with progress) before GCP.ready(), well inside the 30 s limit." }

@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:canvas2d-same-genre", "owner": "tom",
+  "listing": { "title": "Neon Worm", "tagline": "A glowing worm in a shrinking arena.", "description": "Snake with a twist: the arena walls close in every 20 seconds and golden orbs give bonus length.", "tags": ["arcade", "snake"] },
+  "why": "An independent snake game by another creator: same genre as Garden Snake, own code." }

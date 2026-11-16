@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:webgl2-raw-shader", "live": true, "owner": "ori",
+  "listing": { "title": "Orb Drifter", "tagline": "Drift through a raymarched nebula and catch light orbs.", "description": "A small arcade game drawn entirely by one fragment shader: steer a comet through a glowing nebula and collect orbs. Lowers its resolution on slow graphics.", "tags": ["arcade", "shader", "space"] },
+  "why": "Raw WebGL 2 with a raymarching fragment shader, heavy for a software GPU; scales its resolution down." }

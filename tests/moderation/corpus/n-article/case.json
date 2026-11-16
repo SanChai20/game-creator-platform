@@ -1,0 +1,3 @@
+{ "expect": "block", "kind": "not-game:article", "gate": "is_game", "owner": "spam5",
+  "listing": { "title": "10 Tips to Win at Chess", "tagline": "Become a better player today.", "description": "Our guide to improving your chess: openings, tactics and endgames.", "tags": ["chess", "guide"] },
+  "why": "A blog article with an animated canvas header and share buttons." }

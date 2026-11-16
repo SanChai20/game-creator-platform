@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:dom-quiz-chinese", "owner": "li",
+  "listing": { "title": "诗词接龙", "tagline": "看上句，选下句，挑战古诗词。", "description": "一个古诗词问答小游戏：每题十秒，答对连击加分，共二十题。", "tags": ["问答", "诗词", "益智"] },
+  "why": "A Chinese-language quiz game made of buttons, timed with setInterval." }

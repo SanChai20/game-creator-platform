@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "abusive:redirect-on-click", "gate": "static", "owner": "m3", "listing": { "title": "Rock Dodger", "tagline": "Dodge the falling rocks.", "description": "Steer your ship and dodge rocks falling from the sky. How long can you last?", "tags": ["arcade", "casual"] }, "why": "The first click anywhere leaves for another site." }

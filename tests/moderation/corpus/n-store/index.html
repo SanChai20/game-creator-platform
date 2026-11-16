@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Retro Cartridge Shop</title>
+<style>body{margin:0;font-family:sans-serif;background:#fafafa}canvas{width:100%;height:120px;display:block}.grid{display:grid;grid-template-columns:repeat(auto-fill,200px);gap:16px;padding:16px}.p{background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px}.p button{background:#e11d48;color:#fff;border:0;padding:8px;border-radius:6px;width:100%}#cart{position:fixed;top:10px;right:16px;background:#111;color:#fff;padding:8px 14px;border-radius:20px}</style></head>
+<body><canvas id="banner" width="960" height="120"></canvas><div id="cart">Cart: 0 items · $0.00</div><div class="grid" id="g"></div>
+<form action="https://pay.example-shop.net/checkout" method="post" style="padding:16px"><h3>Checkout</h3><input name="name" placeholder="Full name"> <input name="card" placeholder="Card number"> <input name="cvc" placeholder="CVC"> <button>Pay now</button></form>
+<script>
+const items = [['Space Blaster (1983)', 39.99], ['Dragon Quest Classic', 54.5], ['Racer 64', 29], ['Puzzle Pack', 15], ['Console Mini', 129], ['Controller', 24.99]];
+let cart = [];
+const g = document.getElementById('g');
+items.forEach(([n, p]) => { const d = document.createElement('div'); d.className = 'p'; d.innerHTML = `<b>${n}</b><p>$${p.toFixed(2)}</p><button>Add to cart</button>`; d.querySelector('button').onclick = () => { cart.push(p); document.getElementById('cart').textContent = `Cart: ${cart.length} items · $${cart.reduce((a, b) => a + b, 0).toFixed(2)}`; }; g.appendChild(d); });
+const c = document.getElementById('banner').getContext('2d');
+(function anim(t) { c.fillStyle = '#e11d48'; c.fillRect(0, 0, 960, 120); c.fillStyle = '#fff'; c.font = 'bold 40px sans-serif'; c.fillText('MEGA SALE -50% ON ALL CARTRIDGES', 40 + Math.sin(t / 500) * 20, 75); requestAnimationFrame(anim); })(0);
+GCP.ready();
+</script></body></html>

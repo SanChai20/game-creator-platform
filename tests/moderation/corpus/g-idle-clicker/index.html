@@ -1,0 +1,31 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Bakery Tycoon</title>
+<style>body{margin:0;background:#fff3e0;font-family:system-ui;color:#4e342e;display:flex;gap:24px;justify-content:center;padding:24px;flex-wrap:wrap}
+#knead{width:220px;height:220px;border-radius:50%;border:0;background:radial-gradient(#ffcc80,#e65100);font-size:72px;cursor:pointer;transition:transform .05s}#knead:active{transform:scale(.95)}
+.shop button{display:block;width:260px;margin:6px 0;padding:10px;text-align:left;border-radius:8px;border:1px solid #bcaaa4;background:#fff}.shop button:disabled{opacity:.45}h2{margin:4px 0}</style></head>
+<body><div><h2 id="loaves">0 loaves</h2><div id="rate">0 per second</div><button id="knead" aria-label="Knead">🍞</button></div><div class="shop" id="shop"></div>
+<script>
+const ITEMS = [
+  { id: 'oven', name: 'Brick oven', cost: 15, rate: 0.5 }, { id: 'baker', name: 'Baker', cost: 120, rate: 4 },
+  { id: 'shop', name: 'Corner shop', cost: 1100, rate: 30 }, { id: 'mill', name: 'Windmill', cost: 12000, rate: 220 },
+];
+let save = { loaves: 0, own: {} };
+const owned = (id) => save.own[id] || 0, price = (it) => Math.ceil(it.cost * Math.pow(1.15, owned(it.id)));
+const rate = () => ITEMS.reduce((a, it) => a + it.rate * owned(it.id), 0);
+const shop = document.getElementById('shop');
+for (const it of ITEMS) { const b = document.createElement('button'); b.id = 'buy-' + it.id; b.onclick = () => buy(it); shop.appendChild(b); }
+function buy(it) { const p = price(it); if (save.loaves < p) return; save.loaves -= p; save.own[it.id] = owned(it.id) + 1; show(); }
+function show() {
+  document.getElementById('loaves').textContent = Math.floor(save.loaves).toLocaleString() + ' loaves';
+  document.getElementById('rate').textContent = rate().toFixed(1) + ' per second';
+  for (const it of ITEMS) { const b = document.getElementById('buy-' + it.id); b.textContent = `${it.name} ×${owned(it.id)} — ${price(it)} loaves (+${it.rate}/s)`; b.disabled = save.loaves < price(it); }
+}
+document.getElementById('knead').addEventListener('click', () => { save.loaves += 1; show(); });
+setInterval(() => { save.loaves += rate() / 10; show(); }, 100);
+setInterval(() => GCP.save && GCP.save.set('bakery', save), 10000);
+(GCP.save ? GCP.save.get('bakery') : Promise.resolve(null)).then((s) => { if (s) save = s; show(); GCP.ready(); });
+GCP.test.onPlaythrough(async (t) => {
+  t.step('knead fifteen loaves'); for (let i = 0; i < 15; i++) document.getElementById('knead').click();
+  t.step('buy an oven'); document.getElementById('buy-oven').click(); t.assert(owned('oven') === 1, 'oven bought');
+  t.step('wait for the oven to bake'); await t.until(() => save.loaves >= 0.4, 3000, 'baked bread');
+});
+</script></body></html>

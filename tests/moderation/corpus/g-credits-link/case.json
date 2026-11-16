@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:with-outbound-links", "owner": "cal",
+  "listing": { "title": "Paper Planes", "tagline": "Fold, throw, fly as far as you can.", "description": "Throw a paper plane through gusts of wind. Upgrade your folds between throws. Made by a solo developer; links to my other games in the credits.", "tags": ["arcade", "casual"] },
+  "why": "A real game with a credits menu that links to the author's site, Patreon and itch.io page in new tabs." }

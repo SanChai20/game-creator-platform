@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "broken:syntax-error", "gate": "static", "owner": "b5", "listing": { "title": "Untitled Game", "tagline": "A fun game.", "description": "Play now.", "tags": ["arcade"] }, "why": "A syntax error in the game script." }

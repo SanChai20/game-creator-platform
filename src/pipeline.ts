@@ -72,7 +72,7 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
     await env.DB.prepare("INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, 'preview', ?, 'verify', ?, ?)").bind(sid, p.id, v.n, p.owner_id, now(), now()).run();
     // The verifier plays under a throwaway identity of its own: it starts from no save and never touches the creator's progress.
     const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Verifier', k: 'verify', s: sid, x: Math.floor(now() / 1000) + 900 }, await playKey(env, p.id));
-    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU);
+    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU, job.origin);
     report = out.report; shot = out.shot;
     report.deploy = health.detail;
   }

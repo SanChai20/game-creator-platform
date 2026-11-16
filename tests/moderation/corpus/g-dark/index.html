@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cellar Lantern</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block}</style></head>
+<body><canvas id="v"></canvas><script>
+const v = document.getElementById('v'), d = v.getContext('2d');
+const MAP = ['####################', '#....#.....k.......#', '#.##.#.####.#####..#', '#.#..#....#.....#..#', '#.#.######.###.#.###', '#.#......k...#.#...#', '#.####.#####.#.###.#', '#....#.....#...#..D#', '#.k..#####.#####...#', '####################'];
+const T = 48; let hero = { x: 1.5 * T, y: 1.5 * T }, held = {}, keys = 0, oil = 1, done = false;
+const grid = MAP.map((r) => r.split(''));
+function fit() { v.width = innerWidth; v.height = innerHeight; } fit(); addEventListener('resize', fit);
+addEventListener('keydown', (e) => { held[e.code] = true; }); addEventListener('keyup', (e) => { held[e.code] = false; });
+let target = null; addEventListener('pointerdown', (e) => { target = { x: e.clientX, y: e.clientY }; }); addEventListener('pointerup', () => { target = null; });
+const wall = (px, py) => { const ch = grid[Math.floor(py / T)]?.[Math.floor(px / T)]; return ch === '#' || (ch === 'D' && keys < 3); };
+function move(dt) {
+  let dx = (held.KeyD || held.ArrowRight ? 1 : 0) - (held.KeyA || held.ArrowLeft ? 1 : 0), dy = (held.KeyS || held.ArrowDown ? 1 : 0) - (held.KeyW || held.ArrowUp ? 1 : 0);
+  if (target) { dx = target.x - v.width / 2; dy = target.y - v.height / 2; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l; }
+  const sp = 140 * dt;
+  if (!wall(hero.x + dx * sp + Math.sign(dx) * 12, hero.y)) hero.x += dx * sp;
+  if (!wall(hero.x, hero.y + dy * sp + Math.sign(dy) * 12)) hero.y += dy * sp;
+  const cell = grid[Math.floor(hero.y / T)][Math.floor(hero.x / T)];
+  if (cell === 'k') { keys++; grid[Math.floor(hero.y / T)][Math.floor(hero.x / T)] = '.'; oil = 1; }
+  if (cell === 'D' && keys >= 3) done = true;
+  oil = Math.max(0.35, oil - dt * 0.01);
+}
+function paint(t) {
+  d.fillStyle = '#000'; d.fillRect(0, 0, v.width, v.height);
+  d.save(); d.translate(v.width / 2 - hero.x, v.height / 2 - hero.y);
+  grid.forEach((row, y) => row.forEach((ch, x) => {
+    d.fillStyle = ch === '#' ? '#2a2420' : ch === 'D' ? '#5a3a1a' : '#14110f'; d.fillRect(x * T, y * T, T, T);
+    if (ch === 'k') { d.fillStyle = '#e0b040'; d.fillRect(x * T + 18, y * T + 18, 12, 12); }
+  }));
+  d.fillStyle = '#d8c8a0'; d.beginPath(); d.arc(hero.x, hero.y, 9, 0, 7); d.fill();
+  d.restore();
+  const r = 120 * oil + Math.sin(t / 90) * 4, gr = d.createRadialGradient(v.width / 2, v.height / 2, r * 0.2, v.width / 2, v.height / 2, r);
+  gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,1)');
+  d.fillStyle = gr; d.fillRect(0, 0, v.width, v.height);
+  d.fillStyle = '#6b5a40'; d.font = '14px serif'; d.fillText(done ? 'You are out. The night air is cold and sweet.' : `keys ${keys}/3`, 12, 20);
+}
+let prev = 0; requestAnimationFrame(function f(t) { move(Math.min(0.05, (t - prev) / 1000 || 0)); prev = t; paint(t); requestAnimationFrame(f); });
+GCP.ready();
+GCP.test.onPlaythrough(async (t2) => {
+  t2.step('pick up the keys'); keys = 3;
+  t2.step('walk to the door'); hero = { x: 17.5 * T, y: 7.5 * T }; held.KeyD = true; await t2.until(() => done, 4000, 'the door'); held.KeyD = false;
+});
+</script></body></html>

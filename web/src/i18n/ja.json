@@ -58,7 +58,7 @@
  "Any price": "すべての価格",
  "Any rating": "すべての評価",
  "Art": "アート",
- "Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)": "判断が難しいケースだけ Workers AI に問い合わせる（似ているが明確なコピーではない、ゲームではないかもしれないインタラクティブなページ）",
+ "Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game": "境界的なケース（似ているが明らかなコピーではない）と、ゲームエンジンを使わないアップロードがゲームかどうかを Workers AI に尋ねる",
  "Asking for a refund": "返金の申請",
  "At least 8 characters.": "8文字以上。",
  "Audio": "オーディオ",
@@ -943,5 +943,10 @@
  "1 minute before buying": "購入前に1分間プレイ可能",
  "Sales clear after 1 day": "売上は1日後に確定します",
  "1 game you haven't opened yet": "まだ開いていないゲームが1本",
- "Games you have not opened yet, one at a time.": "まだ開いていないゲームを1本ずつ。"
+ "Games you have not opened yet, one at a time.": "まだ開いていないゲームを1本ずつ。",
+ "Block publishing a version the content check refuses (off: report it as a warning only)": "コンテンツチェックが拒否したバージョンの公開をブロックする（オフ：警告として報告のみ）",
+ "Check each verified version for harmful content (sexual content, hate, scams, phishing) and abusive code (miners, password forms, hidden servers)": "検証済みの各バージョンに有害なコンテンツ（性的内容、ヘイト、詐欺、フィッシング）や悪用コード（マイナー、パスワードフォーム、隠れたサーバー）がないか確認する",
+ "Content and conduct": "コンテンツと動作",
+ "How likely (percent) the content review must find a version harmful to refuse it": "拒否するために、コンテンツ審査が有害と判断する確率（パーセント）",
+ "Most Workers AI content reviews per day (Clef with the screenshot, about $0.0003 each; past the cap a small rule set decides)": "1日あたりの Workers AI コンテンツ審査の上限（スクリーンショット付き Clef、1回約 $0.0003。上限を超えると小さなルールセットが判断）"
 }

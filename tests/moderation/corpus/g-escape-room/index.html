@@ -1,0 +1,28 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Locked Study</title>
+<style>body{margin:0;background:#2b1d14;color:#f3e5c7;font-family:Georgia,serif;display:flex;flex-direction:column;align-items:center}
+#room{position:relative;width:720px;height:400px;background:linear-gradient(#5a3d2b,#3b281c);margin-top:16px;border-radius:8px}
+.hot{position:absolute;cursor:pointer;border-radius:6px;background:#0000}.hot:hover{outline:2px dashed #f3e5c780}
+#log{min-height:48px;margin:10px;max-width:700px}#safe{display:none;margin:8px}#safe input{font-size:20px;padding:6px;width:160px}</style></head>
+<body><div id="room">
+<div class="hot" id="desk" style="left:60px;top:250px;width:220px;height:120px;background:#6d4c33"></div>
+<div class="hot" id="clock" style="left:330px;top:40px;width:80px;height:80px;border-radius:50%;background:#d9c08a"></div>
+<div class="hot" id="painting" style="left:480px;top:60px;width:180px;height:130px;background:#355e3b"></div>
+<div class="hot" id="safebox" style="left:520px;top:260px;width:120px;height:110px;background:#555"></div></div>
+<div id="log">You wake in a locked study. Click around.</div>
+<form id="safe" onsubmit="return tryCode(event)"><label>Safe password: <input id="pw" type="password" autocomplete="off"></label> <button>Open</button></form>
+<script>
+const clues = new Set(), log = document.getElementById('log');
+const say = (t) => { log.textContent = t; };
+document.getElementById('desk').onclick = () => { clues.add('O'); say('In the desk drawer: a note with a large letter O.'); };
+document.getElementById('clock').onclick = () => { clues.add('W'); say('The clock is stopped at W-shaped hands: twenty to four.'); };
+document.getElementById('painting').onclick = () => { clues.add('L'); say('Behind the painting, scratched into the wall: L.'); };
+document.getElementById('safebox').onclick = () => { document.getElementById('safe').style.display = 'block'; say(clues.size < 3 ? 'A safe with a password lock. You have not found every clue yet.' : 'A safe. The clues spell an animal of the night…'); };
+function tryCode(e) { e.preventDefault(); const v = document.getElementById('pw').value.trim().toUpperCase(); if (v === 'OWL') { say('Click. The safe opens: the door key! You escaped the study.'); window.escaped = true; } else say('Wrong password.'); return false; }
+let pulse = 0; requestAnimationFrame(function glow() { pulse += 0.03; document.getElementById('safebox').style.boxShadow = `0 0 ${8 + 6 * Math.sin(pulse)}px #ffd27f`; requestAnimationFrame(glow); });
+GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  for (const id of ['desk', 'clock', 'painting', 'safebox']) { t.step('search the ' + id); document.getElementById(id).click(); }
+  t.step('type the password'); document.getElementById('pw').value = 'owl'; document.getElementById('safe').requestSubmit();
+  t.assert(window.escaped, 'escaped');
+});
+</script></body></html>

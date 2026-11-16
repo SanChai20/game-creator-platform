@@ -155,10 +155,10 @@ export const TOOLS: Tool[] = [
         rules: [
           'A web page: index.html at the bundle root, plus the files it loads with relative paths. There is no build step on the platform: upload what the browser runs.',
           'Call GCP.ready() once, right after the first playable frame is drawn. GCP is injected by the platform; never bundle or import it.',
-          'Run with no uncaught errors, keep rendering frames, and survive keyboard, mouse and touch input. That is what verification checks.',
+          'Run with no uncaught errors, keep rendering frames (or, for a turn-based page, change when the player acts), survive keyboard, mouse and touch input, and stay on the page (no redirects, downloads or popups). That is what verification checks.',
         ],
         engines: ENGINE_EXPORTS,
-        originality: 'After the browser check passes, each version is compared with other creators\' live games, and a copy (even with renamed variables or new titles) cannot be published. Platform templates, kits and common libraries are ignored, so starting from them is fine. An upload that is not a game is refused too. get_started {topic: "versions"} explains both checks.',
+        originality: 'After the browser check passes, each version is compared with other creators\' live games, and a copy (even with renamed variables or new titles) cannot be published. Platform templates, kits and common libraries are ignored, so starting from them is fine. An upload that is not a game is refused too, and so is harmful content (sexual content, hate, scams, phishing) or abusive code (miners, password forms). Game violence and horror are fine. get_started {topic: "versions"} explains these checks.',
         workflow: [
           '1. create_project, once per game.',
           '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl.',
