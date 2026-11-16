@@ -3,7 +3,7 @@
 
    The contract (the only hard rules):
      GCP.ready()            call once, when the first playable frame is on screen
-     GCP.progress(f, label) optional, 0..1 while loading
+     GCP.progress(f, label) optional, 0..1 while loading (again after ready() while a world or level loads)
      GCP.fatal(err)         call if the game cannot start (also set automatically by nothing: uncaught
                             errors are recorded, not fatal, unless they stop frames from advancing)
    Everything else is optional help: saves, leaderboards, rooms, test hooks. */
@@ -332,8 +332,9 @@
     /** The player's platform language as a BCP 47 tag (en, zh, zh-TW, ja, ko, es), from ?gcp_lang or the browser. A game that
         declares languages.follows_platform in gcp.json opens in this language when it has it, and otherwise in its default. */
     lang: String(q.get('gcp_lang') || (navigator.language || 'en')).slice(0, 20),
-    /** Loading progress, 0..1. Purely informational: shown in verification reports. */
-    progress: function (f, label) { P.progress++; S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); },
+    /** Loading progress, 0..1, shown in verification reports. Called again after ready() (loading a world or a level), it
+        tells the platform the game is on a loading screen until it reaches 1, so the version's picture waits for play. */
+    progress: function (f, label) { P.progress++; S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); if (S.ready) S.busy = S.progress < 1; },
     /** Call once when the first playable frame is on screen. Required. */
     ready: function (info) {
       if (S.ready) return; S.ready = true; S.readyAt = performance.now(); S.progress = 1; if (info) S.stats = info;
@@ -439,7 +440,7 @@
   // What the verifier reads. The game runs in the same page, so the verifier's view is a read-only window onto the SDK's own
   // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
   var view = {};
-  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'playthrough', 'twoPlayers', 'probe'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
+  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
   ['hold', 'runPlaythrough', 'runTwoPlayers', 'roomInfo'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }

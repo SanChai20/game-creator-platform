@@ -273,3 +273,21 @@ export function missingForPublish(meta: MetaRecord | null | undefined, compatDec
 
 /** Session length as a bucket players understand. */
 export const sessionBucket = (m: number) => (m < 5 ? '<5' : m <= 15 ? '5-15' : m <= 30 ? '15-30' : m <= 60 ? '30-60' : '60+');
+
+/** The workspace file that holds a version's declared build metadata. */
+export const MANIFEST = 'gcp.json';
+/** The fields of gcp.json that game_metadata declares (the listing lives on the project instead). */
+export const BUILD_FIELDS = ['requirements', 'languages', 'players', 'session_minutes', 'progress', 'accessibility', 'content'] as const;
+
+/** The zip's gcp.json with any build field it lacks taken from the workspace copy. Null when either is not a JSON object
+ *  (the zip's copy then goes in as it is, and deploy_preview reports it) or nothing needs carrying over. */
+export function mergeManifest(workspace: Uint8Array, incoming: Uint8Array): { bytes: Uint8Array; carried: string[] } | null {
+  const parse = (b: Uint8Array) => { try { const j = JSON.parse(new TextDecoder().decode(b)); return j && typeof j === 'object' && !Array.isArray(j) ? j as Record<string, unknown> : null; } catch { return null; } };
+  const old = parse(workspace), next = parse(incoming);
+  if (!old || !next) return null;
+  const carried = BUILD_FIELDS.filter((f) => old[f] !== undefined && next[f] === undefined);
+  if (!carried.length) return null;
+  const out: Record<string, unknown> = { ...next };
+  for (const f of carried) out[f] = old[f];
+  return { bytes: new TextEncoder().encode(JSON.stringify(out, null, 2) + '\n'), carried };
+}

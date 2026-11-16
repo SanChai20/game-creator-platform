@@ -27,7 +27,7 @@ export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: s
     // a game with rooms is opened in two more pages of this browser, which meet in one room (GCP.test.onTwoPlayers)
     const openPage = async () => { const p = await browser!.newPage(); await p.setViewport({ width: 960, height: 540, deviceScaleFactor: 1 }); return p; };
     const { report, shots, frames } = await verifyPage(page, url, { ...opts, openPage });
-    const shot: Uint8Array | null = shots.length ? new Uint8Array(shots[0]) : null;   // the full-quality portrait when there is one, otherwise the first picture of the game in play
+    const shot: Uint8Array | null = shots.length ? new Uint8Array(shots[0]) : null;   // the full-quality portrait when there is one, otherwise the first picture of the game in play past its loading screen
     return { report: { ...report, browser: 'cloudflare-browser-rendering' }, shot, frames: (frames || []).map((f: Uint8Array) => new Uint8Array(f)) };
   } catch (e) {
     return { report: { ok: false, browser: 'unavailable', summary: `The verification browser could not run: ${(e as Error).message}`, checks: [], errors: [] }, shot: null, frames: [] };

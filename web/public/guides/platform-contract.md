@@ -72,7 +72,8 @@ Every call that talks to the platform resolves instead of throwing, so a network
 | input | After key presses, clicks, drags and touches, frames are still being drawn. A game that restarts by reloading the page (a "Play again" button) passes as long as it boots again. |
 | responds | Something on screen or in the page changes while the game runs and is played. A still picture fails. |
 | conduct | The page stays on the game: it does not leave for another site, start downloads, open more than one window or pile up dialogs. |
-| files | Every file the page asked for was served. |
+| files | Every file the page asked for was served. Calls to the game's own server code (`/api/*`) are not counted here. |
+| server | Only when the game calls its server code: no request made it throw. A crash in `server/index.js` is listed with its message and, in a preview, the line it came from. |
 | clean | No uncaught errors and no unhandled promise rejections. |
 | original | Once the checks above pass: the game is not a copy of another creator's live game. Code everyone starts from (platform templates, kits, libraries such as three.js) is ignored, so building on them is fine. |
 | is_game | Once the checks above pass: it is a game the player acts on, not a page, a form or a link to somewhere else. |
@@ -90,7 +91,7 @@ Just before the play-through the browser clicks once in the top-left corner pixe
 
 ### The screenshot
 
-The checks run on a CPU renderer, where a well-made game rightly draws less. After the checks the browser loads the game once more with `?gcp_portrait=1` and takes one picture, which becomes the version's screenshot and the default marketplace cover. `GCP.portrait` is `true` on that load: draw at full quality however slow the frame is. Publishing never depends on it, and `update_project {cover}` sets your own cover instead.
+The checks run on a CPU renderer, where a well-made game rightly draws less. After the checks the browser loads the game once more with `?gcp_portrait=1` and takes one picture, which becomes the version's screenshot and the default marketplace cover. `GCP.portrait` is `true` on that load: draw at full quality however slow the frame is. The picture waits until the game is past its loading screen: up to 20 seconds while a full-screen element covers the canvas, or while the game reports loading again with `GCP.progress(f)` after `ready()` (call `GCP.progress(1)` when play is on screen). Publishing never depends on it, and `update_project {cover}` sets your own cover instead.
 
 ## Prove the game can be played: the play-through
 

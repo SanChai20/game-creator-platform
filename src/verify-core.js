@@ -39,6 +39,26 @@ const state = (page) => page.evaluate(() => {
     caps: { webgl2: !!document.createElement('canvas').getContext('webgl2'), webgpu: !!navigator.gpu } };
 });
 
+/** Whether the game is still on a loading screen: it said so with GCP.progress(f < 1) after ready(), or an opaque element
+ *  that does not hold the canvas covers most of the screen (a loading or title overlay). Pages without a canvas never are. */
+const covered = (page) => page.evaluate(() => {
+  const s = window.__GCP; if (s && s.busy) return 'loading' + (s.label ? ` ("${s.label}")` : '');
+  const canvases = [...document.querySelectorAll('canvas')]; if (!canvases.length) return '';
+  const vw = innerWidth, vh = innerHeight, area = vw * vh; let n = 0;
+  for (const el of document.body.getElementsByTagName('*')) {
+    if (++n > 4000) break;
+    if (el.tagName === 'CANVAS' || canvases.some((c) => el.contains(c))) continue;
+    const r = el.getBoundingClientRect(), w = Math.min(r.right, vw) - Math.max(r.left, 0), h = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+    if (w <= 0 || h <= 0 || w * h < area * 0.6) continue;
+    const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    let op = 1; for (let e = el; e && e !== document.documentElement; e = e.parentElement) op *= +getComputedStyle(e).opacity;
+    if (op < 0.5) continue;
+    const a = cs.backgroundColor.match(/[\d.]+/g), alpha = !a ? 0 : a.length > 3 ? +a[3] : 1;
+    if (alpha >= 0.6 || cs.backgroundImage !== 'none') return 'covered by ' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : '');
+  }
+  return '';
+}).catch(() => '');
+
 /** Visible text elements on the page: the HUD, hints, menus. */
 const uiState = (page) => page.evaluate(() => {
   let texts = 0, chars = 0, sample = ''; const seen = new Set(), w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -123,7 +143,21 @@ export async function verifyPage(page, url, opts = {}) {
   const checks = [], pageErrors = [], badResponses = [];
   const add = (id, ok, label, detail = '', hint = '') => checks.push({ id, ok, label, detail, hint });
   page.on('pageerror', (e) => { if (pageErrors.length < 20) pageErrors.push(String(e && (e.message || e)).slice(0, 500)); });
-  page.on('response', (r) => { try { const s = r.status(); if (s >= 400 && badResponses.length < 20 && !/favicon\.ico/.test(r.url())) badResponses.push(`${s} ${r.url().split('?')[0]}`); } catch { /* detached */ } });
+  // Calls to the game's own server code (GCP.server, /api/* next to the game) are not files: a failure there is the server
+  // code's, reported by the "server" check with what it threw, instead of as a missing file.
+  const serverErrors = [], apiBase = (() => { try { const u = new URL(url); return { host: u.host, path: u.pathname.replace(/[^/]*$/, '') + 'api/' }; } catch { return null; } })();
+  const isServerCall = (r) => { try { if (r.headers()['x-gcp-server-error']) return true; const u = new URL(r.url()); return !!apiBase && u.host === apiBase.host && u.pathname.startsWith(apiBase.path); } catch { return false; } };
+  page.on('response', (r) => { try {
+    const s = r.status(); if (s < 400 || /favicon\.ico/.test(r.url())) return;
+    if (isServerCall(r)) {
+      if (serverErrors.length >= 10) return;
+      const e = { status: s, path: (() => { try { return new URL(r.url()).pathname.slice(apiBase.path.length - 'api/'.length - 1); } catch { return r.url().split('?')[0]; } })(), message: '', stack: [] };
+      serverErrors.push(e);
+      e.read = r.text().then((t) => { try { const j = JSON.parse(t); e.message = String(j.message || j.error || '').slice(0, 300); e.stack = Array.isArray(j.stack) ? j.stack.slice(0, 3).map((l) => String(l).slice(0, 200)) : []; } catch { e.message = /\b1101\b|threw exception/i.test(t) ? 'The Worker threw an exception outside the request (for example in a promise that was not awaited).' : String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200); } }).catch(() => {});
+      return;
+    }
+    if (badResponses.length < 20) badResponses.push(`${s} ${r.url().split('?')[0]}`);
+  } catch { /* detached */ } });
   // What the page does to the player's browser, besides the game: other sites it talks to, windows, downloads, dialogs,
   // navigation away. Read by the conduct check below and by the content check (src/content-check.js).
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ''; } };
@@ -190,7 +224,7 @@ export async function verifyPage(page, url, opts = {}) {
   const frames = [];
   const snap = async () => { if (frames.length >= 8) return; try { frames.push(await page.screenshot({ type: 'jpeg', quality: 60 })); } catch { /* page busy or gone */ } };
   const shoot = async () => { try { const b = await page.screenshot({ type: 'png' }); shots.push(b); return pngStats(b); } catch { return null; } };
-  let pic1 = null, pic2 = null, picIdle = null, f1 = 0, f2 = 0, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
+  let pic1 = null, pic1Cover = '', pic2 = null, picIdle = null, f1 = 0, f2 = 0, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
   if (s.ready && !s.fatal) {
     // 3. renders
     const a = await state(page); await sleep(o.observeS * 1000); const b = await state(page);
@@ -202,7 +236,7 @@ export async function verifyPage(page, url, opts = {}) {
     else add('renders', f1 >= o.minFrames, 'Frames keep rendering', `${f1} frames in ${o.observeS}s (${Math.round(f1 / o.observeS)} fps in the verification browser)`,
       f1 >= o.minFrames ? '' : 'Drive the game from requestAnimationFrame and keep the loop alive even on menus. A software GPU runs this check, so heavy scenes should offer a lower quality level and pick it when the frame time is high.');
     // 4. picture
-    pic1 = await shoot();
+    pic1 = await shoot(); pic1Cover = await covered(page);
     const blank = !pic1 || !pic1.ok || pic1.other < 200 || pic1.colors < 2; // a flat screen; a sparse one (Pong) is fine
     add('picture', !blank, 'Something is drawn', pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background` : 'No screenshot',
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
@@ -301,6 +335,15 @@ export async function verifyPage(page, url, opts = {}) {
   const missing = [...new Set([...(s.missing || []), ...badResponses])];
   if (missing.length) add('files', false, 'Every requested file is served', missing.slice(0, 6).join('; '), 'Upload the missing files or fix their paths (paths are case-sensitive).');
   else add('files', true, 'Every requested file is served', '');
+  // 1c. the game's server code: a crash in server/index.js fails here, with what it threw
+  await Promise.all(serverErrors.map((e) => Promise.race([e.read, sleep(2000)])));
+  const crashed = serverErrors.filter((e) => e.status >= 500), refused = serverErrors.filter((e) => e.status < 500);
+  const line = (e) => `${e.status} ${e.path}${e.message ? `: ${e.message}` : ''}${e.stack && e.stack.length ? ` (${e.stack[0]})` : ''}`;
+  if (crashed.length) add('server', false, 'The game\'s server code answers', crashed.slice(0, 4).map(line).join('; '),
+    'server/index.js threw while handling these requests (the game called them through GCP.server). Fix the error shown, or catch it in fetch() and return a Response with a 4xx status. Run the handler locally with a fake env to reproduce it.');
+  else if (serverErrors.length) add('server', true, 'The game\'s server code answers', '');
+  if (refused.length) report.warnings.push(`The game's server code answered ${refused.slice(0, 4).map(line).join('; ')}. Fine if the game expects it (a 404 for a save that does not exist yet).`);
+  report.server = serverErrors.length ? serverErrors.map(({ read, ...e }) => e) : undefined;
   const errs = [...new Set([...(s.errors || []), ...pageErrors])];
   add('clean', errs.length === 0, 'No uncaught errors', errs.length ? `${errs.length} uncaught error(s)` : '', errs.length ? 'Fix each error listed under "errors", then deploy a new preview.' : '');
 
@@ -313,7 +356,9 @@ export async function verifyPage(page, url, opts = {}) {
   // sparser grass, no finishing passes). People judge the game by what a device with a graphics card draws, so the game
   // is loaded once more with ?gcp_portrait=1, which asks it for exactly that, and one picture is taken. It is the
   // version's screenshot and the picture the craft review reads. Slow is fine here: one frame is enough.
-  let portrait = null, portraitShot = null, portraitGl = null;
+  let portrait = null, portraitShot = null, portraitGl = null, lateShot = null;
+  // If the first picture caught a loading screen and the game is past it now, a picture of now stands in when there is no portrait.
+  if (pic1Cover && report.ok && !(await covered(page))) { try { lateShot = await page.screenshot({ type: 'png' }); } catch { /* page busy */ } }
   // what the checked run saw (sound, input, drawing) is read before the page is loaded again for the portrait
   const runProbe = pic1 && pic1.img ? await page.evaluate(() => (window.__GCP && window.__GCP.probe ? JSON.parse(JSON.stringify(window.__GCP.probe)) : null)).catch(() => null) : null;
   if (pic1 && pic1.img && report.ok && o.portrait !== false) {
@@ -322,6 +367,12 @@ export async function verifyPage(page, url, opts = {}) {
       await page.goto(url + (url.includes('?') ? '&' : '?') + 'gcp_portrait=1', { waitUntil: 'domcontentloaded', timeout: 30000 });
       while (Date.now() - tp < 30000) { ps = await state(page).catch(() => null); if (ps && (ps.ready || ps.fatal)) break; await sleep(250); }
       if (ps && ps.ready && !ps.fatal) {
+        // ready() only means the first frame: many games then load a world behind a loading screen. Wait (up to 20 s) until
+        // the screen has been clear twice in a row, so the picture shows the game and not its loading screen.
+        const tc = Date.now(); let clear = 0, cover = await covered(page);
+        while (Date.now() - tc < 20000 && clear < 2) { await sleep(500); cover = await covered(page); clear = cover ? 0 : clear + 1; }
+        if (cover) report.notes.push(`The version's picture was taken while the game still seemed to be loading (${cover}). Set your own cover with update_project {cover}, or call GCP.progress(1) when play is on screen.`);
+        ps = await state(page).catch(() => ps) || ps;
         const f0 = ps.frames, tw = Date.now(); let fr = 0;
         while (Date.now() - tw < 9000) { const c = await state(page).catch(() => null); fr = c ? c.frames - f0 : 0; if (fr >= 10) break; await sleep(300); }   // late passes and textures settle
         portraitGl = await page.evaluate(() => (window.__GCP && window.__GCP.probe && window.__GCP.probe.gl ? JSON.parse(JSON.stringify(window.__GCP.probe.gl)) : null)).catch(() => null);
@@ -348,5 +399,5 @@ export async function verifyPage(page, url, opts = {}) {
   const failed = checks.filter((c) => !c.ok);
   report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / o.observeS)} fps in the verification browser, no errors${report.playthrough ? `, play-through of ${report.playthrough.steps.length} step(s) passed` : '; no play-through registered, so only start-up, rendering and input were checked'}.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
   report.metrics.reviewFrames = frames.length;
-  return { report, shots: portraitShot ? [portraitShot, ...shots] : shots, frames };
+  return { report, shots: portraitShot ? [portraitShot, ...shots] : lateShot ? [lateShot, ...shots] : shots, frames };
 }
