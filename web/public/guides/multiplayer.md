@@ -20,7 +20,7 @@ room.setState({ round: 2 });                     // host only: sent to everyone 
 room.isHost; room.id; room.peers; room.leave();
 ```
 
-- Messages are JSON, at most 64 KB each. The room size limit is set by the platform (`get_account` shows it) and can be lowered per room with `GCP.room(code, { max: 4 })`.
+- Messages are JSON, at most 64 KB each. The room size limit is set by the platform and can be lowered per room with `GCP.room(code, { max: 4 })`.
 - The first player in is the host. When the host leaves, the player who has been in the room longest becomes host.
 - Players in a room are signed-in players of this game. Preview and live rooms are separate.
 - For private matches, generate a short code, show it, and let friends type it in. For public play, use a fixed code such as `'world'`, or several (`'world-1'`, `'world-2'`).
@@ -78,7 +78,7 @@ For a world players change together, `createWorldSync(room, { build, nodes, crop
 `@gcp/play.js` (also in craft.js and craft2d.js) does the host-authoritative model for you: a guest's request goes to
 the host, which checks it, applies it and sends it to everyone; the guest pays and collects on its own device when the
 host says yes; and a late joiner loads the world from the room state. `createLoopback(2)` gives two rooms in one page,
-so a single play-through can prove two players agree. See the building-blocks guide.
+so a single play-through can prove two players agree.
 
 ## Testing
 

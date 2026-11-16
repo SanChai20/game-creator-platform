@@ -14,9 +14,15 @@ import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './rout
 import { rt } from './routes/rt';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
-import { esc, now } from './util';
+import { dayOf, esc, now } from './util';
+import { backfill } from './originality-check';
+import { TOKENS_CSS } from '../web/src/ui/tokens';
+import { langTag, pageLang, TEXT } from './consent-text';
+import type { Lang } from '../web/src/i18n/langs';
 // @ts-ignore plain JS module
 import { handle as handleGame } from './runtime/game-worker.js';
+// @ts-ignore plain JS module
+import { verifierCleanupStmts } from './player-data.js';
 
 export { GameRoom } from './room';
 export { Pipeline } from './pipeline';
@@ -88,39 +94,45 @@ app.all('/__game/:pid/:env/*', async (c) => {
 });
 
 // ----- OAuth consent ---------------------------------------------------------------------------
-function page(title: string, body: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>
-<style>:root{color-scheme:dark}html,body{height:100%;margin:0;background:#0b0d0f;color:#e8e4da;font:15px/1.55 system-ui,-apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif}
-body{display:grid;place-items:center;padding:24px;box-sizing:border-box;background:radial-gradient(900px 500px at 50% -10%,rgba(255,179,71,.14),transparent 60%),#0b0d0f}
-main{width:min(460px,100%);background:#14181b;border:1px solid rgba(232,228,218,.14);border-radius:18px;padding:28px}
-.mark{font-weight:800;letter-spacing:.14em;text-transform:uppercase;font-size:12px;color:#ffb347;margin-bottom:18px}
-h1{font-size:24px;line-height:1.2;margin:0 0 10px;letter-spacing:-.01em}p{margin:0 0 12px;color:rgba(232,228,218,.7)}strong{color:#e8e4da}
-ul{margin:14px 0 18px;padding:14px 16px;list-style:none;background:#0f1215;border:1px solid rgba(232,228,218,.1);border-radius:12px}li{padding:4px 0 4px 22px;position:relative}li:before{content:"";position:absolute;left:2px;top:12px;width:8px;height:8px;border-radius:50%;background:#ffb347}
-.warn{border:1px solid rgba(255,90,64,.5);background:rgba(255,90,64,.08);color:#ffc2b6;border-radius:12px;padding:10px 14px;margin:0 0 14px}
-.row{display:flex;gap:10px;margin-top:8px}button{flex:1;font:inherit;font-weight:700;border-radius:11px;padding:12px 16px;cursor:pointer;border:1px solid rgba(232,228,218,.2);background:transparent;color:#e8e4da}
-button.go{background:#ffb347;border-color:#ffb347;color:#1b1203}small{display:block;margin-top:16px;color:rgba(232,228,218,.5)}</style></head><body><main>${body}</main></body></html>`;
+// Server-rendered pages share the web app's design tokens (web/src/ui/tokens.ts), so they look like the rest of the site.
+const PAGE_CSS = `*,*::before,*::after{box-sizing:border-box}html,body{min-height:100%;margin:0;background:var(--bg-0);color:var(--text);font:400 var(--fs-md)/1.6 var(--font-sans);-webkit-font-smoothing:antialiased}
+body{display:grid;place-items:center;padding:24px;background:radial-gradient(55vw 45vh at 0% 0%,rgba(139,107,255,.16),transparent 70%),radial-gradient(45vw 40vh at 100% 0%,rgba(198,255,61,.07),transparent 70%),var(--bg-0)}
+main{width:min(460px,100%);display:grid;gap:14px;background:var(--bg-1);border:1px solid var(--line-3);border-radius:var(--r-xl);padding:clamp(22px,5vw,32px);box-shadow:var(--shadow-pop-lg),var(--shadow-3)}
+.mark{display:flex;align-items:center;gap:10px;font:700 14px/1 var(--font-display);letter-spacing:-.01em;margin-bottom:6px}.mark i{width:24px;height:24px;border-radius:var(--r-sm);background:var(--accent);display:grid;place-items:center;box-shadow:2px 2px 0 0 var(--hot);transform:rotate(-6deg)}.mark i::after{content:"";border-left:8px solid var(--accent-ink);border-top:5px solid transparent;border-bottom:5px solid transparent;margin-left:3px}
+h1{font:700 24px/1.15 var(--font-display);letter-spacing:-.03em;margin:0;text-wrap:balance}p{margin:0;color:var(--text-2)}strong{color:var(--text);font-weight:650}
+ul{margin:0;padding:12px 14px;list-style:none;display:grid;gap:8px;background:rgba(10,9,16,.6);border:1px solid var(--line);border-radius:var(--r-md);font-size:13.5px}li{padding-left:22px;position:relative}li::before{content:"✓";position:absolute;left:0;top:2px;width:15px;height:15px;border-radius:2px;background:var(--accent-wash);color:var(--accent);font:700 10px/15px var(--font-mono);text-align:center}
+.warn{border:1px solid rgba(255,93,108,.32);border-left:3px solid var(--bad);background:var(--bad-wash);border-radius:var(--r-md);padding:12px 14px;color:var(--text)}
+.web-only{font-size:13px;padding:9px 12px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:rgba(10,9,16,.6)}
+.row{display:flex;gap:12px;margin-top:6px}button{flex:1;height:48px;font:600 14px/1 var(--font-sans);border-radius:var(--r-md);cursor:pointer;border:1px solid var(--line-3);background:var(--bg-2);color:var(--text);transition:background var(--dur),transform var(--dur-fast),box-shadow var(--dur-fast)}button:hover{background:var(--bg-3)}button:active{transform:translate(1px,1px)}
+button.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;box-shadow:var(--shadow-pop)}button.go:hover{background:var(--accent-hi);transform:translate(-1px,-1px);box-shadow:4px 4px 0 0 var(--hot)}button.go:active{transform:translate(2px,2px);box-shadow:1px 1px 0 0 var(--hot)}
+small{display:block;color:var(--text-3);font-size:12.5px}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
+function page(title: string, body: string, lang: Lang = 'en'): string {
+  return `<!doctype html><html lang="${langTag(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0a0910"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>${TOKENS_CSS}${PAGE_CSS}</style></head><body><main>${body}</main></body></html>`;
 }
 
-function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number): string {
-  const who = d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : 'This app registered itself, so its name is not verified.';
-  return page(`Connect ${d.clientName}`, `<div class="mark">${esc(brand)}</div>
-<h1>Let ${esc(d.clientName)} make games for you?</h1>
-<p>${who} Access will be sent to <strong>${esc(d.redirectHost)}</strong>.</p>
-${d.redirectIsLoopback ? '<div class="warn"><strong>This sends access to an app on your computer.</strong> Continue only if you just started connecting from that app.</div>' : ''}
-<p>Signed in as <strong>${esc(user.name)}</strong> (${esc(user.email)}). The agent will be able to:</p>
-<ul><li>Create and edit your game projects</li><li>Deploy previews and run verification</li><li>Publish, roll back and take games offline</li><li>Set listing details and prices, and read your game stats</li></ul>
-<p>It cannot withdraw money, change your password or see payment details.</p>
+function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number, lang: Lang): string {
+  const T = TEXT[lang], app = esc(d.clientName);
+  const who = d.clientDomain ? T.publishedBy(esc(d.clientDomain)) : T.unverified;
+  return page(T.connect(d.clientName), `<div class="mark"><i></i>${esc(brand)}</div>
+<h1>${T.heading(app)}</h1>
+<p>${who} ${T.sentTo(esc(d.redirectHost))}</p>
+${d.redirectIsLoopback ? `<div class="warn"><strong>${T.loopback[0]}</strong> ${T.loopback[1]}</div>` : ''}
+<p>${T.signedInAs(esc(user.name), esc(user.email))}</p>
+<ul>${T.can.map((c) => `<li>${c}</li>`).join('')}</ul>
+<p>${T.cannot}</p>
+<p class="web-only">${T.webOnly}</p>
 <form method="post"><input type="hidden" name="handle" value="${esc(handle)}">
-<div class="row"><button name="decision" value="deny">Deny</button><button class="go" name="decision" value="approve">Allow</button></div></form>
-<small>Access expires after ${days} day${days === 1 ? '' : 's'}; you can revoke it sooner from your console.</small>`);
+<div class="row"><button name="decision" value="deny">${T.deny}</button><button class="go" name="decision" value="approve">${T.allow}</button></div></form>
+<small>${T.expires(days)}</small>`, lang);
 }
 
 app.all('/authorize', async (c) => {
-  const env = c.env, req = c.req.raw, oauth = env.OAUTH_PROVIDER, s = await getSettings(env);
+  const env = c.env, req = c.req.raw, oauth = env.OAUTH_PROVIDER, s = await getSettings(env), lang = pageLang(req), T = TEXT[lang];
   try {
     const user = await userFromRequest(env, req);
     if (req.method === 'POST') {
-      if (!user) return c.html(page('Sign in again', '<h1>Your session ended</h1><p>Sign in and start connecting from your agent again.</p>'), 401);
+      if (!user) return c.html(page(T.signInAgain, `<h1>${T.sessionEnded}</h1><p>${T.sessionEndedBody}</p>`, lang), 401);
       const form = await req.formData(), handle = String(form.get('handle') || '');
       if (form.get('decision') !== 'approve') { const denied = await oauth.denyConsent(req, handle); return new Response(null, { status: 302, headers: denied.headers }); }
       const approved = await oauth.approveConsent(req, handle);
@@ -137,12 +149,12 @@ app.all('/authorize', async (c) => {
     const details = await oauth.describeConsent(authReq);
     const consent = await oauth.beginConsent(authReq);
     consent.headers.set('Content-Type', 'text/html; charset=utf-8');
-    return new Response(consentPage(s.brand_name, details, consent.handle, user, Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400))), { headers: consent.headers });
+    return new Response(consentPage(s.brand_name, details, consent.handle, user, Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)), lang), { headers: consent.headers });
   } catch (error) {
     if (error instanceof AuthorizationError && error.redirectTo) return Response.redirect(error.redirectTo, 302);
     if (error instanceof AuthorizationError || error instanceof CimdFetchError) {
-      const msg = error instanceof AuthorizationError ? error.description : 'This app could not be verified.';
-      return c.html(page('Cannot connect', `<h1>This connection cannot continue</h1><p>${esc(msg)}</p><p>Start connecting from your agent again.</p>`), 400);
+      const msg = error instanceof AuthorizationError ? error.description : T.notVerified;
+      return c.html(page(T.cannotConnect, `<h1>${T.cannotContinue}</h1><p>${esc(msg)}</p><p>${T.startAgain}</p>`, lang), 400);
     }
     throw error;
   }
@@ -238,6 +250,10 @@ export default {
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
+      env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
+      ...verifierCleanupStmts(env.DB, t - 86400000),
     ]));
+    // games published before the duplication check existed get their fingerprints a few at a time
+    ctx.waitUntil(backfill(env, 20).catch((e) => console.error('fingerprint backfill failed', e)));
   },
 } satisfies ExportedHandler<Env>;

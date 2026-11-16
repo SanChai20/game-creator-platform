@@ -7,10 +7,15 @@ import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../e
 import { enqueue } from '../pipeline';
 import { getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { getSettings, SETTING_DEFS } from '../settings';
+import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
+import { implementationCard, setOpenImplementation } from '../implementations';
 import { stripe, stripeReady, verifyWebhook } from '../stripe';
+import { beginTrial, trialMinutes, trialState } from '../trials';
 import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
 // @ts-ignore plain JS module
 import { signPlayToken } from '../runtime/game-worker.js';
+// @ts-ignore plain JS module
+import { playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
@@ -21,8 +26,9 @@ const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.
 function card(origin: string, r: Record<string, any>) {
   return {
     id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: parseJson<string[]>(r.tags, []), cover: media(origin, r.cover_key), price_cents: r.price_cents,
+    trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
-    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status,
+    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
   };
 }
 
@@ -70,20 +76,108 @@ api.post('/auth/logout', async (c) => {
 });
 
 // ----- marketplace -----------------------------------------------------------------------------
-api.get('/games', async (c) => {
-  const sort = c.req.query('sort') || 'trending', q = (c.req.query('q') || '').trim().slice(0, 60), tag = (c.req.query('tag') || '').trim().toLowerCase().slice(0, 24), price = c.req.query('price') || '';
+// ---- the catalogue -------------------------------------------------------------------------------
+// Built for tens of thousands of games: every list is paged (limit and offset, with the total), and the home
+// page gets all of its shelves in one request. "Playing now" counts players with a heartbeat in the last minute.
+type ListOpts = { sort?: string; q?: string; tag?: string; price?: string; limit?: number; offset?: number; newSince?: number; by?: string; minRating?: number };
+const ORDER: Record<string, string> = {
+  new: 'p.published_at DESC',
+  top: '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC',
+  played: 'p.plays DESC',
+  playing: 'playing DESC, recent DESC, p.plays DESC',
+  trending: 'p.featured DESC, recent DESC, p.plays DESC, p.published_at DESC',
+};
+async function listGames(c: Ctx, o: ListOpts) {
+  const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
+  const limit = Math.max(1, Math.min(60, o.limit || 24)), offset = Math.max(0, Math.min(100000, o.offset || 0));
   const where = ["p.status = 'live'"], args: unknown[] = [];
-  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like); }
-  if (tag) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%'); }
-  if (price === 'free') where.push('p.price_cents = 0'); else if (price === 'paid') where.push('p.price_cents > 0');
-  const order = sort === 'new' ? 'p.published_at DESC' : sort === 'top' ? '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC' : sort === 'played' ? 'p.plays DESC' : 'p.featured DESC, recent DESC, p.plays DESC, p.published_at DESC';
-  const rows = await c.env.DB.prepare(
-    `SELECT p.*, u.name AS author, COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?), 0) AS recent
-     FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 60`).bind(addDays(dayOf(now()), -7), ...args).all();
-  const tags = await c.env.DB.prepare("SELECT tags FROM projects WHERE status = 'live' LIMIT 500").all<{ tags: string }>();
-  const counts = new Map<string, number>();
-  for (const r of tags.results) for (const t of parseJson<string[]>(r.tags, [])) counts.set(t, (counts.get(t) || 0) + 1);
-  return c.json({ games: rows.results.map((r) => card(c.get('origin'), r)), tags: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 16).map(([t]) => t) });
+  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase()); }
+  // tag can name several genres, comma separated: a game must carry all of them
+  for (const one of tag.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5)) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + one.replace(/[\\%_]/g, '\\$&') + '"%'); }
+  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') where.push('p.price_cents > 0 AND p.price_cents < 500'); else if (o.price === 'trial') where.push('p.price_cents > 0 AND p.trial_minutes > 0');
+  if (o.minRating) { where.push('p.rating_count > 0 AND p.rating_sum >= ? * p.rating_count'); args.push(Math.max(1, Math.min(5, o.minRating))); }
+  if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
+  if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
+  const t = now(), w = where.join(' AND ');
+  const [rows, total] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT p.*, u.name AS author, COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?), 0) AS recent,
+         (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl WHERE pl.project_id = p.id AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
+       FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${ORDER[sort]} LIMIT ? OFFSET ?`).bind(addDays(dayOf(t), -7), t - ONLINE_WINDOW_MS, ...args, limit, offset).all(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${w}`).bind(...args).first<{ n: number }>(),
+  ]);
+  const games = rows.results.map((r) => card(c.get('origin'), r)), n = total?.n || 0;
+  return { games, total: n, next_offset: offset + games.length < n ? offset + games.length : null };
+}
+/**
+ * Genres: the most used tags with how many live games carry each, and the covers of the three most played games
+ * in each (for the category tiles). With `within`, only games carrying that tag count: its related genres.
+ * Reads the 5,000 most played games, which is plenty to rank genres however big the catalogue grows.
+ */
+async function genreCounts(c: Ctx, top = 16, within = '') {
+  const w = within ? " AND tags LIKE ? ESCAPE '\\'" : '', a = within ? ['%"' + within.replace(/[\\%_]/g, '\\$&') + '"%'] : [];
+  const rows = await c.env.DB.prepare(`SELECT tags, cover_key FROM projects WHERE status = 'live'${w} ORDER BY plays DESC LIMIT 5000`).bind(...a).all<{ tags: string; cover_key: string | null }>();
+  const counts = new Map<string, { n: number; covers: string[] }>(), origin = c.get('origin');
+  for (const r of rows.results) for (const t of parseJson<string[]>(r.tags, [])) {
+    if (t === within) continue;
+    const e = counts.get(t) || { n: 0, covers: [] }; e.n++;
+    if (r.cover_key && e.covers.length < 3) e.covers.push(media(origin, r.cover_key)!);
+    counts.set(t, e);
+  }
+  return [...counts.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, top).map(([tag, e]) => ({ tag, n: e.n, covers: e.covers }));
+}
+const num = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
+
+api.get('/games', async (c) => {
+  const qy = (k: string) => c.req.query(k);
+  const [list, genres] = await Promise.all([
+    listGames(c, { sort: qy('sort'), q: qy('q'), tag: qy('tag'), price: qy('price'), limit: num(qy('limit')) || 60, offset: num(qy('offset')), newSince: num(qy('since')), by: qy('by'), minRating: Number(qy('rating')) || undefined }),
+    num(qy('offset')) || qy('facets') === '0' ? Promise.resolve(null) : genreCounts(c),   // facets=0: just the games (instant search, shelves)
+  ]);
+  return c.json({ ...list, ...(genres && { tags: genres.map((g) => g.tag), genres }) });
+});
+
+/** Every genre with its count and covers (the categories index), or one genre's numbers and related genres. */
+api.get('/categories', async (c) => {
+  c.header('cache-control', 'public, max-age=60');
+  return c.json({ genres: await genreCounts(c, 120) });
+});
+api.get('/categories/:tag', async (c) => {
+  const tag = c.req.param('tag').trim().toLowerCase().slice(0, 24), like = '%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%', t = now();
+  const [related, nums] = await Promise.all([
+    genreCounts(c, 14, tag),
+    c.env.DB.prepare(`SELECT COUNT(*) AS games, COALESCE(SUM(price_cents = 0), 0) AS free, COALESCE(SUM(published_at > ?), 0) AS new_week,
+        (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl JOIN projects q ON q.id = pl.project_id WHERE q.status = 'live' AND q.tags LIKE ? ESCAPE '\\' AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
+      FROM projects WHERE status = 'live' AND tags LIKE ? ESCAPE '\\'`).bind(t - 7 * 86400000, like, t - ONLINE_WINDOW_MS, like).first<{ games: number; free: number; new_week: number; playing: number }>(),
+  ]);
+  c.header('cache-control', 'public, max-age=30');
+  return c.json({ tag, games: nums?.games || 0, free: nums?.free || 0, new_week: nums?.new_week || 0, playing: nums?.playing || 0, related });
+});
+
+/** Everything the home page shows, in one request: the spotlight, the shelves, the genres and the key numbers. */
+api.get('/home', async (c) => {
+  const t = now(), weekAgo = t - 7 * 86400000;
+  const [trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+    listGames(c, { sort: 'trending', limit: 16 }),
+    listGames(c, { sort: 'playing', limit: 12 }),
+    listGames(c, { sort: 'new', limit: 12 }),
+    listGames(c, { sort: 'top', limit: 12 }),
+    listGames(c, { sort: 'trending', price: 'free', limit: 12 }),
+    genreCounts(c, 18),
+    c.env.DB.prepare(`SELECT
+        (SELECT COUNT(*) FROM projects WHERE status = 'live') AS games,
+        (SELECT COUNT(*) FROM projects WHERE status = 'live' AND published_at > ?) AS new_week,
+        (SELECT COUNT(DISTINCT user_id) FROM plays WHERE env = 'live' AND last_beat_at > ? AND kind != 'verify') AS playing,
+        (SELECT COUNT(DISTINCT owner_id) FROM projects WHERE status = 'live') AS creators`).bind(weekAgo, t - ONLINE_WINDOW_MS).first<{ games: number; new_week: number; playing: number; creators: number }>(),
+  ]);
+  c.header('cache-control', 'public, max-age=20');
+  return c.json({
+    stats: { games: stats?.games || 0, new_week: stats?.new_week || 0, playing: stats?.playing || 0, creators: stats?.creators || 0 },
+    shelves: {
+      trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
+    },
+    genres,
+  });
 });
 
 async function liveGame(c: Ctx, slug: string): Promise<Project & { author: string }> {
@@ -103,27 +197,50 @@ api.get('/games/:slug', async (c) => {
     played = !!(await c.env.DB.prepare("SELECT 1 FROM plays WHERE project_id = ? AND user_id = ? AND env = 'live' AND counted = 1 LIMIT 1").bind(p.id, u.id).first());
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
   }
-  const v = p.live_version ? await getVersion(c.env, p.id, p.live_version) : null;
+  const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
+  const [v, on] = await Promise.all([
+    p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
+    c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND last_beat_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
+  ]);
   return c.json({
-    game: { ...card(origin, p), description: p.description, controls: p.controls, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
+    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
+    trial,
   });
 });
 
-async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User) {
-  const kind = u.id === p.owner_id || u.role === 'admin' ? 'owner' : 'player', sid = 'ps_' + rid(16), t = now();
-  await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t).run();
-  const token = await signPlayToken({ g: p.id, e: envName, u: u.id, n: u.name, k: kind, s: sid, x: Math.floor(t / 1000) + 6 * 3600 }, await playKey(c.env, p.id));
-  return { url: `${await gameUrl(c.env, c.get('origin'), p.id, envName)}?gcp_t=${token}`, session: sid, version };
+async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User, trialSeconds?: number) {
+  const kind = u.id === p.owner_id || u.role === 'admin' ? 'owner' : 'player', sid = 'ps_' + rid(16), t = now(), trial = trialSeconds !== undefined;
+  await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at, trial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t, trial ? 1 : 0).run();
+  // A trial token lasts only as long as the trial time left (plus a little slack for the last heartbeat); a full one six hours.
+  const life = trial ? trialSeconds + 20 : 6 * 3600;
+  const token = await signPlayToken({ g: p.id, e: envName, u: u.id, n: u.name, k: kind, s: sid, x: Math.floor(t / 1000) + life, ...(trial ? { tr: 1 } : {}) }, await playKey(c.env, p.id));
+  return { url: `${await gameUrl(c.env, c.get('origin'), p.id, envName)}?gcp_t=${token}`, session: sid, version, ...(trial ? { trial: { remaining_seconds: trialSeconds } } : {}) };
 }
 
 api.post('/games/:slug/play', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   if (p.status !== 'live' || !p.live_version) throw new AppError(409, 'This game is offline.', 'offline');
-  if (p.price_cents > 0 && u.id !== p.owner_id && u.role !== 'admin' && !(await owns(c.env, u.id, p.id))) throw new AppError(402, 'Buy this game to play it.', 'purchase_required');
+  if (p.price_cents > 0 && u.id !== p.owner_id && u.role !== 'admin' && !(await owns(c.env, u.id, p.id))) {
+    // Not bought: a free trial if the game offers one and this account has time left, otherwise the purchase prompt.
+    const tr = await beginTrial(c.env, p, await getSettings(c.env), u.id);
+    return c.json(await startPlay(c, p, 'live', p.live_version, u, tr.remaining_seconds));
+  }
   return c.json(await startPlay(c, p, 'live', p.live_version, u));
+});
+
+// The signed-in player's own progress in one game (live). Only ever their own: the player comes from the session, not the request.
+api.get('/games/:slug/progress', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  return c.json(await playerSummary(c.env.DB, scopeOf(p.id, 'live'), u.id));
+});
+api.delete('/games/:slug/progress', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  await rateLimit(c.env, 'reset:' + u.id, 20, 3600);
+  return c.json(await resetPlayer(c.env.DB, scopeOf(p.id, 'live'), u.id));
 });
 
 api.post('/games/:slug/reviews', async (c) => {
@@ -310,14 +427,33 @@ api.get('/console/projects/:id', async (c) => {
     listFiles(c.env, p.id),
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
   ]);
-  const s = await getSettings(c.env);
+  const s = await getSettings(c.env), trials = await trialStats(c.env, p.id);
   return c.json({
-    project: { ...card(origin, { ...p, author: u.name }), description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
+    project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s) : null,
+    trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },
+    online: await onlineNow(c.env, p.id),
+    implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
   });
+});
+
+/** Players who started a free trial of this game, and how many of them then bought it. */
+export async function trialStats(env: Env, pid: string): Promise<{ players: number; bought: number }> {
+  const r = await env.DB.prepare("SELECT COUNT(*) AS players, COALESCE(SUM(EXISTS (SELECT 1 FROM purchases x WHERE x.project_id = t.project_id AND x.user_id = t.user_id AND x.status = 'paid')), 0) AS bought FROM trials t WHERE t.project_id = ?").bind(pid).first<{ players: number; bought: number }>();
+  return { players: r?.players || 0, bought: r?.bought || 0 };
+}
+
+// Analytics: the full picture for a window of days, and the cheap live count the dashboard polls.
+api.get('/console/projects/:id/analytics', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30)) });
+});
+api.get('/console/projects/:id/online', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await onlineNow(c.env, p.id));
 });
 
 api.post('/console/projects/:id/preview', async (c) => {
@@ -349,8 +485,16 @@ api.post('/console/projects/:id/online', async (c) => {
 api.patch('/console/projects/:id', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
   const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, any>));
-  await updateProjectMeta(c.env, p, { price_cents: b.price_cents });
+  if (b.price_cents !== undefined || b.trial_minutes !== undefined) await updateProjectMeta(c.env, p, { price_cents: b.price_cents, trial_minutes: b.trial_minutes });
+  if (b.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(b.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(b.trial_minutes))} min` : 'Free trial turned off', null, 'console');
+  if (typeof b.open_implementation === 'boolean') await setOpenImplementation(c.env, p, b.open_implementation, 'console');
   return c.json({ ok: true });
+});
+// What other developers' agents see when this game's implementation is open (a preview while it is not).
+api.get('/console/projects/:id/implementation', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  if (!p.live_version) return c.json({ card: null });
+  return c.json({ card: await implementationCard(c.env, c.get('origin'), u, p.id) });
 });
 
 api.get('/console/earnings', async (c) => {

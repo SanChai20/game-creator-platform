@@ -160,4 +160,4 @@ export const STEPS = [
   ['climb', 'Craft stairs and a lookout deck, and climb up'],
 ].map(([id, text]) => ({ id, text, when: WHEN[id] }));
 export const CONTROLS = [['WASD', 'Move'], ['Drag', 'Look around'], ['Shift', 'Run'], ['Space', 'Jump'], ['E', 'Gather, harvest, open'], ['F / right click', 'Use what you hold: till, sow, water, eat, place'], ['1 to 8', 'Pick a slot'], ['Tab', 'Backpack and crafting'], ['X', 'Take back the piece in front'], ['M', 'Sound on / off']];
-export const HINT = 'WASD move · drag to look · E gather · F use what you hold · Tab backpack';
+export const HINT = 'WASD move · click to look around · E gather · F use what you hold · Tab backpack';

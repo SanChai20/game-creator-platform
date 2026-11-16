@@ -5,9 +5,13 @@ import type { Env, Project, Version } from './env';
 import { deployGame, playKey, waitHealthy } from './deploy';
 import { getProject, getVersion, logEvent } from './projects';
 import { browserVerify } from './verify';
+import { afterPublish } from './implementations';
+import { originalityCheck, publishGate } from './originality-check';
 import { now, parseJson, rid } from './util';
 // @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
+// @ts-ignore plain JS module
+import { verifierId } from './player-data.js';
 
 export interface Job { kind: 'preview' | 'publish'; pid: string; n: number; origin: string; actor: string }
 
@@ -66,13 +70,19 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
     await stage(env, v, 'verifying', 'Running the game in a browser');
     const sid = 'vf_' + rid(12);
     await env.DB.prepare("INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, 'preview', ?, 'verify', ?, ?)").bind(sid, p.id, v.n, p.owner_id, now(), now()).run();
-    const token = await signPlayToken({ g: p.id, e: 'preview', u: p.owner_id, n: 'Verifier', k: 'verify', s: sid, x: Math.floor(now() / 1000) + 900 }, await playKey(env, p.id));
+    // The verifier plays under a throwaway identity of its own: it starts from no save and never touches the creator's progress.
+    const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Verifier', k: 'verify', s: sid, x: Math.floor(now() / 1000) + 900 }, await playKey(env, p.id));
     const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU);
     report = out.report; shot = out.shot;
     report.deploy = health.detail;
   }
   let shotKey: string | null = null;
   if (shot) { shotKey = `shots/${p.id}/${v.n}.png`; await env.FILES.put(shotKey, shot, { httpMetadata: { contentType: 'image/png' } }); }
+  if (report.ok) {
+    await stage(env, v, 'verifying', 'Comparing with other creators\' games');
+    try { await originalityCheck(env, p, { ...v, screenshot_key: shotKey }, report); }
+    catch (e) { console.error('originality check failed', p.id, v.n, e); report.notes = [...(report.notes || []), 'The originality check could not run for this version; it runs again when the version is published.']; }
+  }
   const ok = !!report.ok;
   await env.DB.prepare('UPDATE versions SET status = ?, stage = ?, report = ?, screenshot_key = ?, verified_at = ? WHERE project_id = ? AND n = ?')
     .bind(ok ? 'verified' : 'failed', String(report.summary || '').slice(0, 300), JSON.stringify(report), shotKey, ok ? now() : null, p.id, v.n).run();
@@ -80,6 +90,8 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
 }
 
 async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<void> {
+  const copy = await publishGate(env, p, v);
+  if (copy) { await logEvent(env, p.id, 'publish_failed', copy, v.n, job.actor); return; }
   const url = await deployGame(env, job.origin, p, v, 'live');
   const health = await waitHealthy(env, url, v.n);
   if (!health.ok) { await logEvent(env, p.id, 'publish_failed', health.detail, v.n, job.actor); return; }
@@ -89,4 +101,5 @@ async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<v
     env.DB.prepare('UPDATE versions SET published_at = ? WHERE project_id = ? AND n = ?').bind(t, p.id, v.n),
   ]);
   await logEvent(env, p.id, 'published', `Version ${v.n} is live`, v.n, job.actor);
+  await afterPublish(env, p.id);
 }

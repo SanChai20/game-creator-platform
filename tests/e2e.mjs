@@ -3,6 +3,7 @@
 // publish, play counting, reviews, paid games through a mock Stripe, earnings, withdrawal, rooms.
 //   node tests/e2e.mjs            (expects http://127.0.0.1:8787)
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { zipSync, strToU8 } from 'fflate';
@@ -99,141 +100,67 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.ok(tools.length >= 20 && tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
+  assert.equal(tools.length, 17, tools.map((t) => t.name).join(', '));
+  assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
+  assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
-  assert.ok(started.workflow.length >= 5 && started.templates.length === 6 && started.what_to_read.always.length === 1 && started.kits.length === 13 && started.quality.target && started.building_blocks.tools.length === 3);
-  const rec = await tool('recommend_pipeline', { description: 'An open world survival game on an island with torches at night', dynamic_lights: 3 });
-  assert.match(rec.pipeline, /three-forward/);
-  assert.equal((await tool('recommend_pipeline', { description: 'a top-down pixel puzzle' })).pipeline, 'canvas2d');
-  ok(`MCP: initialize, ${tools.length} tools, get_started, recommend_pipeline; bad token gets 401`);
+  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 3 && started.services.multiplayer && started.account && started.guides.length === 4 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
+  assert.ok(!JSON.stringify(started).match(/design_scene|list_blocks|recommend_pipeline|craft score/), 'get_started must not teach how to make a game');
+  for (const topic of ['contract', 'versions', 'saves', 'multiplayer']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
+  assert.equal((await rpc('resources/list')).resources.length, 4);
+  ok(`MCP: initialize says web games only, ${tools.length} tools, get_started and its 4 platform guides; bad token gets 401`);
 
-  // authoring help is readable
-  const guides = (await tool('list_guides')).guides;
-  if (guides.length) { const g = await tool('get_guide', { topic: guides[0].topic }); assert.ok(g.markdown.length > 500); }
-  assert.ok((await tool('get_kit_file', { file: 'three-kit.js' })).source.includes('mergeParts'));
-  assert.ok((await tool('get_kit_file', { file: 'craft/props.js' })).source.includes('campfire') && (await tool('get_kit_file', { file: 'procgen/noise.js' })).source.includes('export function pcg'));
-  assert.equal((await rpc('tools/call', { name: 'get_kit_file', arguments: { file: '../sdk/gcp.js' } })).isError, true);
-  for (const topic of ['building-blocks', 'procedural-generation']) { const g = await tool('get_guide', { topic }); assert.ok(g.markdown.length > 3000 && !g.markdown.includes('{{'), topic); }
-  ok(`${guides.length} guides and kit sources readable`);
+  // a project made from one of the platform's starter folders, uploaded the way an agent uploads its own files
+  const tplDir = new URL('../web/public/templates/', import.meta.url), tplIndex = JSON.parse(readFileSync(new URL('index.json', tplDir), 'utf8'));
+  const fromTemplate = async (name, args) => {
+    const p = await tool('create_project', args);
+    const files = [];
+    for (const f of tplIndex.templates.find((t) => t.name === name).files) {
+      const buf = readFileSync(new URL(`${name}/${f.path}`, tplDir));
+      files.push(/\.(html|js|mjs|css|json|txt|md|svg)$/.test(f.path) ? { path: f.path, content: new TextDecoder().decode(buf) } : { path: f.path, content: Buffer.from(buf).toString('base64'), encoding: 'base64' });
+    }
+    await tool('upload_files', { project: p.project, files });
+    return p;
+  };
 
-  // building blocks: the catalog, one block in full, and the scene planner
-  const blocks = await tool('list_blocks');
-  assert.ok(blocks.craft_blocks.length >= 8 && blocks.valid_names.props.includes('campfire') && blocks.valid_names.surfaces.length >= 39 && blocks.valid_names.moods.includes('golden-hour') && blocks.procedural_core.groups.length === 5);
-  assert.ok((await tool('list_blocks', { group: 'noise' })).blocks.some((b) => b.name === 'fbm2' && /GLSL/.test(b.doc)));
-  const sc = await tool('get_block', { name: 'scatter' });
-  assert.ok(/minDistance/.test(sc.doc) && sc.import.includes('@gcp/craft.js') && sc.valid_names.trees.includes('oak'));
-  assert.equal((await tool('get_block', { name: 'hud.title' })).name, 'createHud');
-  const camp = await tool('get_block', { name: 'campfire' });
-  assert.ok(camp.name === 'prop' && /lab\?kind=prop/.test(camp.preview) && camp.as_recipe.params.prop);
-  assert.equal((await rpc('tools/call', { name: 'get_block', arguments: { name: 'zzzz-nothing' } })).isError, true);
-  const flat = await tool('design_scene', { description: 'a match-3 puzzle with gems' });
-  assert.ok(flat.dimension === '2d' && !flat.files);
-  const same = await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' });
-  assert.ok(same.plan.setting === 'haunted' && same.plan.hero.preset === 'knight' && /^survive/.test(same.plan.goal) && same.plan.creatures.hunters.includes('ghost'));
-  assert.deepEqual(same.files, (await tool('design_scene', { description: 'A knight explores a haunted graveyard at night while ghosts chase him' })).files);   // no randomness
-  const storm = await tool('design_scene', { description: 'a scout robot gathers water relics in a desert canyon before a sandstorm. ' + 'x'.repeat(400) + ' Friends explore an endless desert together.' });   // cues late in a long brief are read too
-  const cues = (storm.plan.read_from_brief || []).map((c) => c.cue).join('|');
-  assert.ok(storm.plan.stage.weather === 'sandstorm' && /a world that grows/.test(cues) && /several players/.test(cues) && storm.files['src/main.js'].split('\n').find((l) => l.includes('Plan: ')).length < 4200, storm.plan.stage.weather + ' ' + cues);
-  const plan = await tool('design_scene', { description: 'a pirate collects doubloons on a tropical island', title: `Planned ${run}`, seed: 'e2e' });
-  assert.ok(plan.plan.setting === 'island' && plan.plan.hero.preset === 'pirate' && plan.files['index.html'] && plan.files['src/main.js'].includes("from '@gcp/craft.js'"));
-  const planned = await tool('create_project', { title: `Planned ${run}`, tagline: 'Built from blocks' });
-  await tool('put_files', { project: planned.project, files: Object.entries(plan.files).map(([path, content]) => ({ path, content })) });
-  const pc = await tool('check_project', { project: planned.project });
-  assert.equal(pc.ok, true, pc.errors.join('\n'));
-  let pd = await tool('deploy_preview', { project: planned.project, note: 'from design_scene' });
-  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(pd.status); i++) { await sleep(2000); pd = await tool('get_version', { project: planned.project, version: pd.version }); }
-  assert.equal(pd.status, 'verified', JSON.stringify(pd.report, null, 1).slice(0, 2000));
-  assert.ok(pd.report.playthrough.steps.length === 5 && pd.quality.measured_score >= pd.quality.target && !pd.quality.meets_target && pd.quality.craft_score < pd.quality.target && /starting point/.test(pd.next), JSON.stringify(pd.quality));
-  // the picture is the full-quality portrait, and the picture alone is in the range of finished reference games
-  assert.ok(pd.report.portrait && pd.report.craft.portrait && pd.quality.look_score >= 85, JSON.stringify({ portrait: pd.report.portrait, look: pd.quality.look_score, notes: pd.report.notes }));
-  // an unedited plan is named as such, with ideas; the advice names a measured value even above the target
-  assert.ok(pd.quality.own_work.still_the_plan && pd.quality.own_work.unchanged === pd.quality.own_work.planned_lines && pd.quality.own_work.ideas.length && /own_work/.test(pd.next) && !/Tell the user/.test(pd.next), JSON.stringify(pd.quality.own_work));
-  assert.ok(Array.isArray(pd.quality.improve) && pd.quality.improve.every((l) => /full marks/.test(l) || /\d/.test(l)), JSON.stringify(pd.quality.improve));
-  assert.ok(/refresh_token/.test((await tool('get_started', {})).session));
-  // a flat, painted top-down world from the same planner
-  const p2 = await tool('design_scene', { description: 'A 2.5D survival game: an explorer gathers berries in a forest with deer', goal: 'collect', seed: 'e2e-2d', title: `Flat ${run}` });
-  assert.ok(p2.plan.camera === '2d' && p2.files['src/main.js'].includes("from '@gcp/craft2d.js'") && /section 6/.test(p2.how_to_use.join(' ')), JSON.stringify(p2.plan).slice(0, 400));
-  assert.ok((await tool('list_blocks', { group: 'world2d' })).blocks.some((b) => b.name === 'sprite2d'));
-  const flatP = await tool('create_project', { title: `Flat ${run}`, tagline: 'A painted top-down world' });
-  await tool('put_files', { project: flatP.project, files: Object.entries(p2.files).map(([path, content]) => ({ path, content })) });
-  let fd = await tool('deploy_preview', { project: flatP.project, note: '2d from design_scene' });
-  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(fd.status); i++) { await sleep(2000); fd = await tool('get_version', { project: flatP.project, version: fd.version }); }
-  assert.equal(fd.status, 'verified', JSON.stringify(fd.report, null, 1).slice(0, 2000));
-  assert.ok(fd.report.playthrough.steps.length === 5 && fd.quality.measured_score >= fd.quality.target && fd.quality.own_work.still_the_plan && !fd.quality.meets_target, JSON.stringify(fd.quality).slice(0, 1500));
-  // a game with depth: the homestead goal wires up the play systems (inventory, crafting, needs, clock, building, quests, save)
-  const p3 = await tool('design_scene', { description: 'A 2.5D survival crafting game in a forest: chop trees, craft tools, build a camp and survive the night', seed: 'e2e-home', title: `Homestead ${run}` });
-  assert.ok(p3.plan.camera === '2d' && /^homestead/.test(p3.plan.goal) && p3.plan.systems.inventory && /createInventory/.test(p3.files['src/main.js']) && /input\.bind/.test(p3.files['src/main.js']), JSON.stringify(p3.plan).slice(0, 600));
-  const p3d = await tool('design_scene', { description: 'A survival crafting game on an island: chop trees, craft tools, build a camp', camera: 'third', seed: 'e2e-home' });
-  assert.ok(p3d.plan.camera === 'third' && p3d.plan.systems && /createBuilder/.test(p3d.files['src/main.js']) && /from '@gcp\/craft\.js'/.test(p3d.files['src/main.js']));
-  const playBlocks = await tool('list_blocks', { group: 'play' });
-  assert.ok(['createInventory', 'createCrafting', 'createNeeds', 'createClock', 'createNodes', 'createInteract', 'createBuilder', 'createQuests', 'createSave', 'hotbarUI', 'inventoryUI', 'minimapUI', 'pauseMenu', 'lobbyUI', 'stairsPiece', 'rampPiece', 'createCrops', 'createWorldSync', 'createLoopback'].every((n) => playBlocks.blocks.some((b) => b.name === n)), playBlocks.blocks.map((b) => b.name).join(','));
-  const homeP = await tool('create_project', { title: `Homestead ${run}`, tagline: 'Gather, craft, build, survive' });
-  await tool('put_files', { project: homeP.project, files: Object.entries(p3.files).map(([path, content]) => ({ path, content })) });
-  let hd = await tool('deploy_preview', { project: homeP.project, note: 'homestead from design_scene' });
-  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(hd.status); i++) { await sleep(2000); hd = await tool('get_version', { project: homeP.project, version: hd.version }); }
-  assert.equal(hd.status, 'verified', JSON.stringify(hd.report, null, 1).slice(0, 2000));
-  assert.ok(hd.report.playthrough.steps.length === 11 && hd.quality.measured_score >= hd.quality.target, JSON.stringify(hd.quality).slice(0, 1500));
-  // crops, an endless map and friends: design_scene hands over the hand-written template, which verifies as it is and counts as the template until it is changed
-  const farm = await tool('design_scene', { description: 'Fernreach: a cosy 2D farming game. Friends plant crops together and explore an endless valley that grows as they walk.' });
-  assert.ok(farm.plan.template === 'homestead-2d' && farm.plan.title === 'Fernreach' && /export const TITLE = 'Fernreach';/.test(farm.files['src/theme.js']) && farm.files['src/main.js'].includes('// Template: homestead-2d'), JSON.stringify(farm.plan).slice(0, 600));
-  // the theme is written for the brief: its name, and only the features it asks for; a brief that names no title gets one made from its place and its words, never another setting's
-  assert.ok(farm.plan.title_from === 'brief' && farm.plan.theme.features.combat === false && /export const FOES = null;/.test(farm.files['src/theme.js']) && Array.isArray(farm.already_in_the_theme) && Array.isArray(farm.left_for_you), JSON.stringify(farm.plan.theme).slice(0, 600));
-  const full = await tool('design_scene', { description: 'A 2.5D farming and building game. The map expands as you explore and up to four players share it; the world is saved on the host’s local device. Woodcutting, stone gathering, smelting, food, water, and combat where enemies drop loot.' });
-  assert.ok(full.plan.template === 'homestead-2d' && full.plan.title_from === 'generated' && full.plan.setting === 'village' && full.plan.title !== 'Millbrook' && full.plan.title === full.plan.theme.title && full.files['src/theme.js'].includes(`export const TITLE = '${full.plan.title}';`), `a brief about a local device is not a snow setting: ${full.plan.title} / ${full.plan.setting}`);
-  assert.ok(/export const NEEDS = \{[^}]*water: 1/.test(full.files['src/theme.js']) && /furnace: \{ shape: 'furnace'/.test(full.files['src/theme.js']) && /export const FOES = \{ kinds: \['wolf'/.test(full.files['src/theme.js']) && /export const SAVE = \{ cloud: false \}/.test(full.files['src/theme.js']) && full.plan.theme.features.players === 4, JSON.stringify(full.plan.theme).slice(0, 600));
-  // two briefs never get the same theme: the same wishes in 3D have another name, and the brief's building system is in both
-  const full3 = await tool('design_scene', { description: 'A farming and building game with procedural generation. The map expands as you explore and up to four players share it; the world is saved on the host’s local device. A robust building system, smelting, food, water, and combat where enemies drop loot.' });
-  assert.ok(full3.plan.template === 'homestead-3d' && full3.plan.title_from === 'generated' && full3.plan.title !== full.plan.title && full3.plan.theme.tagline !== undefined && full3.plan.theme.features.building === true && /wall: \{ model: \['wall'/.test(full3.files['src/theme.js']), JSON.stringify(full3.plan.theme).slice(0, 600));
-  // the first edits are ready edit_file calls for these very files
-  assert.ok(full.first_edits.length >= 3 && full.first_edits.length <= 5 && full.first_edits.every((e) => e.edit_file.every((c) => full.files[c.path].split(c.old_string).length === 2)) && /first_edits/.test(full.left_for_you[0]), JSON.stringify(full.first_edits).slice(0, 800));
-  const farm3 = await tool('design_scene', { description: 'A 3D homestead where players farm and explore an endless world together', camera: 'third' });
-  assert.ok(farm3.plan.template === 'homestead-3d' && /terrainChunks/.test(farm3.files['src/main.js']), JSON.stringify(farm3.plan).slice(0, 400));
-  const farmP = await tool('create_project', { title: `Fernreach ${run}`, tagline: 'Farm an endless valley with a friend' });
-  await tool('put_files', { project: farmP.project, files: Object.entries(farm.files).map(([path, content]) => ({ path, content })) });
-  let fv = await tool('deploy_preview', { project: farmP.project, note: 'the homestead-2d template' });
-  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(fv.status); i++) { await sleep(2000); fv = await tool('get_version', { project: farmP.project, version: fv.version }); }
-  assert.equal(fv.status, 'verified', JSON.stringify(fv.report, null, 1).slice(0, 2000));
-  assert.ok(fv.report.playthrough.steps.length >= 10 && fv.quality.own_work && fv.quality.own_work.template === 'homestead-2d' && fv.quality.own_work.still_the_plan && !fv.quality.meets_target, JSON.stringify(fv.quality).slice(0, 1500));
-  // an untouched template is told what to change, first and in order: exact edits for this game, in next and under own_work.ideas
-  const open = fv.quality.own_work.ideas.filter((e) => e.edit_file);
-  assert.ok(open.length >= 3 && open.length <= 5 && /still the homestead-2d template/.test(fv.next) && /not an option/.test(fv.next) && /1\. src\/theme\.js/.test(fv.next) && fv.quality.own_work.counts_in_full_when && open.every((e) => e.edit_file.every((c) => farm.files[c.path].split(c.old_string).length === 2)), fv.next + JSON.stringify(open).slice(0, 600));
-  for (const c of open[0].edit_file) await tool('edit_file', { project: farmP.project, path: c.path, old_string: c.old_string, new_string: c.new_string });
-  // two real pages met in one room of the platform and ended with the same world (GCP.test.onTwoPlayers)
-  assert.ok(fv.report.two_players && fv.report.two_players.ok && fv.report.two_players.host.players === 2 && fv.report.two_players.guest.players === 2, JSON.stringify(fv.report.two_players || fv.report.notes).slice(0, 800));
-  ok(`templates: crops, an endless map and two players get the homestead template; it verified with a ${fv.report.playthrough.steps.length}-step play-through (measured craft ${fv.quality.measured_score}/100) and counts as the template until changed`);
-  ok(`depth: design_scene goal homestead writes a 2D and a 3D game on the play systems; the 2D one verified with an ${hd.report.playthrough.steps.length}-step play-through (gather, craft, build, eat, night, fight, cook, dawn), measured craft ${hd.quality.measured_score}/100`);
-  ok(`building blocks: catalog, get_block by name, method and value, design_scene is deterministic; its 2D game verified with measured craft ${fd.quality.measured_score}/100 (look ${fd.quality.look_score}); its 3D game verified with a ${pd.report.playthrough.steps.length}-step play-through, craft ${pd.quality.craft_score}/100 (${pd.quality.level}), look ${pd.quality.look_score}, portrait in ${pd.report.portrait.ms} ms, ${pd.report.metrics.fps} fps`);
+  // web games only: programs and archives are refused whatever their name, and so are pages that lead to a download, a store or another site
+  const web = await tool('create_project', { title: `Native ${run}` });
+  const exe = await rpc('tools/call', { name: 'upload_files', arguments: { project: web.project, files: [{ path: 'game.bin', content: Buffer.from([0x4d, 0x5a, 0x90, 0, 3, 0, 0, 0]).toString('base64'), encoding: 'base64' }] } });
+  assert.ok(exe.isError && /Windows program/.test(exe.content[0].text) && /web games only/.test(exe.content[0].text) && /Web \/ HTML5 \/ WebGL export/.test(exe.content[0].text), exe.content[0].text);
+  assert.equal((await rpc('tools/call', { name: 'upload_files', arguments: { project: web.project, files: [{ path: 'game.exe', content: 'x' }] } })).isError, true);
+  await tool('upload_files', { project: web.project, files: [{ path: 'index.html', content: '<!doctype html><meta name="viewport" content="width=device-width"><canvas></canvas><a href="https://play.google.com/store/apps/details?id=x.y">Get it</a><a href="dl/game-setup.exe">PC</a><script>requestAnimationFrame(function f(){requestAnimationFrame(f)});GCP.ready()</script>' }, { path: 'Build/game.data', content: Buffer.from('UnityWebData1.0\0').toString('base64'), encoding: 'base64' }] });
+  const nat = await tool('deploy_preview', { project: web.project, dry_run: true });
+  assert.ok(!nat.ok && nat.errors.some((e) => /native download: dl\/game-setup\.exe/.test(e)) && nat.errors.some((e) => /app-store/.test(e)), nat.errors.join('\n'));
+  assert.equal((await tool('deploy_preview', { project: web.project })).deployed, false);
+  ok('web games only: an exe named .bin and an .exe are refused at upload, store and download links fail the checks, a Unity .data file is accepted');
 
   // a broken game is caught statically, with a line number and a fix
   const bad = await tool('create_project', { title: `Broken ${run}` });
-  await tool('put_files', { project: bad.project, files: [{ path: 'index.html', content: '<!doctype html><html><head><meta name="viewport" content="width=device-width"></head><body><canvas></canvas><script type="module" src="main.js"></script></body></html>' }, { path: 'main.js', content: "import * as THREE from 'three';\nimport { nope } from './missing.js';\nimport x from 'lodash';\nconst a = ;\n" }] });
-  let chk = await tool('check_project', { project: bad.project });
+  await tool('upload_files', { project: bad.project, files: [{ path: 'index.html', content: '<!doctype html><html><head><meta name="viewport" content="width=device-width"></head><body><canvas></canvas><script type="module" src="main.js"></script></body></html>' }, { path: 'main.js', content: "import * as THREE from 'three';\nimport { nope } from './missing.js';\nimport x from 'lodash';\nconst a = ;\n" }] });
+  let chk = await tool('deploy_preview', { project: bad.project, dry_run: true });
   assert.equal(chk.ok, false); assert.ok(chk.errors.some((e) => /syntax error/i.test(e) && /main\.js:4/.test(e)), chk.errors.join('\n'));
-  await tool('edit_file', { project: bad.project, path: 'main.js', old_string: 'const a = ;', new_string: 'const a = 1;' });
-  chk = await tool('check_project', { project: bad.project });
+  await tool('upload_files', { project: bad.project, edits: [{ path: 'main.js', old_string: 'const a = ;', new_string: 'const a = 1;' }] });
+  chk = await tool('deploy_preview', { project: bad.project, dry_run: true });
   assert.ok(chk.errors.some((e) => /missing\.js/.test(e)) && chk.errors.some((e) => /lodash/.test(e)) && chk.errors.some((e) => /GCP\.ready/.test(e)), chk.errors.join('\n'));
   const refused = await tool('deploy_preview', { project: bad.project });
   assert.equal(refused.deployed, false);
   ok('static checks: syntax error with line, missing import, unmapped bare import, missing GCP.ready(); deploy refused');
 
   // a game that passes static checks but throws at runtime fails browser verification
-  await tool('put_files', { project: bad.project, files: [{ path: 'main.js', content: "const c = document.querySelector('canvas').getContext('2d');\nfunction frame(t){ c.fillStyle = 'hsl(' + (t / 10 % 360) + ' 70% 50%)'; c.fillRect(0, 0, 300, 150); c.fillStyle='#fff'; c.fillRect(20,20,40,40); requestAnimationFrame(frame); }\nrequestAnimationFrame(frame);\nGCP.ready();\nsetTimeout(() => { undefinedFunctionCall(); }, 300);\n" }] });
+  await tool('upload_files', { project: bad.project, files: [{ path: 'main.js', content: "const c = document.querySelector('canvas').getContext('2d');\nfunction frame(t){ c.fillStyle = 'hsl(' + (t / 10 % 360) + ' 70% 50%)'; c.fillRect(0, 0, 300, 150); c.fillStyle='#fff'; c.fillRect(20,20,40,40); requestAnimationFrame(frame); }\nrequestAnimationFrame(frame);\nGCP.ready();\nsetTimeout(() => { undefinedFunctionCall(); }, 300);\n" }] });
   let dep = await tool('deploy_preview', { project: bad.project, note: 'throws' });
-  for (let i = 0; i < 30 && ['queued', 'deploying', 'verifying'].includes(dep.status); i++) { await sleep(2000); dep = await tool('get_version', { project: bad.project, version: dep.version }); }
+  for (let i = 0; i < 30 && ['queued', 'deploying', 'verifying'].includes(dep.status); i++) { await sleep(2000); dep = await tool('list_versions', { project: bad.project, version: dep.version }); }
   assert.equal(dep.status, 'failed', JSON.stringify(dep).slice(0, 800)); assert.equal(dep.can_publish, false);
   assert.ok(dep.report.errors.some((e) => /undefinedFunctionCall/.test(e)), JSON.stringify(dep.report.errors));
   assert.equal((await rpc('tools/call', { name: 'publish', arguments: { project: bad.project } })).isError, true);
   ok('runtime error caught by the browser check; publish refused');
 
   // a game that boots and renders but whose rules are broken is caught by its own play-through
-  const broken = await tool('create_project', { title: `Broken rules ${run}`, template: 'three-blank' });
-  const src = (await tool('read_file', { project: broken.project, path: 'src/main.js' }));
-  const text = typeof src === 'string' ? src : src.content;
-  assert.ok(text.includes("score++; hud.textContent = 'Beacons: ' + score; placeBeacon();"));
-  await tool('put_files', { project: broken.project, files: [{ path: 'src/main.js', content: text.replace("score++; hud.textContent = 'Beacons: ' + score; placeBeacon();", "score++; placeBeacon();") }] });   // the HUD never updates
+  const broken = await fromTemplate('three-blank', { title: `Broken rules ${run}` });
+  await tool('upload_files', { project: broken.project, edits: [{ path: 'src/main.js', old_string: "score++; hud.textContent = 'Beacons: ' + score; placeBeacon();", new_string: 'score++; placeBeacon();' }] });   // the HUD never updates
   let bd = await tool('deploy_preview', { project: broken.project, note: 'hud bug' });
-  for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(bd.status); i++) { await sleep(2000); bd = await tool('get_version', { project: broken.project, version: bd.version }); }
-  assert.equal(bd.status, 'failed', JSON.stringify(bd.report, null, 1).slice(0, 1500));
+  for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(bd.status); i++) { await sleep(2000); bd = await tool('list_versions', { project: broken.project, version: bd.version }); }
+  assert.equal(bd.status, 'failed', JSON.stringify(bd, null, 1).slice(0, 1500));
   const bp = bd.report.checks.find((c) => c.id === 'playthrough');
   assert.ok(bp && !bp.ok && /HUD says "Beacons: 0"/.test(bp.detail) && /during step 3/.test(bp.detail), JSON.stringify(bp));
   assert.ok(bd.report.checks.filter((c) => !c.ok).length === 1);                 // everything else about it is fine
@@ -242,13 +169,13 @@ async function main() {
   // every template deploys and verifies
   const projects = {};
   for (const t of ['blank', 'three-blank', 'canvas2d-arcade', 'three-explorer']) {
-    const p = await tool('create_project', { title: `${t} ${run}`, template: t, tagline: 'An e2e game', tags: ['test', t] });
-    const c = await tool('check_project', { project: p.project });
+    const p = await fromTemplate(t, { title: `${t} ${run}`, tagline: 'An e2e game', tags: ['test', t] });
+    const c = await tool('deploy_preview', { project: p.project, dry_run: true });
     assert.equal(c.ok, true, c.errors.join('\n'));
     let d = await tool('deploy_preview', { project: p.project, note: 'first' });
-    for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(2000); d = await tool('get_version', { project: p.project, version: d.version }); }
+    for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(2000); d = await tool('list_versions', { project: p.project, version: d.version }); }
     assert.equal(d.status, 'verified', `${t}: ${JSON.stringify(d.report, null, 1).slice(0, 1500)}`);
-    assert.ok(d.screenshot && d.can_publish);
+    assert.ok(d.screenshot && d.can_publish && d.report.craft === undefined && !('quality' in d));
     const play = d.report.checks.find((c) => c.id === 'playthrough');
     if (t === 'blank') { assert.ok(!play && d.report.playthrough === null && /no play-through/.test(d.report.summary) && d.report.notes.length === 1); }
     else { assert.ok(play && play.ok && d.report.playthrough.steps.length >= 3, `${t}: ${JSON.stringify(play)}`); assert.match(d.report.summary, /play-through of \d+ step/); }
@@ -256,6 +183,28 @@ async function main() {
     ok(`template ${t}: checks clean, deployed, verified (${d.report.metrics.loadMs} ms load, ${d.report.metrics.fps} fps, ${d.report.metrics.colors} colours, ${play ? `play-through of ${d.report.playthrough.steps.length} steps in ${(d.report.playthrough.ms / 1000).toFixed(1)} s` : 'no play-through'})`);
   }
   const pid = projects['three-explorer'];
+
+  // multiplayer service: two real pages meet in one platform room and end with the same world (GCP.test.onTwoPlayers)
+  const mp = await fromTemplate('homestead-2d', { title: `Two players ${run}`, tagline: 'Farm with a friend' });
+  let mv = await tool('deploy_preview', { project: mp.project, note: 'two players' });
+  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(mv.status); i++) { await sleep(2000); mv = await tool('list_versions', { project: mp.project, version: mv.version }); }
+  assert.equal(mv.status, 'verified', JSON.stringify(mv.report, null, 1).slice(0, 1500));
+  assert.ok(mv.report.two_players && mv.report.two_players.ok && mv.report.two_players.host.players === 2 && mv.report.two_players.guest.players === 2, JSON.stringify(mv.report.two_players || mv.report.notes).slice(0, 800));
+  ok('multiplayer: the two-player check met two pages in one platform room and both ended with the same world');
+
+  // the platform database and multiplayer rooms, managed through MCP
+  assert.ok((await tool('game_data', { project: mp.project, action: 'set', env: 'preview', key: 'motd', value: { text: 'hello' } })).ok);
+  assert.deepEqual((await tool('game_data', { project: mp.project, action: 'get', env: 'preview', key: 'motd' })).value, { text: 'hello' });
+  assert.ok((await tool('game_data', { project: mp.project, action: 'list', env: 'preview', prefix: 'mo' })).keys.some((k) => k.key === 'motd'));
+  assert.ok((await tool('game_data', { project: mp.project, action: 'summary', env: 'preview' })).shared_data.keys >= 1);
+  assert.equal((await tool('game_data', { project: mp.project, action: 'get', key: 'motd' })).exists, false);   // live data is kept apart from preview
+  assert.equal((await tool('game_data', { project: mp.project, action: 'delete', env: 'preview', key: 'motd' })).deleted, true);
+  assert.ok(Array.isArray((await tool('game_data', { project: mp.project, action: 'leaderboard', env: 'preview' })).rows));
+  const room = await tool('game_room', { project: mp.project, env: 'preview', room: 'e2e-empty' });
+  assert.ok(Array.isArray(room.players) && room.players.length === 0 && room.state === null && room.limits.players_per_room > 1, JSON.stringify(room));
+  assert.equal((await tool('game_room', { project: mp.project, env: 'preview', room: 'e2e-empty', action: 'reset', kick: true })).cleared, true);
+  assert.equal((await rpc('tools/call', { name: 'game_data', arguments: { project: mp.project, action: 'set', key: 'x' } })).isError, true);   // no value
+  ok('game data and rooms: shared data set, read, listed and deleted per environment, leaderboard read, a room inspected and reset');
 
   // upload URL (curl path): single file and zip
   const up = await tool('create_upload_url', { project: projects.blank });
@@ -313,16 +262,88 @@ async function main() {
   await sleep(500);
   assert.equal(got.a[0].t, 'welcome'); assert.equal(got.a[0].host, got.a[0].id); assert.ok(got.a.some((m) => m.t === 'join')); assert.ok(got.a.some((m) => m.t === 'msg' && m.d.hi === 1));
   assert.equal(got.b[0].host, got.a[0].id); assert.ok(got.b.some((m) => m.t === 'state' && m.d.round === 2));
+  const inRooms = await tool('get_stats', { project: pid, only_now: true });   // the room reports its own occupancy
+  assert.ok(inRooms.rooms.players_in_rooms === 2 && inRooms.rooms.busiest.some((r) => r.room === 'test' && r.players === 2 && r.env === 'live') && inRooms.online.live >= 1, JSON.stringify(inRooms));
   wa.close(); await sleep(500);
   assert.ok(got.b.some((m) => m.t === 'leave' && m.host === got.b[0].id));
-  wb.close();
+  wb.close(); await sleep(500);
+  assert.equal((await tool('get_stats', { project: pid, only_now: true })).rooms.players_in_rooms, 0);
   ok('game services: cloud save, leaderboard keeps best, room relay with host and host migration');
+
+  // per-player progress: two players of one game never see each other's saves, stats or record
+  const svcA = (path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: t2, ...body }) }).then((r) => r.json());
+  assert.equal((await svcA('save', { op: 'get', key: 'slot1' })).value, null);
+  await svcA('save', { op: 'set', key: 'slot1', value: { level: 9 }, user: 'whoever', player: 'whoever' });
+  assert.deepEqual((await svc('save', { op: 'get', key: 'slot1' })).value, { level: 3 });
+  assert.deepEqual((await svcA('save', { op: 'get', key: 'slot1' })).value, { level: 9 });
+  assert.equal((await svc('stats', { op: 'add', name: 'coins', value: 5 })).value, 5);
+  assert.equal((await svc('stats', { op: 'add', name: 'coins' })).value, 6);
+  assert.deepEqual((await svcA('stats', { op: 'all' })).stats, {});
+  assert.equal((await fetch(`${BASE}/api/rt/save`, { method: 'POST', body: JSON.stringify({ t: t.slice(0, -2) + 'xx', op: 'get', key: 'slot1' }) })).status, 401);
+  const rec = await svc('record', {});
+  assert.ok(rec.sessions === 1 && rec.seconds >= 2 && rec.stats.coins === 6 && rec.best.time === 42.5 && rec.saves.keys === 1, JSON.stringify(rec));
+  const myProgress = must(await B.get(`/api/games/${slug}/progress`));
+  assert.deepEqual(myProgress.stats, { coins: 6 });
+  assert.deepEqual(must(await A.get(`/api/games/${slug}/progress`)).stats, {});
+  assert.equal((await client().get(`/api/games/${slug}/progress`)).status, 401);
+  must(await B.del(`/api/games/${slug}/progress`));
+  assert.equal((await svc('save', { op: 'get', key: 'slot1' })).value, null);
+  assert.deepEqual((await svcA('save', { op: 'get', key: 'slot1' })).value, { level: 9 }, 'resetting one player leaves the other alone');
+  const agg = await tool('game_data', { project: pid, action: 'summary' });
+  assert.ok(agg.player_records.players >= 1 && !JSON.stringify(agg).includes('level'), JSON.stringify(agg));
+  ok('per-player progress: saves and stats kept apart per player, forged token refused, own progress readable and resettable, creator sees only totals');
+
+  // analytics: players online, rooms, sessions, new and returning players, versions, devices, for the agent and in the console
+  const an = (await tool('get_stats', { project: pid, days: 7 })).analytics;
+  assert.ok(an.totals.sessions >= 1 && an.totals.players === 1 && an.totals.new_players === 1 && an.daily.length === 7 && an.daily[6].players === 1 && an.last_24_hours.length === 24 && an.devices.length >= 1 && an.versions[0].version === 1 && an.session_lengths.length === 6, JSON.stringify(an.totals));
+  const ca = must(await A.get(`/api/console/projects/${pid}/analytics?days=30`));
+  assert.ok(ca.daily.length === 30 && ca.now.online && ca.project.id === pid);
+  assert.ok(must(await A.get(`/api/console/projects/${pid}/online`)).rooms);
+  assert.ok([403, 404].includes((await B.get(`/api/console/projects/${pid}/analytics`)).status));
+  ok(`analytics: ${an.totals.sessions} session(s) by ${an.totals.players} player, rooms counted while players were in them, daily, hourly, version and device breakdowns; another account is refused`);
 
   // paid game: purchase required, checkout, webhook, split, refund path
   const priced = await tool('update_project', { project: pid, price_cents: 499 });
   assert.equal(priced.creator_receives_per_sale, '$4.49');
   await tool('update_project', { project: pid, price_cents: 50 }, true);
   assert.equal((await B.post(`/api/games/${slug}/play`)).status, 402);
+  ok('paid game: playing without buying is refused');
+
+  // free trial: per account, enforced on the server, reloading costs time, services refused once it is used
+  assert.equal((await A.patch(`/api/console/projects/${pid}`, { trial_minutes: 9999 })).status, 400);
+  const trialSet = await tool('update_project', { project: pid, trial_minutes: 1 });
+  assert.ok(String(trialSet.free_trial).startsWith('1 min'), JSON.stringify(trialSet));
+  assert.equal(must(await B.get(`/api/games/${slug}`)).trial.remaining_seconds, 60);
+  assert.equal(must(await B.get('/api/games?price=trial')).games.some((x) => x.slug === slug && x.trial_minutes === 1), true);
+  const tp1 = must(await B.post(`/api/games/${slug}/play`));
+  assert.equal(tp1.trial.remaining_seconds, 60);
+  const tt1 = new URL(tp1.url).searchParams.get('gcp_t'), tbody = JSON.parse(Buffer.from(tt1.split('.')[0], 'base64url').toString());
+  assert.ok(tbody.tr === 1 && tbody.x <= Math.floor(Date.now() / 1000) + 81, JSON.stringify(tbody));   // the token ends with the trial
+  assert.equal((await fetch(tp1.url)).status, 200);
+  const tsvc = (tk, path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: tk, ...body }) });
+  assert.equal((await tsvc(tt1, 'save', { op: 'set', key: 'trial', value: 1 })).status, 200);
+  const tb1 = await (await tsvc(tt1, 'beat', { frames: 5, active: true, first: true })).json();
+  assert.ok(tb1.trial && tb1.trial.over === false && tb1.trial.remaining_seconds >= 58, JSON.stringify(tb1));   // the 30 s charged up front is still this session's to play
+  let tdetail = must(await B.get(`/api/games/${slug}`));
+  assert.equal(tdetail.trial.used_seconds, 30); assert.equal(tdetail.owned, false);
+  const tp2 = must(await B.post(`/api/games/${slug}/play`)), tt2 = new URL(tp2.url).searchParams.get('gcp_t');   // a reload, or another device
+  assert.equal(tp2.trial.remaining_seconds, 30);
+  const tb2 = await (await tsvc(tt2, 'beat', { frames: 5, active: true, first: true })).json();
+  assert.ok(tb2.trial.over === false && tb2.trial.remaining_seconds >= 28, JSON.stringify(tb2));   // the new session keeps the 30 s it was charged
+  const tp3 = await B.post(`/api/games/${slug}/play`);
+  assert.equal(tp3.status, 402); assert.equal(tp3.json.code, 'trial_over');   // but no further session starts
+  await sleep(31000);
+  const tb3 = await (await tsvc(tt2, 'beat', { frames: 9, active: true })).json();
+  assert.ok(tb3.trial.over === true && tb3.trial.remaining_seconds === 0, JSON.stringify(tb3));
+  assert.equal((await tsvc(tt1, 'save', { op: 'get', key: 'trial' })).status, 402);
+  assert.equal((await tsvc(tt2, 'score', { op: 'submit', board: 'x', score: 1 })).status, 402);
+  tdetail = must(await B.get(`/api/games/${slug}`));
+  assert.equal(tdetail.trial.over, true);
+  const cons = must(await A.get(`/api/console/projects/${pid}`));
+  assert.ok(cons.trial.minutes === 1 && cons.trial.active && cons.trial.players === 1 && cons.trial.bought === 0, JSON.stringify(cons.trial));
+  assert.equal((await tool('get_stats', { project: pid })).free_trial.players, 1);
+  ok('free trial: creator sets it from the console or the agent, a player plays it, each session costs at least 30 s, the time is shared across sessions, saves and scores refused and no new session once it is used');
+
   const buy = must(await B.post(`/api/games/${slug}/buy`));
   const sid = buy.url.split('/').pop(), session = sessions.get(sid);
   assert.equal(session.amount_total, 499);
@@ -333,7 +354,9 @@ async function main() {
   assert.equal((await fetch(`${BASE}/api/stripe/webhook`, { method: 'POST', headers: { 'stripe-signature': `t=${ts},v1=${sig}` }, body: payload })).status, 200); // replay is harmless
   must(await B.post('/api/billing/confirm', { session_id: sid }));
   assert.equal(must(await B.get(`/api/games/${slug}`)).owned, true);
-  must(await B.post(`/api/games/${slug}/play`));
+  const bought = must(await B.post(`/api/games/${slug}/play`));
+  assert.equal(bought.trial, undefined); assert.equal(must(await B.get(`/api/games/${slug}`)).trial, null);
+  assert.equal(must(await A.get(`/api/console/projects/${pid}`)).trial.bought, 1);
   let earn = must(await A.get('/api/console/earnings'));
   assert.equal(earn.balance.available, 449); assert.equal(earn.by_game[0].n, 1); assert.equal(earn.by_game[0].fees, 50);
   ok('paid game: play blocked, checkout for $4.99, signed webhook (bad signature refused, replay harmless), creator credited $4.49, platform keeps $0.50');
@@ -359,17 +382,16 @@ async function main() {
   ok('refund: access revoked, creator credit reversed');
 
   // versions: a second version, rollback, unpublish, console views, admin views
-  await tool('edit_file', { project: pid, path: 'index.html', old_string: '<title>Shard Island</title>', new_string: '<title>Shard Island II</title>' });
+  await tool('upload_files', { project: pid, edits: [{ path: 'index.html', old_string: '<title>Shard Island</title>', new_string: '<title>Shard Island II</title>' }] });
   let d2 = await tool('deploy_preview', { project: pid, note: 'second' });
-  for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(d2.status); i++) { await sleep(2000); d2 = await tool('get_version', { project: pid, version: d2.version }); }
+  for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(d2.status); i++) { await sleep(2000); d2 = await tool('list_versions', { project: pid, version: d2.version }); }
   assert.equal(d2.status, 'verified'); assert.equal(d2.version, 2);
-  assert.ok(d2.quality.since_previous.version === 1 && typeof d2.quality.since_previous.change === 'number' && d2.quality.since_previous.summary, JSON.stringify(d2.quality.since_previous));   // a title change is not progress
   assert.equal((await tool('publish', { project: pid })).version, 2);
   assert.equal((await tool('rollback', { project: pid, version: 1 })).version, 1);
   const vs = await tool('list_versions', { project: pid });
   assert.equal(vs.live_version, 1); assert.equal(vs.versions.length, 2);
   const stats = await tool('get_stats', { project: pid });
-  assert.equal(stats.plays, 1); assert.ok(stats.runtime_errors.some((e) => /demo error/.test(e.message)));
+  assert.equal(stats.plays, 2); assert.ok(stats.runtime_errors.some((e) => /demo error/.test(e.message)));   // plays: the first play and the free-trial session
   const con = must(await A.get(`/api/console/projects/${pid}`));
   assert.equal(con.versions.length, 2); assert.ok(con.events.length >= 6); assert.ok(con.daily.length >= 1);
   const prev = must(await A.post(`/api/console/projects/${pid}/preview`));
@@ -387,7 +409,7 @@ async function main() {
   assert.ok(must(await ADM.get('/api/admin/users')).users.length >= 2); assert.ok(must(await ADM.get('/api/admin/games')).games.length >= 4);
   must(await ADM.patch(`/api/admin/games/${pid}`, { featured: true }));
   must(await ADM.patch(`/api/admin/games/${projects.blank}`, { action: 'remove', reason: 'test' }));
-  await tool('get_project', { project: projects.blank }, !isAdmin ? true : false);
+  await tool('list_projects', { project: projects.blank }, !isAdmin ? true : false);
   ok('admin: overview, users, games, feature, remove');
 
   // license gate for a brand-new creator
@@ -426,6 +448,67 @@ async function main() {
   const drpc = async (bearer, method, params) => { const r = await fetch(`${BASE}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${bearer}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }); return { status: r.status, json: await r.json().catch(() => null) }; };
   const mine = await drpc(dtok.json.access_token, 'tools/call', { name: 'list_projects', arguments: {} });
   assert.equal(mine.status, 200); assert.ok(!mine.json.result.isError, JSON.stringify(mine.json));
+
+  // open implementation: another creator's agent learns how a live game is built only when its creator opts in, never its code
+  const ctool = async (name, args, expectError = false) => { const r = await drpc(dtok.json.access_token, 'tools/call', { name, arguments: args }); assert.equal(r.status, 200); const x = r.json.result; assert.equal(!!x.isError, expectError, `${name}: ${x.content[0].text.slice(0, 400)}`); try { return JSON.parse(x.content[0].text); } catch { return x.content[0].text; } };
+  assert.match(await ctool('get_implementation', { game: slug }, true), /no open implementation/);
+  assert.ok(!(await ctool('find_implementations', {})).games.some((g) => g.game === slug));
+  const own = await tool('get_implementation', { game: slug });
+  assert.ok(own.yours && own.shared === false && /Preview only/.test(own.not_shared) && own.built_with.engine === 'three.js' && own.built_with.rendering.includes('WebGL'), JSON.stringify(own).slice(0, 600));
+  assert.match((await tool('update_project', { project: pid, open_implementation: true })).open_implementation, /^on/);
+  const found = await ctool('find_implementations', { query: 'island', uses: ['WebGL'] });
+  const hit = found.games.find((g) => g.game === slug);
+  assert.ok(hit && hit.engine === 'three.js' && hit.summary.length > 40 && /never shared/.test(found.note), JSON.stringify(found).slice(0, 600));
+  assert.equal((await ctool('find_implementations', { engine: 'phaser' })).games.some((g) => g.game === slug), false);
+  const icard = await ctool('get_implementation', { game: `${BASE}/g/${slug}` });
+  assert.ok(icard.game.slug === slug && icard.built_with.engine === 'three.js' && icard.built_with.input.length && icard.summary.length > 200 && /never shared/.test(icard.never_shared) && !icard.yours, JSON.stringify(icard).slice(0, 600));
+  const src = readFileSync(new URL('three-explorer/src/main.js', tplDir), 'utf8').split('\n').map((l) => l.trim()).filter((l) => l.length > 30);
+  const cardText = JSON.stringify(icard);
+  assert.ok(src.every((l) => !cardText.includes(l)), 'the card must not contain source code');
+  const conImpl = must(await A.get(`/api/console/projects/${pid}`));
+  assert.ok(conImpl.project.open_implementation === true && conImpl.implementation.reads >= 1 && conImpl.implementation.version === 1, JSON.stringify(conImpl.implementation));
+  assert.equal(must(await A.get(`/api/console/projects/${pid}/implementation`)).card.shared, true);
+  assert.ok([403, 404].includes((await B.get(`/api/console/projects/${pid}/implementation`)).status));
+  assert.equal(must(await B.get(`/api/games/${slug}`)).game.open_implementation, true);
+  must(await A.patch(`/api/console/projects/${pid}`, { open_implementation: false }));
+  assert.match(await ctool('get_implementation', { game: slug }, true), /no open implementation/);
+  assert.ok(!(await ctool('find_implementations', { query: 'island' })).games.some((g) => g.game === slug));
+  const repub = await tool('publish', { project: pid, version: 1, open_implementation: true });
+  assert.match(repub.open_implementation, /^on/);
+  assert.equal((await ctool('get_implementation', { game: slug })).version, 1);
+  ok(`open implementation: hidden until the creator opts in, then found by kind and technique and read as a card with no code (${icard.built_with.engine}, ${icard.built_with.input.join(', ')}), counted, and gone again when switched off; publish can opt in`);
+
+  // duplication check: a renamed copy of another creator's live game and a page that is not a game are refused before publishing
+  const fix = (f) => readFileSync(new URL(`fixtures/comet-herder/${f}`, import.meta.url), 'utf8');
+  const waitV = async (call, project, d) => { for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(d.status); i++) { await sleep(2000); d = await call('list_versions', { project, version: d.version }); } return d; };
+  const orig = await tool('create_project', { title: `Comet Herder ${run}`, tagline: 'Herd comets into the corral', tags: ['arcade', 'space'] });
+  await tool('upload_files', { project: orig.project, files: [{ path: 'index.html', content: fix('index.html') }, { path: 'game.js', content: fix('game.js') }] });
+  const ov = await waitV(tool, orig.project, await tool('deploy_preview', { project: orig.project, note: 'original' }));
+  assert.equal(ov.status, 'verified', JSON.stringify(ov.report, null, 1).slice(0, 1500));
+  assert.ok(ov.report.checks.find((c) => c.id === 'original').ok && ov.report.checks.find((c) => c.id === 'is_game').ok, JSON.stringify(ov.report.checks));
+  assert.equal((await tool('publish', { project: orig.project })).live, true);
+  const origSlug = (await tool('list_projects', { project: orig.project })).slug;
+  const renamed = fix('game.js').replace(/\b(tug|comets|debris|herded|hull|corral|steer|advance|paint|newRound|chance|pen|stars|flash|held)\b/g, (w) => 'my' + w[0].toUpperCase() + w.slice(1)).replace(/^\s*\/\/.*$/gm, '').replace(/0\.(\d)\b/g, '0.$15');
+  const cp = await ctool('create_project', { title: `Star Wrangler ${run}`, tagline: 'Totally new' });
+  await ctool('upload_files', { project: cp.project, files: [{ path: 'index.html', content: fix('index.html').replace('Comet Herder', 'Star Wrangler') }, { path: 'game.js', content: renamed }] });
+  const cv = await waitV(ctool, cp.project, await ctool('deploy_preview', { project: cp.project, note: 'copy' }));
+  const orc = cv.report.checks.find((c) => c.id === 'original');
+  assert.ok(cv.status === 'failed' && orc && !orc.ok && orc.detail.includes(origSlug) && cv.report.checks.filter((c) => !c.ok).length === 1, JSON.stringify(cv.report.checks || cv.report).slice(0, 1500));
+  assert.match(await ctool('publish', { project: cp.project }, true), /not passed verification|matches/i);
+  const page = '<!doctype html><html><body style="margin:0;background:#111;color:#eee;font:16px sans-serif"><canvas id="c" width="640" height="200"></canvas><h1>Get the Comet app</h1><p>Our new app is coming soon to phones.</p><script>const c = document.getElementById("c").getContext("2d"); let t = 0; function f() { t += 0.02; c.fillStyle = "#123"; c.fillRect(0, 0, 640, 200); for (let i = 0; i < 12; i++) { c.fillStyle = `hsl(${i * 30 + t * 50},80%,60%)`; c.beginPath(); c.arc(320 + Math.cos(t + i) * 200, 100 + Math.sin(t * 2 + i) * 60, 14, 0, 7); c.fill(); } requestAnimationFrame(f); } f(); GCP.ready();</script></body></html>';
+  const ng = await ctool('create_project', { title: `Comet app ${run}` });
+  await ctool('upload_files', { project: ng.project, files: [{ path: 'index.html', content: page }] });
+  const nv = await waitV(ctool, ng.project, await ctool('deploy_preview', { project: ng.project, note: 'not a game' }));
+  const ig = nv.report.checks.find((c) => c.id === 'is_game');
+  assert.ok(nv.status === 'failed' && ig && !ig.ok && nv.report.checks.find((c) => c.id === 'original').ok, JSON.stringify(nv.report.checks || nv.report).slice(0, 1500));
+  // the same platform template published by two creators is not a copy: template and kit code is left out
+  const tp = await ctool('create_project', { title: `My explorer ${run}` });
+  await ctool('upload_files', { project: tp.project, files: tplIndex.templates.find((x) => x.name === 'three-explorer').files.map((f) => ({ path: f.path, content: readFileSync(new URL(`three-explorer/${f.path}`, tplDir), 'utf8') })) });
+  const tv = await waitV(ctool, tp.project, await ctool('deploy_preview', { project: tp.project, note: 'from the template' }));
+  assert.ok(tv.status === 'verified' && tv.report.checks.find((c) => c.id === 'original').ok, JSON.stringify(tv.report.checks || tv.report).slice(0, 1500));
+  const flagged = must(await ADM.get('/api/admin/overview')).flags;
+  assert.ok(flagged.some((f) => f.kind === 'copy_flagged' && f.id === cp.project) && flagged.some((f) => f.kind === 'not_game_flagged' && f.id === ng.project), JSON.stringify(flagged).slice(0, 600));
+  ok(`duplication check: an original game passes and so does another creator's game built on the same template as a live one; a renamed copy by another creator fails "${orc.label}" (${cv.report.originality.matches[0].code}% of its code) and cannot be published; a page that is not a game fails "${ig.label}"; both show up for the admin`);
   const fresh = await agent('/oauth/token', { grant_type: 'refresh_token', refresh_token: dtok.json.refresh_token, client_id: dtok.json.client_id });
   assert.equal(fresh.status, 200, JSON.stringify(fresh.json)); assert.ok(fresh.json.access_token && fresh.json.access_token !== dtok.json.access_token);
   const cAgents = must(await C.get('/api/console/agents')).agents;

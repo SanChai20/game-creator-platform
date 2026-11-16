@@ -8,7 +8,8 @@
     "build": "vite build",
     "dev": "npm run build && wrangler dev --port 8787",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
-    "test": "node --test tests/",
+    "test": "node --test tests/i18n.mjs tests/web-only.mjs tests/procgen.mjs tests/implementation.mjs tests/originality.mjs tests/player-data.mjs",
+    "test:live": "node tests/mcp-live.mjs",
     "db:local": "wrangler d1 migrations apply gcp-db --local",
     "db:remote": "wrangler d1 migrations apply gcp-db --remote",
     "deploy": "npm run build && wrangler deploy"
@@ -24,6 +25,7 @@
     "@cloudflare/workers-types": "^5.20261112.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^6.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

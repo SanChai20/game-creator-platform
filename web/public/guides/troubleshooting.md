@@ -1,17 +1,29 @@
-# Troubleshooting a failed verification
+# Versions and failed verification
 
-`deploy_preview` returns a report with one entry per check, the errors the browser saw, any files that failed to load, timings, and a screenshot. Read `summary` first, then the first check that failed: later checks often fail only because an earlier one did. Fix, then run `check_project` and `deploy_preview` again. Each preview is a new version number; nothing is overwritten.
+## How versions work
 
-## check_project refuses the deploy
+- The **workspace** is the set of files you upload (`upload_files`, `create_upload_url`). Changing it changes nothing players see.
+- `deploy_preview` freezes the workspace into a new **version** with the next number, deploys it to its own preview address and checks it in a real browser. Versions never change after that, and nothing is overwritten.
+- Only a **verified** version can be **published**. `publish` makes it live at the game's public page; the previous live version stays in the list.
+- `rollback {version}` makes an earlier verified version live again at once. `unpublish` takes the game offline; `publish` brings it back.
+- `list_versions` lists them all with their status; `list_versions {version}` returns one version's full report.
+
+## Reading a failed report
+
+The report has one entry per check, the errors the browser saw, any files that failed to load, timings, and a screenshot. Read `summary` first, then the first check that failed: later checks often fail only because an earlier one did. Fix, upload the changed files, and `deploy_preview` again (`dry_run: true` runs only the static checks).
+
+## The static checks refuse the deploy
 
 | Message | Cause and fix |
 | --- | --- |
-| JavaScript syntax error at file:line | The file does not parse. The report includes the line and a code frame. Most often an unclosed bracket or template string after an edit; re-read the file with `read_file` before editing again. |
+| JavaScript syntax error at file:line | The file does not parse. The report includes the line and a code frame. Most often an unclosed bracket or template string after an edit; compare it with your local copy before editing again. |
 | Import not found | A relative import points at a file that is not in the bundle. Paths are case sensitive and need the extension (`./world.js`, not `./world`). |
 | Bare import with no mapping | `import x from 'some-lib'` only works for names in the import map (`three`, `three/addons/…`, `three/webgpu`, `three/tsl`, `@gcp/…`). Bundle the library and import it by relative path, or add your own import map to `index.html`. |
 | Missing file | HTML or CSS refers to a file that was not uploaded. |
 | GCP.ready() is never called | Add `if (window.GCP) GCP.ready();` after the first playable frame. |
 | index.html missing | It must be at the bundle root, not inside a folder. When uploading a zip, the platform strips a single top-level folder for you. |
+| Links to a native download, links to an app-store install, sends the player to another site | The platform hosts web games only, and the page must be the game itself. Remove the download, store link or redirect. |
+| Upload refused: "is a Windows program", "a zip archive", … | Uploads are checked by their bytes, not only their name, and programs, installers and archives are refused. Upload the web build instead; from an engine, its Web / HTML5 / WebGL export folder (Unity: Compression Format set to Disabled). |
 
 ## boots: GCP.ready() was not called in time
 
@@ -72,6 +84,14 @@ The report lists each address. Fix the path or upload the file. Remember that pa
 ## clean: uncaught errors
 
 Any uncaught exception or unhandled promise rejection after load fails this check, with the message and location in `errors`. Fix the cause; do not hide it with an empty global handler. Messages you log with `console.error` are listed as warnings and do not fail the check.
+
+## original: the version matches another creator's game
+
+The platform compares each verified version with the live games of other creators: fingerprints of your own code that survive renamed variables and reformatting, files that are identical byte for byte, and how the first screen looks. Platform templates, kits and common libraries are left out of the comparison, so two games built on the same template do not match each other. The detail names the game it matches and how much it shares. A clear copy cannot be published; make the game your own (your own code, rules and look) and deploy again. Sharing some code or a similar look is allowed and only noted. Borderline cases are reviewed by an AI model that sees the listings, facts about how both games are built (never code) and the measurements. If the other game is yours under another account, ask the platform to look at it.
+
+## is_game: the upload is not a game
+
+The platform hosts web games only. A page nothing in which responds to the player (no keyboard, mouse, touch, pointer or gamepad input and no buttons) is refused, and pages that take input but look like documents or forms are reviewed by an AI model. If it is a game, make sure the player can act on it, and register `GCP.test.onPlaythrough`: a game whose play-through passes is always treated as a game.
 
 ## WebGPU games
 

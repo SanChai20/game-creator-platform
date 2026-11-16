@@ -1,29 +1,70 @@
 // Shared plumbing for the web app: language, API client, a tiny router, session state and small components.
-import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { Button, Notice } from './ui/components';
+import { detectLang, langTag, matchLang, type Lang } from './i18n/langs';
+// Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
+export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
 
 // ---- language ---------------------------------------------------------------------------------
-export type Lang = 'en' | 'zh';
-const stored = (() => { try { return localStorage.getItem('gcp.lang'); } catch { return null; } })();
-let lang: Lang = stored === 'zh' || stored === 'en' ? stored : (navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+// Six languages. Call sites carry English and 简体中文 inline: t('Play', '游玩'). The other four (繁體中文, 日本語, 한국어,
+// Español) live in i18n/<code>.json keyed by the English string and load only when picked. Strings that arrive from the
+// Worker in English (admin setting labels and groups) are translated with tr(), from the same files plus i18n/zh.json.
+// The same English word can mean two things ('Copy' a link, a 'Copy' of a game): a key 'English|简体中文' picks one.
+// Placeholders: t('Page {page} of {pages}', '第 {page} / {pages} 页', { page, pages }). `npm test` fails on any string
+// that is missing from a language, so new strings get translated when they are added.
+export { LANGS } from './i18n/langs';
+export type { Lang };
+const urlLang = (() => { try { return matchLang(new URLSearchParams(location.search).get('lang')); } catch { return null; } })();
+const stored = (() => { try { return matchLang(localStorage.getItem('gcp.lang')); } catch { return null; } })();
+let lang: Lang = urlLang || stored || detectLang(navigator.languages?.length ? navigator.languages : [navigator.language]);
+let dict: Record<string, string> = {};
+const DICTS: Record<Exclude<Lang, 'en'>, () => Promise<{ default: Record<string, string> }>> = {
+  zh: () => import('./i18n/zh.json'), 'zh-TW': () => import('./i18n/zh-TW.json'), ja: () => import('./i18n/ja.json'), ko: () => import('./i18n/ko.json'), es: () => import('./i18n/es.json'),
+};
+const loadDict = async (l: Lang) => (l === 'en' ? {} : (await DICTS[l]().catch(() => ({ default: {} }))).default);
 const langSubs = new Set<() => void>();
-/** Pick the string for the current language. */
-export const t = (en: string, zh: string) => (lang === 'zh' ? zh : en);
+const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : s);
+/** Pick the string for the current language. English and 简体中文 are given here; the others come from i18n/<lang>.json. */
+export const t = (en: string, zh: string, vars?: Record<string, string | number>) =>
+  fill(lang === 'en' ? en : lang === 'zh' ? zh : dict[`${en}|${zh}`] ?? dict[en] ?? (lang === 'zh-TW' ? zh : en), vars);
+/** Translate a string that arrives in English from the Worker (admin setting labels, groups and options). */
+export const tr = (en: string, vars?: Record<string, string | number>) => fill(lang === 'en' ? en : dict[en] ?? en, vars);
+/** The current language's BCP 47 tag, for Intl formatters. */
+export const locale = () => langTag(lang);
 export const getLang = () => lang;
-export function setLang(l: Lang) { lang = l; try { localStorage.setItem('gcp.lang', l); } catch { /* private mode */ } document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'; langSubs.forEach((f) => f()); }
+const apply = (l: Lang) => {
+  document.documentElement.lang = langTag(l);
+  try { document.cookie = `gcp_lang=${l}; path=/; max-age=31536000; samesite=lax`; } catch { /* sandboxed */ }
+};
+/** Loads the language once, before the first render, so nothing flashes in English. */
+export const langReady = loadDict(lang).then((d) => { dict = d; apply(lang); });
+export async function setLang(l: Lang) {
+  const d = await loadDict(l);
+  lang = l; dict = d;
+  try { localStorage.setItem('gcp.lang', l); } catch { /* private mode */ }
+  apply(l); langSubs.forEach((f) => f());
+}
 export const useLang = () => useSyncExternalStore((f) => { langSubs.add(f); return () => langSubs.delete(f); }, getLang);
-document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
 
-// ---- formatting -------------------------------------------------------------------------------
 export const usd = (cents: number) => `${cents < 0 ? '−' : ''}$${(Math.abs(cents || 0) / 100).toFixed(2)}`;
 export const price = (cents: number) => (cents > 0 ? usd(cents) : t('Free', '免费'));
-export const num = (n: number) => new Intl.NumberFormat(lang === 'zh' ? 'zh-CN' : 'en', { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
+// Free trials of paid games. The platform can switch them off or cap their length; the app learns that from /config.
+let trialRules = { on: true, max: 120 };
+export function setTrialRules(s: Record<string, unknown>) { trialRules = { on: s.trials_enabled !== false, max: Number(s.trial_max_minutes) || 120 }; }
+/** Minutes of free trial a game offers (0 for none, and always 0 for a free game). */
+export const trialOf = (g: { price_cents: number; trial_minutes?: number }) => (trialRules.on && g.price_cents > 0 ? Math.min(g.trial_minutes || 0, trialRules.max) : 0);
+/** "Free trial · 30 min", or the short form "30 min trial" for tight spots. */
+export const trialLabel = (mins: number, short = false) => (short ? t('{n} min trial', '试玩 {n} 分钟', { n: mins }) : t('Free trial · {n} min', '免费试玩 · {n} 分钟', { n: mins }));
+/** m:ss for a countdown. */
+export const clock = (sec: number) => { const s = Math.max(0, Math.ceil(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+export const num = (n: number) => new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0);
 /** A number with its unit, singular or plural in English. */
-export const count = (n: number, one: string, many: string, zh: string) => `${num(n)} ${t(n === 1 ? one : many, zh)}`;
-export const date = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(ms)) : '—');
-export const dateTime = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms)) : '—');
+export const count = (n: number, one: string, many: string, zh: string) => { const word = n === 1 ? one : many; return `${num(n)} ${t(word, zh)}`; };
+export const date = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(locale(), { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(ms)) : '—');
+export const dateTime = (ms: number | null | undefined) => (ms ? new Intl.DateTimeFormat(locale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ms)) : '—');
 export function ago(ms: number | null | undefined) {
   if (!ms) return '—';
-  const s = Math.max(1, Math.round((Date.now() - ms) / 1000)), rtf = new Intl.RelativeTimeFormat(lang === 'zh' ? 'zh-CN' : 'en', { numeric: 'auto' });
+  const s = Math.max(1, Math.round((Date.now() - ms) / 1000)), rtf = new Intl.RelativeTimeFormat(locale(), { numeric: 'auto' });
   if (s < 60) return rtf.format(-s, 'second'); if (s < 3600) return rtf.format(-Math.round(s / 60), 'minute');
   if (s < 86400) return rtf.format(-Math.round(s / 3600), 'hour'); if (s < 86400 * 30) return rtf.format(-Math.round(s / 86400), 'day');
   return date(ms);
@@ -65,9 +106,11 @@ export function navigate(to: string, replace = false) {
 }
 export const useLocation = () => useSyncExternalStore((f) => { navSubs.add(f); return () => navSubs.delete(f); }, () => location.pathname + location.search);
 export const query = () => new URLSearchParams(location.search);
-export function Link({ to, className, children, onClick, title }: { to: string; className?: string; children: ReactNode; onClick?: () => void; title?: string }) {
-  const go = (e: MouseEvent) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); onClick?.(); navigate(to); };
-  return <a href={to} className={className} onClick={go} title={title}>{children}</a>;
+type LinkProps = { to: string; className?: string; children: ReactNode; onClick?: () => void; title?: string; scroll?: boolean } & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href' | 'onClick' | 'className' | 'title' | 'children'>;
+/** An in-app link. A same-page link (a filter or a page number) keeps the scroll position unless `scroll` is set. */
+export function Link({ to, className, children, onClick, title, scroll, ...rest }: LinkProps) {
+  const go = (e: MouseEvent) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); onClick?.(); navigate(to); if (scroll) window.scrollTo(0, 0); };
+  return <a href={to} className={className} onClick={go} title={title} {...rest}>{children}</a>;
 }
 
 // ---- session ----------------------------------------------------------------------------------
@@ -84,22 +127,8 @@ export function Stars({ rating, count }: { rating: number | null; count?: number
   if (rating == null) return <span className="dim">{t('No ratings yet', '暂无评分')}</span>;
   return <span className="stars"><Star />{rating.toFixed(1)}{count != null && <span className="mute" style={{ fontWeight: 450 }}>({num(count)})</span>}</span>;
 }
-export const Spinner = () => <div className="spinner" role="status" aria-label={t('Loading', '加载中')} />;
 export function Fail({ error, retry }: { error: ApiError; retry?: () => void }) {
-  return <div className="notice bad row wrapx"><span className="grow">{error.message}{error.hint ? ` ${error.hint}` : ''}</span>{retry && <button className="btn sm" onClick={retry}>{t('Try again', '重试')}</button>}</div>;
-}
-export function Modal({ children, onClose, wide }: { children: ReactNode; onClose: () => void; wide?: boolean }) {
-  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [onClose]);
-  return <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" className={wide ? 'wide' : ''}>{children}</div></div>;
-}
-export function Code({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
-  const copy = () => { void navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1400); }); };
-  return <div className="code">{text}<button className="btn sm copy" onClick={copy}>{done ? t('Copied', '已复制') : t('Copy', '复制')}</button></div>;
-}
-export function Bars({ data, tip }: { data: { label: string; value: number }[]; tip: (d: { label: string; value: number }) => string }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return <div className="bars">{data.map((d) => <div key={d.label} data-tip={tip(d)} style={{ height: `${Math.max(2, (d.value / max) * 100)}%`, background: d.value ? undefined : 'var(--ink-2)' }} />)}</div>;
+  return <Notice tone="bad" role="alert" actions={retry && <Button size="sm" onClick={retry}>{t('Try again', '重试')}</Button>}>{error.message}{error.hint ? ` ${error.hint}` : ''}</Notice>;
 }
 /** The last `days` calendar days as YYYY-MM-DD (UTC), oldest first, filled from rows keyed by day. */
 export function series<T extends { day: string }>(rows: T[], days: number, pick: (r: T) => number) {
@@ -113,32 +142,100 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 35 + ((h >> 9) % 90)) % 360, x = 15 + ((h >> 4) % 70), y = 10 + ((h >> 13) % 60);
   return { background: `radial-gradient(90% 80% at ${x}% ${y}%, hsl(${a} 78% 58% / .95), transparent 62%), radial-gradient(70% 70% at ${100 - x}% ${100 - y}%, hsl(${b} 70% 45% / .8), transparent 65%), linear-gradient(135deg, hsl(${b} 40% 18%), hsl(${a} 45% 9%))` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string }
-export function GameTile({ g, to }: { g: GameCard; to?: string }) {
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
+/** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
+export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
+  const r = g.rating_count >= 3 ? g.rating ?? 0 : 0;
+  if (g.featured || (r >= 4.8 && g.rating_count >= 100)) return 'legendary';
+  if ((r >= 4.5 && g.rating_count >= 20) || g.plays >= 10000) return 'epic';
+  if (r >= 4 || g.plays >= 500) return 'rare';
+  return 'common';
+}
+export const RARITY: Record<Rarity, { color: string; foil: number; name: () => string }> = {
+  common: { color: '#a9a4b8', foil: 0.1, name: () => t('Common', '普通') },
+  rare: { color: '#3fe0ff', foil: 0.3, name: () => t('Rare', '稀有') },
+  epic: { color: '#8b6bff', foil: 0.6, name: () => t('Epic', '史诗') },
+  legendary: { color: '#ffc845', foil: 1, name: () => t('Legendary', '传说') },
+};
+export const rarityHint = () => t('Rarity is earned from ratings and plays.', '稀有度由评分和游玩次数决定。');
+
+/** A hue for a genre, stable for its name: every category has its own colour across the store. */
+export function genreHue(tag: string) {
+  let h = 2166136261; for (let i = 0; i < tag.length; i++) { h ^= tag.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % 360;
+}
+export const genreName = (tag: string) => tag ? tag.charAt(0).toUpperCase() + tag.slice(1).replace(/-/g, ' ') : '';
+
+/** What players think, in a word, from the average rating and how many ratings there are. */
+export function verdict(g: Pick<GameCard, 'rating' | 'rating_count'>): { word: string; tone: 'top' | 'good' | 'mid' | 'low' | 'none' } {
+  const r = g.rating ?? 0, n = g.rating_count || 0;
+  if (n < 3) return { word: n ? t('A few ratings', '评分较少') : t('No ratings yet', '暂无评分'), tone: 'none' };
+  if (r >= 4.7 && n >= 50) return { word: t('Adored', '口碑爆棚'), tone: 'top' };
+  if (r >= 4.4) return { word: t('Loved', '好评如潮'), tone: 'top' };
+  if (r >= 4) return { word: t('Liked', '特别好评'), tone: 'good' };
+  if (r >= 3) return { word: t('Mixed', '褒贬不一'), tone: 'mid' };
+  return { word: t('Rough', '多半差评'), tone: 'low' };
+}
+export function Verdict({ g, full }: { g: Pick<GameCard, 'rating' | 'rating_count'>; full?: boolean }) {
+  const v = verdict(g);
+  return <span className={'verdict v-' + v.tone}>{v.word}{full && g.rating != null && g.rating_count >= 3 && <span className="mute"> · ★ {g.rating.toFixed(1)} ({num(g.rating_count)})</span>}</span>;
+}
+
+/** A game's tagline, unless it only repeats the title (agents often set both to the name). */
+export function blurb(g: { title: string; tagline?: string | null }): string {
+  const s = (g.tagline || '').trim(), norm = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  return s && norm(s) !== norm(g.title) ? s : '';
+}
+
+/** A game as a card: a notched cartridge with a thin rarity edge. It lifts on hover; nothing else moves. */
+export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
+  const rar = rarity(g), genre = g.tags[0];
   return (
-    <Link to={to || `/g/${g.slug}`} className="game">
-      <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
-        {g.cover ? <img src={g.cover} alt="" loading="lazy" /> : <div className="mono-title">{g.title}</div>}
-        {g.featured && <span className="badge sig feat">{t('Featured', '精选')}</span>}
-        <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
-      </div>
-      <div>
-        <h3 className="clip">{g.title}</h3>
-        <div className="meta"><span className="clip">{g.author}</span><span className="dim">·</span><Stars rating={g.rating} count={g.rating_count} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
+    <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`}>
+      <div className="card-in" style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 270 } as CSSProperties}>
+        <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
+          {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
+          <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}{!!trialOf(g) && <em className="price-trial">{trialLabel(trialOf(g), true)}</em>}</span>
+          {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
+          <span className="play-hint" aria-hidden="true" />
+        </div>
+        <div className="card-body">
+          <div className="card-tag"><span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>{fresh && <span className="new">{t('New', '新上架')}</span>}{!fresh && g.featured && <span className="feat">{t('Featured', '精选')}</span>}{genre && <span className="gen">{genreName(genre)}</span>}</div>
+          <h3 className="clip">{g.title}</h3>
+          <div className="meta"><Verdict g={g} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
+        </div>
       </div>
     </Link>
   );
 }
-export function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, [string, string]> = {
-    live: ['good', t('Live', '已上线')], draft: ['', t('Draft', '草稿')], offline: ['sig', t('Offline', '已下线')], removed: ['bad', t('Removed', '已移除')],
-    verified: ['good', t('Verified', '已验证')], failed: ['bad', t('Failed', '未通过')], queued: ['info', t('Queued', '排队中')], deploying: ['info', t('Deploying', '部署中')], verifying: ['info', t('Verifying', '验证中')],
-    paid: ['good', t('Paid', '已支付')], pending: ['sig', t('Pending', '处理中')], rejected: ['bad', t('Rejected', '已拒绝')], refunded: ['', t('Refunded', '已退款')],
-    active: ['good', t('Active', '正常')], suspended: ['bad', t('Suspended', '已停用')],
-  };
-  const [cls, label] = map[status] || ['', status];
-  return <span className={'badge ' + cls}>{label}</span>;
+// ---- return visits (kept in this browser only) ---------------------------------------------------
+export interface RecentPlay { slug: string; title: string; cover: string | null; at: number }
+const RECENT_KEY = 'gcp.recent', VISIT_KEY = 'gcp.visit', PREV_KEY = 'gcp.prevVisit';
+const readJson = <T,>(k: string, d: T, store: Storage | null = null): T => { try { const v = (store || localStorage).getItem(k); return v ? JSON.parse(v) as T : d; } catch { return d; } };
+/** Games this browser played lately, newest first, for "Jump back in". */
+export const recentPlays = (): RecentPlay[] => readJson<RecentPlay[]>(RECENT_KEY, []).filter((r) => r && r.slug);
+export function rememberPlay(g: { slug: string; title: string; cover: string | null }) {
+  const list = [{ slug: g.slug, title: g.title, cover: g.cover, at: Date.now() }, ...recentPlays().filter((r) => r.slug !== g.slug)].slice(0, 8);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* private mode */ }
 }
+/** Games this browser has opened or skipped, for the discovery queue. */
+const SEEN_KEY = 'gcp.seen';
+export const seenGames = (): string[] => readJson<string[]>(SEEN_KEY, []);
+export function markSeen(slug: string) {
+  const list = [slug, ...seenGames().filter((s) => s !== slug)].slice(0, 400);
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(list)); } catch { /* private mode */ }
+}
+export function resetSeen() { try { localStorage.removeItem(SEEN_KEY); } catch { /* private mode */ } }
+/** When this browser was last here before this visit (null on a first visit). Stays the same for the whole session. */
+export function lastVisit(): number | null {
+  let prev: number | null;
+  try { const s = sessionStorage.getItem(PREV_KEY); if (s !== null) return s === '' ? null : Number(s); } catch { /* fine */ }
+  prev = readJson<number | null>(VISIT_KEY, null);
+  try { sessionStorage.setItem(PREV_KEY, prev ? String(prev) : ''); localStorage.setItem(VISIT_KEY, String(Date.now())); } catch { /* private mode */ }
+  return prev;
+}
+
 /** Runs an action, shows a toast on failure, and tells the caller whether it worked. */
 export function useAct() {
   const { toast } = useApp(), [busy, setBusy] = useState('');

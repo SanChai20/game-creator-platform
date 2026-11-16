@@ -1,72 +1,70 @@
+// The store front. One request (/api/home) brings the featured picks, the lists, the categories and the key numbers,
+// so the page is the same size whether the catalogue holds ten games or fifty thousand. The full catalogue, with
+// filters and numbered pages, is the browse page; every category has its own page under /c/.
 import { useEffect, useState } from 'react';
-import { artStyle, Fail, GameTile, Link, navigate, num, price, query, Spinner, Stars, t, useApp, useData, useLocation, type GameCard, count } from '../lib';
+import { api, Fail, t, useApp, useData, type GameCard } from '../lib';
+import { Button, Eyebrow, Spinner } from '../ui';
+import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, type Genre, type StoreStats } from '../store';
+
+interface HomeData { stats: StoreStats; shelves: { trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: Genre[] }
 
 export function Home() {
-  useLocation();
-  const { config } = useApp(), q = query();
-  const sort = q.get('sort') || 'trending', tag = q.get('tag') || '', priceF = q.get('price') || '', search = q.get('q') || '';
-  const [typed, setTyped] = useState(search);
-  const set = (k: string, v: string) => { const n = query(); if (v) n.set(k, v); else n.delete(k); const s = n.toString(); navigate('/' + (s ? '?' + s : ''), true); };
-  useEffect(() => { const id = setTimeout(() => { if (typed !== search) set('q', typed); }, 300); return () => clearTimeout(id); }, [typed]); // eslint-disable-line react-hooks/exhaustive-deps
-  const qs = new URLSearchParams({ sort, ...(tag && { tag }), ...(priceF && { price: priceF }), ...(search && { q: search }) }).toString();
-  const { data, error, loading, reload } = useData<{ games: GameCard[]; tags: string[] }>('/games?' + qs);
-  const filtered = !!(tag || priceF || search) || sort !== 'trending';
-  const games = data?.games || [], hero = !filtered ? games[0] : null;
-  const sorts: [string, string][] = [['trending', t('Trending', '热门')], ['new', t('New', '最新')], ['top', t('Top rated', '好评')], ['played', t('Most played', '最多游玩')]];
-  const prices: [string, string][] = [['', t('All', '全部')], ['free', t('Free', '免费')], ['paid', t('Paid', '付费')]];
+  const { config } = useApp();
+  const { data, error, loading, reload } = useData<HomeData>('/home');
+  const [since] = useState(() => lastVisit()), [newCount, setNewCount] = useState(0);
+  useEffect(() => { if (since) api<{ total: number }>(`/games?since=${since}&limit=1&facets=0`).then((r) => setNewCount(r.total), () => {}); }, [since]);
 
+  if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
+  if (loading && !data) return <Spinner />;
+  const d = data!, sh = d.shelves;
+
+  if (!d.stats.games) return (
+    <section className="lead"><div className="wrap solo"><div>
+      <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
+      <h1>{config.settings.tagline}</h1>
+      <p>{t('Web games built by people with their own AI agents. The shelves are empty for now. Yours could be the first.', '由创作者与自己的 AI 智能体共同打造的网页游戏。货架暂时还空着，第一款可以是你的。')}</p>
+      <div className="row wrapx lead-actions"><Button to="/create" variant="primary" size="lg">{t('Make the first game', '创作第一款游戏')}</Button></div>
+    </div></div></section>
+  );
+
+  // the carousel takes the top picks; the trending lists carry on from there
+  const spot = sh.trending.slice(0, 6), more = sh.trending.slice(6);
+  const pool = [...sh.trending, ...sh.new, ...sh.top].filter((g, i, a) => a.findIndex((x) => x.id === g.id) === i);
+  let n = 0; const next = () => String(++n).padStart(2, '0');
   return (
-    <>
-      {hero ? (
-        <section className="hero">
-          <div className="bg" style={hero.cover ? { backgroundImage: `url(${hero.cover})` } : artStyle(hero.slug)} />
-          <div className="wrap">
-            <div className="stack l">
-              <span className="eyebrow sig">{hero.featured ? t('Featured', '精选推荐') : t('Trending now', '正在流行')}</span>
-              <h1>{hero.title}</h1>
-              {hero.tagline && <p className="lede">{hero.tagline}</p>}
-              <div className="row wrapx mute"><span>{t('by', '作者')} <b style={{ color: 'var(--bone)' }}>{hero.author}</b></span><Stars rating={hero.rating} count={hero.rating_count} /><span className="num">{count(hero.plays, 'play', 'plays', '次游玩')}</span></div>
-              <div className="row wrapx"><Link to={`/g/${hero.slug}`} className="btn pri big">{hero.price_cents > 0 ? `${t('Get it', '购买')} · ${price(hero.price_cents)}` : t('Play now', '立即游玩')}</Link>{hero.tags.slice(0, 3).map((x) => <span key={x} className="badge plain">{x}</span>)}</div>
-            </div>
-            <Link to={`/g/${hero.slug}`} className="shot" title={hero.title}>
-              {hero.cover ? <img src={hero.cover} alt={hero.title} /> : <div style={{ ...artStyle(hero.slug), position: 'absolute', inset: 0 }} />}
-            </Link>
-          </div>
-        </section>
-      ) : !filtered && !loading && !error && (
-        <section className="lead"><div className="wrap">
-          <span className="eyebrow sig">{config.settings.brand_name}</span>
-          <h1 style={{ marginTop: 18 }}>{config.settings.tagline}</h1>
-          <p>{t('A marketplace of web games built by people working with their own AI agents. The shelves are empty for now. Yours could be the first game here.', '由创作者与自己的 AI 智能体共同打造的网页游戏市场。货架暂时还空着，第一款游戏可以是你的。')}</p>
-          <p><Link to="/create" className="btn pri big">{t('Make the first game', '创作第一款游戏')}</Link></p>
-        </div></section>
-      )}
-
-      <div className="band"><div className="wrap">
-        <span className="eyebrow sig">{t('For creators', '面向创作者')}</span>
-        <b>{config.settings.tagline}</b>
-        <span className="mute">{t('Connect your agent, describe a game, publish it here.', '连接你的智能体，描述一款游戏，然后发布到这里。')}</span>
-        <Link to="/create" className="btn sm right">{t('How it works', '了解流程')} →</Link>
-      </div></div>
+    <div className="store">
+      <div className="wrap store-top">
+        <div className="store-intro">
+          <h1>{t('Web games made by creators', '创作者与')} <span className="hl-a">{t('and their AI agents', 'AI 智能体打造的网页游戏')}</span></h1>
+          <p>{t('Every one runs in your browser. Nothing to install, nothing to wait for.', '每一款都在浏览器里运行，无需安装，即点即玩。')}</p>
+        </div>
+        <Stats s={d.stats} />
+      </div>
 
       <div className="wrap">
-        <div className="filters">
-          <div className="seg" role="tablist">{sorts.map(([k, label]) => <button key={k} role="tab" aria-selected={sort === k} className={sort === k ? 'on' : ''} onClick={() => set('sort', k === 'trending' ? '' : k)}>{label}</button>)}</div>
-          <div className="seg">{prices.map(([k, label]) => <button key={k} className={priceF === k ? 'on' : ''} onClick={() => set('price', k)}>{label}</button>)}</div>
-          <label className="search"><input className="input" type="search" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={t('Search games', '搜索游戏')} aria-label={t('Search games', '搜索游戏')} /></label>
-        </div>
-        {!!data?.tags.length && <div className="tags">{data.tags.map((x) => <button key={x} className={'chip' + (tag === x ? ' on' : '')} onClick={() => set('tag', tag === x ? '' : x)}>{x}</button>)}</div>}
+        <Spotlight games={spot} />
+        <Since newCount={newCount} since={since} />
+        <Cartridges n={d.genres.length ? next() : undefined} list={d.genres} />
+        <TabbedLists n={next()} title={t('New and noteworthy', '新鲜热门')} tabs={[
+          { key: 'trending', label: t('Trending', '热门'), to: '/browse', games: more.length >= 5 ? more : sh.trending },
+          { key: 'new', label: t('New releases', '新品'), to: '/browse?sort=new', games: sh.new },
+          { key: 'top', label: t('Top rated', '好评'), to: '/browse?sort=top', games: sh.top },
+          { key: 'free', label: t('Free', '免费'), to: '/browse?price=free', games: sh.free },
+        ]} />
+        <Shelf n={sh.playing.length ? next() : undefined} live title={t('Playing right now', '正在热玩')} note={t('Games with players in them this minute.', '此刻有玩家在线的游戏。')} to="/browse?sort=playing" games={sh.playing} />
+        <QueueBand pool={pool} />
+        <Shelf n={next()} rank title={t('Trending this week', '本周热门')} note={t('Most played and talked about in the last seven days.', '过去七天游玩与讨论最多。')} to="/browse" games={sh.trending} />
+        <Shelf n={next()} title={t('New arrivals', '新上架')} note={t('Fresh from creators and their agents.', '创作者与智能体的最新作品。')} to="/browse?sort=new" games={sh.new} freshSince={since} />
 
-        {error ? <div style={{ padding: '30px 0' }}><Fail error={error} retry={reload} /></div> : loading && !data ? <Spinner /> : games.length ? (
-          <div className="grid">{games.map((g) => <GameTile key={g.id} g={g} />)}</div>
-        ) : (
-          <div style={{ padding: '30px 0 90px' }}><div className="empty">
-            <h3>{filtered ? t('No games match that', '没有符合条件的游戏') : t('No games yet', '还没有游戏')}</h3>
-            <p>{filtered ? t('Try a different search or clear the filters.', '换个关键词，或清除筛选条件。') : t('Published games appear here as soon as they pass verification.', '游戏通过验证并发布后会立即出现在这里。')}</p>
-            {filtered && <p style={{ marginTop: 16 }}><button className="btn" onClick={() => { setTyped(''); navigate('/', true); }}>{t('Clear filters', '清除筛选')}</button></p>}
-          </div></div>
-        )}
+        <div className="pitch store-pitch">
+          <div className="grow stack s">
+            <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
+            <h3>{t('Your agent builds it.', '智能体负责创作，')} <mark>{t('We ship it.', '我们负责上线。')}</mark></h3>
+            <p className="mute">{t('Web games only: games that run in a browser page.', '仅支持网页游戏：在浏览器页面中运行的游戏。')}</p>
+          </div>
+          <Button to="/create" variant="primary">{t('Make a game', '创作游戏')} →</Button>
+        </div>
       </div>
-    </>
+    </div>
   );
 }

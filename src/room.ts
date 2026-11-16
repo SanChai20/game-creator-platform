@@ -4,7 +4,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './env';
 
-interface Peer { id: string; name: string; at: number }
+interface Peer { id: string; name: string; at: number; g?: string; e?: string; r?: string }
 const MAX_MSG = 64 * 1024, MAX_STATE = 256 * 1024;
 
 export class GameRoom extends DurableObject<Env> {
@@ -13,6 +13,14 @@ export class GameRoom extends DurableObject<Env> {
   }
   private host(): string | null { return this.peers()[0]?.p.id ?? null; }
   private send(ws: WebSocket, m: unknown) { try { ws.send(JSON.stringify(m)); } catch { /* closing */ } }
+  /** Keeps room_presence in step with who is connected, so the console can show room occupancy. Never fails a join or leave. */
+  private async presence(p: Peer | null | undefined, players: number) {
+    if (!p?.g || !p.e || !p.r) return;
+    try {
+      if (players > 0) await this.env.DB.prepare('INSERT INTO room_presence (project_id, env, room, players, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, env, room) DO UPDATE SET players = excluded.players, updated_at = excluded.updated_at').bind(p.g, p.e, p.r, players, Date.now()).run();
+      else await this.env.DB.prepare('DELETE FROM room_presence WHERE project_id = ? AND env = ? AND room = ?').bind(p.g, p.e, p.r).run();
+    } catch (e) { console.error('room presence', e); }
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -26,11 +34,12 @@ export class GameRoom extends DurableObject<Env> {
     // The same account may join from two tabs; give each connection its own peer id.
     let id = base, i = 2;
     while (existing.some((e) => e.p.id === id)) id = `${base}#${i++}`;
-    const peer: Peer = { id, name: (url.searchParams.get('name') || 'Player').slice(0, 40), at: Date.now() + existing.length / 1000 };
+    const peer: Peer = { id, name: (url.searchParams.get('name') || 'Player').slice(0, 40), at: Date.now() + existing.length / 1000, g: url.searchParams.get('g') || undefined, e: url.searchParams.get('e') || undefined, r: url.searchParams.get('r') || undefined };
     pair[1].serializeAttachment(peer);
     for (const e of existing) this.send(e.ws, { t: 'join', peer: { id: peer.id, name: peer.name } });
     const state = await this.ctx.storage.get<string>('state');
     this.send(pair[1], { t: 'welcome', id: peer.id, host: existing[0]?.p.id ?? peer.id, peers: existing.map((e) => ({ id: e.p.id, name: e.p.name })), state: state ? JSON.parse(state) : null });
+    await this.presence(peer, existing.length + 1);
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
@@ -53,6 +62,21 @@ export class GameRoom extends DurableObject<Env> {
     } else if (m.t === 'ping') this.send(ws, { t: 'pong' });
   }
 
+  /** For the game's creator (MCP game_room): who is here, who hosts, and the stored snapshot. Called over RPC only, never from a player's request. */
+  async inspect(): Promise<{ players: { id: string; name: string; host: boolean; joined_at: string }[]; host: string | null; state_json: string | null }> {
+    const peers = this.peers(), raw = await this.ctx.storage.get<string>('state');
+    return { players: peers.map((e, i) => ({ id: e.p.id, name: e.p.name, host: i === 0, joined_at: new Date(Math.floor(e.p.at)).toISOString() })), host: peers[0]?.p.id ?? null, state_json: raw ?? null };
+  }
+
+  /** Clears a stuck room: drops the snapshot and, with kick, disconnects everyone (they can rejoin at once). */
+  async reset(kick: boolean): Promise<{ cleared: boolean; disconnected: number }> {
+    await this.ctx.storage.deleteAll();
+    const peers = this.peers();
+    for (const e of peers) { this.send(e.ws, { t: 'state', d: null }); if (kick) try { e.ws.close(4000, 'Room reset by the game creator'); } catch { /* closing */ } }
+    if (kick && peers.length) await this.presence(peers[0].p, 0);
+    return { cleared: true, disconnected: kick ? peers.length : 0 };
+  }
+
   async webSocketClose(ws: WebSocket): Promise<void> { await this.left(ws); }
   async webSocketError(ws: WebSocket): Promise<void> { await this.left(ws); }
 
@@ -61,6 +85,7 @@ export class GameRoom extends DurableObject<Env> {
     try { ws.close(1000); } catch { /* already closed */ }
     const rest = this.peers().filter((e) => e.ws !== ws);
     if (me) for (const e of rest) this.send(e.ws, { t: 'leave', id: me.id, host: rest[0]?.p.id ?? null });
+    await this.presence(me, rest.length);
     if (!rest.length) await this.ctx.storage.deleteAll(); // empty rooms keep nothing
   }
 }

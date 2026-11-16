@@ -8,6 +8,7 @@ export interface Env {
   ROOMS: DurableObjectNamespace;
   PIPELINE: DurableObjectNamespace;
   BROWSER?: Fetcher;
+  AI?: Ai;                          // Workers AI: plain-language summaries of open implementations
   OAUTH_PROVIDER: OAuthHelpers;
   DEPLOY_DRIVER: string;            // cloudflare | local
   GAMES_BUCKET: string;
@@ -31,8 +32,9 @@ export interface User {
 export interface Project {
   id: string; owner_id: string; slug: string; title: string; tagline: string; description: string; tags: string; controls: string;
   status: 'draft' | 'live' | 'offline' | 'removed'; live_version: number | null; preview_version: number | null; next_version: number;
-  cover_key: string | null; price_cents: number; sales: number; featured: number; plays: number; seconds: number; rating_sum: number; rating_count: number;
+  cover_key: string | null; price_cents: number; trial_minutes: number; sales: number; featured: number; plays: number; seconds: number; rating_sum: number; rating_count: number;
   removed_reason: string | null; created_at: number; updated_at: number; published_at: number | null;
+  open_implementation: number; open_implementation_at: number | null;
 }
 
 export interface Version {

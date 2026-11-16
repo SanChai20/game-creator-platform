@@ -4,7 +4,7 @@ This page is the whole set of rules. Everything in the other guides is advice th
 
 ## The hard rules
 
-1. **A game is a web page.** `index.html` sits at the root of the bundle. Everything it loads from the bundle uses relative paths (`./src/main.js`, `assets/tiles.png`). There is no build step on the platform: what you upload is what is served. If you want a bundler, run it yourself and upload the output.
+1. **A game is a web page.** The platform hosts web games only: native, mobile, console and desktop builds, installers and archives are refused at upload, and a page that sends players to a download, an app store or another site fails the static checks. From an engine, upload its Web / HTML5 / WebGL export. `index.html` sits at the root of the bundle. Everything it loads from the bundle uses relative paths (`./src/main.js`, `assets/tiles.png`). There is no build step on the platform: what you upload is what is served. If you want a bundler, run it yourself and upload the output.
 2. **Call `GCP.ready()` once**, right after the first frame a player could act on is drawn. Not at script start, not when a menu is still loading.
 3. **Stay alive.** After ready the page must keep rendering frames through `requestAnimationFrame`, must not throw uncaught errors, and must survive keyboard, mouse and touch input.
 
@@ -21,10 +21,10 @@ The platform serves each version of a game from its own Cloudflare Worker on its
 import * as THREE from 'three';                          // Three.js {{THREE}}
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as THREE_GPU from 'three/webgpu';               // WebGPU build, see rendering-pipelines
-import { createLoop } from '@gcp/core.js';               // optional kits, see list_kits
+import { createLoop } from '@gcp/core.js';               // optional helper modules the platform hosts
 ```
 
-If your `index.html` has its own `<script type="importmap">`, the platform leaves it alone and adds nothing (a page can only have one), so list everything you import there. The default addresses are shown by `get_started` under `imports_available_by_default`. Any other library is fine: put its files in the bundle and import them by relative path, or load it from a public CDN with a full `https://` URL and a pinned version. Bundled files are safer because they cannot disappear.
+If your `index.html` has its own `<script type="importmap">`, the platform leaves it alone and adds nothing (a page can only have one), so list everything you import there. The default addresses are shown by `get_started` under `import_map`. Any other library is fine: put its files in the bundle and import them by relative path, or load it from a public CDN with a full `https://` URL and a pinned version. Bundled files are safer because they cannot disappear.
 
 ## The SDK
 
@@ -35,6 +35,8 @@ GCP.fatal(err);                           // if the game cannot start; shown as 
 
 await GCP.save.set('slot1', { level: 3 });       // per-player cloud save (JSON, 256 KB per key)
 const data = await GCP.save.get('slot1');        // null when nothing is saved
+await GCP.playerStats.add('levels_cleared');     // per-player numbers: add, max, min, set, all
+const rec = await GCP.playRecord();              // sessions, play time, first and last played (recorded by the platform)
 await GCP.leaderboard.submit('time', 42.5, 'asc');
 const rows = await GCP.leaderboard.top('time', 10, 'asc');   // [{ name, score, me }]
 const room = GCP.room('lobby');                  // realtime multiplayer, see the multiplayer guide
@@ -65,6 +67,8 @@ Every call that talks to the platform resolves instead of throwing, so a network
 | input | After key presses, clicks, drags and touches, frames are still being drawn. A game that restarts by reloading the page (a "Play again" button) passes as long as it boots again. |
 | files | Every file the page asked for was served. |
 | clean | No uncaught errors and no unhandled promise rejections. |
+| original | Once the checks above pass: the game is not a copy of another creator's live game. Code everyone starts from (platform templates, kits, libraries such as three.js) is ignored, so building on them is fine. |
+| is_game | Once the checks above pass: it is a game the player acts on, not a page, a form or a link to somewhere else. |
 
 The browser that runs the check has a software GPU. It is slow, so the frame count needed is low, but a scene that takes ten seconds per frame will fail. If your game has a menu, register a way past it so the check sees real play:
 
@@ -76,13 +80,9 @@ A menu that renders and reacts is also a valid first playable frame. The hook on
 
 Just before the play-through the browser clicks once in the top-left corner pixel. Browsers keep sound locked until the first real press, and that click is the press, so sound that starts on the first key or pointer event (the usual pattern, and what `createSound()` does) plays during the check and is counted.
 
-### The craft score
+### The screenshot
 
-A verified version also gets `report.quality`: a craft score out of 100 with what was measured and what to improve, and `look_score`, the picture alone out of 100. It looks at seven things a player notices: surface detail and crispness instead of flat or blurred fills, light and colour, how furnished the world is, ambient motion, sound, interface and input, and a passing play-through. The measures are calibrated on finished games: a hand-made open-world game with ambient occlusion, bloom and soft shadows measures look 93.
-
-**The portrait.** The checks run on a CPU renderer, where a well-made game rightly draws less. People judge a game by what a graphics card draws, so after the checks the browser loads the game once more with `?gcp_portrait=1` and takes one picture. `GCP.portrait` is `true` on that load: draw at full quality (full pixel ratio, every effect, full density) however slow the frame is. `createStage()` does this by itself. The portrait is the version's screenshot and the picture the craft score reads. Publishing never depends on it. Aim for {{TARGET}} or more before you call a game finished; the building-blocks guide lists which block raises which part.
-
-`quality.improve` names each measurement that is short, the value that earns full marks and the block that moves it. It is filled above the target too, where it is optional. The score reads the running picture, sound and interface, so changing rules or numbers does not move it. The picture is the portrait (the opening view), so detail added far from the start or behind the camera is not counted; `quality.since_previous` shows which measurements moved against the version before. For a game that began as a `design_scene` plan the report also has `quality.own_work`: how many of the planned lines are still unchanged. A plan uploaded as it came is a starting point that already scores well, not yet a game of your own.
+The checks run on a CPU renderer, where a well-made game rightly draws less. After the checks the browser loads the game once more with `?gcp_portrait=1` and takes one picture, which becomes the version's screenshot and the default marketplace cover. `GCP.portrait` is `true` on that load: draw at full quality however slow the frame is. Publishing never depends on it, and `update_project {cover}` sets your own cover instead.
 
 ## Prove the game can be played: the play-through
 
@@ -118,17 +118,17 @@ How to write a good one:
 - **Begin by resetting and end in a playable state**, because the input check runs afterwards on whatever is on screen.
 - The whole script has 20 seconds. If it throws, an assertion fails or it runs out of time, the version is not verified, and the report says which step failed and why.
 
-A play-through is optional. Without one the report says plainly that only start-up, rendering and input were checked, which means nobody has confirmed the game can be finished. All templates except `blank` include one to copy from.
+A play-through is optional. Without one the report says plainly that only start-up, rendering and input were checked, which means nobody has confirmed the game can be finished. The example above is a complete one to adapt.
 
 If the game needs WebGPU and has no fallback, the automatic browser check cannot run it. The version then waits for its creator to play the preview for a short while with no errors, which counts as verification.
 
 ## Serving details that matter
 
 - Paths are case sensitive. `Assets/Hero.png` and `assets/hero.png` are different files.
-- The page is framed by the platform. `localStorage` works but is per origin: preview and live do not share it. Use `GCP.save` for anything a player would miss.
+- The page is framed by the platform. `localStorage` works but is per origin: preview and live do not share it. Use `GCP.save` for anything a player would miss: it is private to the signed-in player and this game, and follows them across devices and versions.
 - Files are cached hard because each version is immutable. A new version gets a new address, so you never fight a stale cache.
 - Fullscreen, gamepad, pointer lock and autoplay-after-gesture are allowed in the frame. Camera, microphone and geolocation are not.
-- Keep the bundle lean. Limits on file count and size are returned by `get_account`. Generating art in code at boot is the cheapest way to stay small, see the meshes and materials guides.
+- Keep the bundle lean. Limits on file count and size are shown by `get_started` under `account.limits`.
 
 ## A complete minimal game
 

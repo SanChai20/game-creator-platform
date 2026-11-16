@@ -16,9 +16,15 @@
  *   input.wheel                wheel steps this frame (-1, 0, 1), e.g. to scroll a hotbar
  *   a gamepad works by itself: left stick moves, right stick looks, buttons are 'Pad0'…'Pad15'
  *   input.endFrame()           call once at the end of every frame
- * Options: pointerLock (capture the mouse for first-person looking), sensitivity.
+ *   input.setPointerLock(on)   turn mouse capture on or off later (control() in third-person mode turns it on)
+ * Options: pointerLock (capture the mouse for mouse-look, as web games do: a click on the game hides and captures the
+ * mouse, Esc frees it, the next click captures it again; it is freed by itself while a menu, the backpack or a title
+ * screen is up, and the click that dismisses one captures it again), sensitivity.
  */
 export function createInput(target = document.body, { pointerLock = false, sensitivity = 0.0022 } = {}) {
+  // A panel over the game (a title or end screen, a menu, the backpack) wants the cursor, so capture waits until it is gone.
+  const panelUp = () => !!document.querySelector('.gh-s,.gp-win');
+  let lockFailed = false, panelAtPress = false;
   const keys = new Set(), fresh = new Set(), stick = { id: -1, x: 0, y: 0, ox: 0, oy: 0 }, ac = new AbortController(), on = { signal: ac.signal };
   const inp = {
     keys, touch: matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window, locked: false, sensitivity,
@@ -37,8 +43,17 @@ export function createInput(target = document.body, { pointerLock = false, sensi
     },
     /** Look deltas accumulated since the last call, already scaled by sensitivity. */
     takeLook() { const d = { dx: inp.look.dx, dy: inp.look.dy }; inp.look.dx = inp.look.dy = 0; return d; },
-    requestLock() { if (pointerLock && !inp.touch && target.requestPointerLock) { try { const p = target.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch { /* not allowed yet */ } } },
-    endFrame() { fresh.clear(); inp.pointer.clicked = false; inp.wheel = 0; pollPad(); if (buttons.length && ++tick % 3 === 0) { const hide = !!document.querySelector('.gh-s,.gp-win'); if (hide !== hidden) { hidden = hide; for (const b of buttons) b.style.display = hide ? 'none' : ''; } } },
+    // Chrome refuses capture for about a second after Esc freed the mouse, so a quick click back into the game is tried
+    // once more when that second is over (the click still counts as the player's gesture for a few seconds).
+    requestLock(again = true) {
+      if (!pointerLock || inp.touch || inp.locked || !target.requestPointerLock) return;
+      const failed = () => { lockFailed = true; if (again && (!navigator.userActivation || navigator.userActivation.isActive)) setTimeout(() => { if (!panelUp()) inp.requestLock(false); }, 1300); };
+      try { const p = target.requestPointerLock(); if (p && p.catch) p.catch(failed); } catch { failed(); }
+    },
+    setPointerLock(on) { pointerLock = !!on; if (!pointerLock && inp.locked && document.exitPointerLock) document.exitPointerLock(); return inp; },
+    get pointerLock() { return pointerLock; },
+    endFrame() { if (inp.locked && panelUp()) document.exitPointerLock();   // a menu or the backpack needs the cursor
+      fresh.clear(); inp.pointer.clicked = false; inp.wheel = 0; pollPad(); if (buttons.length && ++tick % 3 === 0) { const hide = !!document.querySelector('.gh-s,.gp-win'); if (hide !== hidden) { hidden = hide; for (const b of buttons) b.style.display = hide ? 'none' : ''; } } },
     /**
      * Names the things the player can do, so game code asks input.action('interact') instead of testing keys, and
      * touch and gamepad players get the same actions. bind({ interact: ['KeyE'], attack: ['Space', 'Mouse0'],
@@ -74,7 +89,10 @@ export function createInput(target = document.body, { pointerLock = false, sensi
   }, on);
   addEventListener('keyup', (e) => keys.delete(e.code), on);
   target.addEventListener('wheel', (e) => { inp.wheel += Math.sign(e.deltaY); }, { signal: ac.signal, passive: true });
-  target.addEventListener('mousedown', (e) => { const c = 'Mouse' + e.button; if (!keys.has(c)) fresh.add(c); keys.add(c); }, on);
+  target.addEventListener('mousedown', (e) => {
+    if (pointerLock && !inp.locked && !inp.touch && !lockFailed && e.button === 0) return;   // the click that captures the mouse is not also a strike
+    const c = 'Mouse' + e.button; if (!keys.has(c)) fresh.add(c); keys.add(c);
+  }, on);
   addEventListener('mouseup', (e) => keys.delete('Mouse' + e.button), on);
   // gamepad: read once a frame; the left stick moves, the right stick looks, buttons become 'Pad<n>' codes
   const padAxes = [0, 0], dead = (v) => (Math.abs(v) < 0.22 ? 0 : v);
@@ -86,7 +104,11 @@ export function createInput(target = document.body, { pointerLock = false, sensi
   }
   addEventListener('keydown', () => { inp.pad = false; }, on);
   addEventListener('blur', () => { keys.clear(); inp.pointer.down = false; stick.id = -1; stick.x = stick.y = 0; }, on);
-  document.addEventListener('pointerlockchange', () => { inp.locked = document.pointerLockElement === target; }, on);
+  document.addEventListener('pointerlockchange', () => { inp.locked = document.pointerLockElement === target; if (inp.locked) lockFailed = false; }, on);
+  // A click that closed a panel (Play on a title screen, Resume in a pause menu, a click beside the backpack) goes back
+  // to the game, so it captures the mouse again. Listening after the game's own handlers sees the panel already gone.
+  addEventListener('pointerdown', (e) => { panelAtPress = panelUp(); }, { signal: ac.signal, capture: true });
+  addEventListener('click', (e) => { if (pointerLock && panelAtPress && !panelUp() && e.pointerType !== 'touch') inp.requestLock(); }, on);
   target.addEventListener('contextmenu', (e) => e.preventDefault(), on);
   target.style.touchAction = 'none';
 
@@ -104,7 +126,7 @@ export function createInput(target = document.body, { pointerLock = false, sensi
       if (e.clientX < innerWidth / 2 && stick.id === -1) { stick.id = e.pointerId; stick.ox = e.clientX; stick.oy = e.clientY; stick.x = stick.y = 0; stickEl.style.display = 'block'; stickEl.style.left = e.clientX + 'px'; stickEl.style.top = e.clientY + 'px'; knob.style.transform = ''; }
       else looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
       try { target.setPointerCapture(e.pointerId); } catch { /* gone */ }
-    } else if (pointerLock && !inp.locked) inp.requestLock();
+    } else if (pointerLock && !inp.locked && !panelUp()) inp.requestLock();
   }, on);
   target.addEventListener('pointermove', (e) => {
     inp.pointer.x = e.clientX; inp.pointer.y = e.clientY;
@@ -113,7 +135,7 @@ export function createInput(target = document.body, { pointerLock = false, sensi
       stick.x = Math.cos(a) * m; stick.y = Math.sin(a) * m; knob.style.transform = `translate(${stick.x * 40}px,${stick.y * 40}px)`;
     } else if (looks.has(e.pointerId)) {
       const p = looks.get(e.pointerId); inp.look.dx += (e.clientX - p.x) * inp.sensitivity * 2.2; inp.look.dy += (e.clientY - p.y) * inp.sensitivity * 2.2; p.x = e.clientX; p.y = e.clientY;
-    } else if (inp.locked || (e.pointerType === 'mouse' && !pointerLock && e.buttons)) { inp.look.dx += e.movementX * inp.sensitivity; inp.look.dy += e.movementY * inp.sensitivity; }
+    } else if (inp.locked || (e.pointerType === 'mouse' && e.buttons)) { inp.look.dx += e.movementX * inp.sensitivity; inp.look.dy += e.movementY * inp.sensitivity; }   // dragging still looks where capture is refused
   }, on);
   const up = (e) => {
     inp.pointer.down = false; looks.delete(e.pointerId);

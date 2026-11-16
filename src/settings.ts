@@ -22,6 +22,8 @@ export const SETTING_DEFS = {
   game_price_min_cents: { v: 199, type: 'cents', group: 'Paid games', label: 'Lowest price a paid game can have', public: true },
   game_price_max_cents: { v: 9999, type: 'cents', group: 'Paid games', label: 'Highest price a paid game can have', public: true },
   paid_games_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to sell games', public: true },
+  trials_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to offer a free trial of a paid game (minutes of play before buying)', public: true },
+  trial_max_minutes: { v: 120, type: 'int', group: 'Paid games', label: 'Longest free trial a creator can offer (minutes)', public: true },
   earnings_hold_days: { v: 7, type: 'int', group: 'Paid games', label: 'Days a sale is held before the creator can withdraw it (covers refunds)', public: true },
 
   play_min_seconds: { v: 30, type: 'int', group: 'Play counting', label: 'Seconds before a session counts as a play', public: true },
@@ -41,6 +43,14 @@ export const SETTING_DEFS = {
   projects_per_user: { v: 50, type: 'int', group: 'Limits', label: 'Projects per creator' },
   allow_server_code: { v: true, type: 'bool', group: 'Limits', label: 'Allow games to ship server code (server/index.js)' },
   room_max_peers: { v: 16, type: 'int', group: 'Limits', label: 'Players per multiplayer room' },
+
+  dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },
+  dup_block: { v: true, type: 'bool', group: 'Originality', label: 'Block publishing a copy or a non-game (off: report it as a warning only)' },
+  dup_ai: { v: true, type: 'bool', group: 'Originality', label: 'Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)' },
+  dup_ai_daily: { v: 300, type: 'int', group: 'Originality', label: 'Most Workers AI originality calls per day (about $0.0005 each; past the cap the rules decide)' },
+
+  open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },
+  open_impl_ai_daily: { v: 200, type: 'int', group: 'Open implementation', label: 'Most AI summaries written per day (the rest use the rule-based summary)' },
 
   oauth_access_ttl_s: { v: 3600, type: 'int', group: 'Agent access (OAuth)', label: 'Access token lifetime (seconds)' },
   oauth_grant_ttl_s: { v: 30 * 86400, type: 'int', group: 'Agent access (OAuth)', label: 'Authorization lifetime before the agent must be re-approved (seconds)' },

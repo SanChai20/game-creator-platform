@@ -1,0 +1,101 @@
+/* Cartoon game UI. The store and the creator console behave like the menus of a casual game: chunky buttons with a
+   lip that squash when pressed, cards that spring up and wobble, a glossy shine that crosses collectibles, counters
+   that roll up like a score, and an "achievement" toast. The look stays the site's own (dark, neon, cut corners);
+   only the motion and the materials turn cartoon. Particles are drawn by ui/fx/overlay.ts.
+   All motion lives inside prefers-reduced-motion: no-preference, so reduced motion keeps the static look. */
+:root { --spring: cubic-bezier(.34, 1.56, .64, 1); --toon-ink: #140c26; --lip: #6f9a12; }
+
+/* ---- materials (static: apply everywhere) ---------------------------------------------------------------------- */
+/* Buttons get a cel highlight on top and a darker lip at the bottom edge, drawn inside so cut corners keep them. */
+.btn-primary, .btn.pri { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .5), inset 0 -4px 0 rgba(13, 20, 0, .22), 0 10px 24px -12px rgba(198, 255, 61, .65); }
+.btn-primary:hover, .btn.pri:hover { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .6), inset 0 -4px 0 rgba(13, 20, 0, .22), 0 14px 30px -10px rgba(198, 255, 61, .8); }
+.btn-primary:active, .btn.pri:active { box-shadow: inset 0 3px 0 rgba(13, 20, 0, .18), inset 0 -1px 0 rgba(13, 20, 0, .2), 0 4px 12px -6px rgba(198, 255, 61, .5); }
+.btn:not(.btn-primary):not(.pri):not(.btn-ghost):not(.ghost) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), inset 0 -3px 0 rgba(0, 0, 0, .28); }
+.btn:not(.btn-primary):not(.pri):active { box-shadow: inset 0 2px 0 rgba(0, 0, 0, .3); }
+
+/* Stats are score counters: a toon icon badge beside the label. */
+.stat-ico { position: absolute; right: 14px; top: 14px; width: 34px; height: 34px; filter: drop-shadow(0 3px 0 rgba(0, 0, 0, .35)); }
+.stat-ico svg { width: 100%; height: 100%; display: block; overflow: visible; }
+@media (max-width: 620px) { .stat-ico { width: 26px; height: 26px; right: 10px; top: 10px; } }
+
+/* The toast is an achievement: a badge with a star, a lip and a pop. */
+.toast { display: flex; align-items: center; gap: 10px; padding: 11px 18px 11px 12px; border-radius: 14px; box-shadow: inset 0 2px 0 rgba(255, 255, 255, .5), inset 0 -4px 0 rgba(13, 20, 0, .22), 0 14px 34px -10px rgba(0, 0, 0, .7); }
+.toast::before { content: ""; flex: none; width: 26px; height: 26px; background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-12 -12 24 24'%3E%3Cpath d='M0-10 2.9-4 9.5-3.1 4.7 1.5 5.9 8.1 0 5 -5.9 8.1-4.7 1.5-9.5-3.1-2.9-4Z' fill='%23ffc845' stroke='%23140c26' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.toast.bad::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-12 -12 24 24'%3E%3Ccircle r='9.5' fill='%23fff' stroke='%23140c26' stroke-width='2'/%3E%3Cpath d='M0-5V1.5' stroke='%23140c26' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cy='5' r='1.5' fill='%23140c26'/%3E%3C/svg%3E"); }
+
+/* A glossy band that crosses rare collectibles every few seconds. */
+.game.r-epic .card-in .art::after, .game.r-legendary .card-in .art::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, .22) 46%, rgba(255, 255, 255, .06) 52%, transparent 60%) no-repeat;
+  background-size: 250% 100%; background-position: 140% 0; }
+
+/* ---- motion ------------------------------------------------------------------------------------------------------ */
+@media (prefers-reduced-motion: no-preference) {
+  .btn { transition: transform .22s var(--spring), box-shadow .18s var(--ease), background .18s, border-color .18s, color .18s; }
+  .btn-primary:hover, .btn.pri:hover { transform: translateY(-2px) scale(1.03); }
+  .btn:active, .btn-primary:active, .btn.pri:active { transform: translateY(2px) scale(.96, .94); transition-duration: .06s; }
+  .btn[disabled], .btn[disabled]:hover, .btn[disabled]:active { transform: none; }
+
+  /* cards spring up with a little tilt; the art leans in */
+  .game { transition: transform .32s var(--spring), filter .2s; }
+  .game:hover { transform: translateY(-6px) rotate(-.6deg) scale(1.015); }
+  .game:active { transform: translateY(-2px) scale(.985); transition-duration: .08s; }
+  .game .art img { transition: transform .5s var(--spring); }
+  .game:hover .art img { transform: scale(1.06); }
+  .game:hover .play-hint { animation: toon-pop .45s var(--spring) both; }
+  .game.r-epic .card-in .art::after, .game.r-legendary .card-in .art::after { animation: gloss 5.5s ease-in-out infinite; }
+  .game.r-epic:hover .card-in .art::after, .game.r-legendary:hover .card-in .art::after { animation: gloss 1s ease-out both; }
+  .game .rar { display: inline-block; transition: transform .3s var(--spring); }
+  .game:hover .rar { transform: scale(1.12) rotate(-3deg); }
+
+  .cart, .mega-i, .since-item, .qband, .kpi { transition: transform .3s var(--spring), border-color .2s, background .2s; }
+  .cart:hover { transform: translateY(-5px) rotate(.8deg); }
+  .cart:hover .cart-art img.c0 { animation: wobble .6s var(--spring); }
+  .mega-i:hover, .since-item:hover { transform: translateX(3px); }
+  .qband:hover { transform: scale(1.01); }
+  .kpi:hover { transform: translateY(-3px); }
+  .feat-dot { transition: transform .25s var(--spring); } .feat-dot:hover { transform: translateY(-3px); } .feat-dot.on { transform: scale(1.06); }
+
+  /* console rows are save slots: they nudge toward you, the thumbnail bobs */
+  .list-row.is-link { transition: transform .25s var(--spring), background .2s, box-shadow .2s; }
+  .list-row.is-link:hover { transform: translateX(4px); }
+  .list-row.is-link:hover .thumb { animation: bob .7s var(--spring); }
+  .stat { transition: transform .28s var(--spring), background .2s; }
+  .stat.is-link:hover { transform: translateY(-3px); }
+  .stat-ico { animation: idle-bob 3.2s ease-in-out infinite; }
+  .stat:nth-child(2) .stat-ico { animation-delay: -.8s; } .stat:nth-child(3) .stat-ico { animation-delay: -1.6s; } .stat:nth-child(4) .stat-ico { animation-delay: -2.4s; }
+  .stat:hover .stat-ico { animation: wobble .6s var(--spring); }
+  .stat-v.counted { animation: score-pop .4s var(--spring); }
+  .badge { transition: transform .25s var(--spring); }
+  .list-row:hover .badge { transform: scale(1.08); }
+
+  /* tabs and segmented controls bounce into place */
+  .tabs a, .seg button, .tl-tabs button, .chip { transition: transform .25s var(--spring), color .2s, background .2s, box-shadow .2s; }
+  .tabs a:active, .seg button:active, .tl-tabs button:active, .chip:active { transform: scale(.92); transition-duration: .06s; }
+  .tabs a.on, .seg button.on, .tl-tabs button.on { animation: toon-pop .35s var(--spring); }
+
+  /* section numbers and page titles pop in like a level card */
+  .sh-n { display: inline-block; animation: toon-pop .5s var(--spring) .1s both; }
+  .page-h h1 { animation: title-in .55s var(--spring) both; }
+
+  /* pages enter like a new screen: up, a touch small, settling with a bounce */
+  .route { animation: screen-in .5s var(--spring) both; }
+  .toast { animation: achieve .5s var(--spring) both; }
+  .toast::before { animation: spin-in .7s var(--spring) .05s both; }
+  .live-dot { animation: live-pulse 1.6s ease-in-out infinite; }
+}
+
+@keyframes toon-pop { 0% { transform: scale(.6); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+@keyframes score-pop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes wobble { 0% { transform: rotate(0); } 25% { transform: rotate(-9deg) scale(1.08); } 55% { transform: rotate(6deg); } 80% { transform: rotate(-3deg); } 100% { transform: rotate(0); } }
+@keyframes bob { 0% { transform: translateY(0); } 40% { transform: translateY(-4px) scale(1.04); } 100% { transform: translateY(0); } }
+@keyframes idle-bob { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-3px) rotate(-4deg); } }
+@keyframes gloss { 0%, 70% { background-position: 140% 0; } 100% { background-position: -60% 0; } }
+@keyframes screen-in { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+@keyframes title-in { from { opacity: 0; transform: translateY(8px) scale(.96); } }
+@keyframes achieve { 0% { opacity: 0; transform: translate(-50%, 24px) scale(.6); } 60% { opacity: 1; transform: translate(-50%, -4px) scale(1.06); } 100% { transform: translate(-50%, 0) scale(1); } }
+@keyframes spin-in { from { transform: scale(0) rotate(-180deg); } }
+@keyframes live-pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.35); opacity: .7; } }
+
+/* A rolling counter keeps the face of the figure it sits in. */
+.count-up { font: inherit !important; letter-spacing: inherit !important; color: inherit !important; text-transform: inherit !important; }

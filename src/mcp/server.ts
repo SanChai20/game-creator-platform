@@ -2,18 +2,17 @@
 // JSON response. No sessions and no server-initiated streams, which every current client supports.
 import { AppError, type Env } from '../env';
 import { userById } from '../auth';
-import { assetText } from '../projects';
 import { getSettings } from '../settings';
-import { TOOLS, type ToolCtx } from './tools';
+import { PLATFORM_GUIDES, TOOLS, WEB_ONLY, guideText, type ToolCtx } from './tools';
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
-const INSTRUCTIONS = `This server lets you build, verify and publish web games for the account that authorized you.
-Call get_started first: it returns the workflow, the three hard rules, and the available guides, kits and templates.
-Typical loop: create_project → put_files / edit_file → check_project → deploy_preview → read the report → fix → deploy_preview → publish.
-Games are plain web pages (index.html + files). The platform injects a global GCP; call GCP.ready() after the first playable frame.
-Guides and kits are optional help. Gameplay, art and rendering are your choice. If you are unsure which rendering approach fits, call recommend_pipeline.`;
+const INSTRUCTIONS = `${WEB_ONLY}
+This server deploys, verifies, publishes and versions web games for the account that authorized you, and hosts their services: player saves, shared game data and leaderboards in the platform database (game_data), and realtime multiplayer rooms (game_room). How you make the game is up to you; the platform does not prescribe engines, renderers or art. find_implementations and get_implementation show how other creators' live games were built when they chose to share it (never their code).
+Call get_started first: it returns the rules a game must meet, the workflow, the account status and the platform services.
+Typical loop: create_project → upload_files (or create_upload_url for big files and folders) → deploy_preview → read the report → fix → deploy_preview → publish.
+A game is index.html plus the files it loads. The platform injects a global GCP; call GCP.ready() after the first playable frame.`;
 
 async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
   const { id, method, params } = msg || {};
@@ -45,26 +44,24 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
         return ok({ content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 1) }], isError: false });
       } catch (e) {
         if (!(e instanceof AppError)) console.error('tool failed', tool.name, e);
-        const text = e instanceof AppError ? `${e.message}${e.hint ? `\nWhat to do: ${e.hint}` : ''}` : `Internal error in ${tool.name}: ${(e as Error).message}. Try again; if it keeps failing, call get_project to see the current state.`;
+        const text = e instanceof AppError ? `${e.message}${e.hint ? `\nWhat to do: ${e.hint}` : ''}` : `Internal error in ${tool.name}: ${(e as Error).message}. Try again; if it keeps failing, call list_projects {project} to see the current state.`;
         return ok({ content: [{ type: 'text', text }], isError: true });
       }
     }
-    case 'resources/list': {
-      const idx = JSON.parse((await assetText(c.env, '/guides/index.json')) || '{"guides":[]}');
-      return ok({ resources: idx.guides.map((g: any) => ({ uri: `gcp://guides/${g.topic}`, name: g.topic, title: g.title, description: g.summary, mimeType: 'text/markdown' })) });
-    }
+    case 'resources/list':
+      return ok({ resources: PLATFORM_GUIDES.map((g) => ({ uri: `gcp://guides/${g.topic}`, name: g.topic, title: g.title, description: g.summary, mimeType: 'text/markdown' })) });
     case 'resources/read': {
       const m = String(params?.uri || '').match(/^gcp:\/\/guides\/([a-z0-9\-]+)$/);
-      const text = m && await assetText(c.env, `/guides/${m[1]}.md`);
-      if (!text) return rpcError(id, -32002, 'Resource not found');
-      return ok({ contents: [{ uri: params.uri, mimeType: 'text/markdown', text: text.replaceAll('{{ORIGIN}}', c.origin) }] });
+      const g = m && await guideText(c.env, c.origin, m[1]);
+      if (!g) return rpcError(id, -32002, 'Resource not found');
+      return ok({ contents: [{ uri: params.uri, mimeType: 'text/markdown', text: g.markdown }] });
     }
     case 'resources/templates/list': return ok({ resourceTemplates: [] });
     case 'prompts/list':
-      return ok({ prompts: [{ name: 'make_a_game', title: 'Make a game', description: 'Build, verify and publish a web game from a short idea.', arguments: [{ name: 'idea', description: 'What the game is about', required: true }] }] });
+      return ok({ prompts: [{ name: 'publish_a_game', title: 'Publish a web game', description: 'Deploy, verify and publish a web game you have made or are making.', arguments: [{ name: 'game', description: 'Which game, or where its files are', required: true }] }] });
     case 'prompts/get':
-      if (params?.name !== 'make_a_game') return rpcError(id, -32602, 'Unknown prompt');
-      return ok({ description: 'Make a game', messages: [{ role: 'user', content: { type: 'text', text: `Make this game on the Game Creator platform and get it verified: ${params?.arguments?.idea || '(ask me for the idea)'}\n\nCall get_started first and follow its workflow. Ask recommend_pipeline which rendering approach fits, start from a template, keep check_project clean, and iterate on deploy_preview until the version is verified. Then tell me where to play the preview before publishing.` } }] });
+      if (params?.name !== 'publish_a_game') return rpcError(id, -32602, 'Unknown prompt');
+      return ok({ description: 'Publish a web game', messages: [{ role: 'user', content: { type: 'text', text: `Put this web game on the platform and get it verified: ${params?.arguments?.game || '(ask me which game)'}\n\nCall get_started first and follow its workflow: create_project, upload the files, and deploy_preview until the version is verified. Then tell me where to play the preview, and publish only when I say so.` } }] });
     case 'logging/setLevel': return ok({});
     default:
       if (method.startsWith('notifications/')) return null;
