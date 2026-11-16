@@ -1,35 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ago, api, artStyle, blurb, clock, count, date, Fail, genreHue, genreName, Link, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, Fail, genreHue, genreName, Link, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
 import { CompatGate, CompatPill, CompatSection, useCompat } from '../compat-ui';
+import { Stage, type StageCtl } from '../player';
 
-/** The play surface: a poster until the player starts, then the game in a frame on its own origin. */
-export function Stage({ poster, seed, url, children, onTrialOver }: { poster: string | null; seed: string; url: string | null; children?: ReactNode; onTrialOver?: () => void }) {
-  const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null);
-  const toggle = useCallback(() => { const el = box.current; if (!el) return; if (document.fullscreenElement) void document.exitFullscreen(); else void el.requestFullscreen?.().catch(() => {}); }, []);
-  useEffect(() => {
-    const f = (e: MessageEvent) => {
-      if (e.source !== frame.current?.contentWindow || !e.data) return;
-      if (e.data.gcp === 'fullscreen') toggle();
-      if (e.data.gcp === 'trial_over') { if (document.fullscreenElement) void document.exitFullscreen(); onTrialOver?.(); }
-    };
-    addEventListener('message', f); return () => removeEventListener('message', f);
-  }, [toggle, onTrialOver]);
-  useEffect(() => { if (url) frame.current?.focus(); }, [url]);
-  return (
-    <div>
-      <div className="stage ink" ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; xr-spatial-tracking" allowFullScreen /> : (
-          <><div className="poster" style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
-        )}
-      </div>
-      {url && <div className="row stage-bar"><span className="mute fs-sm">{t('Click the game to give it keyboard focus.', '点击游戏画面以获取键盘焦点。')}</span><Button size="sm" className="right" onClick={toggle}>{t('Fullscreen', '全屏')}</Button></div>}
-    </div>
-  );
-}
+export { Stage } from '../player';
 
 /** The signed-in player's own progress in this game: what the platform recorded and what the game saved. Never anyone else's. */
 function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
@@ -61,7 +39,7 @@ function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
-  const [url, setUrl] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null);
   const [rating, setRating] = useState(0), [body, setBody] = useState('');
   // Compatibility: this browser checked against the live version's requirements; a failing device is asked before launch.
   const cv = useCompat(data?.compat), [gate, setGate] = useState(false);
@@ -95,7 +73,8 @@ export function Game({ slug }: { slug: string }) {
   const start = () => {
     setGate(false);
     if (!user) return navigate(loginUrl());
-    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST' }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(r.url); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); });
+    stage.current?.enterOnPhone();   // in the click itself, or the browser refuses fullscreen
+    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST' }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(r.url); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -135,7 +114,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage poster={g.cover || g.screenshot} seed={g.slug} url={url} onTrialOver={endTrial}>
+          <Stage ctl={stage} poster={g.cover || g.screenshot} seed={g.slug} url={url} onTrialOver={endTrial} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {gate && cv ? <CompatGate v={cv} onPlay={start} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>

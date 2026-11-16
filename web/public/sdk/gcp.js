@@ -163,17 +163,85 @@
   function lsKey(k) { return 'gcp:' + cfg.gameId + ':' + cfg.env + ':' + (cfg.player && cfg.player.id || 'anon') + ':' + k; }
   var LS = { get: function (k) { try { var v = localStorage.getItem(lsKey(k)); return v == null ? null : JSON.parse(v); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(lsKey(k), JSON.stringify(v)); } catch (e) { /* private mode */ } }, del: function (k) { try { localStorage.removeItem(lsKey(k)); } catch (e) { /* ignore */ } } };
 
+  // Smooth playback of timed samples from one remote sender (GCP.smooth). Samples arrive in bursts; stamping them with
+  // their arrival time turns network jitter into movement jitter, and a fixed small delay runs dry whenever one message is
+  // late. So each sample carries its send time (room messages do this by themselves: the third argument of 'message').
+  // The buffer learns the offset between the sender's clock and ours from the lowest one-way offset seen recently, plays
+  // back about one send interval plus the recent jitter behind the newest sample, nudges its clock at 0.9x..1.1x instead of
+  // jumping, slows down rather than freezing when a message is late, and never goes backwards.
+  var clock = function () { return Math.round(performance.timeOrigin + performance.now()); };
+  function Smooth(o) {
+    o = o || {};
+    this.fixed = typeof o.delay === 'number' ? o.delay : null; this.minDelay = o.minDelay != null ? o.minDelay : 40; this.maxDelay = o.maxDelay != null ? o.maxDelay : 350;
+    this.extrap = o.extrapolate != null ? o.extrapolate : 120; this.size = o.size || 40;
+    this.items = []; this.offs = []; this.base = 0; this.interval = 66; this.jitter = 0; this.delay = this.fixed != null ? this.fixed : 100;
+    this.play = null; this.lastNow = 0; this.lastPush = 0;
+  }
+  Smooth.prototype.clear = function () { this.items.length = 0; this.offs.length = 0; this.play = null; };
+  /** Add a sample. sentAt: the sender's clock (ms) when it was taken, e.g. meta.at from a room message; arrival time if left out. */
+  Smooth.prototype.push = function (v, sentAt, recvAt) {
+    recvAt = recvAt != null ? recvAt : performance.now();
+    if (typeof sentAt !== 'number' || !isFinite(sentAt)) sentAt = recvAt;
+    var I = this.items, prev = I[I.length - 1];
+    if (prev && sentAt <= prev.t) { if (prev.t - sentAt > 5000) this.clear(); else return; }   // duplicate or out of date; a big step back means the sender restarted
+    if (prev && sentAt - prev.t > 3000) this.clear();                                          // a long silence: start over instead of crawling through the gap
+    prev = I[I.length - 1];
+    if (prev) this.interval += (Math.min(sentAt - prev.t, 500) - this.interval) * 0.1;
+    I.push({ t: sentAt, v: v }); if (I.length > this.size) I.shift();
+    this.lastPush = recvAt;
+    var off = recvAt - sentAt, min = Infinity, max = -Infinity, i;
+    this.offs.push({ r: recvAt, o: off });
+    while (this.offs.length > 1 && recvAt - this.offs[0].r > 4000) this.offs.shift();
+    for (i = 0; i < this.offs.length; i++) { if (this.offs[i].o < min) min = this.offs[i].o; if (this.offs[i].o > max) max = this.offs[i].o; }
+    this.base = min; this.jitter = max - min;
+    if (this.fixed == null) {
+      var want = Math.max(this.minDelay, Math.min(this.maxDelay, this.interval * 1.15 + this.jitter + 8));
+      this.delay += (want - this.delay) * (want > this.delay ? 0.25 : 0.03);
+    }
+  };
+  /** Where playback is now: { a, b, k } (two samples and the blend between them, a little above 1 while running ahead), or null before the first sample. */
+  Smooth.prototype.sample = function (t) {
+    var I = this.items, n = I.length; if (!n) return null;
+    t = t != null ? t : performance.now();
+    var target = t - this.base - this.delay, L = I[n - 1];
+    if (this.play == null || Math.abs(target - this.play) > 600) this.play = target;
+    else {
+      var dt = Math.max(0, t - this.lastNow), err = target - this.play, over = this.play - L.t;
+      // past the newest sample (a late message): ease to a stop at `extrapolate` ms ahead instead of freezing and then jumping
+      this.play += dt * (1 + Math.max(-0.1, Math.min(0.1, err / 200))) * (over > 0 ? Math.max(0, 1 - over / this.extrap) : 1);
+    }
+    this.lastNow = t;
+    var p = this.play;
+    if (n === 1 || p <= I[0].t) return { a: I[0].v, b: I[0].v, k: 0 };
+    if (p >= L.t) { var A = I[n - 2], span = Math.max(1, L.t - A.t); return { a: A.v, b: L.v, k: 1 + Math.min(p - L.t, this.extrap, span) / span, ahead: true }; }
+    var lo = 0, hi = n - 1;
+    while (hi - lo > 1) { var m = (lo + hi) >> 1; if (I[m].t <= p) lo = m; else hi = m; }
+    return { a: I[lo].v, b: I[hi].v, k: (p - I[lo].t) / Math.max(1, I[hi].t - I[lo].t) };
+  };
+  /** The blended value now. Numbers, and the number fields of objects and arrays (one level deep), are blended; anything else comes from the newer sample. */
+  Smooth.prototype.value = function (t) {
+    var s = this.sample(t); if (!s) return null;
+    var a = s.a, b = s.b, k = s.k;
+    if (typeof b === 'number') return typeof a === 'number' ? a + (b - a) * k : b;
+    if (!b || typeof b !== 'object') return b;
+    var out = Array.isArray(b) ? b.slice() : Object.assign({}, b);
+    for (var key in b) if (typeof b[key] === 'number' && a && typeof a[key] === 'number') out[key] = a[key] + (b[key] - a[key]) * k;
+    return out;
+  };
+  Object.defineProperty(Smooth.prototype, 'age', { get: function () { return this.items.length ? performance.now() - this.lastPush : Infinity; } });
+  Object.defineProperty(Smooth.prototype, 'last', { get: function () { return this.items.length ? this.items[this.items.length - 1].v : null; } });
+
   function Room(code, opts) {
     var self = this, handlers = {}, ws = null, closed = false, tries = 0;
     this.code = code; this.id = null; this.hostId = null; this.peers = []; this.state = null; this.connected = false;
     var seen = { messages: 0, worldOps: 0, states: 0, closes: 0 };   // what arrived, for the two-player check's report
     (S.rooms = S.rooms || []).push(function () { return { code: code, id: self.id, host: self.hostId, isHost: self.isHost, connected: self.connected, peers: self.peers.map(function (p) { return p.id; }), messages: seen.messages, world_ops: seen.worldOps, states: seen.states, closes: seen.closes }; });
     Object.defineProperty(this, 'isHost', { get: function () { return self.id !== null && self.id === self.hostId; } });
-    function emit(type, a, b) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b); } catch (e) { console.error(e); } }); }
+    function emit(type, a, b, c) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b, c); } catch (e) { console.error(e); } }); }
     this.on = function (type, fn) { (handlers[type] = handlers[type] || []).push(fn); return self; };
     this.off = function (type, fn) { handlers[type] = (handlers[type] || []).filter(function (f) { return f !== fn; }); return self; };
-    /** Send to everyone else, or to one peer id, or to 'host'. */
-    this.send = function (data, to) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(to ? { t: 'msg', to: to, d: data } : { t: 'msg', d: data })); };
+    /** Send to everyone else, or to one peer id, or to 'host'. Each message carries its send time, which receivers get as meta.at. */
+    this.send = function (data, to) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(to ? { t: 'msg', to: to, d: data, at: clock() } : { t: 'msg', d: data, at: clock() })); };
     /** Host only: store a snapshot that late joiners receive in their 'open' event (max 256 KB). */
     this.setState = function (data) { self.state = data; if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'state', d: data })); };
     this.leave = function () { closed = true; if (ws) ws.close(1000); };
@@ -186,7 +254,7 @@
         if (m.t === 'welcome') { tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true; emit('open', { id: m.id, host: self.isHost, peers: m.peers, state: m.state }); }
         else if (m.t === 'join') { self.peers.push(m.peer); emit('join', m.peer); }
         else if (m.t === 'leave') { self.peers = self.peers.filter(function (p) { return p.id !== m.id; }); var was = self.hostId; self.hostId = m.host; emit('leave', m.id); if (was !== m.host) emit('host', m.host); }
-        else if (m.t === 'msg') { seen.messages++; if (m.d && m.d.gcpWorld === 'op') seen.worldOps++; emit('message', m.d, m.from); }
+        else if (m.t === 'msg') { seen.messages++; if (m.d && m.d.gcpWorld === 'op') seen.worldOps++; emit('message', m.d, m.from, { at: typeof m.at === 'number' ? m.at : undefined, received: performance.now() }); }
         else if (m.t === 'state') { seen.states++; self.state = m.d; emit('state', m.d); }
         else if (m.t === 'error') emit('error', new Error(m.message));
       };
@@ -244,6 +312,11 @@
     var run; try { run = Promise.resolve(fn(t, arg)); } catch (e) { run = Promise.reject(e); }
     return Promise.race([limit, run.then(function (v) { return out(true, '', v); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400)); })]);
   }
+  // Display state, sent by the platform page (see GCP.display). The <html> element carries gcp-fullscreen and gcp-touch classes to match.
+  var coarse = false; try { coarse = matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches; } catch (e) { /* old browser */ }
+  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse }, displayFns = [];
+  function markDisplay() { var c = document.documentElement && document.documentElement.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch); }
+  markDisplay();
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
@@ -285,6 +358,10 @@
     },
     /** Realtime room on the platform (Durable Object WebSocket relay). First player in is the host. */
     room: function (code, opts) { return new Room(String(code || 'lobby').slice(0, 40), opts); },
+    /** A playback buffer for one remote stream (a host's snapshots, one player's position): push(value, meta.at) when a message
+        arrives, value() or sample() every frame. Movement comes out smooth on a jittery connection. Options: delay (fixed ms;
+        adaptive when left out), minDelay, maxDelay, extrapolate (ms to keep moving past the newest sample). */
+    smooth: function (opts) { return new Smooth(opts); },
     /** Calls the game's own server code (server/index.js in the bundle) with the player's identity attached. Returns a fetch Response. */
     server: function (path, init) {
       init = init || {}; var h = new Headers(init.headers || {}); if (cfg.token) h.set('x-gcp-token', cfg.token);
@@ -312,7 +389,32 @@
       twoPlayers: q.get('gcp_two') ? { role: q.get('gcp_two') === 'guest' ? 'guest' : 'host', code: String(q.get('gcp_room') || 'VERIFY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'VERIFY' } : null,
       onTwoPlayers: function (fn) { pairFn = typeof fn === 'function' ? fn : null; S.twoPlayers = !!pairFn; },
     },
-    /** Ask the platform page to toggle fullscreen (works inside the play frame). */
-    fullscreen: function () { try { parent.postMessage({ gcp: 'fullscreen' }, '*'); } catch (e) { /* not framed */ } },
+    /** Ask the platform page for fullscreen (works inside the play frame, and on iPhones, where the game is given the
+        whole visible screen instead). No argument toggles; true enters; false leaves. Call it from a tap or key press. */
+    fullscreen: function (on) {
+      var msg = { gcp: 'fullscreen' }; if (on === true || on === false) msg.on = on;
+      if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } return; }
+      var d = document, el = d.documentElement;   // standalone: the page itself
+      if (d.fullscreenElement) { if (on !== true) d.exitFullscreen().catch(function () { }); }
+      else if (on !== false && el.requestFullscreen) el.requestFullscreen().catch(function () { });
+    },
+    /** How the game is shown right now. Kept up to date by the platform page:
+        { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation: 'any' | 'landscape' | 'portrait', touch }.
+        touch is true on phones and tablets (a finger is the main pointer): show on-screen controls then. */
+    display: display,
+    /** fn(display) whenever it changes (entering or leaving fullscreen, for example). */
+    onDisplay: function (fn) { if (typeof fn === 'function') displayFns.push(fn); },
+    /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
+        requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
+        turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
+        (where the platform's small exit-fullscreen button sits on touch screens; 'none' if the game has its own) }. */
+    setDisplay: function (prefs) { prefs = prefs || {}; try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton }, '*'); } catch (e) { /* not framed */ } },
   };
+  window.addEventListener('message', function (e) {
+    var d = e.data; if (e.source !== window.parent || !d || d.gcp !== 'display') return;
+    display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
+    markDisplay();
+    displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
+  });
+  if (window.parent !== window) { try { parent.postMessage({ gcp: 'display_query' }, '*'); } catch (e) { /* not framed */ } }
 })();

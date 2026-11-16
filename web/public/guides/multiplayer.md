@@ -10,7 +10,7 @@ room.on('open', ({ id, host, peers, state }) => { /* connected. state is the las
 room.on('join', (peer) => {});                   // { id, name }
 room.on('leave', (id) => {});
 room.on('host', (hostId) => {});                 // the host left and someone else was promoted
-room.on('message', (data, from) => {});
+room.on('message', (data, from, meta) => {});     // meta.at: the sender's clock (ms) when it sent this, for GCP.smooth
 room.on('state', (data) => {});                  // every time the host calls setState, on every other player; never on the host itself
 room.on('close', (code) => {});                  // reconnects by itself a few times
 
@@ -55,11 +55,42 @@ function update(dt) {
 What makes this hold up:
 
 - **Keep snapshots small.** Round numbers, send only what changes, send static world data once (or better, send the seed and generate it on each client). Ten snapshots a second is enough for most games; twenty for fast action.
-- **Interpolate, do not snap.** Guests render a little in the past, between the two most recent snapshots.
+- **Interpolate, do not snap.** Draw every remote thing a little in the past, between two snapshots, using `GCP.smooth` (below). That goes for the host too: the host draws each guest from that guest's own position messages through a buffer, never by jumping to the newest one.
+- **Send on a steady clock.** Keep the timer's remainder (`t += 1 / hz`, not `t = 1 / hz`), otherwise frame rounding turns 12 Hz into an uneven mix of 10 and 12.
+- **Let players see each other directly.** A guest's position message sent to everyone (no `to`) reaches the other guests in one hop; drawing them from the host's snapshot instead adds a second hop and the host's sampling on top.
 - **Make your own player feel instant.** Move the local player immediately from local input and gently pull towards the host's position when they disagree by more than a small threshold.
 - **The host must keep running.** Browsers stop `requestAnimationFrame` in hidden tabs. `backgroundTicker(fn)` from `@gcp/core.js` keeps the host's simulation stepping while hidden.
 - **Host migration.** The kit stores a snapshot in the room every few seconds. When the host leaves, the new host receives the `host` event and continues from the last snapshot it applied. Keep everything the simulation needs inside the snapshot, or derivable from the seed.
 - **Never trust a guest for anything that matters.** The host decides hits, pickups and scores from inputs. In this model the host player can cheat, which is fine among friends. For ranked play, validate results in server code (see the saves guide).
+
+## Smooth remote movement
+
+Messages do not arrive evenly. Over Wi-Fi and mobile data some are late and then several come at once, so stamping
+snapshots with their *arrival* time, or interpolating with a small fixed delay, makes other players stutter and snap.
+`GCP.smooth()` is a playback buffer for one remote stream that handles this:
+
+```js
+const tracks = new Map();                                    // one buffer per remote player (or one for the host's snapshots)
+room.on('message', (m, from, meta) => {
+  if (m.type !== 'pos') return;
+  if (!tracks.has(from)) tracks.set(from, GCP.smooth());
+  tracks.get(from).push({ x: m.x, z: m.z }, meta.at);        // place it by when it was SENT
+});
+function draw() {
+  for (const [id, buf] of tracks) { const p = buf.value(); if (p) drawPlayer(id, p.x, p.z); }   // every frame
+}
+```
+
+- Every room message carries its send time as `meta.at`; pass it to `push`. Clocks need not agree: the buffer learns
+  the offset between the sender's clock and this one.
+- The delay adapts: about one send interval plus the jitter seen in the last few seconds (40 to 350 ms). Pass
+  `{ delay: 100 }` for a fixed one, or `minDelay` / `maxDelay` to bound it.
+- When a message is late it keeps moving a little along the last motion (`extrapolate`, 120 ms), then slows down
+  rather than freezing and jumping. It never goes backwards.
+- `value()` blends numbers and the number fields of an object; anything else (hp, flags) comes from the newer sample.
+  `sample()` returns `{ a, b, k }` to blend things yourself, such as angles or lists of entities matched by id.
+- `@gcp/net.js`'s `Interpolator` uses it by itself.
+- Your own player never goes through a buffer: move it from local input at once.
 
 ## Turn-based and slow games
 

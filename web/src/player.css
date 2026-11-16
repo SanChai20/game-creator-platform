@@ -1,0 +1,33 @@
+/* The play surface (player.tsx). */
+.stage { background: #000; }
+.stage:fullscreen, .stage.filled { border-radius: 0; }
+.stage:fullscreen, .stage.immersive { aspect-ratio: auto; }
+/* The game is kept clear of notches, rounded corners and the home indicator: an iframe does not get the
+   safe-area insets of the page, so the frame itself sits inside them. */
+.stage.filled iframe { inset: auto; top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px);
+  width: calc(100% - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); height: calc(100% - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+/* iPhone Safari has no element fullscreen: the stage covers the visible viewport instead. */
+.stage.immersive { position: fixed; inset: 0; z-index: calc(var(--z-toast) - 1); width: 100vw; height: 100vh; height: 100dvh; touch-action: none; overscroll-behavior: none; }
+html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none; }
+
+.stage-exit { position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; pointer-events: none; animation: stage-exit-dim 4s ease forwards; }
+.stage-exit:hover, .stage-exit:focus-within { animation: none; opacity: 1; }
+.stage-exit.top-left { top: calc(8px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); }
+.stage-exit.top-right { top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); flex-direction: row-reverse; }
+.stage-exit.bottom-left { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); }
+.stage-exit.bottom-right { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); flex-direction: row-reverse; }
+.stage-exit button { pointer-events: auto; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid rgb(255 255 255 / .28); border-radius: 50%; background: rgb(12 10 18 / .55); color: #fff; cursor: pointer; backdrop-filter: blur(6px); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.stage-exit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.stage-badge { padding: 6px 10px; border-radius: 999px; background: rgb(12 10 18 / .6); color: #fff; font: 700 13px/1 var(--font-mono, ui-monospace, monospace); backdrop-filter: blur(6px); }
+@keyframes stage-exit-dim { 0%, 70% { opacity: 1; } 100% { opacity: .45; } }
+
+.stage-turn { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; text-align: center; color: #fff; background: rgb(12 10 18 / .92); }
+.stage-turn b { font-size: 18px; }
+.stage-turn span { color: rgb(255 255 255 / .7); font-size: 14px; }
+.stage-turn .btn { margin-top: 8px; }
+.turn-ico { width: 64px; height: 64px; display: grid; place-items: center; }
+.turn-ico i { display: block; width: 30px; height: 50px; border: 3px solid currentColor; border-radius: 7px; animation: turn-phone 2.2s ease-in-out infinite; }
+.turn-ico.portrait i { animation-name: turn-phone-up; }
+@keyframes turn-phone { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+@keyframes turn-phone-up { 0%, 25% { transform: rotate(-90deg); } 55%, 100% { transform: rotate(0); } }
+@media (prefers-reduced-motion: reduce) { .turn-ico i { animation: none; } .stage-exit { animation: none; } }

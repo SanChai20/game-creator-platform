@@ -89,3 +89,33 @@ function pad() {
 - Do not depend on hover; touch has none.
 - Start audio from the first key press or tap; see the audio guide.
 - Fullscreen: `GCP.fullscreen()` asks the platform page to toggle it, which works even though the game is framed.
+
+## Phones and tablets
+
+What the platform does for every game, with nothing to write:
+
+- **Fullscreen at Play.** On a phone or tablet the game goes fullscreen as soon as the player presses Play. Android and iPad get the real Fullscreen API. iPhone Safari has none for pages, so the game is given the whole visible screen instead (`GCP.display.mode === 'immersive'`): the page under it cannot scroll or zoom, the back gesture closes it, and the address bar may stay visible.
+- **Orientation.** Declare it (`"orientation": "landscape"` in the requirements, or `GCP.setDisplay({ orientation: 'landscape' })` at run time). The screen is locked to it in fullscreen where the browser allows (Android); elsewhere the player is asked to turn the phone, and can choose to play as it is. Your game must still lay itself out for either shape: a resize can come at any moment.
+- **Safe areas.** In fullscreen the frame sits inside the notch, rounded corners and home indicator, so `env(safe-area-inset-*)` inside the game is usually 0. Keep using it: it costs nothing, and it is right when the game is opened on its own.
+- **An exit button.** A small button in the top-left corner leaves fullscreen on touch screens, since there is no Esc key. It fades after a few seconds. Move it out of your HUD's way with `GCP.setDisplay({ exitButton: 'top-right' })` (or a bottom corner), or hide it with `'none'` if your pause menu offers `GCP.fullscreen(false)`.
+- **The screen stays on** while the game runs.
+
+What the game should do:
+
+```js
+import { createInput } from '@gcp/input.js';
+
+const input = createInput(canvas);                       // floating left-thumb stick and right-side look come with it
+input.bind({ jump: ['Space'], fire: ['KeyJ', 'Mouse0'] }, { touch: { jump: '⤒', fire: '✦' } });   // round buttons, right thumb
+
+GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' });
+GCP.onDisplay((d) => { hud.classList.toggle('compact', d.touch && !d.fullscreen); });
+document.documentElement.classList.contains('gcp-touch');   // also set: gcp-fullscreen
+```
+
+- Decide what to show from `GCP.display.touch` (or `input.touch`), not from the screen width: a small laptop window is not a phone.
+- Thumbs need room. Buttons of 64 px or more, at least 12 px apart, in the bottom corners, away from the screen edge where the system gestures live. One action button is better than four.
+- Never require a key on touch: every menu item, pause, restart and "press any key" needs a tap target. Replace keyboard hints ("Space to dash") with touch ones ("tap ⚡ to dash").
+- Text at 14 px or more, and nothing important in the bottom 20 px of a phone in landscape.
+- Phones are slower. Start at a lower resolution (`devicePixelRatio` capped at 2, or 1.5 for heavy WebGL) and fewer effects, and raise them if the frame rate holds.
+- Pause when `visibilitychange` says the page is hidden: phones switch apps far more often than desktops do.

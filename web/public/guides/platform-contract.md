@@ -48,7 +48,10 @@ GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the 
 GCP.test.onPlaythrough(fn) // fn(t) plays the game to its end; the verifier runs it and reports each step
 GCP.test.twoPlayers       // { role: 'host' | 'guest', code } when the verifier opened this page for the two-player check, else null
 GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages that share one room; return { players, world } (see the multiplayer guide)
-GCP.fullscreen()  // asks the platform page to toggle fullscreen
+GCP.fullscreen()  // asks the platform page to toggle fullscreen (true enters, false leaves); call it from a tap or key press
+GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch }, kept current
+GCP.onDisplay(fn) // fn(display) when it changes
+GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' })   // see "Phones and tablets" in the input guide
 ```
 
 Every call that talks to the platform resolves instead of throwing, so a network hiccup never takes the game down.
@@ -160,6 +163,7 @@ The platform also scans the code at every deploy. With no declaration, the store
 - The page is framed by the platform. `localStorage` works but is per origin: preview and live do not share it. Use `GCP.save` for anything a player would miss: it is private to the signed-in player and this game, and follows them across devices and versions.
 - Files are cached hard because each version is immutable. A new version gets a new address, so you never fight a stale cache.
 - Fullscreen, gamepad, pointer lock and autoplay-after-gesture are allowed in the frame. Camera, microphone and geolocation are not.
+- On phones and tablets, pressing Play puts the game in fullscreen at once: the Fullscreen API on Android and iPad, and the whole visible screen on iPhone, where Safari has no element fullscreen. The frame sits inside the screen's safe area, so nothing the game draws ends up under a notch or the home indicator. The screen is locked to the declared `orientation` where the browser allows it; elsewhere the player is asked to turn the phone. The input guide has the details.
 - Keep the bundle lean. Limits on file count and size are shown by `get_started` under `account.limits`.
 
 ## A complete minimal game
