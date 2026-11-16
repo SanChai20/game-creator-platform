@@ -39,6 +39,7 @@
  "Players per multiplayer room": "每个多人房间的玩家数",
  "Product name": "产品名称",
  "Projects per creator": "每位创作者的项目数",
+ "Require complete game metadata to publish (genre, requirements, languages, players, content descriptors)": "发布时要求完整的游戏元数据（类型、运行要求、语言、玩家人数、内容描述）",
  "Require login to play": "游玩需要登录",
  "Require the automated browser check (otherwise a clean creator preview session also qualifies)": "必须通过自动浏览器检查（关闭后，创作者一次无错误的预览会话也算通过）",
  "Require the fee before creating projects at all": "创建项目前就须支付费用",

@@ -9,7 +9,7 @@ export function Docs() {
   useEffect(() => { const id = location.hash.slice(1); if (id) document.getElementById(id)?.scrollIntoView(); }, []);
   const sections: [string, string][] = [
     ['connect', t('Connect your agent', '连接智能体')], ['prompt', t('Your first prompt', '第一句指令')], ['rules', t('The three rules', '三条规则')],
-    ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['money', t('Pricing and payouts', '费用与收益')],
+    ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['metadata', t('Game metadata', '游戏元数据')], ['money', t('Pricing and payouts', '费用与收益')],
   ];
   return (
     <div className="wrap page">
@@ -76,6 +76,41 @@ const record = await GCP.playRecord();`} />
               t('Players see their own progress on the game page and can reset it. Creators see totals and averages, never one player\'s data.', '玩家可在游戏页面查看并重置自己的进度。创作者只能看到总数与平均值，看不到任何单个玩家的数据。'),
             ]} />
             <p><a className="sig" href="/guides/saves.md" target="_blank" rel="noreferrer">{t('Read the saves guide', '阅读存档指南')} →</a></p>
+          </section>
+
+          <section id="metadata">
+            <h2>{t('Game metadata', '游戏元数据')}</h2>
+            <p>{t('Every game describes itself the same way, so its store page can tell a player before they press Play what kind of game it is, who it is for, whether it runs on their device and whether it speaks their language. Your agent declares it with the game_metadata tool, which lists what is missing, the values each field accepts and a suggestion detected from the code.', '每款游戏都以同样的方式描述自己，让商店页面在玩家点击“游玩”之前就能说明：这是什么类型的游戏、适合谁、能否在他们的设备上运行、是否支持他们的语言。智能体通过 game_metadata 工具声明这些信息，该工具会列出缺少的项目、每个字段可接受的值，以及根据代码检测得出的建议。')}</p>
+            <div className="tbl-wrap"><table className="tbl">
+              <thead><tr><th>{t('Field', '字段')}</th><th>{t('What it says', '说明')}</th><th>{t('To publish', '发布要求')}</th></tr></thead>
+              <tbody>{([
+                ['genre', t('One primary genre from a fixed list of 24, and up to two more', '从 24 种固定类型中选择一个主类型，另可再选两个'), true],
+                ['requirements', t('Graphics, browser features, input, devices and orientation', '图形接口、浏览器功能、操作方式、设备与屏幕方向'), true],
+                ['languages', t('Each language with interface, voice and subtitles, and whether the game follows the platform language', '每种语言的界面、语音与字幕支持，以及游戏是否跟随平台语言'), true],
+                ['players', t('Minimum and maximum players, and the modes: single, co-op or versus, local or online', '最少与最多玩家人数，以及模式：单人、合作或对战，同屏或在线'), true],
+                ['content', t('Violence, blood, language, fear, suggestive themes, drugs, gambling, flashing lights, player chat. The platform works out the age rating from these.', '暴力、血腥、粗口、恐怖、性暗示、药物、赌博、闪烁画面、玩家聊天。平台据此得出年龄分级。'), true],
+                ['session_minutes', t('How long a typical session lasts', '一局通常持续多久'), false],
+                ['progress', t('Cloud saves, leaderboards, offline play', '云存档、排行榜、离线游玩'), false],
+                ['accessibility', t('Remappable controls, colour-blind modes, subtitles and seven more', '可自定义按键、色盲模式、字幕等十项功能'), false],
+                ['listing_translations', t('The title, tagline, description and controls in the platform\'s other languages', '标题、简介、描述与操作说明在平台其他语言中的翻译'), false],
+              ] as [string, string, boolean][]).map(([k, d, req]) => <tr key={k}><td><code>{k}</code></td><td>{d}</td><td>{req ? t('Required', '必填') : t('Recommended', '建议填写')}</td></tr>)}</tbody>
+            </table></div>
+            <Code text={`// gcp.json, frozen with each version
+{
+  "requirements": { "graphics": "webgl2", "input": ["keyboard", "touch"], "devices": ["desktop", "mobile"] },
+  "languages": { "default": "en", "supported": [{ "code": "en" }, { "code": "ja", "subtitles": true }], "follows_platform": true },
+  "players": { "min": 1, "max": 4, "modes": ["single", "coop-online"] },
+  "content": { "violence": "cartoon", "flashing_lights": false },
+  "session_minutes": 10,
+  "progress": { "cloud_saves": true, "leaderboards": true },
+  "accessibility": ["pause-anytime", "remappable-controls"]
+}`} />
+            <Ticks items={[
+              t('Genre and translated listings belong to the project and apply at once. Everything in gcp.json belongs to one version, so a rollback brings back the metadata that matched that code.', '类型与翻译后的商品信息属于项目，立即生效。gcp.json 中的内容属于单个版本，因此回滚时会一并恢复与该代码相符的元数据。'),
+              t('Publishing is refused until the required fields are on record. Rolling back is never blocked.', '在必填字段齐全之前，发布会被拒绝。回滚永远不受影响。'),
+              t('The platform scans the code at every deploy. Anything the declaration leaves out is shown as detected, and anything that disagrees with the code is reported to your agent.', '平台在每次部署时都会扫描代码。声明中缺少的内容会以“检测得出”的形式显示，与代码不符的地方会报告给你的智能体。'),
+            ]} />
+            <p><a className="sig" href="/guides/game-metadata.md" target="_blank" rel="noreferrer">{t('Read the full metadata specification', '阅读完整的元数据规范')} →</a></p>
           </section>
 
           <section id="money">

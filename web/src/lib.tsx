@@ -166,7 +166,24 @@ export function genreHue(tag: string) {
   let h = 2166136261; for (let i = 0; i < tag.length; i++) { h ^= tag.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0) % 360;
 }
-export const genreName = (tag: string) => tag ? tag.charAt(0).toUpperCase() + tag.slice(1).replace(/-/g, ' ') : '';
+/** A genre's name: the platform genres are translated, free tags are shown as written. */
+export const genreName = (tag: string): string => {
+  if (!tag) return '';
+  const known: Record<string, () => string> = {
+    action: () => t('Action', '动作'), adventure: () => t('Adventure', '冒险'), arcade: () => t('Arcade', '街机'), board: () => t('Board', '桌游'), card: () => t('Card', '卡牌'),
+    casual: () => t('Casual', '休闲'), fighting: () => t('Fighting', '格斗'), idle: () => t('Idle', '放置'), music: () => t('Music and rhythm', '音乐节奏'), platformer: () => t('Platformer', '平台跳跃'),
+    puzzle: () => t('Puzzle', '解谜'), racing: () => t('Racing', '竞速'), rpg: () => t('RPG', '角色扮演'), roguelike: () => t('Roguelike', 'Roguelike'), sandbox: () => t('Sandbox', '沙盒'),
+    shooter: () => t('Shooter', '射击'), simulation: () => t('Simulation', '模拟'), sports: () => t('Sports', '体育'), strategy: () => t('Strategy', '策略'), survival: () => t('Survival', '生存'),
+    'tower-defense': () => t('Tower defense', '塔防'), word: () => t('Word and trivia', '文字与问答'), horror: () => t('Horror', '恐怖'), educational: () => t('Educational', '教育'),
+  };
+  return known[tag]?.() ?? tag.charAt(0).toUpperCase() + tag.slice(1).replace(/-/g, ' ');
+};
+
+/** A listing field in the viewer's language when the creator translated the listing, otherwise as written. */
+export function local<K extends 'title' | 'tagline' | 'description' | 'controls'>(g: { [k in K]?: string | null } & { i18n?: Record<string, Partial<Record<string, string>>>; listing_i18n?: Record<string, Partial<Record<string, string>>> }, k: K): string {
+  const tr = (g.listing_i18n || g.i18n)?.[lang]?.[k];
+  return tr || String(g[k] ?? '');
+}
 
 /** What players think, in a word, from the average rating and how many ratings there are. */
 export function verdict(g: Pick<GameCard, 'rating' | 'rating_count'>): { word: string; tone: 'top' | 'good' | 'mid' | 'low' | 'none' } {
@@ -195,13 +212,13 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
   return (
     <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`} style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 350 } as CSSProperties}>
       <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
-        {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
+        {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{local(g, 'title')}</div>}
         {fresh ? <span className="stick">{t('New', '新上架')}</span> : g.featured ? <span className="stick alt">{t('Featured', '精选')}</span> : null}
         {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
         {!!trial && <span className="art-trial">{trialLabel(trial, true)}</span>}
       </div>
       <div className="game-b">
-        <h3 className="clip">{g.title}</h3>
+        <h3 className="clip">{local(g, 'title')}</h3>
         <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
         <div className="meta">
           {rar !== 'common' && <span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>}

@@ -323,6 +323,9 @@
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
+    /** The player's platform language as a BCP 47 tag (en, zh, zh-TW, ja, ko, es), from ?gcp_lang or the browser. A game that
+        declares languages.follows_platform in gcp.json opens in this language when it has it, and otherwise in its default. */
+    lang: String(q.get('gcp_lang') || (navigator.language || 'en')).slice(0, 20),
     /** Loading progress, 0..1. Purely informational: shown in verification reports. */
     progress: function (f, label) { P.progress++; S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); },
     /** Call once when the first playable frame is on screen. Required. */

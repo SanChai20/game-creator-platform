@@ -100,15 +100,15 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 18, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 19, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
-  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 3 && started.services.multiplayer && started.account && started.guides.length === 4 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
+  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 3 && started.services.multiplayer && started.account && started.guides.length === 5 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
   assert.ok(!JSON.stringify(started).match(/design_scene|list_blocks|recommend_pipeline|craft score/), 'get_started must not teach how to make a game');
-  for (const topic of ['contract', 'versions', 'saves', 'multiplayer']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
-  assert.equal((await rpc('resources/list')).resources.length, 4);
-  ok(`MCP: initialize says web games only, ${tools.length} tools, get_started and its 4 platform guides; bad token gets 401`);
+  for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
+  assert.equal((await rpc('resources/list')).resources.length, 5);
+  ok(`MCP: initialize says web games only, ${tools.length} tools, get_started and its 5 platform guides; bad token gets 401`);
 
   // a project made from one of the platform's starter folders, uploaded the way an agent uploads its own files
   const tplDir = new URL('../web/public/templates/', import.meta.url), tplIndex = JSON.parse(readFileSync(new URL('index.json', tplDir), 'utf8'));
@@ -121,6 +121,11 @@ async function main() {
     }
     await tool('upload_files', { project: p.project, files });
     return p;
+  };
+  // the store metadata publishing needs, declared the way an agent follows the checklist: detected suggestions confirmed, the rest answered
+  const declareMeta = async (call, project, extra = {}) => {
+    const chk = await call('game_metadata', { project }), step = (f) => chk.checklist.find((x) => x.field === f);
+    return call('game_metadata', { project, action: 'declare', requirements: step('requirements').suggestion, languages: step('languages').suggestion, players: step('players').suggestion, content: {}, ...extra });
   };
 
   // web games only: programs and archives are refused whatever their name, and so are pages that lead to a download, a store or another site
@@ -170,6 +175,7 @@ async function main() {
   const projects = {};
   for (const t of ['blank', 'three-blank', 'canvas2d-arcade', 'three-explorer']) {
     const p = await fromTemplate(t, { title: `${t} ${run}`, tagline: 'An e2e game', tags: ['test', t] });
+    if (t !== 'canvas2d-arcade') await declareMeta(tool, p.project, { genre: t === 'three-explorer' ? 'adventure' : 'casual' });   // the arcade declares its own below
     const c = await tool('deploy_preview', { project: p.project, dry_run: true });
     assert.equal(c.ok, true, c.errors.join('\n'));
     let d = await tool('deploy_preview', { project: p.project, note: 'first' });
@@ -245,8 +251,15 @@ async function main() {
   assert.ok(list.games.some((g) => g.id === pid && g.cover));
   const slug = list.games.find((g) => g.id === pid).slug;
   const gp = must(await B.get(`/api/games/${slug}`));
-  assert.ok(gp.compat && gp.compat.declared === false && gp.compat.requirements.graphics === 'webgl2' && gp.compat.download_bytes > 0, JSON.stringify(gp.compat));
-  ok('published; visible in the marketplace with a cover and its detected compatibility');
+  assert.ok(gp.compat && gp.compat.declared === true && gp.compat.requirements.graphics === 'webgl2' && gp.compat.download_bytes > 0, JSON.stringify(gp.compat));
+  assert.ok(gp.meta && gp.meta.rating.age === 3 && gp.meta.players.max === 1 && gp.meta.languages_declared && gp.meta.languages.supported.length >= 1 && gp.game.tags[0] === 'adventure', JSON.stringify(gp.meta));
+  // a translated listing is served with the game and its card
+  await tool('game_metadata', { project: pid, action: 'declare', listing_translations: { ja: { title: 'シャード島', tagline: '島のかけらを集めよう' } } });
+  const gpj = must(await B.get(`/api/games/${slug}`));
+  assert.equal(gpj.game.listing_i18n.ja.title, 'シャード島');
+  assert.equal(must(await B.get('/api/games')).games.find((g) => g.id === pid).i18n.ja.tagline, '島のかけらを集めよう');
+  assert.equal((await rpc('tools/call', { name: 'game_metadata', arguments: { project: pid, action: 'declare', listing_translations: { fr: { title: 'x' } } } })).isError, true);
+  ok('published; visible in the marketplace with a cover, its declared requirements, metadata (age 3+, players, languages, genre) and a Japanese listing');
 
   // play: login required, session token, document gated, play time counted, review gated on play
   assert.equal((await client().post(`/api/games/${slug}/play`)).status, 401);
@@ -509,6 +522,18 @@ async function main() {
   const ov = await waitV(tool, orig.project, await tool('deploy_preview', { project: orig.project, note: 'original' }));
   assert.equal(ov.status, 'verified', JSON.stringify(ov.report, null, 1).slice(0, 1500));
   assert.ok(ov.report.checks.find((c) => c.id === 'original').ok && ov.report.checks.find((c) => c.id === 'is_game').ok, JSON.stringify(ov.report.checks));
+  // publishing is refused until the store metadata is complete; the checklist walks through it, and the next version publishes
+  const refusedMeta = await rpc('tools/call', { name: 'publish', arguments: { project: orig.project } });
+  assert.ok(refusedMeta.isError && /store metadata is complete/.test(refusedMeta.content[0].text) && /languages/.test(refusedMeta.content[0].text) && !/Missing: genre/.test(refusedMeta.content[0].text), refusedMeta.content[0].text.slice(0, 800));
+  const mchk = await tool('game_metadata', { project: orig.project });
+  assert.equal(mchk.checklist.length, 10);
+  assert.deepEqual(mchk.checklist.filter((x) => x.required && x.status === 'missing').map((x) => x.field), ['requirements', 'languages', 'players', 'content']);
+  assert.ok(mchk.checklist.every((x) => x.status === 'done' || (x.call && x.ask && x.allowed)), JSON.stringify(mchk.checklist).slice(0, 800));
+  assert.equal((await rpc('tools/call', { name: 'game_metadata', arguments: { project: orig.project, action: 'declare', players: { min: 0, max: 1, modes: ['solo'] }, content: { violence: 'extreme' } } })).isError, true);
+  const decl = await declareMeta(tool, orig.project, { content: { violence: 'cartoon' }, session_minutes: 5, accessibility: ['pause-anytime'] });
+  assert.ok(decl, JSON.stringify(decl).slice(0, 400));
+  const ov2 = await waitV(tool, orig.project, await tool('deploy_preview', { project: orig.project, note: 'with metadata' }));
+  assert.equal(ov2.status, 'verified', JSON.stringify(ov2.report?.checks || ov2).slice(0, 800));
   assert.equal((await tool('publish', { project: orig.project })).live, true);
   const origSlug = (await tool('list_projects', { project: orig.project })).slug;
   const renamed = fix('game.js').replace(/\b(tug|comets|debris|herded|hull|corral|steer|advance|paint|newRound|chance|pen|stars|flash|held)\b/g, (w) => 'my' + w[0].toUpperCase() + w.slice(1)).replace(/^\s*\/\/.*$/gm, '').replace(/0\.(\d)\b/g, '0.$15');

@@ -35,6 +35,7 @@ export const SETTING_DEFS = {
   verify_playthrough_s: { v: 30, type: 'int', group: 'Verification', label: "Seconds a game's own play-through script may take" },
   craft_target: { v: 75, type: 'int', group: 'Verification', label: 'Craft score (0 to 100) agents are told to reach before calling a game finished; publishing never depends on it', public: true },
   verify_browser_required: { v: true, type: 'bool', group: 'Verification', label: 'Require the automated browser check (otherwise a clean creator preview session also qualifies)' },
+  metadata_required: { v: true, type: 'bool', group: 'Verification', label: 'Require complete game metadata to publish (genre, requirements, languages, players, content descriptors)' },
   verify_human_min_seconds: { v: 20, type: 'int', group: 'Verification', label: 'Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it' },
 
   bundle_max_files: { v: 300, type: 'int', group: 'Limits', label: 'Files per game bundle', public: true },

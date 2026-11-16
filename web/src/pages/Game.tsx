@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ago, api, blurb, clock, count, date, Fail, genreHue, genreName, Link, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
 import { CompatGate, CompatPill, CompatSection, useCompat } from '../compat-ui';
 import { Stage, type StageCtl } from '../player';
+import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
+import type { Lang } from '../lib';
 
 export { Stage } from '../player';
 
@@ -35,6 +37,9 @@ function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
     </Card>
   );
 }
+
+/** The play URL with the viewer's platform language, read by the SDK as GCP.lang. */
+const withLang = (u: string) => { try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); return x.toString(); } catch { return u; } };
 
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config } = useApp(), { busy, act } = useAct();
@@ -74,7 +79,7 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user) return navigate(loginUrl());
     stage.current?.enterOnPhone();   // in the click itself, or the browser refuses fullscreen
-    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST' }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(r.url); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST' }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -84,6 +89,8 @@ export function Game({ slug }: { slug: string }) {
   const total = data.rating_dist.reduce((a: number, b: number) => a + b, 0);
   const canReview = !!user && !data.is_owner && (data.played || !config.settings.review_requires_play);
 
+  const meta = data.meta as GameMeta | null | undefined, listings = Object.keys(g.listing_i18n || {}) as Lang[];
+  const title = local(g, 'title'), tagline = blurb({ title, tagline: local(g, 'tagline') }), description = local(g, 'description'), controls = local(g, 'controls');
   const genre = g.tags?.[0] as string | undefined, R = RARITY[rarity(g)], h = genre ? genreHue(genre) : 350;
   const tryLabel = fresh || !user ? t('Try free · {minutes} min', '免费试玩 · {minutes} 分钟', { minutes: trial?.minutes ?? 0 }) : t('Continue trial · {left} min left', '继续试玩 · 剩 {left} 分钟', { left: leftMin });
   const toStage = () => { play(); document.querySelector('.stage')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
@@ -97,11 +104,11 @@ export function Game({ slug }: { slug: string }) {
         <nav className="crumbs" aria-label={t('Breadcrumb', '导航路径')}>
           <Link to="/">{t('Store', '商店')}</Link><i>/</i>
           {genre && <><Link to={`/c/${encodeURIComponent(genre)}`}>{genreName(genre)}</Link><i>/</i></>}
-          <span className="clip">{g.title}</span>
+          <span className="clip">{title}</span>
         </nav>
         <header className="gp-head">
-          <div className="grow"><h1>{g.title}</h1>{blurb(g) && <p className="lede">{blurb(g)}</p>}</div>
-          <div className="gp-head-r">{rarity(g) !== 'common' && <span className="rar-pill" title={rarityHint()}>{R.name()}</span>}{!!g.playing && <span className="live-pill big"><i className="live-dot" aria-hidden="true" />{num(g.playing)} {t('playing now', '人正在玩')}</span>}</div>
+          <div className="grow"><h1>{title}</h1>{tagline && <p className="lede">{tagline}</p>}</div>
+          <div className="gp-head-r">{meta?.rating && <a href="#at-a-glance" className="age-link"><AgeBadge age={meta.rating.age} /></a>}{rarity(g) !== 'common' && <span className="rar-pill" title={rarityHint()}>{R.name()}</span>}{!!g.playing && <span className="live-pill big"><i className="live-dot" aria-hidden="true" />{num(g.playing)} {t('playing now', '人正在玩')}</span>}</div>
         </header>
 
         {url && trialEnd !== null && trial && (
@@ -129,15 +136,18 @@ export function Game({ slug }: { slug: string }) {
           <aside className="gp-cap">
             {live ? (
               <div className="gp-buy">
-                <span className="gp-buy-h">{locked ? t('Buy {title}', '购买 {title}', { title: g.title }) : t('Play {title}', '游玩 {title}', { title: g.title })}</span>
+                <span className="gp-buy-h">{locked ? t('Buy {title}', '购买 {title}', { title }) : t('Play {title}', '游玩 {title}', { title })}</span>
                 <div className="gp-price-row"><b className="gp-price">{price(g.price_cents)}</b>{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 <div className="gp-buy-act">{cta}</div>
                 <p className="gp-buy-note">{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
                 {data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}
+                {meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}
               </div>
             ) : <div className="gp-buy"><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="gp-buy-note">{t('This game is not live right now.', '该游戏目前未上线。')}</p></div>}
             <dl className="gp-facts">
               <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
+              {meta?.rating && <div><dt>{t('Age rating', '年龄分级')}</dt><dd>{ageLabel(meta.rating.age)}</dd></div>}
+              {meta?.players && <div><dt>{t('Players', '玩家')}</dt><dd>{playersText(meta.players)}</dd></div>}
               <div><dt>{t('Released', '发布')}</dt><dd>{date(g.published_at)}</dd></div>
               <div><dt>{t('Creator', '创作者')}</dt><dd><Link to={`/browse?by=${encodeURIComponent(g.owner_id)}&who=${encodeURIComponent(g.author)}`} className="sig">{g.author}</Link></dd></div>
             </dl>
@@ -150,15 +160,17 @@ export function Game({ slug }: { slug: string }) {
 
         <div className="gp">
           <div className="stack xl">
-            {(g.description || g.controls) && (
+            {(description || controls) && (
               <section className="stack l">
                 <SectionHead title={t('About this game', '关于这款游戏')} />
-                {g.description && <div className="prose">{g.description}</div>}
-                {g.controls && <div className="gp-controls"><span className="eyebrow">{t('Controls', '操作方式')}</span><div className="prose">{g.controls}</div></div>}
+                {description && <div className="prose">{description}</div>}
+                {controls && <div className="gp-controls"><span className="eyebrow">{t('Controls', '操作方式')}</span><div className="prose">{controls}</div></div>}
               </section>
             )}
 
+            {meta && <Glance meta={meta} tags={g.tags} />}
             {data.compat && <CompatSection c={data.compat} v={cv} />}
+            {meta && <LanguagesSection l={meta.languages} declared={meta.languages_declared} listings={listings} />}
 
             <section className="stack l">
               <SectionHead title={t('Ratings and reviews', '评分与评价')} note={g.rating_count ? <Verdict g={g} full /> : undefined} />
@@ -195,6 +207,7 @@ export function Game({ slug }: { slug: string }) {
                 [t('Version', '版本'), <span className="mono">v{g.version ?? '—'}</span>],
                 [t('Updated', '更新于'), date(g.updated_at)],
                 [t('Released', '发布于'), date(g.published_at)],
+                ...(meta ? [[t('Languages', '语言'), <a href="#languages" className="sig">{meta.languages.supported.length === 1 ? t('1 language', '1 种语言') : t('{n} languages', '{n} 种语言', { n: meta.languages.supported.length })}</a>] as [string, ReactNode]] : []),
                 [t('Runs on', '运行平台'), data.compat ? <a href="#compatibility" className="sig">{t('See compatibility', '查看兼容性')}</a> : t('Any modern browser', '任意现代浏览器')],
               ]} />
             </Card>
