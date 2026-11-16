@@ -64,14 +64,17 @@ Every call that talks to the platform resolves instead of throwing, so a network
 | --- | --- |
 | deployed | The Worker answers and serves this exact version. |
 | boots | `GCP.ready()` is called within the time limit and `GCP.fatal()` is not. |
-| renders | Frames keep being drawn for a few seconds after ready. |
+| renders | Frames keep being drawn for a few seconds after ready. A page that never asks for an animation frame (cards, a board or text redrawn when the player acts) skips this and is judged by `responds`. |
 | picture | A screenshot is not blank or a single flat colour. |
 | playthrough | Only if the game registered one: its own play-through script finished without failing. |
 | input | After key presses, clicks, drags and touches, frames are still being drawn. A game that restarts by reloading the page (a "Play again" button) passes as long as it boots again. |
+| responds | Something on screen or in the page changes while the game runs and is played. A still picture fails. |
+| conduct | The page stays on the game: it does not leave for another site, start downloads, open more than one window or pile up dialogs. |
 | files | Every file the page asked for was served. |
 | clean | No uncaught errors and no unhandled promise rejections. |
 | original | Once the checks above pass: the game is not a copy of another creator's live game. Code everyone starts from (platform templates, kits, libraries such as three.js) is ignored, so building on them is fine. |
 | is_game | Once the checks above pass: it is a game the player acts on, not a page, a form or a link to somewhere else. |
+| content | Once the checks above pass: no sexual content, hate, scams or phishing, and no abusive code (miners, forms that send passwords away, background workers talking to outside servers). Violence, horror and dark themes in games are fine. |
 
 The browser that runs the check has a software GPU. It is slow, so the frame count needed is low, but a scene that takes ten seconds per frame will fail. If your game has a menu, register a way past it so the check sees real play:
 

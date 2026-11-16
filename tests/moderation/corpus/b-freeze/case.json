@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "broken:freezes", "gate": "browser", "owner": "b7", "listing": { "title": "Untitled Game", "tagline": "A fun game.", "description": "Play now.", "tags": ["arcade"] }, "why": "The loop stops after its first second: a bug that freezes the game." }

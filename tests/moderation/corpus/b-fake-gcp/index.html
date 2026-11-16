@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Speed Racer X</title><style>body{background:#222;color:#eee;font:22px sans-serif;padding:40px}</style></head><body>
+<h1>Speed Racer X</h1><p>Coming soon. Follow us for updates on the fastest racing game ever made!</p><button onclick="this.textContent='Thanks!'">Notify me</button>
+<script>
+const S = window.__GCP;
+S.ready = true; S.readyAt = S.boot + 400; S.progress = 1;
+setInterval(() => { S.frames += 6; }, 100);
+try { GCP.ready(); } catch (e) {}
+S.runPlaythrough = async () => ({ ran: true, ok: true, error: '', steps: ['start race', 'finish lap', 'win'], ms: 1500, frames: 90, result: null });
+</script></body></html>

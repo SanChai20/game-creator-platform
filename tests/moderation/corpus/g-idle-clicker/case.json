@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:dom-idle", "owner": "ivy",
+  "listing": { "title": "Bakery Tycoon", "tagline": "Bake bread, hire bakers, open shops.", "description": "An idle clicker. Knead dough by clicking, then buy ovens, bakers and shops that bake for you. Saves your progress.", "tags": ["idle", "clicker", "incremental"] },
+  "why": "An idle clicker made of DOM buttons that updates on a timer." }

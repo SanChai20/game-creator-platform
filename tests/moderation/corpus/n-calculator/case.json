@@ -1,0 +1,3 @@
+{ "expect": "block", "kind": "not-game:tool-on-canvas", "gate": "is_game", "owner": "spam4",
+  "listing": { "title": "Loan Calculator Pro", "tagline": "Work out monthly repayments in seconds.", "description": "A mortgage and loan repayment calculator with an amortisation chart.", "tags": ["tool", "finance"] },
+  "why": "A finance tool drawn on a canvas in an animation loop: canvas + loop + input, but not a game." }

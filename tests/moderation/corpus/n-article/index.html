@@ -1,0 +1,15 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>10 Tips to Win at Chess</title>
+<style>body{margin:0;font:18px/1.7 Georgia,serif;color:#222}canvas{width:100%;height:160px;display:block}article{max-width:700px;margin:20px auto;padding:0 16px}button{margin-right:8px}</style></head>
+<body><canvas id="hdr" width="1200" height="160"></canvas><article><h1>10 Tips to Win at Chess</h1>
+<p>Chess rewards patience. Here are ten habits that strong players share, from the first move to the last.</p>
+<h2>1. Control the centre</h2><p>Pawns on e4 and d4 give your pieces room. Knights before bishops, and castle early.</p>
+<h2>2. Develop every piece</h2><p>Each move in the opening should bring a new piece into play. Do not move the same piece twice without a reason.</p>
+<h2>3. Look for checks, captures and threats</h2><p>Before every move, list your opponent's forcing moves, then your own.</p>
+<h2>4. Trade when ahead</h2><p>When you are up material, simplify. Every trade brings you closer to a winning endgame.</p>
+<p>Want more? Subscribe to our newsletter for weekly tips.</p>
+<button onclick="navigator.clipboard && navigator.clipboard.writeText(location.href)">Copy link</button><button>Share on social</button><button>Subscribe</button></article>
+<script>
+const c = document.getElementById('hdr').getContext('2d');
+(function f(t) { c.fillStyle = '#111'; c.fillRect(0, 0, 1200, 160); for (let i = 0; i < 24; i++) { c.fillStyle = (i + Math.floor(t / 600)) % 2 ? '#eee' : '#555'; c.fillRect(i * 50, 55, 50, 50); } requestAnimationFrame(f); })(0);
+GCP.ready();
+</script></body></html>

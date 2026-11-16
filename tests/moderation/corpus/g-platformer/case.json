@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:canvas2d", "live": true, "owner": "ana",
+  "listing": { "title": "Moss Hopper", "tagline": "Hop across mossy ledges and grab every spore.", "description": "A small side-scrolling platformer. Run, jump over spikes and collect glowing spores before the timer runs out. Three hand-made levels.", "tags": ["platformer", "2d", "pixel"] },
+  "why": "Ordinary 2D canvas platformer with sprite sheets." }

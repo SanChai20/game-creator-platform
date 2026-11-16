@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "broken:missing-file", "gate": "static", "owner": "b4", "listing": { "title": "Untitled Game", "tagline": "A fun game.", "description": "Play now.", "tags": ["arcade"] }, "why": "index.html loads a script that was never uploaded." }

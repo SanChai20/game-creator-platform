@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:web-worker-cpu", "owner": "wil",
+  "listing": { "title": "Ant Colony", "tagline": "Guide a colony of a thousand ants.", "description": "A colony simulation: place food and walls and watch a thousand ants find paths. Pathfinding runs in a background worker.", "tags": ["simulation", "sandbox", "ants"] },
+  "why": "A game that runs heavy computation in a Web Worker: must not look like a crypto-miner." }

@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Crypto Mining Simulator</title>
+<style>body{margin:0;background:#0b0e11;color:#f0b90b;font-family:sans-serif;text-align:center;padding-top:60px}a,button{display:inline-block;margin:12px;padding:14px 30px;background:#f0b90b;color:#000;border-radius:8px;text-decoration:none;font-weight:bold;border:0}</style></head>
+<body><h1>JOIN 50,000 MEMBERS EARNING DAILY</h1><p>Our channel posts airdrops, signals and giveaways every day.</p>
+<a href="https://t.me/example_airdrops" target="_blank">Join on Telegram</a><button id="b">Claim bonus</button><p id="c"></p>
+<script>
+let n = 0; document.getElementById('b').onclick = () => { document.getElementById('c').textContent = 'Bonus reserved! Join the channel to claim.'; };
+requestAnimationFrame(function f() { n++; requestAnimationFrame(f); });
+GCP.ready();
+GCP.test.onPlaythrough(async (t) => { t.step('claim the bonus'); document.getElementById('b').click(); t.assert(true, 'done'); });
+</script></body></html>

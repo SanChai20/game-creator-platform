@@ -58,7 +58,7 @@
  "Any price": "모든 가격",
  "Any rating": "모든 평점",
  "Art": "아트",
- "Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)": "애매한 경우에만 Workers AI에 문의(비슷하지만 명확한 복제는 아닌 경우, 게임이 아닐 수도 있는 인터랙티브 페이지)",
+ "Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game": "경계 사례(비슷하지만 명백한 복제는 아님)와 게임 엔진으로 만들지 않은 각 업로드가 게임인지 Workers AI에 묻기",
  "Asking for a refund": "환불 요청",
  "At least 8 characters.": "8자 이상.",
  "Audio": "오디오",
@@ -942,5 +942,10 @@
  "1 minute before buying": "구매 전 1분 플레이 가능",
  "Sales clear after 1 day": "판매 수익은 1일 후 확정됩니다",
  "1 game you haven't opened yet": "아직 열어 보지 않은 게임 1개",
- "Games you have not opened yet, one at a time.": "아직 열어 보지 않은 게임을 하나씩 보여 줍니다."
+ "Games you have not opened yet, one at a time.": "아직 열어 보지 않은 게임을 하나씩 보여 줍니다.",
+ "Block publishing a version the content check refuses (off: report it as a warning only)": "콘텐츠 검사가 거부한 버전의 게시 차단(끄기: 경고로만 보고)",
+ "Check each verified version for harmful content (sexual content, hate, scams, phishing) and abusive code (miners, password forms, hidden servers)": "검증된 각 버전에 유해 콘텐츠(성적 콘텐츠, 혐오, 사기, 피싱)와 악용 코드(채굴기, 비밀번호 양식, 숨겨진 서버)가 있는지 확인",
+ "Content and conduct": "콘텐츠 및 동작",
+ "How likely (percent) the content review must find a version harmful to refuse it": "거부하려면 콘텐츠 검토가 버전을 유해하다고 판단해야 하는 확률(퍼센트)",
+ "Most Workers AI content reviews per day (Clef with the screenshot, about $0.0003 each; past the cap a small rule set decides)": "하루 최대 Workers AI 콘텐츠 검토 횟수(스크린샷 포함 Clef, 회당 약 $0.0003; 상한을 넘으면 작은 규칙 집합이 결정)"
 }

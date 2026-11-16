@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:multiplayer-canvas", "owner": "max",
+  "listing": { "title": "Firefly Tag", "tagline": "Online tag in a meadow at dusk.", "description": "A small online tag game for 2 to 8 players: whoever glows is it. Tag someone to pass the glow. Join with a room code.", "tags": ["multiplayer", "online", "tag"] },
+  "why": "Online multiplayer through GCP.room, with the two-player check." }

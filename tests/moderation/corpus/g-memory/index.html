@@ -1,0 +1,55 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Tide Pool Pairs</title>
+<style>
+body{margin:0;min-height:100vh;background:linear-gradient(#0c4a6e,#082f49);font-family:system-ui,sans-serif;color:#e0f2fe;display:flex;flex-direction:column;align-items:center}
+h1{margin:16px 0 4px;font-size:26px}#info{margin-bottom:12px;opacity:.85}
+#board{display:grid;gap:10px;grid-template-columns:repeat(4,80px)}
+.card{width:80px;height:96px;border-radius:12px;border:0;font-size:40px;cursor:pointer;background:#38bdf8;color:transparent;transition:transform .25s,background .25s}
+.card.up,.card.done{background:#f0f9ff;color:#0c4a6e;transform:rotateY(180deg)}.card.done{opacity:.6}
+.sizes button{margin:12px 4px;padding:8px 14px;border-radius:8px;border:0;background:#0ea5e9;color:#fff}
+</style></head>
+<body><h1>Tide Pool Pairs</h1><div id="info"></div><div id="board"></div>
+<div class="sizes"><button data-n="4">Small</button><button data-n="6">Medium</button><button data-n="8">Large</button></div>
+<script>
+const CREATURES = ['🐚', '🦀', '🐙', '🐠', '🦐', '🐡', '🦑', '🐢', '🪼', '🐬', '🦞', '🐳'];
+const board = document.getElementById('board'), info = document.getElementById('info');
+let deck = [], first = null, second = null, lock = false, moves = 0, matched = 0;
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function deal(pairs) {
+  deck = shuffle([...CREATURES.slice(0, pairs), ...CREATURES.slice(0, pairs)]);
+  first = second = null; lock = false; moves = 0; matched = 0;
+  board.style.gridTemplateColumns = `repeat(${pairs > 6 ? 4 : pairs === 6 ? 4 : 4},80px)`;
+  board.innerHTML = '';
+  deck.forEach((face, i) => { const b = document.createElement('button'); b.className = 'card'; b.textContent = face; b.dataset.i = i; b.setAttribute('aria-label', 'card'); board.appendChild(b); });
+  render();
+}
+function render() { info.textContent = matched === deck.length / 2 ? `All ${matched} pairs in ${moves} moves!` : `Moves: ${moves} · Pairs: ${matched}/${deck.length / 2}`; }
+function flip(card) {
+  if (lock || card.classList.contains('up') || card.classList.contains('done')) return;
+  card.classList.add('up');
+  if (!first) { first = card; return; }
+  second = card; moves++; lock = true;
+  if (first.textContent === second.textContent) {
+    first.classList.add('done'); second.classList.add('done'); matched++; first = second = null; lock = false; render();
+    if (matched === deck.length / 2) GCP.playerStats.min('fewest_moves', moves);
+  } else {
+    render();
+    setTimeout(() => { first.classList.remove('up'); second.classList.remove('up'); first = second = null; lock = false; }, 700);
+  }
+}
+board.addEventListener('click', (e) => { const c = e.target.closest('.card'); if (c) flip(c); });
+document.querySelectorAll('.sizes button').forEach((b) => b.addEventListener('click', () => deal(+b.dataset.n)));
+deal(6);
+GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  t.step('match every pair');
+  const cards = [...board.children];
+  for (const face of new Set(deck)) {
+    const pair = cards.filter((c) => c.textContent === face);
+    pair[0].click(); pair[1].click();
+    await t.until(() => !lock, 2000, 'the pair to settle');
+  }
+  t.assert(matched === deck.length / 2, 'all pairs matched');
+  t.step('deal a large board'); document.querySelector('[data-n="8"]').click();
+  t.assert(board.children.length === 16, 'sixteen cards');
+});
+</script></body></html>

@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:canvas2d", "live": true, "owner": "sol",
+  "listing": { "title": "Garden Snake", "tagline": "Eat berries, grow long, do not bite your tail.", "description": "Classic snake on a garden grid with berries that speed you up and rocks that block the way.", "tags": ["arcade", "snake", "classic"] },
+  "why": "Classic snake; also the original for a minified copy and the comparison for an independent snake." }

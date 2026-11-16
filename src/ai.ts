@@ -32,10 +32,11 @@ export type Answer =
   | { type: 'choice'; choice: string; probabilities: Record<string, number>; confidence: number };
 
 /** Asks a decision model; null whenever AI is not available, times out or answers out of shape. */
-export async function aiDecide(env: Env, model: DecisionModel, state: unknown, questions: Record<string, Question>, timeoutMs = 15000): Promise<Record<string, Answer> | null> {
+/** `extra` carries media for the vision-capable models, e.g. { images: ['data:image/png;base64,...'] }. */
+export async function aiDecide(env: Env, model: DecisionModel, state: unknown, questions: Record<string, Question>, timeoutMs = 15000, extra: Record<string, unknown> = {}): Promise<Record<string, Answer> | null> {
   if (!env.AI || env.DEPLOY_DRIVER === 'local') return null;
   try {
-    const run = env.AI.run(DECISION_MODELS[model] as any, { model, state, questions } as any) as Promise<any>;
+    const run = env.AI.run(DECISION_MODELS[model] as any, { model, state, questions, ...extra } as any) as Promise<any>;
     const out = await Promise.race([run, new Promise<null>((r) => setTimeout(() => r(null), timeoutMs))]);
     const answers = out?.answers;
     if (!answers || typeof answers !== 'object') return null;

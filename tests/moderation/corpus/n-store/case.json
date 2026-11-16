@@ -1,0 +1,3 @@
+{ "expect": "block", "kind": "not-game:store", "gate": "is_game", "owner": "spam3",
+  "listing": { "title": "Retro Cartridge Shop", "tagline": "Buy classic game cartridges at the best prices.", "description": "Shop original cartridges and consoles. Fast shipping worldwide.", "tags": ["retro", "shop"] },
+  "why": "An online shop page with add-to-cart buttons and a canvas banner animation." }

@@ -40,6 +40,16 @@ The report has one entry per check, the errors the browser saw, any files that f
 - The scene is too heavy for the verification browser, which renders on the CPU. Cap the pixel ratio, pick a lower quality when frames are slow (see the performance guide), and avoid full-screen post-processing by default.
 - The game pauses itself because the page is not focused or pointer lock was not granted. Do not pause on those in the first seconds.
 
+- A turn-based or click-driven page that never calls `requestAnimationFrame` is not failed here: it is judged by `responds` instead.
+
+## responds: nothing changed
+
+Nothing on screen or in the page changed while the game ran and the verifier pressed keys, clicked and touched. A still picture or a page that ignores the player fails. Make sure input reaches the game (a canvas or element that receives clicks, listeners on `window` for keys) and that the screen updates when the player acts.
+
+## conduct: the page interfered with the player's browser
+
+The page left for another site, started a download, opened two or more windows by itself or opened three or more dialogs. Games stay on their own page: put links behind a click on a credits screen and never navigate the top window away.
+
 ## picture: the screenshot is blank
 
 - `ready()` fired before anything was drawn. Move it after the first rendered frame.
@@ -91,7 +101,11 @@ The platform compares each verified version with the live games of other creator
 
 ## is_game: the upload is not a game
 
-The platform hosts web games only. A page nothing in which responds to the player (no keyboard, mouse, touch, pointer or gamepad input and no buttons) is refused, and pages that take input but look like documents or forms are reviewed by an AI model. If it is a game, make sure the player can act on it, and register `GCP.test.onPlaythrough`: a game whose play-through passes is always treated as a game.
+The platform hosts web games only. A page nothing in which responds to the player (no keyboard, mouse, touch, pointer or gamepad input and no buttons) is refused, and every upload not built with a known game engine is reviewed by an AI model that sees the screenshot, the visible text, the controls and what happened in the test browser. If it is a game, make sure the first screen shows play (or a menu that leads to it) and register `GCP.test.onPlaythrough`; a passing play-through counts in favour but on its own does not make a page a game.
+
+## content: the version was refused for its content or code
+
+Every verified version is checked for content that a marketplace open to all ages cannot carry (sexual content, hate, scams, phishing, dangerous content) by an AI model that reads the listing, the page text and the screenshot, and for abusive code: crypto-miner code, a form that sends a password to another site, a background worker connected to an outside server. Game violence, horror, fantasy combat and dark themes are fine. Multiplayer games connect through `GCP.room`, which runs on the platform. The detail names the reason.
 
 ## WebGPU games
 

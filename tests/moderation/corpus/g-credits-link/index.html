@@ -1,0 +1,41 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Paper Planes</title>
+<style>html,body{margin:0;height:100%;background:#bde0fe;overflow:hidden;font-family:sans-serif}canvas{display:block}#credits{position:fixed;right:10px;bottom:10px;background:#fff9;padding:8px 12px;border-radius:8px;font-size:13px}#credits a{color:#023e8a;margin-right:8px}</style></head>
+<body><canvas id="sky"></canvas>
+<div id="credits">Made by Cal R. · <a href="https://example.com/cal-games" target="_blank" rel="noopener">More games</a><a href="https://www.patreon.com/example" target="_blank" rel="noopener">Patreon</a><a href="https://example.itch.io/paper-planes" target="_blank" rel="noopener">itch.io</a></div>
+<script>
+const sky = document.getElementById('sky'), c = sky.getContext('2d');
+function fit() { sky.width = innerWidth; sky.height = innerHeight; } fit(); addEventListener('resize', fit);
+let plane, best = 0, folds = 1, coins = 0, charging = false, power = 0, flying = false, gusts = [];
+function reset() { plane = { x: 60, y: sky.height * 0.6, vx: 0, vy: 0, a: 0 }; flying = false; power = 0; gusts = Array.from({ length: 8 }, (_, i) => ({ x: 400 + i * 380, y: 80 + Math.random() * (sky.height - 200), s: (Math.random() - 0.5) * 300 })); }
+reset();
+const press = () => { if (!flying) charging = true; }, release = () => { if (charging && !flying) { charging = false; flying = true; plane.vx = 200 + power * 500; plane.vy = -power * 200; } };
+addEventListener('keydown', (e) => { if (e.code === 'Space') press(); if (e.code === 'KeyU' && coins >= 10 * folds) { coins -= 10 * folds; folds++; } });
+addEventListener('keyup', (e) => { if (e.code === 'Space') release(); });
+sky.addEventListener('pointerdown', press); addEventListener('pointerup', release);
+let last = 0, camX = 0;
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000 || 0); last = t;
+  if (charging) power = Math.min(1, power + dt);
+  if (flying) {
+    plane.vy += (160 - 20 * folds) * dt; plane.vx *= 1 - 0.08 * dt / folds;
+    for (const g of gusts) if (Math.abs(plane.x - g.x) < 60 && Math.abs(plane.y - g.y) < 80) plane.vy += g.s * dt;
+    plane.x += plane.vx * dt; plane.y += plane.vy * dt; plane.a = Math.atan2(plane.vy, plane.vx);
+    if (plane.y > sky.height - 20 || plane.vx < 5) { const dist = Math.round(plane.x / 10); best = Math.max(best, dist); coins += Math.floor(dist / 10); setTimeout(reset, 900); flying = false; plane.vx = 0; plane.vy = 0; }
+  }
+  camX = Math.max(0, plane.x - sky.width * 0.3);
+  c.fillStyle = '#bde0fe'; c.fillRect(0, 0, sky.width, sky.height);
+  c.fillStyle = '#90be6d'; c.fillRect(0, sky.height - 20, sky.width, 20);
+  c.save(); c.translate(-camX, 0);
+  for (const g of gusts) { c.strokeStyle = g.s < 0 ? '#ffffffaa' : '#3a86ff66'; c.lineWidth = 3; for (let k = 0; k < 3; k++) { c.beginPath(); c.arc(g.x, g.y + k * 20, 30, 0.3, 2.6); c.stroke(); } }
+  c.translate(plane.x, plane.y); c.rotate(plane.a); c.fillStyle = '#fff'; c.beginPath(); c.moveTo(18, 0); c.lineTo(-14, -9); c.lineTo(-8, 0); c.lineTo(-14, 9); c.closePath(); c.fill(); c.strokeStyle = '#555'; c.stroke();
+  c.restore();
+  c.fillStyle = '#023047'; c.font = '18px sans-serif'; c.fillText(`Distance ${Math.round(plane.x / 10)} m · Best ${best} m · Coins ${coins} · Folds ${folds} (U to upgrade for ${10 * folds})`, 14, 28);
+  if (charging) { c.fillStyle = '#fb8500'; c.fillRect(14, 40, power * 200, 10); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame); GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  t.step('throw the plane'); press(); await t.wait(500); release();
+  await t.until(() => !flying && best > 0, 15000, 'the landing'); t.assert(best > 0, 'flew some distance');
+});
+</script></body></html>

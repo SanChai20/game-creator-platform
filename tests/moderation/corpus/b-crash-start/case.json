@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "broken:crash-at-start", "gate": "browser", "owner": "b2", "listing": { "title": "Untitled Game", "tagline": "A fun game.", "description": "Play now.", "tags": ["arcade"] }, "why": "Throws while starting; ready is never called." }

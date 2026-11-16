@@ -1,0 +1,3 @@
+{ "expect": "block", "kind": "not-game:landing-page", "gate": "is_game", "owner": "spam1",
+  "listing": { "title": "Galaxy Legends", "tagline": "The #1 mobile RPG. Pre-register now!", "description": "Pre-register for Galaxy Legends and get exclusive rewards. Coming soon to iOS and Android.", "tags": ["rpg"] },
+  "why": "A marketing landing page that calls GCP.ready() and keeps an empty animation loop running to pass the browser check." }

@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:canvas-sparse-picture", "owner": "pip",
+  "listing": { "title": "Midnight Paddles", "tagline": "Two paddles, one ball, no mercy.", "description": "Minimal pong against a computer paddle. First to seven wins. Mouse, touch or W/S keys.", "tags": ["arcade", "pong", "minimal"] },
+  "why": "A black screen with two thin paddles and a ball: a sparse but real picture." }

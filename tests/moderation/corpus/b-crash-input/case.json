@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "broken:crash-on-input", "gate": "browser", "owner": "b6", "listing": { "title": "Untitled Game", "tagline": "A fun game.", "description": "Play now.", "tags": ["arcade"] }, "why": "The first key press throws inside the frame loop and the loop dies." }

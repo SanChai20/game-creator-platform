@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:violent-themes", "owner": "zed",
+  "listing": { "title": "Dead by Dawn", "tagline": "Survive the zombie horde until sunrise.", "description": "A top-down zombie shooter. Kill the undead, scavenge ammo and survive ten waves of blood-thirsty zombies. Cartoon gore.", "tags": ["shooter", "zombies", "survival", "horror"] },
+  "why": "Ordinary game violence (shooting zombies, cartoon blood): must not trip a content check." }

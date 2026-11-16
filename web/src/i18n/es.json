@@ -58,7 +58,7 @@
  "Any price": "Cualquier precio",
  "Any rating": "Cualquier valoración",
  "Art": "Arte",
- "Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)": "Consultar a Workers AI solo los casos dudosos (parecidos pero no claramente copiados; páginas interactivas que quizá no sean juegos)",
+ "Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game": "Preguntar a Workers AI por los casos dudosos (parecidos pero no claramente copiados) y si cada subida que no usa un motor de juegos es un juego",
  "Asking for a refund": "Solicitar un reembolso",
  "At least 8 characters.": "Al menos 8 caracteres.",
  "Audio": "Audio",
@@ -942,5 +942,10 @@
  "1 minute before buying": "1 minuto antes de comprar",
  "Sales clear after 1 day": "Las ventas se liberan tras 1 día",
  "1 game you haven't opened yet": "1 juego que aún no has abierto",
- "Games you have not opened yet, one at a time.": "Juegos que aún no has abierto, de uno en uno."
+ "Games you have not opened yet, one at a time.": "Juegos que aún no has abierto, de uno en uno.",
+ "Block publishing a version the content check refuses (off: report it as a warning only)": "Bloquear la publicación de una versión que la revisión de contenido rechaza (desactivado: solo se informa como aviso)",
+ "Check each verified version for harmful content (sexual content, hate, scams, phishing) and abusive code (miners, password forms, hidden servers)": "Revisar cada versión verificada en busca de contenido dañino (sexual, odio, estafas, phishing) y código abusivo (minería, formularios de contraseña, servidores ocultos)",
+ "Content and conduct": "Contenido y conducta",
+ "How likely (percent) the content review must find a version harmful to refuse it": "Probabilidad (por ciento) con la que la revisión de contenido debe considerar dañina una versión para rechazarla",
+ "Most Workers AI content reviews per day (Clef with the screenshot, about $0.0003 each; past the cap a small rule set decides)": "Máximo de revisiones de contenido con Workers AI al día (Clef con la captura, unos $0.0003 cada una; pasado el límite decide un pequeño conjunto de reglas)"
 }

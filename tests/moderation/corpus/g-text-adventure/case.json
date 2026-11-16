@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:dom-text-adventure", "owner": "tess",
+  "listing": { "title": "The Lighthouse Keeper", "tagline": "A short interactive story about a storm and a lost ship.", "description": "Choose what the keeper does through one stormy night. Four endings, about ten minutes.", "tags": ["interactive fiction", "story", "choices"] },
+  "why": "Choice-based interactive fiction: text and buttons only, no canvas, no animation loop." }
