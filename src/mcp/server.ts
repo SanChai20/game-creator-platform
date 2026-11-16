@@ -4,13 +4,14 @@ import { AppError, type Env } from '../env';
 import { userById } from '../auth';
 import { getSettings } from '../settings';
 import { PLATFORM_GUIDES, TOOLS, WEB_ONLY, guideText, type ToolCtx } from './tools';
+import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
 const INSTRUCTIONS = `${WEB_ONLY}
 This server deploys, verifies, publishes and versions web games for the account that authorized you, and hosts their services: player saves, shared game data and leaderboards in the platform database (game_data), and realtime multiplayer rooms (game_room). How you make the game is up to you; the platform does not prescribe engines, renderers or art. find_implementations and get_implementation show how other creators' live games were built when they chose to share it (never their code).
-Call get_started first: it returns the rules a game must meet, the workflow, the account status and the platform services.
+Call get_started first: it returns the rules a game must meet, the workflow, the account status and the platform services. platform_services (or the gcp://services resource) lists every service with its SDK calls, tools and limits, and what the platform does not provide.
 Typical loop: create_project → upload_files (or create_upload_url for big files and folders) → deploy_preview → read the report → fix → deploy_preview → publish.
 A game is index.html plus the files it loads. The platform injects a global GCP; call GCP.ready() after the first playable frame.`;
 
@@ -49,8 +50,15 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
       }
     }
     case 'resources/list':
-      return ok({ resources: PLATFORM_GUIDES.map((g) => ({ uri: `gcp://guides/${g.topic}`, name: g.topic, title: g.title, description: g.summary, mimeType: 'text/markdown' })) });
+      return ok({ resources: [
+        { uri: 'gcp://services', name: 'services', title: 'Platform services catalog', description: 'Every service games and agents can use, with SDK calls, MCP tools, limits and guidelines, and what the platform does not provide. JSON.', mimeType: 'application/json' },
+        ...PLATFORM_GUIDES.map((g) => ({ uri: `gcp://guides/${g.topic}`, name: g.topic, title: g.title, description: g.summary, mimeType: 'text/markdown' })),
+      ] });
     case 'resources/read': {
+      if (params?.uri === 'gcp://services') {
+        const catalog = { services: platformServices(await getSettings(c.env), c.origin), not_provided: NOT_PROVIDED, discover: DISCOVERY };
+        return ok({ contents: [{ uri: 'gcp://services', mimeType: 'application/json', text: JSON.stringify(catalog, null, 1) }] });
+      }
       const m = String(params?.uri || '').match(/^gcp:\/\/guides\/([a-z0-9\-]+)$/);
       const g = m && await guideText(c.env, c.origin, m[1]);
       if (!g) return rpcError(id, -32002, 'Resource not found');

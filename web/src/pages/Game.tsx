@@ -74,10 +74,12 @@ export function Game({ slug }: { slug: string }) {
   const canTry = !!trial && !trial.over, leftMin = trial ? Math.max(1, Math.ceil(trial.remaining_seconds / 60)) : 0, fresh = !!trial && trial.used_seconds === 0;
   const left = trialEnd !== null ? Math.max(0, (trialEnd - Date.now()) / 1000) : 0; void tick;
 
+  // Free games are open to visitors without an account when the admin has switched "Require login to play" off (the server enforces it).
+  const guestOk = !user && config.settings.require_login_to_play === false && g.price_cents === 0;
   const play = () => { if (user && cv?.verdict === 'no') { setGate(true); return; } start(); };
   const start = () => {
     setGate(false);
-    if (!user) return navigate(loginUrl());
+    if (!user && !guestOk) return navigate(loginUrl());
     stage.current?.enterOnPhone();   // in the click itself, or the browser refuses fullscreen
     void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST' }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
@@ -130,7 +132,7 @@ export function Game({ slug }: { slug: string }) {
                   <Button size="sm" variant="ghost" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Or buy now', '或直接购买')} · {price(g.price_cents)}</Button>
                 </>
                 : locked ? <>{trial?.over && <b>{trialDone ? t('Your free trial has ended', '免费试玩已结束') : t('You have used your {minutes}-minute free trial', '你已用完 {minutes} 分钟免费试玩', { minutes: trial.minutes })}</b>}<PlayButton buy onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</PlayButton><span className="mute fs-sm">{config.payments ? trial?.over ? t('Buy it to keep playing. Your saves are kept.', '购买后即可继续游玩，存档会保留。') : t('One payment. Play as much as you like.', '一次购买，畅玩无限。') : t('Purchases are not open yet on this platform.', '平台暂未开放购买。')}</span></>
-                : <><PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : t('Play', '开始游戏')}</PlayButton>{!user && <span className="mute fs-sm">{t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
+                : <><PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : t('Play', '开始游戏')}</PlayButton>{!user && <span className="mute fs-sm">{guestOk ? t('Playing as a guest. Sign in to keep your progress on every device.', '正在以访客身份游玩。登录后进度可在所有设备上保留。') : t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
             </div>
           </Stage>
           <aside className="gp-cap">

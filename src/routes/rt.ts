@@ -2,6 +2,7 @@
 // heartbeats that measure play time, cloud saves, leaderboards, realtime rooms, and the store used by game server code.
 import { Hono } from 'hono';
 import { AppError, bad, type Env } from '../env';
+import { isGuestId } from '../auth';
 import { playKey } from '../deploy';
 import { getSettings } from '../settings';
 import { owns } from '../earnings';
@@ -15,7 +16,10 @@ interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'play
 // The token names its own game and environment; the signature is checked against that game's key.
 // Every per-player read and write below takes the game, environment and player from this token, never from the request body.
 async function authAny(env: Env, token: unknown): Promise<Tok> {
-  return guard(() => authToken(token, (g: string) => playKey(env, g)));
+  const tok = await guard(() => authToken(token, (g: string) => playKey(env, g))) as Tok;
+  // Guest sessions exist only while "Require login to play" is off; switching it on ends them for every service at once.
+  if (isGuestId(tok.u) && (await getSettings(env)).require_login_to_play) throw new AppError(401, 'Sign in to play.', 'unauthenticated');
+  return tok;
 }
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
   try { return await fn(); }

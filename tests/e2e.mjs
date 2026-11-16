@@ -100,15 +100,19 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 19, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 20, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
-  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 3 && started.services.multiplayer && started.account && started.guides.length === 5 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
+  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 3 && started.services.multiplayer && started.account && started.guides.length === 6 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
   assert.ok(!JSON.stringify(started).match(/design_scene|list_blocks|recommend_pipeline|craft score/), 'get_started must not teach how to make a game');
-  for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
-  assert.equal((await rpc('resources/list')).resources.length, 5);
-  ok(`MCP: initialize says web games only, ${tools.length} tools, get_started and its 5 platform guides; bad token gets 401`);
+  for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer', 'services']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
+  assert.equal((await rpc('resources/list')).resources.length, 7);
+  const catalog = await tool('platform_services');
+  assert.ok(catalog.services.length >= 20 && catalog.not_provided.length >= 10 && catalog.services.some((x) => x.id === 'multiplayer'), JSON.stringify(catalog).slice(0, 400));
+  assert.equal((await tool('platform_services', { service: 'saves' })).service.id, 'saves');
+  assert.ok(JSON.parse((await rpc('resources/read', { uri: 'gcp://services' })).contents[0].text).services.length === catalog.services.length);
+  ok(`MCP: initialize says web games only, ${tools.length} tools, get_started and its 6 platform guides, platform_services; bad token gets 401`);
 
   // a project made from one of the platform's starter folders, uploaded the way an agent uploads its own files
   const tplDir = new URL('../web/public/templates/', import.meta.url), tplIndex = JSON.parse(readFileSync(new URL('index.json', tplDir), 'utf8'));
@@ -243,6 +247,36 @@ async function main() {
   assert.equal((await fetch(`${BASE}/api/upload/bogus?path=a.txt`, { method: 'PUT', body: 'x' })).status, 401);
   ok('direct upload: single file, zip with folder stripping and clean, bad token refused');
 
+  // server code runs in the game's Worker and is never served as a file, under any spelling of the path, with or without a play session
+  const srv = await fromTemplate('canvas2d-arcade', { title: `Vault ${run}` });
+  await tool('upload_files', { project: srv.project, files: [
+    { path: 'server/index.js', content: "import { KEY } from './secret.js';\nexport default { async fetch(request, env) { return Response.json({ ok: true, keyLength: KEY.length, player: env.player && env.player.id, guest: env.player && env.player.guest }); } };\n" },
+    { path: 'server/secret.js', content: "export const KEY = 'sk_live_e2e_do_not_leak_0123456789';\n" },
+  ] });
+  let sv = await tool('deploy_preview', { project: srv.project, note: 'server code' });
+  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(sv.status); i++) { await sleep(2000); sv = await tool('list_versions', { project: srv.project, version: sv.version }); }
+  assert.notEqual(sv.status, 'failed', JSON.stringify(sv).slice(0, 600));
+  const sprev = must(await A.post(`/api/console/projects/${srv.project}/preview`)), sbase = sprev.url.split('?')[0], stok = new URL(sprev.url).searchParams.get('gcp_t');
+  assert.equal((await fetch(sprev.url)).status, 200);
+  const leaks = ['server/index.js', 'server/secret.js', 'server/', 'server', './server/secret.js', 'x/../server/secret.js', '%73erver/secret.js', 'server%2Fsecret.js', './/server/secret.js', 'Server/secret.js'];
+  for (const path of leaks) {
+    for (const withTok of [false, true]) {
+      const u = `${sbase}${path}${withTok ? `?gcp_t=${stok}` : ''}`;
+      for (const method of ['GET', 'HEAD']) {
+        const r = await fetch(u, { method, headers: { cookie: `gcp_t=${stok}`, range: 'bytes=0-10' } });
+        const body = method === 'GET' ? await r.text() : '';
+        assert.ok(r.status === 404 || r.status === 401 || r.status === 400, `${method} ${path}${withTok ? ' (token)' : ''} answered ${r.status}`);
+        assert.ok(!body.includes('sk_live_e2e') && !body.includes('export default'), `${method} ${path} leaked server code`);
+      }
+    }
+  }
+  const sres = await fetch(`${sbase}api/hello`, { headers: { 'x-gcp-token': stok } });
+  if (sbase.includes('/__game/')) assert.equal(sres.status, 404);   // the local driver cannot load a game's server modules; tests/server-code.mjs runs them
+  else { assert.equal(sres.status, 200); const sj = await sres.json(); assert.ok(sj.ok && sj.keyLength === 34 && sj.player && sj.guest === false, JSON.stringify(sj)); }
+  const sfiles = await tool('list_files', { project: srv.project });
+  assert.ok(JSON.stringify(sfiles).includes('server/secret.js'));   // the creator still sees their own server files through MCP
+  ok('server code: never served as a file (10 path spellings, GET and HEAD, with and without a play session), deploys, still listed for its creator');
+
   // publish needs the license (A is admin => creator). Check the gate with a fresh non-creator through the console API later.
   const pub = await tool('publish', { project: pid });
   assert.equal(pub.live, true, JSON.stringify(pub));
@@ -337,6 +371,35 @@ async function main() {
   assert.ok(must(await A.get(`/api/console/projects/${pid}/online`)).rooms);
   assert.ok([403, 404].includes((await B.get(`/api/console/projects/${pid}/analytics`)).status));
   ok(`analytics: ${an.totals.sessions} session(s) by ${an.totals.players} player, rooms counted while players were in them, daily, hourly, version and device breakdowns; another account is refused`);
+
+  // "Require login to play": on (the default) a visitor without an account gets no play session; off, free games open to
+  // guests with their own id, paid games still need an account, and switching it back on ends guest access to every service
+  const G = client();
+  assert.equal((await G.post(`/api/games/${slug}/play`)).status, 401);
+  must(await ADM.put('/api/admin/settings', { require_login_to_play: false }));
+  await sleep(16000);   // settings are cached for 15 s per isolate
+  const gpl = must(await G.post(`/api/games/${slug}/play`)), gt = new URL(gpl.url).searchParams.get('gcp_t');
+  const gdoc = await (await fetch(gpl.url)).text();
+  assert.ok(/"guest":true/.test(gdoc) && /"id":"guest_[a-z0-9]{20}"/.test(gdoc), 'the game is told it has a guest');
+  const gsvc = (path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: gt, ...body }) });
+  assert.equal((await gsvc('save', { op: 'set', key: 'slot1', value: { guest: 1 } })).status, 200);
+  assert.deepEqual((await (await gsvc('save', { op: 'get', key: 'slot1' })).json()).value, { guest: 1 });
+  assert.equal((await gsvc('beat', { frames: 5, active: false, first: true })).status, 200);
+  const gp2 = must(await G.post(`/api/games/${slug}/play`));   // the same browser keeps the same guest id, and with it the save
+  assert.equal(JSON.parse(atob(new URL(gp2.url).searchParams.get('gcp_t').split('.')[0].replace(/-/g, '+').replace(/_/g, '/'))).u, JSON.parse(atob(gt.split('.')[0].replace(/-/g, '+').replace(/_/g, '/'))).u);
+  const gtok = JSON.parse(atob(gt.split('.')[0].replace(/-/g, '+').replace(/_/g, '/')));
+  assert.ok(gtok.x - Date.now() / 1000 <= 3600 + 5, 'guest sessions are short');
+  assert.equal((await G.post(`/api/games/${slug}/reviews`, { rating: 5 })).status, 401);   // reviews need an account
+  assert.equal((await G.get(`/api/games/${slug}/progress`)).status, 401);
+  assert.equal((await fetch(`${BASE}/api/games/${slug}/play`, { method: 'POST', headers: { origin: BASE } })).status, 200);   // a brand-new visitor too
+  must(await ADM.put('/api/admin/settings', { require_login_to_play: true }));
+  await sleep(16000);
+  assert.equal((await G.post(`/api/games/${slug}/play`)).status, 401);
+  for (const path of ['save', 'stats', 'score', 'record', 'beat']) assert.equal((await gsvc(path, { op: 'get', key: 'slot1', name: 'x', board: 'b' })).status, 401, `${path} still open to a guest`);
+  const gws = await new Promise((res) => { const w = new WebSocket(`${BASE.replace('http', 'ws')}/api/rt/room?room=g&t=${gt}`); w.onopen = () => { w.close(); res('open'); }; w.onerror = () => res('refused'); w.onclose = () => res('refused'); });
+  assert.equal(gws, 'refused');
+  assert.equal((await svc('save', { op: 'set', key: 'acct', value: 1 })).ok, true);   // accounts are not affected
+  ok('require login to play: on refuses visitors; off lets guests play free games with their own saves, short sessions, no reviews; back on ends every guest service at once');
 
   // paid game: purchase required, checkout, webhook, split, refund path
   const priced = await tool('update_project', { project: pid, price_cents: 499 });
