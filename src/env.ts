@@ -36,6 +36,8 @@ export interface Project {
   removed_reason: string | null; created_at: number; updated_at: number; published_at: number | null;
   open_implementation: number; open_implementation_at: number | null;
   listing_i18n: string;                         // JSON: the store listing translated into platform languages
+  age: number | null;                           // the live version's age rating (null until recorded)
+  mature: string;                               // adults-only categories of the live version, comma-separated: sexual, violence, other ('' for everyone)
   storage_bytes?: number | null;                // storage this game may use; null: the platform default (bundle_max_bytes)
 }
 

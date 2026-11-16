@@ -1,7 +1,7 @@
 // The discovery queue: games this browser has not opened yet, one at a time, with the facts that matter and two
 // choices: open it, or move on. What was seen is remembered in this browser only.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { api, artStyle, blurb, count, genreHue, genreName, Link, markSeen, navigate, num, price, RARITY, rarity, rarityHint, resetSeen, seenGames, t, Verdict, type GameCard } from '../lib';
+import { api, artStyle, blurb, count, CoverImg, MatureTag, genreHue, genreName, Link, markSeen, navigate, num, price, RARITY, rarity, rarityHint, resetSeen, seenGames, t, Verdict, type GameCard } from '../lib';
 import { Button, EmptyState } from '../ui';
 import { RouteSkeleton } from '../skeletons';
 
@@ -36,7 +36,7 @@ export function Queue() {
         <>
           <div className="q-progress" aria-label={t('{i} of {total}', '第 {i} / {total} 款', { i: i + 1, total: pool.length })}>{pool.map((_, k) => <i key={k} className={k < i ? 'done' : k === i ? 'on' : ''} />)}<span className="num">{i + 1} / {pool.length}</span></div>
           <article className="q-card" key={g.id} style={{ '--h': genreHue(g.tags[0] || ''), '--rc': R.color } as CSSProperties}>
-            <Link to={`/g/${g.slug}`} className="q-art" onClick={() => markSeen(g.slug)}><span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</span></Link>
+            <Link to={`/g/${g.slug}`} className="q-art" onClick={() => markSeen(g.slug)}><span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}<MatureTag g={g} /></span></Link>
             <div className="q-info">
               <div className="hero-tags"><span className="rar" title={rarityHint()}>{R.name()}</span>{g.tags.slice(0, 3).map((x) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>
               <h2>{g.title}</h2>

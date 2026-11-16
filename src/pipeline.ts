@@ -6,6 +6,7 @@ import { deployGame, playKey, waitHealthy } from './deploy';
 import { getProject, getVersion, logEvent } from './projects';
 import { browserVerify } from './verify';
 import { afterPublish } from './implementations';
+import { syncMature } from './mature';
 import { originalityCheck, publishGate } from './originality-check';
 import { now, parseJson, rid } from './util';
 // @ts-ignore plain JS module
@@ -63,7 +64,7 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
   await env.DB.prepare('UPDATE projects SET preview_version = ?, updated_at = ? WHERE id = ?').bind(v.n, now(), p.id).run();
   await stage(env, v, 'deploying', 'Waiting for the preview Worker to answer');
   const health = await waitHealthy(env, url, v.n);
-  let report: Record<string, any>, shot: Uint8Array | null = null;
+  let report: Record<string, any>, shot: Uint8Array | null = null, frames: Uint8Array[] = [];
   if (!health.ok) {
     report = { ok: false, summary: health.detail, checks: [{ id: 'deployed', ok: false, label: 'The deployed game responds', detail: health.detail }], errors: [] };
   } else {
@@ -73,11 +74,16 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
     // The verifier plays under a throwaway identity of its own: it starts from no save and never touches the creator's progress.
     const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Verifier', k: 'verify', s: sid, x: Math.floor(now() / 1000) + 900 }, await playKey(env, p.id));
     const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU, job.origin);
-    report = out.report; shot = out.shot;
+    report = out.report; shot = out.shot; frames = out.frames || [];
     report.deploy = health.detail;
   }
   let shotKey: string | null = null;
   if (shot) { shotKey = `shots/${p.id}/${v.n}.png`; await env.FILES.put(shotKey, shot, { httpMetadata: { contentType: 'image/png' } }); }
+  // the frames the content review looks at: what the verification browser saw while it played the game
+  if (frames.length) {
+    report.frames = frames.map((_, i) => `shots/${p.id}/${v.n}-play-${i}.jpg`);
+    await Promise.all(frames.map((f, i) => env.FILES.put(report.frames[i], f, { httpMetadata: { contentType: 'image/jpeg' } })));
+  }
   if (report.ok) {
     await stage(env, v, 'verifying', 'Comparing with other creators\' games');
     try { await originalityCheck(env, p, { ...v, screenshot_key: shotKey }, report); }
@@ -95,6 +101,8 @@ async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<v
   const url = await deployGame(env, job.origin, p, v, 'live');
   const health = await waitHealthy(env, url, v.n);
   if (!health.ok) { await logEvent(env, p.id, 'publish_failed', health.detail, v.n, job.actor); return; }
+  // the store labels the game from the version going live (an adults-only game is blurred and asks players to confirm); before it is live
+  await syncMature(env, p.id, v);
   const t = now();
   await env.DB.batch([
     env.DB.prepare("UPDATE projects SET status = 'live', live_version = ?, published_at = COALESCE(published_at, ?), cover_key = COALESCE(cover_key, ?), updated_at = ? WHERE id = ? AND status != 'removed'").bind(v.n, t, v.screenshot_key, t, p.id),

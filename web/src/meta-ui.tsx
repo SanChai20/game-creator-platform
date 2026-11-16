@@ -21,9 +21,9 @@ const accessName = (a: Access | string) => ({
   'one-handed': t('Playable with one hand', '单手可玩'), 'pause-anytime': t('Pause any time', '随时暂停'), 'no-time-pressure': t('No time pressure', '无时间压力'), 'visual-sound-cues': t('Visual cues for sounds', '声音的视觉提示'),
 } as Record<string, string>)[a] ?? a;
 const reasonName = (r: string) => ({
-  'violence:cartoon': t('Cartoon violence', '卡通暴力'), 'violence:fantasy': t('Fantasy violence', '奇幻暴力'), 'violence:realistic': t('Realistic violence', '写实暴力'), 'blood': t('Blood', '血腥'),
+  'violence:cartoon': t('Cartoon violence', '卡通暴力'), 'violence:fantasy': t('Fantasy violence', '奇幻暴力'), 'violence:realistic': t('Realistic violence', '写实暴力'), 'violence:graphic': t('Graphic violence', '血腥暴力'), 'blood': t('Blood', '血腥'),
   'language:mild': t('Mild language', '轻度粗口'), 'language:strong': t('Strong language', '强烈粗口'), 'fear:mild': t('Mildly scary', '轻度惊吓'), 'fear:intense': t('Intense horror', '强烈恐怖'),
-  'sexual:suggestive': t('Suggestive themes', '性暗示'), 'drugs': t('Drug references', '涉及药物'), 'gambling:simulated': t('Simulated gambling', '模拟赌博'),
+  'sexual:suggestive': t('Suggestive themes', '性暗示'), 'sexual:nudity': t('Nudity', '裸露'), 'sexual:explicit': t('Explicit sexual content', '露骨性内容'), 'adult_themes': t('Mature themes', '成人主题'), 'drugs': t('Drug references', '涉及药物'), 'gambling:simulated': t('Simulated gambling', '模拟赌博'),
 } as Record<string, string>)[r] ?? r;
 const sessionName = (m: number) => ({ '<5': t('Under 5 min', '5 分钟以内'), '5-15': t('5 to 15 min', '5 到 15 分钟'), '15-30': t('15 to 30 min', '15 到 30 分钟'), '30-60': t('30 to 60 min', '30 到 60 分钟'), '60+': t('Over an hour', '1 小时以上') } as Record<string, string>)[sessionBucket(m)];
 const notStated = () => <span className="dim">{t('Not stated', '未注明')}</span>;
