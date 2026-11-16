@@ -86,6 +86,8 @@ export const column = { value: new THREE.Vector3(0, 1, 0.85) };
 const FADE = `uniform vec3 readCol;
 float colFade(){ float x = gl_FragCoord.x; return readCol.z * smoothstep(readCol.x - 30., readCol.x + 30., x) * (1. - smoothstep(readCol.y - 30., readCol.y + 30., x)); }
 `;
+/** How bright the props are next to the page. The world is set dressing, so it sits well below the content. */
+const PROP_DIM = 0.55;
 type Mats = { ramp: THREE.Texture; toon: (hex: string, o?: { map?: THREE.Texture; rim?: string; emissive?: number }) => THREE.MeshToonMaterial; outline: THREE.MeshBasicMaterial };
 function materials(): Mats {
   const ramp = toonRamp();
@@ -100,7 +102,8 @@ function materials(): Mats {
       sh.uniforms.rimColor = { value: rim }; sh.uniforms.readCol = column;
       sh.fragmentShader = sh.fragmentShader.replace('void main() {', FADE + 'uniform vec3 rimColor;\nvoid main() {')
         .replace('#include <opaque_fragment>', `float rimF = 1. - max(dot(normalize(vNormal), normalize(vViewPosition)), 0.);
-        outgoingLight += rimColor * smoothstep(.62, .68, rimF) * .55;
+        outgoingLight += rimColor * smoothstep(.62, .68, rimF) * .3;
+        outgoingLight *= ${PROP_DIM.toFixed(2)}; // props stay in the background: dimmed toward the sky so the page reads first
         diffuseColor.a *= 1. - colFade();
         #include <opaque_fragment>`);
     };
@@ -207,29 +210,29 @@ function makeProps(theme: FxTheme, m: Mats, tex: { block: THREE.Texture; coin: T
   const side = (i: number) => (i % 2 ? 1 : -1) * (0.62 + r() * 0.34);
   if (theme === 'arcade') {
     const gemCols = [palette.accent, palette.cyan, palette.hot, palette.gold, palette.violet];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 4; i++) {
       const c = gemCols[i % gemCols.length];
-      add(inked(gemGeometry(i % 2 ? 6 : 8, i), m.toon(c, { rim: '#ffffff', emissive: 0.12 }), m), side(i), 9 - i * 7.5, -4 - r() * 14, 0.9 + r() * 0.7, i < 4, new THREE.Vector3(0.2, 0.8, 0.1));
+      add(inked(gemGeometry(i % 2 ? 6 : 8, i), m.toon(c, { rim: '#ffffff' }), m), side(i), 9 - i * 15, -4 - r() * 14, 0.9 + r() * 0.5, i < 2, new THREE.Vector3(0.1, 0.35, 0.05), 0.3);
     }
     const coinMats = [m.toon(palette.gold, { rim: '#fff3b0' }), m.toon(palette.gold, { map: tex.coin, rim: '#fff3b0' }), m.toon(palette.gold, { map: tex.coin, rim: '#fff3b0' })];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 3; i++) {
       const geo = new THREE.CylinderGeometry(1, 1, 0.24, 32); geo.rotateX(Math.PI / 2);
       const coin = new THREE.Mesh(geo, coinMats);
       const hullGeo = mergeVertices(geo.clone().deleteAttribute('normal').deleteAttribute('uv'), 1e-3); hullGeo.computeVertexNormals(); coin.add(new THREE.Mesh(hullGeo, m.outline));
-      add(coin, side(i + 1) * 0.92, 4 - i * 8.5, -2 - r() * 10, 0.55 + r() * 0.3, i < 3, new THREE.Vector3(0, 1.6, 0), 0.8);
+      add(coin, side(i + 1) * 0.92, 2 - i * 19, -2 - r() * 10, 0.55 + r() * 0.2, i < 1, new THREE.Vector3(0, 0.6, 0), 0.3);
     }
-    for (let i = 0; i < 6; i++) add(inked(cloudGeometry(40 + i), m.toon(i % 2 ? '#d9d2ff' : '#bfb3ff', { rim: palette.hot }), m), (i % 2 ? 1 : -1) * (0.45 + r() * 0.6), -6 - i * 9, -18 - r() * 10, 1.4 + r() * 0.9, i < 2, new THREE.Vector3(0, 0.02, 0), 0.25);
-    const pad = gamepad(m); add(pad, 0.78, -2, -6, 1.1, true, new THREE.Vector3(0.1, 0.35, 0.05), 0.6);
+    for (let i = 0; i < 2; i++) add(inked(cloudGeometry(40 + i), m.toon(i % 2 ? '#d9d2ff' : '#bfb3ff', { rim: palette.hot }), m), (i % 2 ? 1 : -1) * (0.45 + r() * 0.6), -6 - i * 9, -18 - r() * 10, 1.4 + r() * 0.9, i < 2, new THREE.Vector3(0, 0.02, 0), 0.25);
+    const pad = gamepad(m); add(pad, 0.78, -2, -6, 1.1, true, new THREE.Vector3(0.05, 0.15, 0.02), 0.25);
   } else {
     const gearCols = [palette.accent, palette.cyan, '#8e7dff', palette.gold];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 3; i++) {
       const teeth = 8 + (i % 3) * 2, g = inked(gearGeometry(teeth, 1.4), m.toon(gearCols[i % gearCols.length], { rim: '#ffffff' }), m);
       g.rotation.x = -0.25 + r() * 0.5;
-      add(g, side(i), 8 - i * 9, -4 - r() * 12, 0.8 + r() * 0.8, i < 3, new THREE.Vector3(0, 0, (i % 2 ? 1 : -1) * 0.6), 0.35);
+      add(g, side(i), 8 - i * 18, -4 - r() * 12, 0.8 + r() * 0.5, i < 2, new THREE.Vector3(0, 0, (i % 2 ? 1 : -1) * 0.25), 0.2);
     }
     const blockCols = [palette.hot, palette.cyan, palette.accent, palette.violet, palette.gold];
-    for (let i = 0; i < 9; i++) add(inked(roundedBox(1.6, 0.28), m.toon(blockCols[i % blockCols.length], { map: tex.block, rim: '#ffffff' }), m), side(i + 1), 3 - i * 6.8, -3 - r() * 14, 0.7 + r() * 0.5, i < 4, new THREE.Vector3(0.4, 0.6, 0.2), 0.7);
-    for (let i = 0; i < 3; i++) add(inked(cloudGeometry(60 + i), m.toon('#b9b0ff', { rim: palette.cyan }), m), (i % 2 ? 1 : -1) * (0.5 + r() * 0.5), -10 - i * 14, -22, 1.6, false, new THREE.Vector3(0, 0.02, 0), 0.25);
+    for (let i = 0; i < 4; i++) add(inked(roundedBox(1.6, 0.28), m.toon(blockCols[i % blockCols.length], { map: tex.block, rim: '#ffffff' }), m), side(i + 1), 3 - i * 14, -3 - r() * 14, 0.7 + r() * 0.4, i < 2, new THREE.Vector3(0.15, 0.25, 0.08), 0.3);
+    for (let i = 0; i < 1; i++) add(inked(cloudGeometry(60 + i), m.toon('#b9b0ff', { rim: palette.cyan }), m), (i % 2 ? 1 : -1) * (0.5 + r() * 0.5), -10 - i * 14, -22, 1.6, false, new THREE.Vector3(0, 0.02, 0), 0.25);
   }
   return out;
 }
@@ -245,10 +248,10 @@ void main(){
   float y = uv.y;
   float b = floor((1. - y) * 6. + .5 * sin(uv.x * 3. + t * .05)) / 6.;
   vec3 low = mix(hot, cyan, work);
-  vec3 c = mix(ink, mix(violet * .5, low * .42, smoothstep(.55, 1., b)), smoothstep(.2, 1., b) * .8);
+  vec3 c = mix(ink, mix(violet * .45, low * .3, smoothstep(.55, 1., b)), smoothstep(.2, 1., b) * .42);
   // keep the reading area calm: darker toward the middle column
   float mid = 1. - smoothstep(.0, .55, abs(uv.x - .5));
-  c *= 1. - .35 * mid * smoothstep(.15, .7, y);
+  c *= 1. - .5 * mid * smoothstep(.1, .7, y);
   // a soft dither so the bands never show 8-bit steps
   c += (h(gl_FragCoord.xy) - .5) / 255.;
   gl_FragColor = vec4(c, 1.);
@@ -259,7 +262,7 @@ void main(){
   float line = 1. - min(min(f.x, f.y), 1.);
   vec2 g2 = vUv * 12.; vec2 f2 = abs(fract(g2 - .5) - .5) / fwidth(g2); float major = 1. - min(min(f2.x, f2.y), 1.);
   float dist = smoothstep(.0, .6, vUv.y) * (1. - smoothstep(.75, 1., vUv.y));
-  vec3 c = mix(violet, lime, major) * (line * .35 + major * .55);
+  vec3 c = mix(violet, lime, major) * (line * .18 + major * .28);
   gl_FragColor = vec4(c, (line * .35 + major * .6) * dist * fade);
 }`;
 const STAR_VS = `attribute float phase; uniform float t; varying float vA;
@@ -448,7 +451,7 @@ export class World {
     column.value.set((w / 2 - half + 12) * bw, (w / 2 + half - 12) * bw, w < 700 ? 0.75 : 0.88);
     // the planet hangs in the top-right margin, or peeks in from the corner on narrow screens
     const depth = 110 + this.work * 40, halfH = Math.tan((this.cam.fov * Math.PI) / 360) * depth, ppu = h / (2 * halfH);
-    const roomy = this.layout.margin > 160, rpx = roomy ? Math.min(240, this.layout.margin * 0.75) : Math.min(90, Math.max(56, this.layout.margin * 0.8));
+    const roomy = this.layout.margin > 160, rpx = roomy ? Math.min(130, this.layout.margin * 0.45) : Math.min(56, Math.max(36, this.layout.margin * 0.5));
     const cx = roomy ? w / 2 - this.layout.margin / 2 : w / 2 + rpx * 0.25, cy = roomy ? h * 0.5 - Math.max(h * 0.24, rpx * 1.1) : h * 0.5 - rpx * 0.9;
     this.planet.position.x = cx / ppu; this.planet.position.y = cy / ppu; this.planet.scale.setScalar(rpx / ppu / 7);
   }
@@ -462,7 +465,7 @@ export class World {
     const mk = (fs: string, u: Record<string, THREE.IUniform>) => new THREE.ShaderMaterial({ vertexShader: POST_VS, fragmentShader: fs, uniforms: u, depthTest: false, depthWrite: false });
     const bright = mk(BRIGHT_FS, { tex: { value: null }, px: { value: new THREE.Vector2() } });
     const blur = mk(BLUR_FS, { tex: { value: null }, dir: { value: new THREE.Vector2() } });
-    const comp = mk(COMP_FS, { scene: { value: null }, bloom: { value: null }, k: { value: 0.7 }, t: { value: 0 } });
+    const comp = mk(COMP_FS, { scene: { value: null }, bloom: { value: null }, k: { value: 0.35 }, t: { value: 0 } });
     const quad = new THREE.Mesh(tri, bright); quad.frustumCulled = false;
     const scene = new THREE.Scene(); scene.add(quad);
     this.post = { scene, cam: new THREE.Camera(), quad, bright, blur, comp };
@@ -539,7 +542,7 @@ export class World {
       const u = m.material.uniforms, img = tx.image as HTMLImageElement;
       u.tex.value = tx; u.size.value.set(r.width, r.height); u.img.value.set(img.naturalWidth || 1, img.naturalHeight || 1);
       u.mouse.value.set((this.mouse.x - r.left) / r.width, (this.mouse.y - r.top) / r.height); u.t.value = t; u.hover.value = s.hover; u.dpr.value = this.pr;
-      u.radius.value = parseFloat(getComputedStyle(s.host || s.el).borderTopLeftRadius) || 0;
+      const cs = getComputedStyle(s.host || s.el); u.radius.value = Math.max(0, (parseFloat(cs.borderTopLeftRadius) || 0) - (s.host ? parseFloat(cs.borderLeftWidth) || 0 : 0)); // the picture sits inside the host's frame
       m.position.set(r.left + r.width / 2, -(r.top + r.height / 2), 0); m.scale.set(r.width, r.height, 1); m.visible = true; any = true;
       if (!s.el.classList.contains('gl-on')) requestAnimationFrame(() => { if (m.visible) { s.el.classList.add('gl-on'); s.host?.classList.add('gl-host'); } }); // hide the DOM picture only once the GPU has drawn it
     }
@@ -572,12 +575,12 @@ export class World {
     const place = (p: Prop, s: number) => {
       const depth = 40 - p.z, halfH = (vh * depth) / 2, halfW = halfH * this.cam.aspect, period = halfH * 2 * 1.6;
       const sy = this.scrollY * (halfH * 2 / innerHeight) * 0.55;
-      let y = p.y + sy + Math.sin(t * 0.8 + p.phase) * p.bob; y = ((y + period / 2) % period + period) % period - period / 2;
+      let y = p.y + sy + Math.sin(t * 0.5 + p.phase) * p.bob; y = ((y + period / 2) % period + period) % period - period / 2;
       // keep props in the margins beside the content column; on narrow screens they peek in from the edges
       const ppu = innerWidth / (2 * halfW), side = Math.sign(p.nx) || 1, jit = Math.min(1, Math.max(0, (Math.abs(p.nx) - 0.6) / 0.38));
       const { half, margin } = this.layout, wide = margin >= 90;
       const sx = wide ? half + margin * (0.28 + 0.44 * jit) : innerWidth / 2 - 8 + jit * 24;
-      const px = Math.min(170, Math.max(64, margin * 0.8)) * (p.scale / 1.2);
+      const px = Math.min(92, Math.max(34, margin * 0.42)) * (p.scale / 1.2);
       p.obj.position.set((side * sx) / ppu, y, p.z);
       p.obj.rotation.x += p.spin.x * dt * 0.5; p.obj.rotation.y += p.spin.y * dt; p.obj.rotation.z += p.spin.z * dt * 0.5;
       p.obj.scale.setScalar(Math.max(0.001, (px / ppu / (2 * p.rad)) * s));

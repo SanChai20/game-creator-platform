@@ -5,6 +5,7 @@ import './ui/ui.css';
 import './styles.css';
 import './store.css';
 import './ui/game.css';
+import './ui/skin.css';
 import { api, AppCtx, LANGS, langReady, Link, loginUrl, navigate, setLang, setTrialRules, t, useLang, useLocation, type Config, type Lang, type Me } from './lib';
 import { Button, EmptyState, Spinner } from './ui';
 import { fxBurst, fxPref, GpuLayer, setFxPref } from './ui/fx';

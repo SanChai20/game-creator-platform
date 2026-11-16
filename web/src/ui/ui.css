@@ -1,8 +1,8 @@
 /* Design system styles. Every value comes from a token in tokens.ts (var(--…)); no raw colours below this line
    except transparent black/white for shading. Page layouts live in ../styles.css.
 
-   The look, in one line: a game cabinet's HUD after dark. Violet-black ink, acid lime for the one thing to do, a soft
-   glow under anything you can press, and quiet surfaces so the games and the numbers carry the colour.
+   The look, in one line: a game's menus after dark. Violet-black ink, acid lime for the one thing to do, and chunky
+   rounded parts (see skin.css) so the games and the numbers carry the colour.
    Every page shares the store's furniture: a big plain title, joined figure strips, and shelf-style section heads. */
 
 /* ---- base -------------------------------------------------------------------------------------- */
@@ -252,45 +252,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .stars { display: inline-flex; align-items: center; gap: 4px; font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
 .stars svg { width: 12px; height: 12px; fill: var(--gold); }
 
-/* ---- HUD -------------------------------------------------------------------------------------- */
-/* The cyberpunk furniture every working page shares (console, docs, creators, admin): panels cut like the store's
-   cartridges with their cut edges drawn in, headers set as HUD labels with a lit marker, figures in the squared
-   display face, and a faint grid behind page titles. Nothing here moves. --n is the size of a cut corner. */
-.card, .stats, .keys { --n: 12px; --edge: var(--line-2); border-radius: 0; clip-path: polygon(0 0, calc(100% - var(--n)) 0, 100% var(--n), 100% 100%, var(--n) 100%, 0 calc(100% - var(--n))); }
-.stats, .keys { position: relative; }
-.card::after, .stats::after, .keys::after { content: ""; position: absolute; inset: -1px; pointer-events: none; z-index: 3;
-  background: linear-gradient(to top right, transparent calc(50% - .8px), var(--edge) 50%, transparent calc(50% + .8px)) top right / var(--n) var(--n) no-repeat,
-    linear-gradient(to top right, transparent calc(50% - .8px), var(--edge) 50%, transparent calc(50% + .8px)) bottom left / var(--n) var(--n) no-repeat; }
-.card { border-color: var(--line-2); }
-.card.card-accent { --edge: var(--accent-line); }
-.card > header { background: linear-gradient(90deg, rgba(198, 255, 61, .045), transparent 45%); }
-.card > header h3 { display: flex; align-items: center; gap: 10px; font: 650 13px/1.2 var(--font-display); letter-spacing: .1em; text-transform: uppercase; }
-.card > header h3::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
-.card-aside { font: 500 11px/1.4 var(--font-mono); letter-spacing: .02em; }
-/* Figures: a lit tick on each, the squared face for the value. */
-.stat::before { content: ""; position: absolute; left: 0; top: 0; width: 22px; height: 2px; background: var(--line-3); }
-.stat.stat-accent::before { background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
-.stat-v { font-family: var(--font-display); font-weight: 700; letter-spacing: -.02em; }
-.stat.stat-accent .stat-v { text-shadow: 0 0 24px var(--accent-glow); }
-/* Pressed things: the filled actions are cut like cartridges. */
-.btn-primary, .btn.pri, .play-btn { --n: 9px; border-radius: 0; clip-path: polygon(0 0, calc(100% - var(--n)) 0, 100% var(--n), 100% 100%, var(--n) 100%, 0 calc(100% - var(--n))); }
-.btn-sm.btn-primary { --n: 6px; }
-.input:focus { box-shadow: 0 0 0 3px var(--accent-wash), 0 0 18px -6px var(--accent-glow); }
-.seg button.on { background: var(--accent-wash); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line); }
-.tabs a { font-family: var(--font-display); font-weight: 600; letter-spacing: .04em; }
-.tabs a.on { color: var(--accent); }
-.tabs a.on::after { box-shadow: 0 0 12px var(--accent-glow); }
-.eyebrow.sig::before { width: 7px; height: 7px; border-radius: 0; opacity: 1; background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
-.list-row.is-link:hover { box-shadow: inset 2px 0 0 var(--accent); }
-/* Code and terminals: a lit edge and faint scan lines. */
-.code { border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: 2px solid var(--accent); background: repeating-linear-gradient(180deg, rgba(255, 255, 255, .018) 0 1px, transparent 1px 3px), #050408; }
-.steps li::before { border-radius: 0; box-shadow: 0 0 12px -4px var(--accent-glow); }
-.page-h h1 { font-weight: 800; letter-spacing: -.02em; }
-/* A faint grid behind every page title, fading out below it. */
-.page-h { position: relative; }
-.page-h::before { content: ""; position: absolute; z-index: -1; pointer-events: none; left: 50%; top: -140px; width: 100vw; height: 400px; transform: translateX(-50%);
-  background: linear-gradient(rgba(196, 184, 255, .07) 1px, transparent 1px) 0 0 / 44px 44px, linear-gradient(90deg, rgba(196, 184, 255, .07) 1px, transparent 1px) 0 0 / 44px 44px;
-  mask-image: radial-gradient(60% 70% at 30% 40%, #000, transparent 75%); -webkit-mask-image: radial-gradient(60% 70% at 30% 40%, #000, transparent 75%); }
+/* The game UI skin (panels, keycap buttons, wells, tab bars, slots) is in skin.css, loaded after the page styles. */
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 
