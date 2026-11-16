@@ -3,6 +3,9 @@
 // GAME_ID, SLUG, TITLE, VERSION, ENV ("preview" | "live"), MANIFEST (JSON), PLAY_KEY (secret).
 // It gates the game document behind a platform play token, injects the SDK, serves the bundle,
 // and forwards /api/* to the game's optional server module.
+// The same script runs as a standard Worker or as a user Worker in a Workers for Platforms dispatch namespace (src/hosting.ts):
+// it reads nothing host-specific (no request.cf, no Cache API), and it is deployed with disallow_importable_env so the
+// game's server modules only ever see the narrow env handed to them below, never these bindings.
 import userServer from './server/index.js';
 
 const TYPES = {

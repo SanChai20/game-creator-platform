@@ -1,0 +1,27 @@
+{
+  // The dynamic dispatch Worker for games on Workers for Platforms (docs/workers-for-platforms.md, step 4).
+  // Not used while DEPLOY_DRIVER is "cloudflare". Fill in the placeholders, then: npx wrangler deploy -c dispatcher/wrangler.jsonc
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "gcp-games-dispatch",
+  "main": "../src/dispatcher.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "routes": [{ "pattern": "*.play.example.com/*", "zone_name": "example.com" }],      // *.<GAME_HOST>/*
+  "dispatch_namespaces": [
+    {
+      "binding": "DISPATCHER",
+      "namespace": "gcp-games",                                                        // = DISPATCH_NAMESPACE
+      "outbound": { "service": "gcp-games-outbound", "parameters": ["gcp"] }          // outbound/wrangler.jsonc
+    }
+  ],
+  // settings (per-game CPU and subrequest limits, blocked hosts) are read from the platform database
+  "d1_databases": [{ "binding": "DB", "database_name": "gcp-db", "database_id": "111e0b7d-ed5f-4e81-97bd-8ba0444e54bf" }],
+  "observability": { "enabled": true },
+  "vars": {
+    "DEPLOY_DRIVER": "dispatch",
+    "GAME_HOST": "play.example.com",
+    "GAME_OUTBOUND": "1",
+    "PUBLIC_ORIGIN": "https://platform.example.com"
+  }
+}
