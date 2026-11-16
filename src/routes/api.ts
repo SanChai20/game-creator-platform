@@ -7,6 +7,7 @@ import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../e
 import { enqueue } from '../pipeline';
 import { missingForPublish } from '../../web/src/gamemeta';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
+import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
@@ -458,7 +459,7 @@ api.get('/console/projects/:id', async (c) => {
     project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
     events: events.results, daily: daily.results, errors: errors.results, sales,
-    files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0) },
+    files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s) : null,
     trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },
     online: await onlineNow(c.env, p.id),
