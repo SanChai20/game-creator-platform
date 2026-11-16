@@ -5,7 +5,7 @@ import { checkPassword, COOKIE, createSession, hashPassword, newUserId, rateLimi
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
-import { ensureCompat, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
+import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
@@ -29,6 +29,8 @@ function card(origin: string, r: Record<string, any>) {
     trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
     author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
+    // the title and tagline in other platform languages, when the creator translated the listing
+    ...(r.listing_i18n && r.listing_i18n !== '{}' ? { i18n: Object.fromEntries(Object.entries(parseJson<Record<string, { title?: string; tagline?: string }>>(r.listing_i18n, {})).map(([k, v]) => [k, { title: v.title, tagline: v.tagline }])) } : {}),
   };
 }
 
@@ -203,14 +205,18 @@ api.get('/games/:slug', async (c) => {
     c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND last_beat_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
   ]);
   return c.json({
-    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
+    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: parseJson(p.listing_i18n, {}), version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
-    compat: v ? await ensureCompat(c.env, v).then(({ requirements, declared, download_bytes }) => ({ requirements, declared, download_bytes })).catch(() => null) : null,
+    // ...and the rest of what the build declares: languages, players, session, progress, accessibility, the age rating.
+    ...(v ? await ensureVersionMeta(c.env, v).then(({ compat, meta }) => ({
+      compat: { requirements: compat.requirements, declared: compat.declared, download_bytes: compat.download_bytes },
+      meta: { ...meta.meta, rating: meta.rating, languages: meta.languages.languages, languages_declared: meta.languages.declared, declared: meta.declared, multiplayer: meta.detected.multiplayer },
+    })).catch(() => ({ compat: null, meta: null })) : { compat: null, meta: null }),
   });
 });
 

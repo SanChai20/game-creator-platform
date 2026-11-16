@@ -7,6 +7,8 @@ import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf 
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
+import { buildMeta, genreTags, genresOf, normGenre, GENRES, type Genre, type MetaIssue, type MetaRecord } from '../web/src/gamemeta';
+import { parseListings } from '../web/src/languages';
 
 export const wsKey = (pid: string, path: string) => `ws/${pid}/${path}`;
 export const verKey = (pid: string, n: number, path: string) => `v/${pid}/${n}/${path}`;
@@ -51,7 +53,28 @@ export async function updateProjectMeta(env: Env, p: Project, input: Record<stri
   if (typeof input.tagline === 'string') put('tagline', input.tagline.slice(0, 140));
   if (typeof input.description === 'string') put('description', input.description.slice(0, 4000));
   if (typeof input.controls === 'string') put('controls', input.controls.slice(0, 1000));
-  if (Array.isArray(input.tags)) put('tags', JSON.stringify(cleanTags(input.tags)));
+  // Genres: the primary genre is the first tag (the store groups games by it), then up to two secondary genres, then free tags.
+  let tags = Array.isArray(input.tags) ? cleanTags(input.tags) : null;
+  if (input.genre !== undefined || input.genres !== undefined) {
+    const cur = genresOf(JSON.parse(p.tags || '[]'));
+    const primary = input.genre !== undefined ? normGenre(input.genre) : cur.primary;
+    if (input.genre !== undefined && !primary) throw bad(`genre "${input.genre}" is not one of the platform genres.`, `Genres: ${GENRES.join(', ')}. Put anything more specific in tags.`);
+    const secondary: Genre[] = [];
+    for (const g of Array.isArray(input.genres) ? input.genres : input.genres === undefined ? cur.secondary : []) { const n = normGenre(g); if (!n) throw bad(`"${g}" in genres is not one of the platform genres.`, `Genres: ${GENRES.join(', ')}.`); if (!secondary.includes(n)) secondary.push(n); }
+    if (secondary.length > 2) throw bad('At most two secondary genres.');
+    if (!primary) throw bad('Set genre (the primary genre) before secondary genres.');
+    const free = (tags ?? JSON.parse(p.tags || '[]') as string[]).filter((t) => !(GENRES as readonly string[]).includes(t));
+    tags = genreTags(primary, secondary, free);
+  }
+  if (tags) put('tags', JSON.stringify(tags));
+  if (input.listing_translations !== undefined) {
+    const parsed = parseListings(input.listing_translations);
+    const errs = parsed.issues.filter((i) => i.level === 'error');
+    if (errs.length) throw bad(errs.map((i) => i.message + (i.hint ? ` ${i.hint}` : '')).join(' · '));
+    const cur = JSON.parse(p.listing_i18n || '{}') as Record<string, unknown>;
+    for (const [k, v] of Object.entries(parsed.value)) { if (v === null || !Object.keys(v).length) delete cur[k]; else cur[k] = v; }
+    put('listing_i18n', JSON.stringify(cur));
+  }
   if (input.price_cents !== undefined) {
     const s = await getSettings(env), price = Math.round(Number(input.price_cents));
     if (!Number.isFinite(price) || price < 0) throw bad('price_cents must be 0 (free) or a positive number of US cents.');
@@ -142,6 +165,8 @@ export interface Manifest {
   hasServer?: boolean;
   /** What this version needs from the player's browser: declared in gcp.json "requirements", merged with what the code shows. */
   compat?: Compat;
+  /** The build layer of the game metadata: languages, players, session, progress, accessibility, content and the age rating. */
+  meta?: MetaRecord;
 }
 
 export function defaultImports(origin: string): Record<string, string> {
@@ -168,7 +193,7 @@ function resolveManifest(raw: unknown, origin: string): Manifest {
 // Static checks: catch what would fail in the browser before deploying anything.
 // ---------------------------------------------------------------------------------------------
 export interface Issue { level: 'error' | 'warning'; file?: string; line?: number; col?: number; message: string; hint?: string; frame?: string }
-export interface CheckResult { ok: boolean; errors: Issue[]; warnings: Issue[]; files: number; bytes: number; manifest: Manifest; compatIssues: CompatIssue[] }
+export interface CheckResult { ok: boolean; errors: Issue[]; warnings: Issue[]; files: number; bytes: number; manifest: Manifest; compatIssues: CompatIssue[]; metaIssues: MetaIssue[] }
 
 function frameOf(src: string, line: number, col: number): string {
   const l = src.split('\n')[line - 1] ?? '';
@@ -206,7 +231,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const warn = (i: Omit<Issue, 'level'>) => { if (warnings.length < 40) warnings.push({ level: 'warning', ...i }); };
   const paths = new Set(files.map((f) => f.path));
   const bytes = files.reduce((a, f) => a + f.size, 0);
-  let manifest = resolveManifest(null, origin), declared: unknown = undefined;
+  let manifest = resolveManifest(null, origin), declared: unknown = undefined, gcpRaw: Record<string, unknown> = {};
 
   if (!files.length) err({ message: 'The project has no files yet.', hint: 'Upload at least index.html (upload_files or create_upload_url).' });
   if (files.length && !paths.has('index.html')) err({ message: 'index.html is missing.', hint: 'The game document must be index.html at the bundle root.' });
@@ -219,7 +244,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   }
 
   if (texts.has('gcp.json')) {
-    try { const raw = JSON.parse(texts.get('gcp.json')!); manifest = resolveManifest(raw, origin); declared = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).requirements : undefined; }
+    try { const raw = JSON.parse(texts.get('gcp.json')!); manifest = resolveManifest(raw, origin); if (raw && typeof raw === 'object' && !Array.isArray(raw)) gcpRaw = raw; declared = gcpRaw.requirements; }
     catch (e) { err({ file: 'gcp.json', message: `gcp.json is not valid JSON: ${(e as Error).message}` }); }
   }
   const importKeys = Object.keys(manifest.imports);
@@ -319,7 +344,11 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   for (const i of c.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `requirements${i.field === 'requirements' ? '' : '.' + i.field}: ${i.message}`, hint: i.hint });
   manifest.compat = c.compat;
   manifest.usesWebGPU = usesGPU || c.compat.requirements.graphics === 'webgpu';
-  return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest, compatIssues: c.issues };
+  // The rest of the game metadata that is true of this build: languages, players, session, progress, accessibility, content.
+  const gm = buildMeta(gcpRaw, texts, [...paths]);
+  for (const i of gm.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: i.hint });
+  manifest.meta = gm.record;
+  return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest, compatIssues: c.issues, metaIssues: gm.issues };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -357,6 +386,7 @@ export function publicVersion(v: Version, origin: string) {
     version: v.n, note: v.note, status: v.status, stage: v.stage, files: v.file_count, bytes: v.bytes, created_at: v.created_at, verified_at: v.verified_at,
     published_at: v.published_at, human_ok: !!v.human_ok, screenshot: v.screenshot_key ? `${origin}/api/media/${v.screenshot_key}` : null, report: parseJson(v.report, null),
     compat: parseJson<Manifest>(v.manifest, {} as Manifest).compat ?? null,
+    meta: parseJson<Manifest>(v.manifest, {} as Manifest).meta ?? null,
   };
 }
 
@@ -364,19 +394,24 @@ export function publicVersion(v: Version, origin: string) {
  * A version's compatibility record. Versions deployed before requirements existed get theirs detected from their frozen
  * files the first time anyone asks, and stored, so every live game has a Compatibility section.
  */
-export async function ensureCompat(env: Env, v: Version): Promise<Compat> {
+export async function ensureCompat(env: Env, v: Version): Promise<Compat> { return (await ensureVersionMeta(env, v)).compat; }
+
+/** A version's compatibility and metadata records, detected from its frozen files and stored the first time anyone asks. */
+export async function ensureVersionMeta(env: Env, v: Version): Promise<{ compat: Compat; meta: MetaRecord }> {
   const m = parseJson<Manifest>(v.manifest, {} as Manifest);
-  if (m.compat && m.compat.v === 1) return m.compat;
+  if (m.compat?.v === 1 && m.meta?.v === 1) return { compat: m.compat, meta: m.meta };
   const files = parseJson<{ path: string; size: number }[]>(v.files, []), texts = new Map<string, string>();
-  let declared: unknown = undefined;
   for (const f of files) {
     if (!isText(f.path) || f.size > 6 * 1024 * 1024 || texts.size >= 200) continue;
     const obj = await env.FILES.get(verKey(v.project_id, v.n, f.path));
     if (obj) texts.set(f.path, await obj.text());
   }
-  try { const raw = texts.has('gcp.json') ? JSON.parse(texts.get('gcp.json')!) : null; declared = raw && typeof raw === 'object' ? raw.requirements : undefined; } catch { /* checked at deploy */ }
+  let raw: Record<string, unknown> = {};
+  try { const j = texts.has('gcp.json') ? JSON.parse(texts.get('gcp.json')!) : null; if (j && typeof j === 'object' && !Array.isArray(j)) raw = j; } catch { /* checked at deploy */ }
+  const paths = files.map((f) => f.path);
   const bareImports = [...texts.values()].some((s) => /\b(?:from|import)\s*\(?\s*["'](?![./]|https?:|data:|blob:)[^"'\s]+["']/.test(s));
-  const compat = buildCompat(declared, { texts, paths: files.map((f) => f.path), bareImports, orientation: typeof m.orientation === 'string' ? m.orientation : undefined }, v.bytes).compat;
-  await env.DB.prepare('UPDATE versions SET manifest = ? WHERE project_id = ? AND n = ?').bind(JSON.stringify({ ...m, compat }), v.project_id, v.n).run();
-  return compat;
+  const compat = m.compat?.v === 1 ? m.compat : buildCompat(raw.requirements, { texts, paths, bareImports, orientation: typeof m.orientation === 'string' ? m.orientation : undefined }, v.bytes).compat;
+  const meta = m.meta?.v === 1 ? m.meta : buildMeta(raw, texts, paths).record;
+  await env.DB.prepare('UPDATE versions SET manifest = ? WHERE project_id = ? AND n = ?').bind(JSON.stringify({ ...m, compat, meta }), v.project_id, v.n).run();
+  return { compat, meta };
 }

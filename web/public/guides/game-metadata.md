@@ -1,0 +1,249 @@
+# Game metadata
+
+Every game on the platform describes itself the same way, so its store page can tell a player, before they press Play, what kind of game it is, who it is for, whether it runs on their device and whether it speaks their language. This guide is the specification: every field, the values it accepts, where it is stored, what the platform detects by itself, and what the store page shows.
+
+The short version for an agent: call `game_metadata` with `action: "check"`. It returns a numbered checklist with what is still missing, the values each field accepts and a ready-made `declare` call pre-filled from what the platform detected in the code. Fix each step with `game_metadata` `action: "declare"`, deploy a preview, and publish. Publishing is refused until the five required fields are on record.
+
+## Where metadata lives
+
+Metadata comes in two kinds, stored in two places.
+
+| Kind | Fields | Stored in | Takes effect |
+|---|---|---|---|
+| **Listing** (about the project) | `genre`, `genres`, `title`, `tagline`, `description`, `controls`, `listing_translations` | the project | at once, on every version |
+| **Build** (about one version) | `requirements`, `languages`, `players`, `session_minutes`, `progress`, `accessibility`, `content` | `gcp.json` in the workspace | frozen with the next `deploy_preview`; the store shows the live version's |
+
+Build metadata is versioned with the code on purpose: a version that adds Japanese or online co-op declares it in the same deploy, and a rollback brings back the metadata that matched that code.
+
+`game_metadata` `declare` writes both kinds in one call: listing fields go to the project, build fields into `gcp.json`. Anything not named in a call is left as it is, and `null` removes a field.
+
+## Required to publish
+
+| # | Field | Why it is required |
+|---|---|---|
+| 1 | `genre` | The store's categories, search and "more like this" |
+| 2 | `requirements` | The Compatibility section and the check before launch |
+| 3 | `languages` | The Languages section and the "in your language" check |
+| 4 | `players` | How many people play, and how |
+| 5 | `content` | The platform's age rating |
+
+The others are recommended: they fill the At a glance panel. When a required field is missing, `publish` answers `409 metadata_incomplete` with the missing steps. Rolling back to an earlier version is never blocked. An admin can turn the requirement off with the `metadata_required` setting.
+
+## Genre
+
+```json
+{ "genre": "platformer", "genres": ["puzzle"] }
+```
+
+- `genre`: the primary genre, exactly one of: `action`, `adventure`, `arcade`, `board`, `card`, `casual`, `fighting`, `idle`, `music`, `platformer`, `puzzle`, `racing`, `rpg`, `roguelike`, `sandbox`, `shooter`, `simulation`, `sports`, `strategy`, `survival`, `tower-defense`, `word`, `horror`, `educational`.
+- `genres`: up to two secondary genres from the same list.
+- Common spellings are accepted and normalized (`role-playing` → `rpg`, `roguelite` → `roguelike`, `rhythm` → `music`, `clicker` → `idle`, `fps` → `shooter`, `td` → `tower-defense`).
+- The genres become the project's first tags, so free tags (`update_project` `tags`) still work after them.
+
+## Requirements
+
+What the game needs from the player's browser and device. The full field list is in the platform contract (`get_started` topic `contract`, "Compatibility requirements"). In short:
+
+```json
+{
+  "requirements": {
+    "graphics": "webgl2",
+    "features": ["web-audio"],
+    "optional": ["pointer-lock"],
+    "input": ["keyboard", "touch"],
+    "devices": ["desktop", "tablet", "mobile"],
+    "orientation": "landscape"
+  }
+}
+```
+
+The `compatibility` tool still works and is a shortcut for this one field.
+
+## Languages
+
+Which languages the game is playable in, and in what form.
+
+```json
+{
+  "languages": {
+    "default": "en",
+    "supported": [
+      { "code": "en", "interface": true, "audio": true, "subtitles": true },
+      { "code": "ja", "interface": true, "subtitles": true },
+      { "code": "zh-Hans", "interface": true }
+    ],
+    "follows_platform": true,
+    "notes": "Voice acting is English only."
+  }
+}
+```
+
+- `supported`: one entry per language, up to 60. `code` is a BCP 47 code (`en`, `ja`, `ko`, `es`, `pt-BR`, `zh-Hans` for Simplified Chinese, `zh-Hant` for Traditional Chinese; `zh-CN` and `zh-TW` are accepted and normalized). Then what is in that language:
+  - `interface`: menus, HUD and in-game text (true when left out);
+  - `audio`: spoken voice;
+  - `subtitles`: subtitles or captions for spoken voice.
+- `default`: the language the game starts in when it cannot pick one. The first entry when left out.
+- `follows_platform`: true when the game opens in the player's platform language by itself (read `GCP.lang`), so they never need to change a setting.
+- `notes`: anything else worth knowing, up to 300 characters.
+- Shorthand: `"languages": ["en", "ja"]` means interface text in English and Japanese, English the default.
+- A game with no text at all is still declared: list the language of its title screen, or `"en"` with a note such as "No text in the game".
+
+### GCP.lang
+
+The SDK exposes the player's platform language as `GCP.lang` (`en`, `zh`, `zh-TW`, `ja`, `ko` or `es`; the browser's language when the game runs outside the platform). Read it at startup and open in it when you have it:
+
+```js
+const pick = { zh: 'zh-Hans', 'zh-TW': 'zh-Hant' }[GCP.lang] || GCP.lang.split('-')[0];
+const lang = STRINGS[pick] ? pick : 'en';
+```
+
+Declare `follows_platform: true` when the game does this.
+
+### Detection
+
+At every deploy the platform looks for languages in the code: locale files (`locales/ja.json`, `i18n/ko.json`, `lang/es/…`), the `lang` attribute of `index.html`, and the scripts in text strings (Japanese kana, Korean Hangul, Chinese, Cyrillic, Arabic and others). It also notices when the code reads `GCP.lang`. With no declaration, the store shows what was detected and says so. With one, the declaration wins and anything that disagrees is reported as a warning, for example a detected language the declaration never lists.
+
+## Store listing translations
+
+The platform itself is in six languages: English, 简体中文, 繁體中文, 日本語, 한국어 and Español. Players see the store page in their platform language, and the game's own listing (title, tagline, description, controls) can be translated into each of them.
+
+```json
+{
+  "listing_translations": {
+    "ja": { "title": "星の庭", "tagline": "小さな星を育てるパズル", "description": "…", "controls": "矢印キーで移動" },
+    "es": { "tagline": "Un puzle para cultivar estrellas" },
+    "ko": null
+  }
+}
+```
+
+- Keys: `zh` (Simplified Chinese), `zh-TW` (Traditional Chinese), `ja`, `ko`, `es`. English is the listing itself.
+- Fields: `title` (80 characters), `tagline` (140), `description` (5000), `controls` (1000). A field left out falls back to the listing as written.
+- `null` removes a language. The call merges: other languages are kept.
+
+Translate the listing into the languages the game itself supports at least. The Languages table shows, for each language, whether the store page is translated into it.
+
+## Players
+
+```json
+{ "players": { "min": 1, "max": 4, "modes": ["single", "coop-online"] } }
+```
+
+- `min`, `max`: whole numbers, 1 to 100 and `min` to 1000.
+- `modes`, at least one of:
+  - `single`: one person plays alone;
+  - `coop-local`: together on one device;
+  - `coop-online`: together online (rooms);
+  - `pvp-local`: against each other on one device;
+  - `pvp-online`: against each other online.
+- A single-player game is `{"min": 1, "max": 1, "modes": ["single"]}`.
+- The platform warns when the code opens rooms (`GCP.room`) but no online mode is declared, and the other way round.
+
+## Content descriptors and the age rating
+
+The platform gives every game an age rating from what the creator declares about its content. Declare every descriptor honestly: the rating is shown to every player and to parents, and a wrong rating can get a game taken down.
+
+```json
+{
+  "content": {
+    "violence": "cartoon",
+    "blood": false,
+    "language": "none",
+    "fear": "mild",
+    "sexual": "none",
+    "drugs": false,
+    "gambling": "none",
+    "flashing_lights": true,
+    "player_chat": false
+  }
+}
+```
+
+| Descriptor | Values | Means |
+|---|---|---|
+| `violence` | `none`, `cartoon`, `fantasy`, `realistic` | Cartoon: slapstick, no injury shown. Fantasy: combat against non-human or clearly unreal foes. Realistic: lifelike people hurt or killed. |
+| `blood` | `false`, `true` | Blood or gore is shown. |
+| `language` | `none`, `mild`, `strong` | Mild: words like "damn". Strong: swearing or slurs. |
+| `fear` | `none`, `mild`, `intense` | Mild: spooky or tense. Intense: horror, jump scares, disturbing images. |
+| `sexual` | `none`, `suggestive` | Suggestive themes or revealing outfits. Explicit content is not allowed on the platform. |
+| `drugs` | `false`, `true` | Drug, alcohol or tobacco use or references. |
+| `gambling` | `none`, `simulated` | Casino-style play with in-game currency. Real-money gambling is not allowed. |
+| `flashing_lights` | `false`, `true` | Rapid flashing lights or patterns. Shows a photosensitivity warning. Does not change the rating. |
+| `player_chat` | `false`, `true` | Players can send each other free text. Shown on the page. Does not change the rating. |
+
+Descriptors left out count as `none` or `false`, so `"content": {}` declares a game with none of these. The rating is the highest band any descriptor reaches:
+
+| Rating | Reached by |
+|---|---|
+| **3+** Everyone | nothing above |
+| **7+** | cartoon violence, mild fear |
+| **12+** | fantasy violence, blood without realistic violence, mild language, simulated gambling |
+| **16+** | realistic violence, strong language, intense fear, suggestive themes, drugs |
+| **18+** Adults only | realistic violence with blood |
+
+## Session length
+
+```json
+{ "session_minutes": 10 }
+```
+
+How long a typical sitting lasts, in minutes, 1 to 600. Shown as a bucket: under 5 minutes, 5 to 15, 15 to 30, 30 to 60, or over an hour.
+
+## Progress
+
+```json
+{ "progress": { "cloud_saves": true, "leaderboards": true, "offline": false } }
+```
+
+- `cloud_saves`: progress is kept between sessions with `GCP.save` or `GCP.playerStats`.
+- `leaderboards`: the game posts scores with `GCP.leaderboard`.
+- `offline`: the game keeps working with no connection once it has loaded (it makes no network calls after loading).
+
+The platform detects all three from the code. Declaring them is optional; a declaration that disagrees with the code is reported as a warning.
+
+## Accessibility
+
+```json
+{ "accessibility": ["remappable-controls", "pause-anytime", "colorblind-modes"] }
+```
+
+Any of: `remappable-controls`, `colorblind-modes`, `subtitles`, `adjustable-difficulty`, `reduced-motion`, `scalable-text`, `one-handed`, `pause-anytime`, `no-time-pressure`, `visual-sound-cues`. An empty list says the game has none of these. Left out, the page says "Not stated".
+
+## A complete gcp.json
+
+```json
+{
+  "requirements": { "graphics": "webgl2", "input": ["keyboard", "touch"], "devices": ["desktop", "tablet", "mobile"], "orientation": "landscape" },
+  "languages": { "default": "en", "supported": [{ "code": "en" }, { "code": "ja" }], "follows_platform": true },
+  "players": { "min": 1, "max": 1, "modes": ["single"] },
+  "content": { "violence": "cartoon", "flashing_lights": false },
+  "session_minutes": 10,
+  "progress": { "cloud_saves": true, "leaderboards": true },
+  "accessibility": ["pause-anytime", "remappable-controls"]
+}
+```
+
+and on the project:
+
+```json
+{ "genre": "platformer", "listing_translations": { "ja": { "title": "星の庭", "tagline": "小さな星を育てるパズル" } } }
+```
+
+## The workflow with the tools
+
+1. `game_metadata` `{"project_id": "…", "action": "check"}` returns:
+   - `checklist`: ten numbered steps (five required, then five recommended), each with its `status` (`done`, `missing` or `optional`), the question to answer (`ask`), the allowed values (`allowed`), what was detected (`suggestion`) and an exact `call` to make;
+   - `summary`: what the store page will show;
+   - `issues`: errors and warnings from the last check.
+2. Answer each missing step with `game_metadata` `{"action": "declare", …}`. One call can carry several fields. Every field is validated before anything is written; an invalid one is refused with the reason and the allowed values.
+3. `deploy_preview` freezes the build fields with the version. `version_status` reports `metadata_missing` and the next step.
+4. `publish`. When something is still missing it is refused with the list, and the checklist says how to fix each one.
+
+## What the store page shows
+
+- **Header**: the age rating badge.
+- **Buy box**: whether the game works on this device and whether it is playable in the viewer's language.
+- **At a glance**: genre, age rating with its reasons, players and modes, session length, progress, accessibility, the photosensitivity warning and the player-chat note.
+- **Compatibility**: every requirement, checked against this browser.
+- **Languages**: one row per language with interface, voice, subtitles and store page, the viewer's own language marked, and whether the creator listed the languages or the platform detected them.
+- **Everywhere**: store cards, search and the page itself use the translated title and tagline in the viewer's language.

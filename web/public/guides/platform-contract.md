@@ -157,6 +157,10 @@ Declare them in `gcp.json` under `requirements`, or let the `compatibility` tool
 
 The platform also scans the code at every deploy. With no declaration, the store shows what it detected and says so. With one, the declaration wins; required features the code uses but the declaration never mentions are added, and anything that looks under-declared is reported as a warning.
 
+## Game metadata
+
+Requirements are one part of the metadata every game declares: also its genre, languages, players, content descriptors (for the age rating), session length, progress, accessibility and translated store listings. Genre, requirements, languages, players and content are required to publish. `game_metadata` `action: "check"` lists what is missing with the allowed values and a pre-filled call for each; the whole specification is the `metadata` guide (`get_started` `{"topic": "metadata"}`, or {{ORIGIN}}/guides/game-metadata.md).
+
 ## Serving details that matter
 
 - Paths are case sensitive. `Assets/Hero.png` and `assets/hero.png` are different files.

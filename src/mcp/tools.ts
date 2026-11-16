@@ -6,7 +6,7 @@ import { AppError, bad, forbidden, type Env, type User } from '../env';
 import { balanceOf, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import {
-  assetText, checkProject, createProject, defaultImports, deleteFile, ensureCompat, getVersion, listFiles, logEvent, ownedProject, publicVersion,
+  assetText, checkProject, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getVersion, listFiles, logEvent, ownedProject, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
 } from '../projects';
 import { takeOffline, trialStats } from '../routes/api';
@@ -18,6 +18,9 @@ import { publishGate } from '../originality-check';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
+import { ACCESSIBILITY, CONTENT_CHOICES, GENRES, MODES, genresOf, missingForPublish, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
+import { languageName, parseLanguages, type Languages } from '../../web/src/languages';
+import type { Project } from '../env';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
 
 export interface ToolCtx { env: Env; user: User; origin: string; client: string }
@@ -34,6 +37,7 @@ export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web
 /** The platform guides an agent can read: how the platform behaves, not how to make a game. */
 export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summary: string }[] = [
   { topic: 'contract', file: 'platform-contract', title: 'The platform contract', summary: 'The hard rules, what the platform injects into the page, the SDK, exactly what verification checks, and the optional play-through hook. Read before the first deploy.' },
+  { topic: 'metadata', file: 'game-metadata', title: 'Game metadata', summary: 'The specification behind every store page: each field, its allowed values, what is required to publish, how the age rating is worked out, what the platform detects and what players see. Read before the first publish.' },
   { topic: 'versions', file: 'troubleshooting', title: 'Versions and failed verification', summary: 'How previews, versions, publishing and rollback relate, each verification check, why it usually fails, and the fix.' },
   { topic: 'saves', file: 'saves', title: 'Player progress, saves, leaderboards and server code', summary: 'Each player\'s progress: cloud saves and stats per player and game, the play record the platform keeps, shared game data, leaderboards, and optional server code that runs in the game\'s own Worker.' },
   { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
@@ -78,17 +82,18 @@ async function waitVersion(c: ToolCtx, pid: string, n: number, ms: number) {
   return v!;
 }
 
-async function versionReport(c: ToolCtx, p: { id: string; slug: string }, n: number, v: Awaited<ReturnType<typeof getVersion>>) {
+async function versionReport(c: ToolCtx, p: Project, n: number, v: Awaited<ReturnType<typeof getVersion>>) {
   const s = await getSettings(c.env);
   if (!v) throw bad(`Version ${n} does not exist. Call list_versions.`);
   const pub = publicVersion(v, c.origin), el = versionEligible(v, s.verify_browser_required);
   // the verifier also measures how finished a game looks; that is the console's business, not a rule agents build to
   if (pub.report && typeof pub.report === 'object') delete (pub.report as Record<string, unknown>).craft;
-  const { compat, ...rest } = pub;
+  const { compat, meta, ...rest } = pub;
   const running = RUNNING.includes(v.status);
   return {
     ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}). This is normal: it takes one to two minutes. Call list_versions {project, version: ${n}}; it waits for the result. Do not deploy the same files again.` } : {}),
-    ...rest, can_publish: el.ok, eligibility: el.reason, compatibility: compatSummary(compat),
+    ...rest, can_publish: el.ok, eligibility: el.reason, compatibility: compatSummary(compat), metadata: meta ? metaSummary(p, compat, meta).build : null,
+    ...(meta && compat && true ? (() => { const m = missingForPublish(meta, compat.declared, JSON.parse(p.tags || '[]')); return m.length ? { metadata_missing: m, metadata_next: 'Publishing needs these. game_metadata {project} walks through each with allowed values and suggestions.' } : {}; })() : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call list_versions {project, version: ${n}}; it waits up to 40 seconds for the report.`
       : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
@@ -136,6 +141,59 @@ async function workspaceManifest(c: ToolCtx, pid: string): Promise<Record<string
   catch (e) { if (e instanceof AppError && e.status === 404) return {}; throw bad('gcp.json in the workspace is not valid JSON.', 'Fix or replace it with upload_files, then call compatibility again.'); }
 }
 
+const AGE_TEXT: Record<number, string> = { 3: '3+ (everyone)', 7: '7+', 12: '12+', 16: '16+', 18: '18+ (adults only)' };
+const langList = (l: Languages) => l.supported.map((g) => `${languageName(g.code)[0]} (${[g.interface && 'interface', g.audio && 'voice', g.subtitles && 'subtitles'].filter(Boolean).join(', ')})${g.code === l.default ? ' default' : ''}`);
+/** The game's metadata as an agent reads it back: what the store page will show, and what is still missing. */
+function metaSummary(p: Project, compat: Compat | null | undefined, meta: MetaRecord | null | undefined) {
+  const tags = JSON.parse(p.tags || '[]') as string[], g = genresOf(tags), listings = Object.keys(JSON.parse(p.listing_i18n || '{}'));
+  const m = meta?.meta, rating = meta?.rating;
+  return {
+    listing: { title: p.title, tagline: p.tagline || null, genre: g.primary, secondary_genres: g.secondary, tags: tags.filter((t) => !(GENRES as readonly string[]).includes(t)), controls: p.controls || null, translated_into: listings },
+    build: meta ? {
+      declared: meta.declared,
+      requirements: compat ? describeRequirements(compat.requirements) : null,
+      languages: { list: langList(meta.languages.languages), follows_platform_language: meta.languages.languages.follows_platform, declared: meta.languages.declared },
+      players: m?.players ? `${m.players.min === m.players.max ? m.players.min : `${m.players.min}-${m.players.max}`} player(s): ${m.players.modes.join(', ')}` : null,
+      session_minutes: m?.session_minutes ?? null,
+      progress: m?.progress ?? null,
+      accessibility: m?.accessibility ?? null,
+      age_rating: rating ? `${AGE_TEXT[rating.age]}${rating.reasons.length ? `: ${rating.reasons.join(', ')}` : ''}` : null,
+    } : null,
+    missing_for_publish: missingForPublish(meta, !!compat?.declared, tags),
+  };
+}
+/**
+ * The publishing checklist an agent works through: every field the store page shows, in order, with its status, the allowed
+ * values, a suggestion from the code scan where there is one, and the exact call that fills it.
+ */
+function metadataChecklist(p: Project, compat: Compat, meta: MetaRecord) {
+  const tags = JSON.parse(p.tags || '[]') as string[], g = genresOf(tags), d = new Set(meta.declared);
+  const declare = (args: Record<string, unknown>) => `game_metadata ${JSON.stringify({ project: p.id, action: 'declare', ...args })}`;
+  const step = (n: number, field: string, required: boolean, done: boolean, ask: string, allowed: unknown, suggestion: unknown, call: string) =>
+    ({ step: n, field, required, status: done ? 'done' : required ? 'missing' : 'optional', ask, allowed, ...(done ? {} : { suggestion, call }) });
+  const det = meta.detected, langs = meta.languages.detected;
+  return [
+    step(1, 'genre', true, !!g.primary, 'Which genre fits best? Pick one primary genre; up to two secondary genres are optional.', GENRES, null, declare({ genre: '<one of the genres>', genres: [] })),
+    step(2, 'requirements', true, compat.declared, 'What does the game need from the browser? Confirm the detected block, correcting input, devices or a hardware GPU.', { graphics: GRAPHICS, gpu: ['any', 'hardware'], features: FEATURE_IDS, input: INPUTS, devices: DEVICES, orientation: ORIENTATIONS }, requirementsBlock(compat.detected), declare({ requirements: requirementsBlock(compat.detected) })),
+    step(3, 'languages', true, d.has('languages'), 'Which languages can players choose? For each: interface text, voice, subtitles. Does the game start in the player\'s platform language (GCP.lang)?', { code: 'BCP 47 (en, ja, ko, es, zh-Hans, zh-Hant, fr, de, pt-BR…)', interface: 'boolean', audio: 'boolean', subtitles: 'boolean', follows_platform: 'boolean' }, langs, declare({ languages: { default: langs.default, supported: langs.supported, follows_platform: langs.follows_platform } })),
+    step(4, 'players', true, d.has('players'), 'How many people play, and how: alone, together on one device, or online?', { min: '1-100', max: '>= min', modes: MODES }, det.multiplayer ? { min: 1, max: 4, modes: ['single', 'coop-online'] } : { min: 1, max: 1, modes: ['single'] }, declare({ players: det.multiplayer ? { min: 1, max: 4, modes: ['single', 'coop-online'] } : { min: 1, max: 1, modes: ['single'] } })),
+    step(5, 'content', true, d.has('content'), 'What does the game contain? Answer every descriptor honestly; the platform derives the age rating from them. {} means none of them.', CONTENT_CHOICES, {}, declare({ content: { violence: 'none', blood: false, language: 'none', fear: 'none', sexual: 'none', drugs: false, gambling: 'none', flashing_lights: false, player_chat: false } })),
+    step(6, 'session_minutes', false, d.has('session_minutes'), 'How long is a typical session, in minutes?', '1-600', 10, declare({ session_minutes: 10 })),
+    step(7, 'accessibility', false, d.has('accessibility'), 'Which accessibility features does the game have? [] when none.', ACCESSIBILITY, [], declare({ accessibility: [] })),
+    step(8, 'progress', false, d.has('progress'), 'Confirm what is kept for the player: cloud saves, leaderboards, and whether it plays offline.', { cloud_saves: 'boolean', leaderboards: 'boolean', offline: 'boolean' }, det.progress, declare({ progress: det.progress })),
+    step(9, 'listing', false, !!(p.tagline && p.description && p.controls), 'Is the listing complete: a one-line tagline, a description and the controls?', { tagline: '<=140 chars', description: '<=4000 chars', controls: '<=1000 chars' }, null, declare({ tagline: '…', description: '…', controls: '…' })),
+    step(10, 'listing_translations', false, Object.keys(JSON.parse(p.listing_i18n || '{}')).length > 0, 'Should the store listing be shown in other platform languages (zh, zh-TW, ja, ko, es)? Only with translations the user approves.', ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es'], null, declare({ listing_translations: { ja: { title: '…', tagline: '…' } } })),
+  ];
+}
+
+const metaIssueLine = (i: MetaIssue) => `${i.level.toUpperCase()} ${i.field}: ${i.message}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
+const BUILD_FIELDS = ['requirements', 'languages', 'players', 'session_minutes', 'progress', 'accessibility', 'content'] as const;
+const LISTING_FIELDS = ['title', 'tagline', 'description', 'controls', 'genre', 'genres', 'tags', 'listing_translations'] as const;
+const LANGUAGES_SCHEMA = { type: ['object', 'array'], description: 'Languages the game can be played in. {"default": "en", "supported": [{"code": "en", "interface": true, "audio": true, "subtitles": false}, {"code": "ja", "interface": true, "subtitles": true}], "follows_platform": true} or the shorthand ["en", "ja"] (interface text). Codes are BCP 47: en, ja, ko, es, zh-Hans, zh-Hant, fr, de, pt-BR… follows_platform: the game starts in GCP.lang (the player\'s platform language) when it has it.' };
+const PLAYERS_SCHEMA = { type: 'object', description: `{"min": 1, "max": 4, "modes": ["single", "coop-online"]}. Modes: ${MODES.join(', ')}.` };
+const CONTENT_SCHEMA = { type: 'object', description: `Content descriptors; the platform derives the age rating from them. Each one left out means none. ${Object.entries(CONTENT_CHOICES).map(([k, v]) => `${k}: ${v.join(' | ')}`).join('; ')}. Pass {} for a game with none of them (rated 3+).` };
+const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The primary genre; the store groups games by it.' };
+
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
@@ -162,7 +220,7 @@ export const TOOLS: Tool[] = [
         workflow: [
           '1. create_project, once per game.',
           '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl.',
-          '2b. compatibility: check what the game needs from the player\'s browser (graphics API, GPU, features, input, devices), then declare it. Players see it on the store page and are told before launch whether their browser can run the game.',
+          '2b. game_metadata: define what players see on the store page: genre, languages (interface, voice, subtitles; GCP.lang is the player\'s platform language), players and modes, session length, accessibility, content descriptors (the age rating) and the browser requirements. check shows what the code reveals and what is missing; declare saves it. Publishing a new version needs genre, requirements, languages, players and content.',
           '3. deploy_preview: static checks, then a new numbered version deployed to its own preview address and checked in a real browser. With dry_run: true it runs only the static checks.',
           '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
           '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover; game_data and game_room manage the game\'s data and multiplayer rooms.',
@@ -213,16 +271,18 @@ export const TOOLS: Tool[] = [
       title: { type: 'string', description: 'Game title shown in the marketplace.' },
       tagline: { type: 'string', description: 'One line shown on the game card.' },
       description: { type: 'string', description: 'Longer description for the game page.' },
-      tags: { type: 'array', items: { type: 'string' }, description: 'Up to 8 genre or mood tags.' },
+      genre: GENRE_SCHEMA,
+      tags: { type: 'array', items: { type: 'string' }, description: 'Up to 8 mood, setting or mechanic tags.' },
     }, ['title']),
     run: async (a, c) => {
-      const p = await createProject(c.env, c.user, a as any, c.client);
+      let p = await createProject(c.env, c.user, a as any, c.client);
+      if (a.genre !== undefined) { await updateProjectMeta(c.env, p, { genre: a.genre }); p = await ownedProject(c.env, c.user, p.id); }
       return { project: p.id, slug: p.slug, title: p.title, console_page: `${c.origin}/console/projects/${p.id}`, next: 'Upload the game: upload_files for text files, create_upload_url for big or binary files or a whole folder. Then deploy_preview.' };
     },
   },
   {
     name: 'update_project', title: 'Update listing, price, cover or sharing',
-    description: 'Updates the marketplace listing: title, tagline, description, tags, controls text, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share.',
+    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres (from the platform list), tags, controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share.',
     inputSchema: obj({
       project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
       controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
@@ -230,6 +290,8 @@ export const TOOLS: Tool[] = [
       trial_minutes: { type: 'integer', description: 'Paid games only: minutes of free play before buying (e.g. 30). 0 turns the free trial off. get_started shows the longest allowed.' },
       cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png".' },
       open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code). Default off.' },
+      genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
+      listing_translations: { type: 'object', description: 'The listing in other platform languages: {"ja": {"title", "tagline", "description", "controls"}}; null removes one.' },
     }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
@@ -322,8 +384,78 @@ export const TOOLS: Tool[] = [
     run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0) }; },
   },
   {
+    name: 'game_metadata', title: 'Define the game\'s store metadata',
+    description: `Everything players see about the game on its store page, in one place. Define it while building the game: publishing a new version needs genre, requirements, languages, players and content (the refusal lists what is missing). Listing (any time, no deploy needed): title, tagline, description, controls, genre (one of ${GENRES.join(', ')}), up to two secondary genres, free tags, and listing_translations (the listing in the platform languages en, zh, zh-TW, ja, ko, es). Build (frozen with the next deploy_preview, written to gcp.json): requirements (what it needs from the browser; see the compatibility tool), languages (interface, voice and subtitles per language, and whether it follows the player's platform language GCP.lang), players (min, max, modes), session_minutes (a typical session), progress (cloud_saves, leaderboards, offline; detected from GCP.save and GCP.leaderboard), accessibility (${ACCESSIBILITY.join(', ')}; [] for none) and content (descriptors the platform turns into an age rating). action "check" (default) shows the whole picture: what is declared, what the code shows (renderer, input, rooms, saves, leaderboards, languages from translation files and on-screen text), problems, what publishing still needs, and suggestions. action "declare" validates and saves the fields you pass (each replaces that field; nothing is saved if any field is invalid). version shows what that version went out with.`,
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['check', 'declare'], description: 'Default "check".' },
+      title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, controls: { type: 'string' },
+      genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Free tags (mood, setting, mechanics), up to 8 together with the genres.' },
+      listing_translations: { type: 'object', description: 'The listing in other platform languages: {"ja": {"title": "…", "tagline": "…", "description": "…", "controls": "…"}, "es": {…}}. null for a language removes it. Only translate what the user has approved or what you can translate faithfully.' },
+      requirements: { ...REQUIREMENTS_SCHEMA, description: 'What the game needs from the browser (same as compatibility declare).' },
+      languages: LANGUAGES_SCHEMA, players: PLAYERS_SCHEMA,
+      session_minutes: { type: 'integer', description: 'Length of a typical session in minutes.' },
+      progress: { type: 'object', description: '{"cloud_saves": true, "leaderboards": false, "offline": true}. Detected from the code when left out.' },
+      accessibility: { type: 'array', items: { type: 'string', enum: [...ACCESSIBILITY] }, description: 'Accessibility features the game has; [] when none.' },
+      content: CONTENT_SCHEMA,
+      version: { type: 'integer', description: 'Optional. Show what this version went out with.' },
+    }, ['project']), annotations: { idempotentHint: true },
+    run: async (a, c) => {
+      let p = await ownedProject(c.env, c.user, a.project);
+      if (a.version !== undefined && a.version !== null) {
+        const v = await getVersion(c.env, p.id, Number(a.version));
+        if (!v) throw bad(`Version ${a.version} does not exist.`, 'Call list_versions.');
+        const { compat, meta } = await ensureVersionMeta(c.env, v);
+        return { version: v.n, ...metaSummary(p, compat, meta) };
+      }
+      const action = a.action || 'check';
+      if (action !== 'check' && action !== 'declare') throw bad('action must be "check" or "declare".');
+      const written: string[] = [];
+      if (action === 'declare') {
+        const build = BUILD_FIELDS.filter((f) => a[f] !== undefined), listing = LISTING_FIELDS.filter((f) => a[f] !== undefined);
+        if (!build.length && !listing.length) throw bad('Nothing to declare.', `Pass any of ${[...LISTING_FIELDS, ...BUILD_FIELDS].join(', ')}. game_metadata {project} (check) shows what is missing.`);
+        // validate every build field first: nothing is written when one is wrong
+        const issues: MetaIssue[] = [];
+        if (a.requirements !== undefined) issues.push(...parseRequirements(a.requirements).issues);
+        if (a.languages !== undefined) issues.push(...parseLanguages(a.languages).issues);
+        if (a.players !== undefined) parsePlayers(a.players, issues);
+        if (a.content !== undefined) parseContent(a.content, issues);
+        if (a.accessibility !== undefined) parseAccessibility(a.accessibility, issues);
+        if (a.session_minutes !== undefined && a.session_minutes !== null && !(Number(a.session_minutes) >= 1 && Number(a.session_minutes) <= 600)) issues.push({ level: 'error', field: 'session_minutes', message: 'session_minutes must be from 1 to 600.' });
+        const errs = issues.filter((i) => i.level === 'error');
+        if (errs.length) throw bad(errs.map((i) => `${i.field}: ${i.message}${i.hint ? ` (${i.hint})` : ''}`).join(' · '), 'Nothing was saved. Fix those fields and declare again.');
+        if (listing.length) { await updateProjectMeta(c.env, p, Object.fromEntries(listing.map((f) => [f, a[f]]))); written.push(...listing); }
+        if (build.length) {
+          const gcp = await workspaceManifest(c, p.id);
+          for (const f of build) if (a[f] === null) delete gcp[f]; else gcp[f] = f === 'requirements' ? parseRequirements(a[f]).value : f === 'languages' ? parseLanguages(a[f]).value : a[f];
+          await putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify(gcp, null, 2) + '\n'));
+          written.push(...build);
+        }
+        await logEvent(c.env, p.id, 'metadata', `Game metadata declared: ${written.join(', ')}`, null, c.client);
+        p = await ownedProject(c.env, c.user, p.id);
+      }
+      const check = await checkProject(c.env, p, c.origin), cp = check.manifest.compat!, mr = check.manifest.meta!;
+      const summary = metaSummary(p, cp, mr), issues = [...check.compatIssues, ...check.metaIssues].map(metaIssueLine);
+      const suggest: Record<string, unknown> = {};
+      if (!cp.declared) suggest.requirements = requirementsBlock(cp.detected);
+      if (!mr.languages.declared) suggest.languages = { default: mr.languages.detected.default, supported: mr.languages.detected.supported, follows_platform: mr.languages.detected.follows_platform };
+      if (!mr.declared.includes('players')) suggest.players = mr.detected.multiplayer ? { min: 1, max: 4, modes: ['single', 'coop-online'] } : { min: 1, max: 1, modes: ['single'] };
+      if (!mr.declared.includes('progress')) suggest.progress = mr.detected.progress;
+      return {
+        ...(written.length ? { saved: written, takes_effect: written.some((f) => (BUILD_FIELDS as readonly string[]).includes(f)) ? 'listing fields at once; build fields (gcp.json) with the next deploy_preview' : 'at once' } : {}),
+        checklist: metadataChecklist(p, cp, mr),
+        ...summary, detected: { multiplayer_rooms: mr.detected.multiplayer, progress: mr.detected.progress, languages: mr.languages.detected.supported.map((l) => l.code), evidence: { ...mr.detected.evidence, ...mr.languages.evidence } },
+        issues, ...(Object.keys(suggest).length ? { suggested: suggest } : {}),
+        next: issues.some((i) => i.startsWith('ERROR')) ? 'Fix the errors, then call game_metadata again.'
+          : summary.missing_for_publish.length ? `Still needed before publishing: ${summary.missing_for_publish.join('; ')}. Check the suggestions against the game (they come from a code scan), then game_metadata {action: "declare", …}.`
+            : 'Complete. Deploy with deploy_preview; the version carries the build fields.',
+      };
+    },
+  },
+  {
     name: 'compatibility', title: 'Declare and check compatibility requirements',
-    description: 'What the game needs from the player\'s browser and device: the weakest graphics API it runs with (canvas, webgl, webgl2, webgpu), whether it needs a hardware GPU, required and optional browser features (WebAssembly, Web Audio, pointer lock…), input methods, devices, orientation, memory, minimum browser versions and known issues. The store page shows them in a Compatibility section and checks each player\'s browser against them before launch, so declare what is true. action "check" (default) scans the workspace and returns what the code shows it uses (with the reason for each item), what gcp.json declares, any problems, and a suggested block. action "declare" validates requirements and writes them into gcp.json "requirements" (fields you pass replace those fields; use_detected: true starts from what was detected); they take effect with the next deploy_preview. With version, returns what that version went out with. Without a declaration, the platform publishes what it detected and says so on the store page.',
+    description: 'Shortcut for the requirements part of game_metadata. What the game needs from the player\'s browser and device: the weakest graphics API it runs with (canvas, webgl, webgl2, webgpu), whether it needs a hardware GPU, required and optional browser features (WebAssembly, Web Audio, pointer lock…), input methods, devices, orientation, memory, minimum browser versions and known issues. The store page shows them in a Compatibility section and checks each player\'s browser against them before launch, so declare what is true. action "check" (default) scans the workspace and returns what the code shows it uses (with the reason for each item), what gcp.json declares, any problems, and a suggested block. action "declare" validates requirements and writes them into gcp.json "requirements" (fields you pass replace those fields; use_detected: true starts from what was detected); they take effect with the next deploy_preview. With version, returns what that version went out with. Without a declaration, the platform publishes what it detected and says so on the store page.',
     inputSchema: obj({
       project: PROJECT,
       action: { type: 'string', enum: ['check', 'declare'], description: 'Default "check".' },
@@ -422,6 +554,14 @@ export const TOOLS: Tool[] = [
       const el = versionEligible(v, s.verify_browser_required);
       if (!el.ok) throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
       if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
+      // The store page needs the game's metadata. A rollback to a version that was live before is not held to it.
+      if (s.metadata_required && !a._rollback) {
+        const { compat, meta } = await ensureVersionMeta(c.env, v), missing = missingForPublish(meta, compat.declared, JSON.parse(p.tags || '[]'));
+        if (missing.length) {
+          const steps = metadataChecklist(p, compat, meta).filter((x) => x.required && x.status === 'missing').map((x) => `${x.step}. ${x.field}: ${x.ask} Allowed: ${JSON.stringify(x.allowed)}. Suggested call: ${x.call}`);
+          throw new AppError(409, `Version ${v.n} cannot be published until its store metadata is complete. Missing: ${missing.join('; ')}.\n${steps.join('\n')}`, 'metadata_incomplete', 'Ask the user anything you cannot tell from the game (genre, content descriptors), declare each field with game_metadata {action: "declare", …}, then deploy_preview again (build fields are frozen with a version) and publish the new version. game_metadata {project} shows the whole checklist.');
+        }
+      }
       const copy = await publishGate(c.env, p, v);
       if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
       if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
@@ -431,14 +571,15 @@ export const TOOLS: Tool[] = [
       let q = await ownedProject(c.env, c.user, p.id);
       while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
       const live = q.status === 'live' && q.live_version === v.n;
-      return { live, version: v.n, compatibility: compatSummary(await ensureCompat(c.env, v)), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+      const vm = await ensureVersionMeta(c.env, v);
+      return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
     },
   },
   {
     name: 'rollback', title: 'Roll back to an earlier version',
     description: 'Makes an earlier verified version live again. list_versions shows which ones can be published.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer' } }, ['project', 'version']),
-    run: async (a, c) => { if (a.version === undefined || a.version === null) throw bad('version is required.', 'Call list_versions to pick the version to go back to.'); return TOOLS.find((t) => t.name === 'publish')!.run(a, c); },
+    run: async (a, c) => { if (a.version === undefined || a.version === null) throw bad('version is required.', 'Call list_versions to pick the version to go back to.'); return TOOLS.find((t) => t.name === 'publish')!.run({ ...a, _rollback: true }, c); },
   },
   {
     name: 'unpublish', title: 'Take a game offline',
