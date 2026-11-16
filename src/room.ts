@@ -46,20 +46,24 @@ export class GameRoom extends DurableObject<Env> {
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     if (typeof raw !== 'string' || raw.length > MAX_STATE + 64) return;
     const me = ws.deserializeAttachment() as Peer;
-    let m: { t?: string; to?: string; d?: unknown };
+    let m: { t?: string; to?: string; d?: unknown; at?: unknown };
     try { m = JSON.parse(raw); } catch { return; }
     if (m.t === 'msg') {
       if (raw.length > MAX_MSG) return this.send(ws, { t: 'error', message: 'Message too large (64 KB max).' });
-      const out = JSON.stringify({ t: 'msg', from: me.id, d: m.d });
+      // `at` is the sender's clock when it sent the message; receivers use it to play movement back smoothly (GCP.smooth)
+      const out = JSON.stringify(typeof m.at === 'number' && Number.isFinite(m.at) ? { t: 'msg', from: me.id, d: m.d, at: m.at } : { t: 'msg', from: me.id, d: m.d });
       const to = m.to === 'host' ? this.host() : m.to;
       for (const e of this.peers()) { if (e.ws !== ws && (!to || e.p.id === to)) { try { e.ws.send(out); } catch { /* closing */ } } }
     } else if (m.t === 'state') {
       if (this.host() !== me.id) return this.send(ws, { t: 'error', message: 'Only the host can set room state.' });
       const s = JSON.stringify(m.d ?? null);
       if (s.length > MAX_STATE) return this.send(ws, { t: 'error', message: 'Room state too large (256 KB max).' });
-      await this.ctx.storage.put('state', s);
+      // allowUnconfirmed: without it the Durable Object's output gate holds every outgoing message, the realtime relay
+      // included, until the write is durable, so each setState put a hitch into everyone's movement stream.
+      // The snapshot is only for late joiners; losing the last one in a crash is harmless.
+      await this.ctx.storage.put('state', s, { allowUnconfirmed: true });
       for (const e of this.peers()) if (e.ws !== ws) this.send(e.ws, { t: 'state', d: m.d });
-    } else if (m.t === 'ping') this.send(ws, { t: 'pong' });
+    } else if (m.t === 'ping') this.send(ws, { t: 'pong', now: Date.now() });
   }
 
   /** For the game's creator (MCP game_room): who is here, who hosts, and the stored snapshot. Called over RPC only, never from a player's request. */
