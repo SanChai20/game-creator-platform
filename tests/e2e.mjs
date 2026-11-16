@@ -100,19 +100,19 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 20, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 21, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
-  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 3 && started.services.multiplayer && started.account && started.guides.length === 6 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
+  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 4 && started.services.multiplayer && started.account && started.guides.length === 7 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
   assert.ok(!JSON.stringify(started).match(/design_scene|list_blocks|recommend_pipeline|craft score/), 'get_started must not teach how to make a game');
-  for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer', 'services']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
-  assert.equal((await rpc('resources/list')).resources.length, 7);
+  for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer', 'storage', 'services']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
+  assert.equal((await rpc('resources/list')).resources.length, 8);
   const catalog = await tool('platform_services');
   assert.ok(catalog.services.length >= 20 && catalog.not_provided.length >= 10 && catalog.services.some((x) => x.id === 'multiplayer'), JSON.stringify(catalog).slice(0, 400));
   assert.equal((await tool('platform_services', { service: 'saves' })).service.id, 'saves');
   assert.ok(JSON.parse((await rpc('resources/read', { uri: 'gcp://services' })).contents[0].text).services.length === catalog.services.length);
-  ok(`MCP: initialize says web games only, ${tools.length} tools, get_started and its 6 platform guides, platform_services; bad token gets 401`);
+  ok(`MCP: initialize says web games only, ${tools.length} tools, get_started and its 7 platform guides, platform_services; bad token gets 401`);
 
   // a project made from one of the platform's starter folders, uploaded the way an agent uploads its own files
   const tplDir = new URL('../web/public/templates/', import.meta.url), tplIndex = JSON.parse(readFileSync(new URL('index.json', tplDir), 'utf8'));
