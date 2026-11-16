@@ -76,6 +76,27 @@ async function loadAll(list, onProgress) {         // list: [{ key, url, type: '
 
 Use relative URLs (`./assets/hero.png`). The static check in `check_project` reports files that the code refers to but the bundle does not contain, and verification fails on any request that returns an error.
 
+## Loading content from your own host
+
+Each game has a storage limit (`get_started {topic: "storage"}`), so large or optional content (extra levels, music, high-resolution textures, big models) can live on a host the developer controls and be fetched while the game runs. The page may load from any HTTPS host that sends `Access-Control-Allow-Origin`.
+
+```js
+const CDN = 'https://assets.example.com/my-game/v3/';     // versioned, immutable file names
+async function remote(name) {
+  const cache = await caches.open('my-game-v3');
+  let r = await cache.match(CDN + name);
+  if (!r) { r = await fetch(CDN + name, { mode: 'cors' }); if (!r.ok) throw new Error(`${name}: ${r.status}`); await cache.put(CDN + name, r.clone()); }
+  return r;
+}
+// boot with what ships in the bundle (or is generated), call GCP.ready(), then stream the rest
+GCP.ready();
+remote('music/level2.ogg').then((r) => r.arrayBuffer()).then(startMusic).catch(() => { /* play the generated theme instead */ });
+```
+
+- Set `crossOrigin = 'anonymous'` on images and loaders (`new THREE.TextureLoader().setCrossOrigin('anonymous')`), or WebGL refuses the texture.
+- The verification browser requests what the game requests, and a URL that answers with an error fails the "files" check. Keep the host reliable and every URL working when the version is verified.
+- Load data and media, not scripts, with plain GET requests; never send the player's play token or identity to another host.
+
 ## Returning players
 
 Read the save during boot and drop the player back where they were. `GCP.save.get` resolves to `null` for a new player and never throws, so the boot path is the same for both.

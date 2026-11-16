@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pager } from '../store';
-import { ago, api, date, dateTime, Fail, Link, num, playTime, series, t, tr, usd, useAct, useApp, useData, count } from '../lib';
+import { ago, api, bytes, date, dateTime, Fail, Link, num, playTime, series, t, tr, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, Table, Tabs } from '../ui';
 import { AdminSkeleton } from '../skeletons';
+
+const MB = 1024 * 1024;
 
 const tabs = (): [string, string][] => [['overview', t('Overview', '概览')], ['settings', t('Settings', '参数设置')], ['users', t('Users', '用户')], ['games', t('Games', '游戏')], ['money', t('Money', '资金')]];
 
@@ -61,14 +63,14 @@ function Settings() {
   const groups = useMemo(() => { const g = new Map<string, string[]>(); for (const [k, d] of Object.entries(data?.defs || {})) g.set(d.group, [...(g.get(d.group) || []), k]); return [...g.entries()]; }, [data]);
   if (error && !data) return <Fail error={error} retry={reload} />;
   if (loading && !data) return <AdminSkeleton tab="settings" />;
-  const show = (k: string) => { const d = data!.defs[k], v = data!.values[k]; return k in draft ? draft[k] : d.type === 'cents' ? (v / 100).toFixed(2) : d.type === 'bool' ? !!v : String(v); };
+  const show = (k: string) => { const d = data!.defs[k], v = data!.values[k]; return k in draft ? draft[k] : d.type === 'cents' ? (v / 100).toFixed(2) : d.type === 'bytes' ? String(Math.round((v / MB) * 100) / 100) : d.type === 'bool' ? !!v : String(v); };
   const dirty = Object.keys(draft).length;
   const save = () => act('save', async () => {
     const out: Record<string, unknown> = {};
     for (const [k, raw] of Object.entries(draft)) {
       const d = data!.defs[k];
       if (d.type === 'bool' || d.type === 'text' || d.type === 'select') out[k] = raw;
-      else { const n = Number(raw); if (!Number.isFinite(n)) throw new Error(`${tr(d.label)}: ${t('enter a number', '请输入数字')}`); out[k] = d.type === 'cents' ? Math.round(n * 100) : d.type === 'int' ? Math.round(n) : n; }
+      else { const n = Number(raw); if (!Number.isFinite(n)) throw new Error(`${tr(d.label)}: ${t('enter a number', '请输入数字')}`); out[k] = d.type === 'cents' ? Math.round(n * 100) : d.type === 'bytes' ? Math.round(n * MB) : d.type === 'int' ? Math.round(n) : n; }
     }
     await api('/admin/settings', { method: 'PUT', body: out }); await reload(); await refresh();
   }, t('Settings saved.', '设置已保存。'));
@@ -81,7 +83,7 @@ function Settings() {
               <div><b>{tr(d.label)}</b>{d.help && <div className="mute fs-sm">{tr(d.help)}</div>}<div className="dim mono fs-xs">{k}{changed && <span className="sig"> · {t('changed', '已修改')}</span>}</div></div>
               {d.type === 'bool' ? <Switch checked={v as boolean} onChange={(e) => setDraft({ ...draft, [k]: e.target.checked })} />
                 : d.type === 'select' ? <select className="input" value={v as string} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}>{(d.options || []).map((o: string) => <option key={o} value={o}>{tr(o)}</option>)}</select>
-                : <div className="row">{d.type === 'cents' && <span className="mute">$</span>}<Input mono={d.type !== 'text'} inputMode={d.type === 'text' ? 'text' : 'decimal'} value={v as string} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} /></div>}
+                : <div className="row">{d.type === 'cents' && <span className="mute">$</span>}<Input mono={d.type !== 'text'} inputMode={d.type === 'text' ? 'text' : 'decimal'} value={v as string} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />{d.type === 'bytes' && <span className="mute">MB</span>}</div>}
             </label>); })}
         </Card>
       ))}
@@ -133,16 +135,50 @@ function Users() {
   );
 }
 
+/** Creators' requests for more storage for one game: approve (with the amount asked, or another) or deny. */
+function StorageRequests({ onChange }: { onChange: () => void }) {
+  const { busy, act } = useAct(), { data, reload } = useData<any>('/admin/storage-requests');
+  if (!data?.requests?.length) return null;
+  const decide = (r: any, approve: boolean) => {
+    const mbs = approve ? prompt(t('Storage to grant "{title}", in MB', '为《{title}》分配的存储空间（MB）', { title: r.title }), String(Math.round(r.bytes / MB))) : '';
+    if (mbs === null) return;
+    const note = prompt(approve ? t('Note for the creator (optional)', '给创作者的备注（可选）') : t('Reason shown to the creator', '向创作者显示的原因'));
+    if (note === null) return;
+    void act(r.id, async () => { await api(`/admin/storage-requests/${r.id}`, { body: { action: approve ? 'approve' : 'deny', megabytes: mbs || undefined, note } }); await reload(); onChange(); }, approve ? t('Storage granted.', '已分配存储空间。') : t('Request denied.', '已拒绝申请。'));
+  };
+  const waiting = data.requests.filter((r: any) => r.status === 'pending').length;
+  return (
+    <Card title={t('Storage requests', '存储空间申请')} aside={t('creators asking for more storage for one game', '创作者为单款游戏申请更多存储空间')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
+      <Table><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Asked for', '申请')}</th><th className="n">{t('Has', '现有')}</th><th className="n">{t('Used', '已用')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
+        <tbody>{data.requests.map((r: any) => <tr key={r.id}>
+          <td><b>{r.title}</b><div className="mute fs-sm">{r.author} · {r.author_email}</div><div className="dim fs-xs">{ago(r.created_at)}</div></td>
+          <td className="n">{bytes(r.bytes)}</td><td className="n">{bytes(r.storage_bytes ?? data.default_bytes)}</td><td className="n">{bytes(r.used_now)}</td>
+          <td className="fs-sm" style={{ maxWidth: 380, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.reason}{r.note && <div className="mute">{t('Answer', '答复')}: {r.note}</div>}</td>
+          <td><StatusBadge status={r.status} />{r.status === 'approved' && r.granted_bytes ? <div className="dim fs-xs">{bytes(r.granted_bytes)}</div> : null}</td>
+          <td>{r.status === 'pending' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === r.id} onClick={() => decide(r, true)}>{t('Approve', '批准')}</Button><Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => decide(r, false)}>{t('Deny', '拒绝')}</Button></div>}</td>
+        </tr>)}</tbody></Table>
+    </Card>
+  );
+}
+
 function Games() {
+  const { config } = useApp(), defaultStorage = config.settings.bundle_max_bytes as number;
   const { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/games');
+  const storage = (g: any) => {
+    const raw = prompt(t('Storage for "{title}" in MB. Leave empty for the platform default ({mb} MB).', '《{title}》的存储空间（MB）。留空则使用平台默认值（{mb} MB）。', { title: g.title, mb: Math.round(defaultStorage / MB) }), g.storage_bytes != null ? String(Math.round(g.storage_bytes / MB)) : '');
+    if (raw === null) return;
+    if (raw.trim() && !(Number(raw) > 0)) return;
+    void patch(g.id, { storage_mb: raw.trim() ? Number(raw) : null }, t('Storage updated.', '存储空间已更新。'));
+  };
   const patch = (id: string, body: Record<string, unknown>, msg: string) => act(id, async () => { await api(`/admin/games/${id}`, { method: 'PATCH', body }); await reload(); }, msg);
   const remove = (g: any) => { const reason = prompt(t('Remove "{title}" from the platform? Give the reason shown to its creator.', '确定将《{title}》从平台移除吗？请填写向创作者显示的原因。', { title: g.title })); if (reason !== null) void patch(g.id, { action: 'remove', reason }, t('Game removed.', '游戏已移除。')); };
   return (
     <div className="stack l">
+      <StorageRequests onChange={reload} />
       <div className="admin-tools"><SearchInput placeholder={t('Search by title, address or creator email', '按标题、地址或创作者邮箱搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : (
         <Card><Table>
-          <thead><tr><th>{t('Game', '游戏')}</th><th>{t('Status', '状态')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Plays', '游玩')}</th><th className="n">{t('7 days', '近 7 天')}</th><th className="n">{t('Time', '时长')}</th><th className="n">{t('Rating', '评分')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('Fees', '平台分成')}</th><th className="n">{t('Errors', '错误')}</th><th /></tr></thead>
+          <thead><tr><th>{t('Game', '游戏')}</th><th>{t('Status', '状态')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Plays', '游玩')}</th><th className="n">{t('7 days', '近 7 天')}</th><th className="n">{t('Time', '时长')}</th><th className="n">{t('Rating', '评分')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('Fees', '平台分成')}</th><th className="n">{t('Errors', '错误')}</th><th className="n">{t('Storage', '存储空间')}</th><th /></tr></thead>
           <tbody>{data.games.map((g: any) => (
             <tr key={g.id}>
               <td>{g.status === 'live' ? <Link to={`/g/${g.slug}`}><b>{g.title}</b></Link> : <b>{g.title}</b>}<div className="mute fs-sm">{g.author} · {g.author_email}</div>{g.removed_reason && <div className="bad fs-sm">{g.removed_reason}</div>}</td>
@@ -150,7 +186,9 @@ function Games() {
               <td className="n">{g.price_cents > 0 ? usd(g.price_cents) : t('Free', '免费')}</td><td className="n">{num(g.plays)}</td><td className="n">{num(g.plays7)}</td><td className="n">{playTime(g.seconds)}</td>
               <td className="n">{g.rating_count ? (g.rating_sum / g.rating_count).toFixed(1) : '—'} <span className="dim">({g.rating_count})</span></td>
               <td className="n">{g.sales}</td><td className="n">{usd(g.fees)}</td><td className={'n' + (g.errors > 0 ? ' bad' : '')}>{num(g.errors)}</td>
+              <td className={'n' + (g.used_bytes > (g.storage_bytes ?? defaultStorage) ? ' bad' : '')}>{bytes(g.used_bytes)}<div className="dim fs-xs">{t('of {size}', '共 {size}', { size: bytes(g.storage_bytes ?? defaultStorage) })}{g.storage_bytes != null && ` · ${t('set for this game', '单独设置')}`}</div></td>
               <td><div className="row-actions">
+                <Button size="sm" disabled={busy === g.id} onClick={() => storage(g)}>{t('Storage', '存储空间')}</Button>
                 {g.status === 'live' && <Button size="sm" disabled={busy === g.id} onClick={() => patch(g.id, { featured: !g.featured }, t('Updated.', '已更新。'))}>{g.featured ? t('Unfeature', '取消精选') : t('Feature', '设为精选')}</Button>}
                 {g.status === 'live' && <Button size="sm" disabled={busy === g.id} onClick={() => patch(g.id, { action: 'offline' }, t('Game taken offline.', '游戏已下线。'))}>{t('Take offline', '下线')}</Button>}
                 {g.status === 'removed' ? <Button size="sm" disabled={busy === g.id} onClick={() => patch(g.id, { action: 'restore' }, t('Game restored.', '游戏已恢复。'))}>{t('Restore', '恢复')}</Button> : <Button size="sm" variant="danger" disabled={busy === g.id} onClick={() => remove(g)}>{t('Remove', '移除')}</Button>}

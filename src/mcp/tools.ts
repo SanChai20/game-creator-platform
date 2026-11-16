@@ -13,6 +13,7 @@ import { takeOffline, trialStats } from '../routes/api';
 import { trialMinutes } from '../trials';
 import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
+import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
 import { gameAnalytics, onlineNow } from '../analytics';
 import { publishGate } from '../originality-check';
 import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
@@ -42,6 +43,7 @@ export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summ
   { topic: 'versions', file: 'troubleshooting', title: 'Versions and failed verification', summary: 'How previews, versions, publishing and rollback relate, each verification check, why it usually fails, and the fix.' },
   { topic: 'saves', file: 'saves', title: 'Player progress, saves, leaderboards and server code', summary: 'Each player\'s progress: cloud saves and stats per player and game, the play record the platform keeps, shared game data, leaderboards, and optional server code that runs in the game\'s own Worker.' },
   { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
+  { topic: 'storage', file: 'storage', title: 'Game storage', summary: 'How much a game\'s files may add up to, how uploads, deploys and publishing enforce it, how to keep a game small (generate content from code, load large or optional content at run time from your own host with CORS, compress what ships), and how to ask for more. Read before adding large assets.' },
   { topic: 'services', file: 'services', title: 'Platform services', summary: 'Every service the platform gives games and agents (hosting, accounts, saves, stats, shared data, leaderboards, rooms, server code, display, verification, payments, analytics, agent access): how each works, how to reach it, its limits, and what the platform does not provide.' },
 ];
 export async function guideText(env: Env, origin: string, topic: string) {
@@ -73,7 +75,7 @@ async function account(c: ToolCtx) {
     console_url: `${c.origin}/console`,
     earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
     paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled' } : 'disabled',
-    limits: { files_per_bundle: s.bundle_max_files, bundle_bytes: s.bundle_max_bytes, file_bytes: s.file_max_bytes, server_code: s.allow_server_code },
+    limits: { storage_per_game: mb(s.bundle_max_bytes), storage_per_game_bytes: s.bundle_max_bytes, largest_file: mb(s.file_max_bytes), files_per_game: s.bundle_max_files, more_storage: s.storage_requests_open ? `ask with game_storage, up to ${mb(s.storage_max_bytes)} per game` : 'closed', server_code: s.allow_server_code },
   };
 }
 
@@ -199,7 +201,7 @@ const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The prim
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
-    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms). Pass topic to read one platform guide in full: "contract", "versions", "saves", "multiplayer" or "services". platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
+    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms). Pass topic to read one platform guide in full: "contract", "versions", "storage", "saves", "multiplayer" or "services". Every game has a storage limit (see storage in the answer): tell the developer about it before planning large assets. platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
     inputSchema: obj({ topic: { type: 'string', enum: PLATFORM_GUIDES.map((g) => g.topic), description: 'Optional. Returns that platform guide as Markdown instead of the overview.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (a.topic) {
@@ -216,12 +218,20 @@ export const TOOLS: Tool[] = [
           'A web page: index.html at the bundle root, plus the files it loads with relative paths. There is no build step on the platform: upload what the browser runs.',
           'Call GCP.ready() once, right after the first playable frame is drawn. GCP is injected by the platform; never bundle or import it.',
           'Run with no uncaught errors, keep rendering frames (or, for a turn-based page, change when the player acts), survive keyboard, mouse and touch input, and stay on the page (no redirects, downloads or popups). That is what verification checks.',
+          `Fit the game's storage: all of a game's files together may use ${mb(s.bundle_max_bytes)} by default (one file at most ${mb(s.file_max_bytes)}, ${s.bundle_max_files} files). Uploads that would go over are refused, and a version over it cannot be deployed or published.`,
         ],
+        storage: {
+          per_game: `${mb(s.bundle_max_bytes)} for all of a game's files unless the platform set a different amount for that game; largest file ${mb(s.file_max_bytes)}; ${s.bundle_max_files} files. Platform-hosted Three.js and @gcp/ modules do not count.`,
+          tell_the_developer: 'Tell the developer about this limit when you plan the game, before choosing large models, textures, audio or video, and again whenever an answer carries storage.warning (from 80% used). Do not discover it at upload time.',
+          design_for_it: 'Prefer content generated from code at boot (meshes, terrain, textures, sound, music) and load large or optional content at run time from a host the developer controls. The page may fetch from any HTTPS host that sends CORS headers.',
+          more: s.storage_requests_open ? `If the game truly needs more after that, ask with game_storage {project, action: "request", megabytes, reason}: up to ${mb(s.storage_max_bytes)} per game, reviewed by the platform${s.storage_auto_approve_bytes > 0 ? ` (approved at once up to ${mb(s.storage_auto_approve_bytes)})` : ''}. Ask the developer before requesting.` : 'Storage requests are closed on this platform: the game must fit.',
+          check: 'Every upload, list_files, list_projects {project} and deploy_preview answer includes storage (used, storage, free, percent_used, and warning when it is getting full). game_storage {project} shows where the space goes, with every way to save it. get_started {topic: "storage"} is the long form.',
+        },
         engines: ENGINE_EXPORTS,
         originality: 'After the browser check passes, each version is compared with other creators\' live games, and a copy (even with renamed variables or new titles) cannot be published. Platform templates, kits and common libraries are ignored, so starting from them is fine. An upload that is not a game is refused too, and so is harmful content (sexual content, hate, scams, phishing) or abusive code (miners, password forms). Game violence and horror are fine. get_started {topic: "versions"} explains these checks.',
         workflow: [
           '1. create_project, once per game.',
-          '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl.',
+          '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl. Each answer shows the game\'s storage; keep inside it (game_storage).',
           '2b. game_metadata: define what players see on the store page: genre, languages (interface, voice, subtitles; GCP.lang is the player\'s platform language), players and modes, session length, accessibility, content descriptors (the age rating) and the browser requirements. check shows what the code reveals and what is missing; declare saves it. Publishing a new version needs genre, requirements, languages, players and content.',
           '3. deploy_preview: static checks, then a new numbered version deployed to its own preview address and checked in a real browser. With dry_run: true it runs only the static checks.',
           '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
@@ -279,7 +289,7 @@ export const TOOLS: Tool[] = [
         project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, tags: JSON.parse(p.tags || '[]'),
         cover: p.cover_key ? `${c.origin}/api/media/${p.cover_key}` : null,
         status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', free_trial: trialText(p, await getSettings(c.env)), live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
-        workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) },
+        workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) }, storage: await storageLine(c.env, p, files),
         latest_version: latest ? await versionReport(c, p, latest.n, latest) : null,
         game_page: p.status === 'live' ? `${c.origin}/g/${p.slug}` : null, console_page: `${c.origin}/console/projects/${p.id}`,
         open_implementation: sharing(p),
@@ -299,7 +309,11 @@ export const TOOLS: Tool[] = [
     run: async (a, c) => {
       let p = await createProject(c.env, c.user, a as any, c.client);
       if (a.genre !== undefined) { await updateProjectMeta(c.env, p, { genre: a.genre }); p = await ownedProject(c.env, c.user, p.id); }
-      return { project: p.id, slug: p.slug, title: p.title, console_page: `${c.origin}/console/projects/${p.id}`, next: 'Upload the game: upload_files for text files, create_upload_url for big or binary files or a whole folder. Then deploy_preview.' };
+      return {
+        project: p.id, slug: p.slug, title: p.title, console_page: `${c.origin}/console/projects/${p.id}`, storage: await storageLine(c.env, p, []),
+        tell_the_developer: `This game has ${mb(budgetOf(p, await getSettings(c.env)).bytes)} of storage for all its files. Plan assets around it: generate content from code and load large or optional content at run time (game_storage {project} explains how).`,
+        next: 'Upload the game: upload_files for text files, create_upload_url for big or binary files or a whole folder. Then deploy_preview.',
+      };
     },
   },
   {
@@ -371,14 +385,18 @@ export const TOOLS: Tool[] = [
         pending.set(path, new TextEncoder().encode(out));
         edited.push({ path, replaced: e.replace_all ? count : 1 });
       }
+      // The whole call against the game's storage, deletes included, so a call that swaps a big file for a smaller one fits.
+      const before = await listFiles(c.env, p.id), s = await getSettings(c.env);
+      assertFits(s, p, before, [...pending].map(([path, bytes]) => ({ path, size: bytes.byteLength })), dels.map((d: unknown) => cleanPath(String(d)) || String(d)));
       // Every part passed: write.
       const rows = new Map<string, Awaited<ReturnType<typeof putFile>>>();
-      for (const [path, bytes] of pending) rows.set(path, await putFile(c.env, p, path, bytes));
+      for (const [path, bytes] of pending) rows.set(path, await putFile(c.env, p, path, bytes, true));
       const written = [...new Set(files.map((f) => cleanPath(f.path)!))].map((path) => ({ path, bytes: rows.get(path)!.size, sha: rows.get(path)!.sha }));
       const deleted: string[] = [];
       for (const path of dels) if (await deleteFile(c.env, p.id, String(path))) deleted.push(path);
       return {
         written, edited: edited.map((e) => ({ path: e.path, bytes: rows.get(e.path)!.size, sha: rows.get(e.path)!.sha, replaced: e.replaced })), deleted,
+        storage: await storageLine(c.env, p),
         next: 'Call deploy_preview when the changes are complete (dry_run: true for only the static checks).',
       };
     },
@@ -403,7 +421,28 @@ export const TOOLS: Tool[] = [
     name: 'list_files', title: 'List workspace files',
     description: 'Lists every file in the project workspace with its size and sha (the first 32 hex characters of its SHA-256), so you can see which local files differ from what was uploaded.',
     inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0) }; },
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0), storage: await storageLine(c.env, p, files) }; },
+  },
+  {
+    name: 'game_storage', title: 'Check the game\'s storage or ask for more',
+    description: 'Every game has a storage limit for all its files together (the platform default unless the platform set a different amount for this game), plus a largest-file size and a file count. Uploads that would go over are refused, and a version over it cannot be deployed or published. action "check" (default) shows the storage, what is used and free, the share used per kind of file (models, textures, audio, code…), the largest files, every way to keep the game small (generating content from code, loading large or optional content at run time from your own host, compression), how loading at run time works on this platform (CORS, caching, verification), and the status of any request. action "request" asks the platform for more storage for this game: megabytes is the new total wanted, reason says what needs the space and why generating it or loading it at run time does not work for it. Ask the developer before requesting; a request may wait for an admin. Tell the developer about the limit when planning assets, and whenever an answer carries storage.warning.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['check', 'request'], description: 'Default "check".' },
+      megabytes: { type: 'number', description: 'request only: the total storage wanted for this game, in MB (not an amount to add).' },
+      reason: { type: 'string', description: 'request only: what needs the space and why generating it from code or loading it at run time does not work for it (at least 40 characters).' },
+    }, ['project']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), action = a.action || 'check';
+      if (action === 'request') return { project: p.id, ...(await requestStorage(c.env, c.user, p, a.megabytes, a.reason, c.client)), storage: await storageLine(c.env, await ownedProject(c.env, c.user, p.id)) };
+      if (action !== 'check') throw bad('action must be "check" or "request".');
+      const files = await listFiles(c.env, p.id), report = await storageReport(c.env, p, files);
+      return {
+        project: p.id, ...report, status: await storageLine(c.env, p, files), ...STORAGE_GUIDE,
+        tell_the_developer: 'Share this with the developer when planning assets: how much storage the game has, what uses it, and the plan to stay inside it.',
+        guide: 'get_started {topic: "storage"}',
+      };
+    },
   },
   {
     name: 'game_metadata', title: 'Define the game\'s store metadata',
@@ -531,15 +570,16 @@ export const TOOLS: Tool[] = [
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
       const check = await checkProject(c.env, p, c.origin);
-      if (a.dry_run) return { ok: check.ok, files: check.files, bytes: check.bytes, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: check.ok ? 'No errors. Call deploy_preview without dry_run.' : 'Fix the errors above, then check again.' };
-      if (!check.ok) return { deployed: false, reason: 'Static checks failed, so nothing was deployed.', errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
+      const storage = await storageLine(c.env, p);
+      if (a.dry_run) return { ok: check.ok, files: check.files, bytes: check.bytes, storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: check.ok ? 'No errors. Call deploy_preview without dry_run.' : 'Fix the errors above, then check again.' };
+      if (!check.ok) return { deployed: false, reason: 'Static checks failed, so nothing was deployed.', storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
       const busy = await c.env.DB.prepare("SELECT n FROM versions WHERE project_id = ? AND status IN ('queued','deploying','verifying') AND created_at > ?").bind(p.id, now() - 10 * 60000).first<{ n: number }>();
       if (busy) throw new AppError(409, `Version ${busy.n} is still being deployed.`, 'busy', `Call list_versions {project, version: ${busy.n}} and wait for it to finish first.`);
       const v = await snapshot(c.env, p, check.manifest, String(a.note || ''));
       await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
       const done = await waitVersion(c, p.id, v.n, 80000);
-      return { deployed: true, warnings: check.warnings.map(issueLine), ...(await versionReport(c, p, v.n, done)) };
+      return { deployed: true, storage, warnings: check.warnings.map(issueLine), ...(await versionReport(c, p, v.n, done)) };
     },
   },
   {
@@ -584,6 +624,9 @@ export const TOOLS: Tool[] = [
           throw new AppError(409, `Version ${v.n} cannot be published until its store metadata is complete. Missing: ${missing.join('; ')}.\n${steps.join('\n')}`, 'metadata_incomplete', 'Ask the user anything you cannot tell from the game (genre, content descriptors), declare each field with game_metadata {action: "declare", …}, then deploy_preview again (build fields are frozen with a version) and publish the new version. game_metadata {project} shows the whole checklist.');
         }
       }
+      // Storage: a new version must fit the game's storage. A rollback to a version that was live before is not held to it.
+      const over = !a._rollback && overBudget(s, p, v.bytes, v.file_count);
+      if (over) throw new AppError(413, `Version ${v.n} cannot be published: ${over.message}`, 'storage_full', over.hint);
       const copy = await publishGate(c.env, p, v);
       if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
       if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
@@ -751,21 +794,26 @@ export const TOOLS: Tool[] = [
 
 /** Unzips an uploaded archive into the workspace. */
 export async function importZip(env: Env, user: User, projectId: string, zip: Uint8Array, clean: boolean) {
-  const p = await ownedProject(env, user, projectId);
-  let entries: Record<string, Uint8Array>;
-  try { entries = unzipSync(zip); } catch (e) { throw bad(`Not a readable zip file: ${(e as Error).message}`); }
-  let names = Object.keys(entries).filter((n) => !n.endsWith('/') && !n.startsWith('__MACOSX/'));
+  const p = await ownedProject(env, user, projectId), s = await getSettings(env);
+  // First read only the zip's directory (nothing is unpacked), so a zip that would not fit is refused before it fills memory.
+  const sizes: Record<string, number> = {};
+  try { unzipSync(zip, { filter: (f) => { sizes[f.name] = f.originalSize; return false; } }); } catch (e) { throw bad(`Not a readable zip file: ${(e as Error).message}`); }
+  let names = Object.keys(sizes).filter((n) => !n.endsWith('/') && !n.startsWith('__MACOSX/'));
   // If everything sits in one top-level folder, strip it so index.html lands at the root.
   const tops = new Set(names.map((n) => n.split('/')[0]));
   const strip = tops.size === 1 && names.every((n) => n.includes('/')) && !names.includes('index.html') ? [...tops][0] + '/' : '';
-  const written: string[] = [], skipped: string[] = [];
-  for (const n of names) {
-    const path = cleanPath(strip ? n.slice(strip.length) : n);
-    if (!path) { skipped.push(n); continue; }
-    await putFile(env, p, path, entries[n]);
-    written.push(path);
-  }
-  let removed: string[] = [];
-  if (clean) { const keep = new Set(written); for (const f of await listFiles(env, p.id)) if (!keep.has(f.path)) { await deleteFile(env, p.id, f.path); removed.push(f.path); } }
-  return { written, skipped, removed, next: 'Call deploy_preview (dry_run: true runs only the static checks).' };
+  const target = new Map<string, string>(), skipped: string[] = [];
+  for (const n of names) { const path = cleanPath(strip ? n.slice(strip.length) : n); if (path) target.set(n, path); else skipped.push(n); }
+  const existing = await listFiles(env, p.id), incoming = new Set(target.values());
+  const removing = clean ? existing.filter((f) => !incoming.has(f.path)).map((f) => f.path) : [];
+  assertFits(s, p, existing, [...target].map(([n, path]) => ({ path, size: sizes[n] })), removing);
+  let entries: Record<string, Uint8Array>;
+  try { entries = unzipSync(zip, { filter: (f) => target.has(f.name) }); } catch (e) { throw bad(`Not a readable zip file: ${(e as Error).message}`); }
+  // the directory's sizes are the zip's own claim: check again with what actually came out
+  assertFits(s, p, existing, [...target].map(([n, path]) => ({ path, size: entries[n]?.byteLength ?? 0 })), removing);
+  const written: string[] = [];
+  for (const [n, path] of target) { await putFile(env, p, path, entries[n], true); written.push(path); }
+  const removed: string[] = [];
+  for (const path of removing) { await deleteFile(env, p.id, path); removed.push(path); }
+  return { written, skipped, removed, storage: await storageLine(env, p), next: 'Call deploy_preview (dry_run: true runs only the static checks).' };
 }

@@ -2,6 +2,7 @@
 import { parse } from 'acorn';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User, type Version } from './env';
 import { getSettings } from './settings';
+import { assertFits, overBudget } from './storage';
 import { THREE_VERSION } from './generated/runtime-source';
 import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf } from './util';
 
@@ -109,17 +110,14 @@ export async function listFiles(env: Env, pid: string): Promise<FileRow[]> {
   return (await env.DB.prepare('SELECT path, size, sha, ctype, updated_at FROM files WHERE project_id = ? ORDER BY path').bind(pid).all<FileRow>()).results;
 }
 
-export async function putFile(env: Env, p: Project, rawPath: string, bytes: Uint8Array): Promise<FileRow> {
+/** Writes one workspace file. `budgetChecked`: the caller already checked the whole change against the game's storage. */
+export async function putFile(env: Env, p: Project, rawPath: string, bytes: Uint8Array, budgetChecked = false): Promise<FileRow> {
   const s = await getSettings(env);
   const path = cleanPath(rawPath);
   if (!path) throw bad(`Path not allowed: "${rawPath}".`, `Use relative paths like "index.html" or "src/game.js" with a web file extension (html, js, css, json, png, jpg, webp, svg, mp3, ogg, wav, glb, wasm, woff2, data, pck, …). ${WEB_ONLY_HINT}`);
   const what = nonWebContent(bytes, path);
   if (what) throw bad(`${path} is ${what}, not a web file. This platform hosts web games only.`, WEB_ONLY_HINT);
-  if (bytes.byteLength > s.file_max_bytes) throw bad(`${path} is ${bytes.byteLength} bytes; the limit is ${s.file_max_bytes}.`);
-  const existing = await listFiles(env, p.id);
-  const others = existing.filter((f) => f.path !== path);
-  if (others.length + 1 > s.bundle_max_files) throw bad(`Bundle would exceed ${s.bundle_max_files} files.`);
-  if (others.reduce((a, f) => a + f.size, 0) + bytes.byteLength > s.bundle_max_bytes) throw bad(`Bundle would exceed ${s.bundle_max_bytes} bytes.`);
+  if (!budgetChecked) assertFits(s, p, await listFiles(env, p.id), [{ path, size: bytes.byteLength }]);
   const row: FileRow = { path, size: bytes.byteLength, sha: (await sha256(bytes)).slice(0, 32), ctype: typeOf(path) || 'application/octet-stream', updated_at: now() };
   await env.FILES.put(wsKey(p.id, path), bytes, { httpMetadata: { contentType: row.ctype } });
   await env.DB.batch([
@@ -234,6 +232,8 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   let manifest = resolveManifest(null, origin), declared: unknown = undefined, gcpRaw: Record<string, unknown> = {};
 
   if (!files.length) err({ message: 'The project has no files yet.', hint: 'Upload at least index.html (upload_files or create_upload_url).' });
+  const over = overBudget(s, p, bytes, files.length);
+  if (over) err({ message: over.message, hint: over.hint });
   if (files.length && !paths.has('index.html')) err({ message: 'index.html is missing.', hint: 'The game document must be index.html at the bundle root.' });
 
   const texts = new Map<string, string>();
