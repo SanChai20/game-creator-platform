@@ -32,38 +32,40 @@ export class World2d {
     const low = work ? palette.cyan : palette.hot;
     for (let i = 0; i < 6; i++) {
       const k = i / 5;
-      x.fillStyle = mixHex(palette.ink, mixHex(shade(palette.violet, -0.55), shade(low, -0.6), Math.max(0, (k - 0.55) / 0.45)), Math.min(1, k * 0.8));
+      x.fillStyle = mixHex(palette.ink, mixHex(shade(palette.violet, -0.55), shade(low, -0.6), Math.max(0, (k - 0.55) / 0.45)), Math.min(1, k * 0.42));
       x.fillRect(0, (H * i) / 6 - 1, W, H / 6 + 2);
     }
     // calm the reading column
     const g = x.createLinearGradient(0, 0, W, 0);
-    g.addColorStop(0, 'rgba(10,9,16,0)'); g.addColorStop(0.5, 'rgba(10,9,16,.35)'); g.addColorStop(1, 'rgba(10,9,16,0)');
+    g.addColorStop(0, 'rgba(10,9,16,0)'); g.addColorStop(0.5, 'rgba(10,9,16,.5)'); g.addColorStop(1, 'rgba(10,9,16,0)');
     x.fillStyle = g; x.fillRect(0, 0, W, H);
 
     // stars
-    for (let i = 0; i < 70; i++) this.sprite('sparkle', r() * W, r() * H * 0.7, 4 + r() * 8, '#e9e4ff');
+    for (let i = 0; i < 40; i++) this.sprite('sparkle', r() * W, r() * H * 0.7, 3 + r() * 5, '#8f87b0');
 
     // keep the art in the margins beside the content column, as the GPU world does
     const el = document.querySelector('main .wrap') || document.querySelector('.wrap'), rect = el?.getBoundingClientRect();
     const half = rect && rect.width > 200 ? rect.width / 2 : Math.min(W, 1240) / 2, margin = Math.max(0, W / 2 - half), roomy = margin > 160;
-    if (!work) { const R = roomy ? Math.min(150, margin * 0.42) : 46; this.planet(roomy ? W - margin / 2 : W - R * 0.4, roomy ? H * 0.24 : R * 0.9 + 60, R); }
+    x.globalAlpha = 0.5; // set dressing: the planet, floor and props sit well below the page
+    if (!work) { const R = roomy ? Math.min(90, margin * 0.3) : 32; this.planet(roomy ? W - margin / 2 : W - R * 0.4, roomy ? H * 0.24 : R * 0.9 + 60, R); }
     else this.floor(W, H);
 
     // props down both sides, where the content column leaves room
     const kinds: [SpriteKind | 'gear' | 'block' | 'cloud', string][] = work
-      ? [['gear', palette.accent], ['block', palette.hot], ['gear', palette.cyan], ['block', palette.gold], ['cloud', '#b9b0ff'], ['gear', '#8e7dff'], ['block', palette.cyan]]
-      : [['gem', palette.accent], ['coin', palette.gold], ['cloud', '#d9d2ff'], ['gem', palette.hot], ['star', palette.gold], ['gem', palette.cyan], ['cloud', '#bfb3ff'], ['heart', palette.hot]];
-    const n = W < 700 ? 4 : kinds.length;
+      ? [['gear', palette.accent], ['block', palette.hot], ['gear', palette.cyan], ['block', palette.gold]]
+      : [['gem', palette.accent], ['coin', palette.gold], ['gem', palette.cyan], ['star', palette.gold]];
+    const n = W < 700 ? 2 : kinds.length;
     for (let i = 0; i < n; i++) {
       const [k, c] = kinds[i], left = i % 2 === 0;
       const off = margin >= 90 ? margin * (0.3 + r() * 0.4) : 6 + r() * 12;
       const px = left ? off : W - off, py = H * (0.3 + (i / n) * 0.65 + (r() - 0.5) * 0.06);
-      const s = (k === 'cloud' ? 90 : 46) * (0.8 + r() * 0.5) * (margin >= 90 ? Math.min(1.4, margin / 120) : 0.6);
+      const s = (k === 'cloud' ? 60 : 30) * (0.8 + r() * 0.4) * (margin >= 90 ? Math.min(1.2, margin / 140) : 0.5);
       if (k === 'gear') this.gear(px, py, s * 0.5, c, r() * 6);
       else if (k === 'block') this.block(px, py, s * 0.75, c, (r() - 0.5) * 0.5);
       else if (k === 'cloud') this.cloud(px, py, s, c, r);
       else this.sprite(k, px, py, s, c);
     }
+    x.globalAlpha = 1;
     document.documentElement.dataset.fxLive = '1';
     this.stats.paints++; this.stats.ms = Math.round((performance.now() - t0) * 10) / 10;
   }
@@ -111,7 +113,7 @@ export class World2d {
   }
   private floor(W: number, H: number) {
     const x = this.x, hy = H * 0.72;
-    x.save(); x.globalAlpha = 0.5; x.lineWidth = 1;
+    x.save(); x.globalAlpha = 0.28; x.lineWidth = 1;
     for (let i = 0; i <= 16; i++) { const k = i / 16; x.strokeStyle = i % 4 ? 'rgba(139,107,255,.35)' : 'rgba(198,255,61,.45)'; x.beginPath(); x.moveTo(W / 2 + (k - 0.5) * W * 0.3, hy); x.lineTo(W / 2 + (k - 0.5) * W * 3, H); x.stroke(); }
     for (let i = 1; i < 9; i++) { const y = hy + (H - hy) * Math.pow(i / 8, 1.8); x.strokeStyle = i % 4 ? 'rgba(139,107,255,.3)' : 'rgba(198,255,61,.4)'; x.beginPath(); x.moveTo(0, y); x.lineTo(W, y); x.stroke(); }
     x.restore();

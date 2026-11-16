@@ -18,6 +18,9 @@ export const color = {
   // Meaning
   good: '#3ee8b5', bad: '#ff5d6c', info: '#6cb6ff',
   goodWash: 'rgba(62, 232, 181, .11)', badWash: 'rgba(255, 93, 108, .1)', infoWash: 'rgba(108, 182, 255, .11)',
+  // Game UI materials (ui/skin.css): the ink outline round every pressable thing, the frame of a panel and its lit
+  // edge, the recessed well a field or a tab bar sits in, and the solid "lip" under a raised thing that gives it depth.
+  ink: '#07050d', frame: '#2c2643', frameHi: '#463d6c', well: '#0b0914', lip: '#040308', accentLip: '#4b7806', badLip: '#7a1f2c',
 } as const;
 
 /** Series colours for charts, in order. Readable on the dark surfaces and distinct from one another. */
@@ -62,8 +65,8 @@ export const size = {
 } as const;
 
 export const space = { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '56px', 10: '80px', 11: '112px' } as const;
-/** Firm corners: soft enough to feel finished, tight enough to read as hardware rather than bubbles. */
-export const radius = { xs: '4px', sm: '6px', md: '9px', lg: '12px', xl: '16px', pill: '999px' } as const;
+/** Rounded, chunky corners: the game UI reads as toy hardware (menus, slots, keycaps), not as sharp chrome. */
+export const radius = { xs: '4px', sm: '6px', md: '9px', lg: '12px', xl: '16px', '2xl': '20px', pill: '999px' } as const;
 export const shadow = {
   1: '0 1px 2px rgba(0, 0, 0, .4)',
   2: '0 12px 32px -8px rgba(0, 0, 0, .6)',
