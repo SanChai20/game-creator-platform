@@ -122,6 +122,38 @@ A play-through is optional. Without one the report says plainly that only start-
 
 If the game needs WebGPU and has no fallback, the automatic browser check cannot run it. The version then waits for its creator to play the preview for a short while with no errors, which counts as verification.
 
+## Compatibility requirements
+
+Every version carries what it needs from the player's browser and device. Players see it in a **Compatibility** section on the game page, and before they launch, the page checks their own browser against it (a real WebGPU adapter request, real WebGL contexts, the renderer, input, device) and says whether the game works there. A player whose device fails is told what is missing and can still choose to play.
+
+Declare them in `gcp.json` under `requirements`, or let the `compatibility` tool write it (`action: "check"` shows what the platform detected and suggests a block; `action: "declare"` validates and writes it). They are frozen with the next `deploy_preview`.
+
+```json
+{
+  "requirements": {
+    "graphics": "webgl2",
+    "gpu": "hardware",
+    "features": ["webassembly", "web-audio"],
+    "optional": ["webgpu", "pointer-lock"],
+    "input": ["keyboard", "mouse", "touch"],
+    "devices": ["desktop", "tablet", "mobile"],
+    "orientation": "landscape",
+    "memory_gb": 4,
+    "browsers": { "safari": 17 },
+    "known_issues": [{ "os": "ios", "severity": "degraded", "note": "Audio starts after the first tap." }],
+    "notes": "Plays best with a keyboard."
+  }
+}
+```
+
+- `graphics`: the weakest API the game still runs with: `none`, `canvas`, `webgl`, `webgl2` or `webgpu`. A WebGPU game with a WebGL 2 fallback is `webgl2` with `webgpu` under `optional`. three.js r163 and later needs `webgl2`.
+- `gpu`: `hardware` when the game is unplayable on a software renderer.
+- `features` must be present; `optional` are used when present. `wasm-threads` cannot be required: games are not served cross-origin isolated, so `SharedArrayBuffer` does not exist in the page.
+- `input` lists every way the game can be played (a player needs any one); `devices` the devices it is made for (`mobile` needs touch controls).
+- Everything else is optional.
+
+The platform also scans the code at every deploy. With no declaration, the store shows what it detected and says so. With one, the declaration wins; required features the code uses but the declaration never mentions are added, and anything that looks under-declared is reported as a warning.
+
 ## Serving details that matter
 
 - Paths are case sensitive. `Assets/Hero.png` and `assets/hero.png` are different files.

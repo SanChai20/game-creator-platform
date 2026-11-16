@@ -6,6 +6,7 @@ import { THREE_VERSION } from './generated/runtime-source';
 import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf } from './util';
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
+import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
 
 export const wsKey = (pid: string, path: string) => `ws/${pid}/${path}`;
 export const verKey = (pid: string, n: number, path: string) => `v/${pid}/${n}/${path}`;
@@ -139,6 +140,8 @@ export interface Manifest {
   orientation?: string;
   usesWebGPU?: boolean;
   hasServer?: boolean;
+  /** What this version needs from the player's browser: declared in gcp.json "requirements", merged with what the code shows. */
+  compat?: Compat;
 }
 
 export function defaultImports(origin: string): Record<string, string> {
@@ -165,7 +168,7 @@ function resolveManifest(raw: unknown, origin: string): Manifest {
 // Static checks: catch what would fail in the browser before deploying anything.
 // ---------------------------------------------------------------------------------------------
 export interface Issue { level: 'error' | 'warning'; file?: string; line?: number; col?: number; message: string; hint?: string; frame?: string }
-export interface CheckResult { ok: boolean; errors: Issue[]; warnings: Issue[]; files: number; bytes: number; manifest: Manifest }
+export interface CheckResult { ok: boolean; errors: Issue[]; warnings: Issue[]; files: number; bytes: number; manifest: Manifest; compatIssues: CompatIssue[] }
 
 function frameOf(src: string, line: number, col: number): string {
   const l = src.split('\n')[line - 1] ?? '';
@@ -203,7 +206,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const warn = (i: Omit<Issue, 'level'>) => { if (warnings.length < 40) warnings.push({ level: 'warning', ...i }); };
   const paths = new Set(files.map((f) => f.path));
   const bytes = files.reduce((a, f) => a + f.size, 0);
-  let manifest = resolveManifest(null, origin);
+  let manifest = resolveManifest(null, origin), declared: unknown = undefined;
 
   if (!files.length) err({ message: 'The project has no files yet.', hint: 'Upload at least index.html (upload_files or create_upload_url).' });
   if (files.length && !paths.has('index.html')) err({ message: 'index.html is missing.', hint: 'The game document must be index.html at the bundle root.' });
@@ -216,12 +219,12 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   }
 
   if (texts.has('gcp.json')) {
-    try { manifest = resolveManifest(JSON.parse(texts.get('gcp.json')!), origin); }
+    try { const raw = JSON.parse(texts.get('gcp.json')!); manifest = resolveManifest(raw, origin); declared = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).requirements : undefined; }
     catch (e) { err({ file: 'gcp.json', message: `gcp.json is not valid JSON: ${(e as Error).message}` }); }
   }
   const importKeys = Object.keys(manifest.imports);
   const mapped = (spec: string, extra: string[]) => [...importKeys, ...extra].some((k) => (k.endsWith('/') ? spec.startsWith(k) : spec === k));
-  let sawReady = false, usesGPU = false;
+  let sawReady = false, usesGPU = false, bareImports = false;
 
   const checkJs = (file: string, src: string, kind: 'module' | 'script', lineOffset: number, extraMap: string[]) => {
     if (/\bGCP\s*\.\s*ready\s*\(/.test(src) || /\bGCP\b/.test(src) && /\.\s*ready\s*\(\s*[^)]{0,80}\)/.test(src)) sawReady = true; // also matches an alias: const G = window.GCP; G.ready()
@@ -245,7 +248,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
         if (!paths.has(target)) err({ file, line: im.line + lineOffset, message: `Import not found: "${im.spec}" resolves to "${target}", which is not in the bundle.`, hint: 'Upload that file, or fix the path. Imports need the full file name including ".js".' });
       } else if (!mapped(im.spec, extraMap)) {
         err({ file, line: im.line + lineOffset, message: `Bare import "${im.spec}" is not in the import map.`, hint: `Browsers cannot resolve bare names without an import map. Available by default: ${importKeys.join(', ')}. Add others under "imports" in gcp.json, or import a relative file.` });
-      }
+      } else bareImports = true;
     }
   };
 
@@ -311,8 +314,12 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
       manifest.hasServer = true;
     }
   }
-  manifest.usesWebGPU = usesGPU;
-  return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest };
+  // Compatibility: the creator's declared requirements, merged with what the code shows it uses.
+  const c = buildCompat(declared, { texts, paths: [...paths], bareImports, orientation: manifest.orientation }, bytes);
+  for (const i of c.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `requirements${i.field === 'requirements' ? '' : '.' + i.field}: ${i.message}`, hint: i.hint });
+  manifest.compat = c.compat;
+  manifest.usesWebGPU = usesGPU || c.compat.requirements.graphics === 'webgpu';
+  return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest, compatIssues: c.issues };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -349,5 +356,27 @@ export function publicVersion(v: Version, origin: string) {
   return {
     version: v.n, note: v.note, status: v.status, stage: v.stage, files: v.file_count, bytes: v.bytes, created_at: v.created_at, verified_at: v.verified_at,
     published_at: v.published_at, human_ok: !!v.human_ok, screenshot: v.screenshot_key ? `${origin}/api/media/${v.screenshot_key}` : null, report: parseJson(v.report, null),
+    compat: parseJson<Manifest>(v.manifest, {} as Manifest).compat ?? null,
   };
+}
+
+/**
+ * A version's compatibility record. Versions deployed before requirements existed get theirs detected from their frozen
+ * files the first time anyone asks, and stored, so every live game has a Compatibility section.
+ */
+export async function ensureCompat(env: Env, v: Version): Promise<Compat> {
+  const m = parseJson<Manifest>(v.manifest, {} as Manifest);
+  if (m.compat && m.compat.v === 1) return m.compat;
+  const files = parseJson<{ path: string; size: number }[]>(v.files, []), texts = new Map<string, string>();
+  let declared: unknown = undefined;
+  for (const f of files) {
+    if (!isText(f.path) || f.size > 6 * 1024 * 1024 || texts.size >= 200) continue;
+    const obj = await env.FILES.get(verKey(v.project_id, v.n, f.path));
+    if (obj) texts.set(f.path, await obj.text());
+  }
+  try { const raw = texts.has('gcp.json') ? JSON.parse(texts.get('gcp.json')!) : null; declared = raw && typeof raw === 'object' ? raw.requirements : undefined; } catch { /* checked at deploy */ }
+  const bareImports = [...texts.values()].some((s) => /\b(?:from|import)\s*\(?\s*["'](?![./]|https?:|data:|blob:)[^"'\s]+["']/.test(s));
+  const compat = buildCompat(declared, { texts, paths: files.map((f) => f.path), bareImports, orientation: typeof m.orientation === 'string' ? m.orientation : undefined }, v.bytes).compat;
+  await env.DB.prepare('UPDATE versions SET manifest = ? WHERE project_id = ? AND n = ?').bind(JSON.stringify({ ...m, compat }), v.project_id, v.n).run();
+  return compat;
 }

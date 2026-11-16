@@ -3,6 +3,13 @@ import { ago, api, bytes, dateTime, Fail, num, playTime, series, Stars, t, usd, 
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Spinner, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
 import { Stage } from './Game';
 import { projectTabs } from './Analytics';
+import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
+
+/** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
+function VersionCompat({ c }: { c: GameCompat }) {
+  const v = useCompat(c);
+  return <div className="ver-compat"><CompatSection c={c} v={v} /></div>;
+}
 
 function Report({ v }: { v: any }) {
   const r = v.report;
@@ -158,6 +165,7 @@ export function Project({ id }: { id: string }) {
                           v.published_at && [t('Published', '发布于'), dateTime(v.published_at)],
                         ]} />
                       </div>
+                      {v.compat && <VersionCompat c={v.compat} />}
                     </div>
                   )}
                 </div>

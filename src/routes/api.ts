@@ -5,7 +5,7 @@ import { checkPassword, COOKIE, createSession, hashPassword, newUserId, rateLimi
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
-import { getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
+import { ensureCompat, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
@@ -209,6 +209,8 @@ api.get('/games/:slug', async (c) => {
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
+    // What the game needs from the player's browser; the page compares it with what this browser has before launch.
+    compat: v ? await ensureCompat(c.env, v).then(({ requirements, declared, download_bytes }) => ({ requirements, declared, download_bytes })).catch(() => null) : null,
   });
 });
 

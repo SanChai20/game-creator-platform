@@ -100,7 +100,7 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 17, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 18, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
@@ -184,6 +184,27 @@ async function main() {
   }
   const pid = projects['three-explorer'];
 
+  // compatibility requirements: detected, declared through MCP, frozen with the version
+  const arcade = projects['canvas2d-arcade'];
+  let cc = await tool('compatibility', { project: arcade });
+  assert.equal(cc.declared, null);
+  assert.equal(cc.detected.graphics, 'canvas', JSON.stringify(cc.detected));
+  assert.ok(cc.suggested && cc.store_page_will_show.length >= 3 && cc.issues.some((i) => /No requirements are declared/.test(i)));
+  assert.equal((await rpc('tools/call', { name: 'compatibility', arguments: { project: arcade, action: 'declare', requirements: { features: ['wasm-threads'] } } })).isError, true);
+  assert.equal((await rpc('tools/call', { name: 'compatibility', arguments: { project: arcade, action: 'declare', requirements: { graphics: 'opengl' } } })).isError, true);
+  cc = await tool('compatibility', { project: arcade, action: 'declare', use_detected: true, requirements: { gpu: 'hardware', devices: ['desktop', 'tablet', 'mobile'], notes: 'Plays best with a keyboard.' } });
+  assert.equal(cc.written, 'gcp.json');
+  assert.equal(cc.declared.gpu, 'hardware');
+  assert.ok(!cc.issues.some((i) => i.startsWith('ERROR')), cc.issues.join('\n'));
+  let cvr = await tool('deploy_preview', { project: arcade, note: 'requirements' });
+  for (let i = 0; i < 40 && ['queued', 'deploying', 'verifying'].includes(cvr.status); i++) { await sleep(2000); cvr = await tool('list_versions', { project: arcade, version: cvr.version }); }
+  assert.equal(cvr.status, 'verified', JSON.stringify(cvr.report).slice(0, 800));
+  assert.equal(cvr.compatibility.declared, true);
+  assert.equal(cvr.compatibility.requirements.gpu, 'hardware');
+  assert.ok(cvr.compatibility.store_page_shows.some((l) => /hardware GPU/.test(l)));
+  assert.equal((await tool('compatibility', { project: arcade, version: 1 })).declared, false);   // the earlier version keeps what it went out with
+  ok('compatibility: detected from the code, bad declarations refused, declared into gcp.json, frozen with the next version');
+
   // multiplayer service: two real pages meet in one platform room and end with the same world (GCP.test.onTwoPlayers)
   const mp = await fromTemplate('homestead-2d', { title: `Two players ${run}`, tagline: 'Farm with a friend' });
   let mv = await tool('deploy_preview', { project: mp.project, note: 'two players' });
@@ -223,7 +244,9 @@ async function main() {
   const list = must(await B.get('/api/games'));
   assert.ok(list.games.some((g) => g.id === pid && g.cover));
   const slug = list.games.find((g) => g.id === pid).slug;
-  ok('published; visible in the marketplace with a cover');
+  const gp = must(await B.get(`/api/games/${slug}`));
+  assert.ok(gp.compat && gp.compat.declared === false && gp.compat.requirements.graphics === 'webgl2' && gp.compat.download_bytes > 0, JSON.stringify(gp.compat));
+  ok('published; visible in the marketplace with a cover and its detected compatibility');
 
   // play: login required, session token, document gated, play time counted, review gated on play
   assert.equal((await client().post(`/api/games/${slug}/play`)).status, 401);
