@@ -159,6 +159,14 @@ export function contentState({ listing, text, report }) {
   };
 }
 
+/** Clef takes at most this many images in one request (more is refused with "exceeds the image count limit"). */
+export const MAX_IMAGES = 4;
+/** Up to n items spread evenly over the list, first and last included, in order. */
+export function spread(list, n) {
+  if (list.length <= n) return list.slice();
+  return Array.from({ length: n }, (_, i) => list[Math.round(i * (list.length - 1) / (n - 1))]);
+}
+
 const toB64 = (u8) => (typeof Buffer !== 'undefined' ? Buffer.from(u8).toString('base64') : (() => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); })());
 const dataUrl = (u8) => `data:${u8[0] === 0xff && u8[1] === 0xd8 ? 'image/jpeg' : 'image/png'};base64,${toB64(u8)}`;
 
@@ -183,7 +191,7 @@ export async function contentCheck({ listing, html = '', pageText = '', texts = 
   if (r && r.category === 'dangerous') return { ok: false, category: r.category, reason: r.reason, notes, ai: null, by: 'rules' };
   let judged = null;
   if (ai) {
-    const pics = (frames && frames.length ? frames : shot ? [shot] : []).slice(0, 8);
+    const pics = spread(frames && frames.length ? frames : shot ? [shot] : [], MAX_IMAGES);
     const extra = pics.length ? { images: pics.map(dataUrl) } : {};
     const out = await ai('clef', contentState({ listing, text, report }), CONTENT_QUESTIONS, extra);
     const a = out?.verdict, sx = out?.sexual, vi = out?.violence;

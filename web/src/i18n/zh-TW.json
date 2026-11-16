@@ -1278,6 +1278,6 @@
  "Games for adults, with sexual content or graphic violence, are allowed only when the creator declares that content. They are shown as 18+ with a blurred picture, and players confirm they are 18 or older before playing. A game that hides such content is refused or taken offline. Sexual content involving minors is never allowed.": "面向成人、含有性內容或血腥暴力的遊戲，只有在創作者聲明這些內容後才允許發布。這類遊戲顯示為 18+、圖片模糊，玩家需確認已年滿 18 歲後才能遊玩。隱瞞此類內容的遊戲將被拒絕或下架。任何涉及未成年人的性內容一律禁止。",
  "Check each verified version for content that is never allowed (hate, scams, phishing, sexual content involving minors), adult content it does not declare, and abusive code (miners, password forms, hidden servers)": "檢查每個已驗證版本：是否含有一律禁止的內容（仇恨、詐騙、釣魚、涉及未成年人的性內容）、未聲明的成人內容，以及濫用程式碼（挖礦、密碼表單、隱藏伺服器）",
  "Allow adult (18+) games that declare sexual content or graphic violence (shown blurred, with a warning players confirm)": "允許聲明了性內容或血腥暴力的成人（18+）遊戲（封面模糊顯示，玩家需確認警告）",
- "Most Workers AI content reviews per day (Clef with up to 8 frames of the game in play, about $0.001 each; past the cap a small rule set decides)": "每天最多進行的 Workers AI 內容審核次數（Clef 讀取最多 8 幀遊玩畫面，每次約 $0.001；超出上限後由小型規則集判定）",
- "How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it": "內容審核判定版本有害或含有未聲明成人內容的可能性（百分比）達到多少時拒絕該版本"
+ "How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it": "內容審核判定版本有害或含有未聲明成人內容的可能性（百分比）達到多少時拒絕該版本",
+ "Most Workers AI content reviews per day (Clef with up to 4 frames of the game in play, about $0.001 each; past the cap a small rule set decides)": "每天最多進行的 Workers AI 內容審核次數（Clef 讀取最多 4 幀遊玩畫面，每次約 $0.001；超出上限後由小型規則集判定）"
 }
