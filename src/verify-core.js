@@ -161,10 +161,10 @@ export async function verifyPage(page, url, opts = {}) {
     catch (e) { status = 0; navError = String(e && e.message || e); }
     if (status === 200 || (status >= 400 && status < 500 && status !== 404)) break;
   }
-  if (navError) { add('deployed', false, 'The deployed game responds', `Navigation failed: ${navError}`); report.summary = 'The deployed game did not load.'; return { report, shots: [] }; }
+  if (navError) { add('deployed', false, 'The deployed game responds', `Navigation failed: ${navError}`); report.summary = 'The deployed game did not load.'; return { report, shots: [], frames: [] }; }
   if (status === 200) { badResponses.length = 0; pageErrors.length = 0; }   // earlier attempts do not count against the game
   add('deployed', status === 200, 'The deployed game responds', `HTTP ${status}`, status === 200 ? '' : 'The preview Worker did not serve index.html.');
-  if (status !== 200) { report.summary = `The game document returned HTTP ${status}.`; return { report, shots: [] }; }
+  if (status !== 200) { report.summary = `The game document returned HTTP ${status}.`; return { report, shots: [], frames: [] }; }
 
   // 2. boots
   const t0 = Date.now(); let s = null;
@@ -173,7 +173,7 @@ export async function verifyPage(page, url, opts = {}) {
     if (s && (s.ready || s.fatal)) break;
     await sleep(250);
   }
-  if (!s) { add('boots', false, 'The game boots', 'The platform SDK never loaded in the page.'); report.summary = 'The page did not run.'; return { report, shots: [] }; }
+  if (!s) { add('boots', false, 'The game boots', 'The platform SDK never loaded in the page.'); report.summary = 'The page did not run.'; return { report, shots: [], frames: [] }; }
   report.caps = s.caps;
   report.conduct = conduct;
   // count changes to the page from now on: a DOM game shows it is alive by changing when it is played
@@ -185,6 +185,10 @@ export async function verifyPage(page, url, opts = {}) {
   else add('boots', true, 'The game boots', `GCP.ready() after ${s.loadMs} ms`);
 
   const shots = [];
+  // Frames for the content review (src/content-check.js): small JPEGs taken while the game starts, plays itself through and
+  // takes input, so the review judges what a player actually sees, not only the first screen.
+  const frames = [];
+  const snap = async () => { if (frames.length >= 8) return; try { frames.push(await page.screenshot({ type: 'jpeg', quality: 60 })); } catch { /* page busy or gone */ } };
   const shoot = async () => { try { const b = await page.screenshot({ type: 'png' }); shots.push(b); return pngStats(b); } catch { return null; } };
   let pic1 = null, pic2 = null, picIdle = null, f1 = 0, f2 = 0, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
   if (s.ready && !s.fatal) {
@@ -203,6 +207,7 @@ export async function verifyPage(page, url, opts = {}) {
     add('picture', !blank, 'Something is drawn', pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background` : 'No screenshot',
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
     // For the craft review: a second picture a moment later with nothing pressed (does anything move by itself?), and the HUD.
+    await snap();
     await sleep(700); picIdle = await shoot(); ui1 = await uiState(page);
     // Browsers keep sound locked until the first real press. One click in the top-left corner pixel gives the page that press, as a
     // player's first key or tap would, so sounds played during the play-through are real and can be measured.
@@ -215,6 +220,8 @@ export async function verifyPage(page, url, opts = {}) {
         sleep(o.playthroughS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The play-through did not finish within ${o.playthroughS} s.`, steps: [], ms: o.playthroughS * 1000, frames: 0 })),
       ]);
     } catch (e) { play = { ran: true, ok: false, error: 'The page reloaded or closed during the play-through: ' + String(e && e.message || e).slice(0, 200), steps: [], ms: 0, frames: 0 }; }
+    // where the play-through left the game (screenshots are not taken during it: they can stall frames in a slow browser)
+    if (play && play.ran) await snap();
     if (play && play.ran) {
       const last = play.steps.length ? play.steps[play.steps.length - 1] : '';
       add('playthrough', !!play.ok, 'The game plays through', play.ok ? `${play.steps.length} step(s) in ${(play.ms / 1000).toFixed(1)} s: ${play.steps.join(' → ').slice(0, 600)}` : `${play.error}${last ? ` (during step ${play.steps.length}: "${last}")` : ''}`,
@@ -264,7 +271,7 @@ export async function verifyPage(page, url, opts = {}) {
       s = d;
       const alive = domGame ? !restarted : f2 >= Math.max(3, o.minFrames / 3);
       add('input', alive, 'Survives keyboard, mouse and touch input', domGame ? 'The page kept running after input.' : restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in 1.5s` : `${f2} frames in the 1.5s after input`, alive ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
-      pic2 = await shoot(); ui2 = await uiState(page);
+      pic2 = await shoot(); ui2 = await uiState(page); await snap();
     }
   }
   // 5b. responds: something on screen changes, by itself or when played. A picture with a frame loop behind it never does.
@@ -300,6 +307,8 @@ export async function verifyPage(page, url, opts = {}) {
   report.errors = errs; report.warnings.push(...(s.warnings || [])); report.missing = missing;
   report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / o.observeS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
+  // a few more frames of the game left running after the checks, for the content review; nothing here can fail the version
+  if (report.ok) for (let i = 0; i < 3 && frames.length < 7; i++) { await sleep(1500); await snap(); }
   // The portrait. The checks above ran on a CPU renderer, where a well-made game rightly draws less (lower resolution,
   // sparser grass, no finishing passes). People judge the game by what a device with a graphics card draws, so the game
   // is loaded once more with ?gcp_portrait=1, which asks it for exactly that, and one picture is taken. It is the
@@ -319,7 +328,7 @@ export async function verifyPage(page, url, opts = {}) {
         // a frame that takes a quarter of a second leaves the browser no room to take a picture: hold the loop on the frame it has drawn
         await page.evaluate(() => { if (window.__GCP && window.__GCP.hold) window.__GCP.hold(true); }).catch(() => {}); await sleep(900);
         const b = await page.screenshot({ type: 'png' }), st = pngStats(b);
-        if (st && st.ok && st.img && st.colors >= 2 && st.other >= 200) { portrait = st; portraitShot = b; report.portrait = { ms: Date.now() - tp, frames: fr }; }
+        if (st && st.ok && st.img && st.colors >= 2 && st.other >= 200) { portrait = st; portraitShot = b; report.portrait = { ms: Date.now() - tp, frames: fr }; await snap(); }
       }
     } catch (e) { report.notes.push('The full-quality picture could not be taken: ' + String(e && e.message || e).slice(0, 160)); }
   }
@@ -338,5 +347,6 @@ export async function verifyPage(page, url, opts = {}) {
   }
   const failed = checks.filter((c) => !c.ok);
   report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / o.observeS)} fps in the verification browser, no errors${report.playthrough ? `, play-through of ${report.playthrough.steps.length} step(s) passed` : '; no play-through registered, so only start-up, rendering and input were checked'}.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
-  return { report, shots: portraitShot ? [portraitShot, ...shots] : shots };
+  report.metrics.reviewFrames = frames.length;
+  return { report, shots: portraitShot ? [portraitShot, ...shots] : shots, frames };
 }

@@ -59,15 +59,16 @@
  "Withdrawals": "提现",
  "Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)": "用 Workers AI 为每款开放游戏撰写通俗概述（每个发布版本一次，每次约 $0.001）",
  "Block publishing a version the content check refuses (off: report it as a warning only)": "阻止发布内容检查拒绝的版本（关闭：仅作为警告报告）",
- "Check each verified version for harmful content (sexual content, hate, scams, phishing) and abusive code (miners, password forms, hidden servers)": "检查每个已验证版本是否含有有害内容（色情、仇恨、诈骗、钓鱼）和滥用代码（挖矿、密码表单、隐藏服务器）",
  "Content and conduct": "内容与行为",
- "How likely (percent) the content review must find a version harmful to refuse it": "内容审核判定版本有害的可能性（百分比）达到多少才拒绝",
- "Most Workers AI content reviews per day (Clef with the screenshot, about $0.0003 each; past the cap a small rule set decides)": "每天最多的 Workers AI 内容审核次数（Clef 附截图，每次约 $0.0003；超过上限后由一小套规则决定）",
  "Storage": "存储空间",
  "Default storage per game: the most one game's files may add up to (MB)": "每款游戏的默认存储空间：单款游戏所有文件的总上限（MB）",
  "Largest single file (MB)": "单个文件上限（MB）",
  "Files per game": "每款游戏的文件数",
  "Let creators ask for more storage for a game (each request waits for an admin unless it is under the automatic limit)": "允许创作者为游戏申请更多存储空间（低于自动批准上限的申请以外，每个申请都需管理员审核）",
  "Approve requests at once up to this much storage per game (MB; 0: an admin reviews every request)": "每款游戏在此存储空间以内的申请立即批准（MB；0：每个申请都由管理员审核）",
- "Most storage a creator can ask for, for one game (MB; an admin can still set more)": "创作者可为单款游戏申请的最大存储空间（MB；管理员仍可设置更多）"
+ "Most storage a creator can ask for, for one game (MB; an admin can still set more)": "创作者可为单款游戏申请的最大存储空间（MB；管理员仍可设置更多）",
+ "Check each verified version for content that is never allowed (hate, scams, phishing, sexual content involving minors), adult content it does not declare, and abusive code (miners, password forms, hidden servers)": "检查每个已验证版本：是否含有一律禁止的内容（仇恨、诈骗、钓鱼、涉及未成年人的性内容）、未声明的成人内容，以及滥用代码（挖矿、密码表单、隐藏服务器）",
+ "Allow adult (18+) games that declare sexual content or graphic violence (shown blurred, with a warning players confirm)": "允许声明了性内容或血腥暴力的成人（18+）游戏（封面模糊显示，玩家需确认警告）",
+ "Most Workers AI content reviews per day (Clef with up to 8 frames of the game in play, about $0.001 each; past the cap a small rule set decides)": "每天最多进行的 Workers AI 内容审核次数（Clef 读取最多 8 帧游玩画面，每次约 $0.001；超出上限后由小型规则集判定）",
+ "How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it": "内容审核判定版本有害或含有未声明成人内容的可能性（百分比）达到多少时拒绝该版本"
 }

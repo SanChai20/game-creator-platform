@@ -105,7 +105,13 @@ The platform hosts web games only. A page nothing in which responds to the playe
 
 ## content: the version was refused for its content or code
 
-Every verified version is checked for content that a marketplace open to all ages cannot carry (sexual content, hate, scams, phishing, dangerous content) by an AI model that reads the listing, the page text and the screenshot, and for abusive code: crypto-miner code, a form that sends a password to another site, a background worker connected to an outside server. Game violence, horror, fantasy combat and dark themes are fine. Multiplayer games connect through `GCP.room`, which runs on the platform. The detail names the reason.
+Every verified version is reviewed by an AI vision model that reads the listing, the page text and frames taken while the verification browser started the game, ran its play-through and gave it input. It refuses:
+
+- **Content that is never allowed**, declared or not: hate, scams, phishing, sexual content involving minors or characters presented as children, sexual content of real people, promotion of self-harm, real drug or weapons trade ("Safe for players").
+- **Adult content that is not declared** ("Content is declared"): nudity or explicit sexual content when `content.sexual` says less, realistic or graphic violence when `content.violence` says less. Adult games are allowed. Declare what the game shows with `game_metadata` (action `declare`, `content`) and deploy a new preview; the game is then listed as 18+ with a blurred cover and a warning players confirm. Smaller gaps (suggestive content, cartoon or fantasy violence) are notes in the report.
+- **Abusive code**: crypto-miner code, a form that sends a password to another site, a background worker connected to an outside server. Multiplayer games connect through `GCP.room`, which runs on the platform.
+
+The detail names the reason. If the review saw something the game does not show, change what the listing and screens show and deploy again; a play-through (`GCP.test.onPlaythrough`) that reaches the real game gives the review the right pictures.
 
 ## WebGPU games
 

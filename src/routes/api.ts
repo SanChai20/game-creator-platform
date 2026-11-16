@@ -5,7 +5,9 @@ import { checkPassword, COOKIE, createSession, guestIdentity, hashPassword, newU
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
-import { missingForPublish } from '../../web/src/gamemeta';
+import { matureOf } from '../../web/src/gamemeta';
+import { liveMature, matureList } from '../mature';
+import { missingToPublish, normalizeStoredTags, tagGroup } from '../../web/src/tags';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -27,10 +29,12 @@ const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.
 
 function card(origin: string, r: Record<string, any>) {
   return {
-    id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: parseJson<string[]>(r.tags, []), cover: media(origin, r.cover_key), price_cents: r.price_cents,
+    id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: normalizeStoredTags(parseJson<string[]>(r.tags, [])), /* only genres and tags on the platform list */ cover: media(origin, r.cover_key), price_cents: r.price_cents,
     trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
     author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
+    // adults-only games: the store blurs the cover and labels it 18+ (sexual, violence, other)
+    age: r.age || null, mature: matureList(r),
     // the title and tagline in other platform languages, when the creator translated the listing
     ...(r.listing_i18n && r.listing_i18n !== '{}' ? { i18n: Object.fromEntries(Object.entries(parseJson<Record<string, { title?: string; tagline?: string }>>(r.listing_i18n, {})).map(([k, v]) => [k, { title: v.title, tagline: v.tagline }])) } : {}),
   };
@@ -120,15 +124,15 @@ async function listGames(c: Ctx, o: ListOpts) {
  */
 async function genreCounts(c: Ctx, top = 16, within = '') {
   const w = within ? " AND tags LIKE ? ESCAPE '\\'" : '', a = within ? ['%"' + within.replace(/[\\%_]/g, '\\$&') + '"%'] : [];
-  const rows = await c.env.DB.prepare(`SELECT tags, cover_key FROM projects WHERE status = 'live'${w} ORDER BY plays DESC LIMIT 5000`).bind(...a).all<{ tags: string; cover_key: string | null }>();
+  const rows = await c.env.DB.prepare(`SELECT tags, cover_key, mature FROM projects WHERE status = 'live'${w} ORDER BY plays DESC LIMIT 5000`).bind(...a).all<{ tags: string; cover_key: string | null; mature: string }>();
   const counts = new Map<string, { n: number; covers: string[] }>(), origin = c.get('origin');
-  for (const r of rows.results) for (const t of parseJson<string[]>(r.tags, [])) {
+  for (const r of rows.results) for (const t of normalizeStoredTags(parseJson<string[]>(r.tags, []))) {
     if (t === within) continue;
     const e = counts.get(t) || { n: 0, covers: [] }; e.n++;
-    if (r.cover_key && e.covers.length < 3) e.covers.push(media(origin, r.cover_key)!);
+    if (r.cover_key && !r.mature && e.covers.length < 3) e.covers.push(media(origin, r.cover_key)!);   // category tiles never show an adults-only cover
     counts.set(t, e);
   }
-  return [...counts.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, top).map(([tag, e]) => ({ tag, n: e.n, covers: e.covers }));
+  return [...counts.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, top).map(([tag, e]) => ({ tag, group: tagGroup(tag), n: e.n, covers: e.covers }));
 }
 const num = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
 
@@ -144,7 +148,7 @@ api.get('/games', async (c) => {
 /** Every genre with its count and covers (the categories index), or one genre's numbers and related genres. */
 api.get('/categories', async (c) => {
   c.header('cache-control', 'public, max-age=60');
-  return c.json({ genres: await genreCounts(c, 120) });
+  return c.json({ genres: await genreCounts(c, 200) });
 });
 api.get('/categories/:tag', async (c) => {
   const tag = c.req.param('tag').trim().toLowerCase().slice(0, 24), like = '%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%', t = now();
@@ -218,7 +222,9 @@ api.get('/games/:slug', async (c) => {
     ...(v ? await ensureVersionMeta(c.env, v).then(({ compat, meta }) => ({
       compat: { requirements: compat.requirements, declared: compat.declared, download_bytes: compat.download_bytes },
       meta: { ...meta.meta, rating: meta.rating, languages: meta.languages.languages, languages_declared: meta.languages.declared, declared: meta.declared, multiplayer: meta.detected.multiplayer },
-    })).catch(() => ({ compat: null, meta: null })) : { compat: null, meta: null }),
+      // adults only: the page blurs the cover and asks the player to confirm before the game starts (POST /play enforces it)
+      mature: matureOf(meta.meta.content).categories,
+    })).catch(() => ({ compat: null, meta: null, mature: matureList(p) })) : { compat: null, meta: null, mature: matureList(p) }),
   });
 });
 
@@ -235,6 +241,11 @@ async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', versio
 api.post('/games/:slug/play', async (c) => {
   const p = await liveGame(c, c.req.param('slug'));
   if (p.status !== 'live' || !p.live_version) throw new AppError(409, 'This game is offline.', 'offline');
+  // An adults-only game starts only after the player has seen the warning and confirmed (the game page sends confirm_mature).
+  if ((await liveMature(c.env, p)).length) {
+    const b = await c.req.json<{ confirm_mature?: boolean }>().catch(() => ({} as { confirm_mature?: boolean }));
+    if (b.confirm_mature !== true) throw new AppError(428, 'This game is for adults only. Confirm that you are 18 or older and want to see its content.', 'mature_confirm');
+  }
   // "Require login to play" is enforced here, where play sessions are signed: with it on (the default) only accounts get
   // one. With it off, a visitor without an account plays a free game as a guest; paid games always need an account
   // (buying and free trials belong to one). Every service the game then calls checks the setting again (routes/rt.ts).
@@ -453,7 +464,7 @@ api.get('/console/projects/:id', async (c) => {
   const s = await getSettings(c.env), trials = await trialStats(c.env, p.id);
   // The newest version's store-page metadata: what publishing still needs (field ids), and the age rating it works out to.
   const newest = versions.results[0], vm = newest ? await ensureVersionMeta(c.env, newest).catch(() => null) : null;
-  const metadata = newest ? { version: newest.n, required: s.metadata_required, missing: missingForPublish(vm?.meta, !!vm?.compat?.declared, JSON.parse(p.tags || '[]')).map((m) => m.split(' ')[0]), age: vm?.meta?.rating?.age ?? null, declared: vm?.meta?.declared ?? [] } : null;
+  const metadata = newest ? { version: newest.n, required: s.metadata_required, missing: missingToPublish(vm?.meta, !!vm?.compat?.declared, JSON.parse(p.tags || '[]')).map((m) => m.split(' ')[0]), age: vm?.meta?.rating?.age ?? null, declared: vm?.meta?.declared ?? [] } : null;
   return c.json({
     metadata,
     project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },

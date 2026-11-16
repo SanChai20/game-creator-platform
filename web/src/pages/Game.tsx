@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ago, api, blurb, clock, count, date, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -38,6 +38,22 @@ function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
   );
 }
 
+/**
+ * The warning an adults-only game shows before it starts. The player must confirm; the server refuses to start the game
+ * without that confirmation (POST /games/:slug/play with confirm_mature).
+ */
+function MatureGate({ cats, onConfirm, onCancel }: { cats: string[]; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="mgate" role="alertdialog" aria-modal="true" aria-labelledby="mgate-h" aria-describedby="mgate-d">
+      <AgeBadge age={18} />
+      <h3 id="mgate-h">{t('Adults only', '仅限成人')}</h3>
+      <ul>{cats.map((c) => <li key={c}>{matureName(c)}</li>)}</ul>
+      <p id="mgate-d">{t('Its creator declared that this game contains content for adults only. Continue only if you are 18 or older and want to see it.', '作者声明这款游戏包含仅限成人的内容。仅当你已年满 18 岁并希望观看这些内容时才继续。')}</p>
+      <div className="row"><Button size="sm" variant="ghost" onClick={onCancel}>{t('Go back', '返回')}</Button><Button size="sm" variant="primary" onClick={onConfirm}>{t('I am 18 or older, continue', '我已年满 18 岁，继续')}</Button></div>
+    </div>
+  );
+}
+
 /** The play URL with the viewer's platform language, read by the SDK as GCP.lang. */
 const withLang = (u: string) => { try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); return x.toString(); } catch { return u; } };
 
@@ -48,6 +64,8 @@ export function Game({ slug }: { slug: string }) {
   const [rating, setRating] = useState(0), [body, setBody] = useState('');
   // Compatibility: this browser checked against the live version's requirements; a failing device is asked before launch.
   const cv = useCompat(data?.compat), [gate, setGate] = useState(false);
+  // An adults-only game: its picture stays blurred and it starts only after the player confirms the warning (asked on every visit).
+  const [adultOk, setAdultOk] = useState(false), [adultGate, setAdultGate] = useState(false);
   // A free-trial session: when it ends (by the clock here or by the game's word from the server), the game is closed.
   const [trialEnd, setTrialEnd] = useState<number | null>(null), [tick, setTick] = useState(0), [trialDone, setTrialDone] = useState(false);
   const endTrial = useCallback(() => { if (document.fullscreenElement) void document.exitFullscreen(); setUrl(null); setTrialEnd(null); setTrialDone(true); void reload(); }, [reload]);
@@ -76,12 +94,19 @@ export function Game({ slug }: { slug: string }) {
 
   // Free games are open to visitors without an account when the admin has switched "Require login to play" off (the server enforces it).
   const guestOk = !user && config.settings.require_login_to_play === false && g.price_cents === 0;
-  const play = () => { if (user && cv?.verdict === 'no') { setGate(true); return; } start(); };
-  const start = () => {
+  const mature: string[] = data.mature?.length ? data.mature : g.mature || [], adult = mature.length > 0;
+  const play = (confirmed = adultOk) => {
+    if (!user && !guestOk) return navigate(loginUrl());
+    if (adult && !confirmed) { setAdultGate(true); return; }
+    if (user && cv?.verdict === 'no') { setGate(true); return; }
+    start(confirmed);
+  };
+  const confirmAdult = () => { setAdultOk(true); setAdultGate(false); play(true); };
+  const start = (confirmed = adultOk) => {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl());
     stage.current?.enterOnPhone();   // in the click itself, or the browser refuses fullscreen
-    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST' }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -113,6 +138,12 @@ export function Game({ slug }: { slug: string }) {
           <div className="gp-head-r">{meta?.rating && <a href="#at-a-glance" className="age-link"><AgeBadge age={meta.rating.age} /></a>}{rarity(g) !== 'common' && <span className="rar-pill" title={rarityHint()}>{R.name()}</span>}{!!g.playing && <span className="live-pill big"><i className="live-dot" aria-hidden="true" />{num(g.playing)} {t('playing now', '人正在玩')}</span>}</div>
         </header>
 
+        {adult && (
+          <div className="mature-note" role="note">
+            <AgeBadge age={18} />
+            <div className="stack s"><b>{t('Adults only', '仅限成人')} · {mature.map(matureName).join(' · ')}</b><span className="mute fs-sm">{t('Its creator declared this content, and the platform checked it when the game was reviewed. You will be asked to confirm that you are 18 or older before it starts.', '作者已声明这些内容，平台在审核时也做了检查。开始游戏前，你需要确认自己已年满 18 岁。')}</span></div>
+          </div>
+        )}
         {url && trialEnd !== null && trial && (
           <div className="trial-bar ink" role="status">
             <span>{t('Free trial', '免费试玩')}</span>
@@ -123,16 +154,16 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage ctl={stage} poster={g.cover || g.screenshot} seed={g.slug} url={url} onTrialOver={endTrial} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} onTrialOver={endTrial} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
-              {gate && cv ? <CompatGate v={cv} onPlay={start} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
+              {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>
-                  <PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : fresh || !user ? t('Try it free', '免费试玩') : t('Continue trial', '继续试玩')}</PlayButton>
+                  <PlayButton onClick={() => play()} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : fresh || !user ? t('Try it free', '免费试玩') : t('Continue trial', '继续试玩')}</PlayButton>
                   <span className="mute fs-sm">{!user ? t('Sign in to start a {minutes}-minute free trial.', '登录即可开始 {minutes} 分钟免费试玩。', { minutes: trial!.minutes }) : fresh ? (trial!.minutes === 1 ? t('1 minute free, then {price} to keep playing.', '免费 1 分钟，之后 {price} 即可继续游玩。', { price: price(g.price_cents) }) : t('{minutes} minutes free, then {price} to keep playing.', '免费 {minutes} 分钟，之后 {price} 即可继续游玩。', { minutes: trial!.minutes, price: price(g.price_cents) })) : trial!.minutes === 1 ? t('Under a minute of your free minute left.', '1 分钟免费试玩即将用完。') : t('{left} of {minutes} free minutes left.', '免费 {minutes} 分钟还剩 {left} 分钟。', { left: leftMin, minutes: trial!.minutes })}</span>
                   <Button size="sm" variant="ghost" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Or buy now', '或直接购买')} · {price(g.price_cents)}</Button>
                 </>
                 : locked ? <>{trial?.over && <b>{trialDone ? t('Your free trial has ended', '免费试玩已结束') : t('You have used your {minutes}-minute free trial', '你已用完 {minutes} 分钟免费试玩', { minutes: trial.minutes })}</b>}<PlayButton buy onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</PlayButton><span className="mute fs-sm">{config.payments ? trial?.over ? t('Buy it to keep playing. Your saves are kept.', '购买后即可继续游玩，存档会保留。') : t('One payment. Play as much as you like.', '一次购买，畅玩无限。') : t('Purchases are not open yet on this platform.', '平台暂未开放购买。')}</span></>
-                : <><PlayButton onClick={play} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : t('Play', '开始游戏')}</PlayButton>{!user && <span className="mute fs-sm">{guestOk ? t('Playing as a guest. Sign in to keep your progress on every device.', '正在以访客身份游玩。登录后进度可在所有设备上保留。') : t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
+                : <><PlayButton onClick={() => play()} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : t('Play', '开始游戏')}</PlayButton>{!user && <span className="mute fs-sm">{guestOk ? t('Playing as a guest. Sign in to keep your progress on every device.', '正在以访客身份游玩。登录后进度可在所有设备上保留。') : t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
             </div>
           </Stage>
           <aside className="gp-cap">

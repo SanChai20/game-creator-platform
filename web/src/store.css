@@ -315,7 +315,7 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 .az-h { font: 800 var(--fs-3xl)/1 var(--font-display); font-stretch: 78%; letter-spacing: -.015em; text-transform: uppercase; margin-bottom: 24px; }
 .az-cols { columns: 4 210px; column-gap: 36px; }
 .az-g { break-inside: avoid; margin-bottom: 26px; display: grid; }
-.az-k { font: 800 28px/1 var(--font-display); color: var(--accent-text); margin-bottom: 6px; }
+.az-k { font: 800 22px/1.1 var(--font-display); text-transform: uppercase; color: var(--accent-text); margin-bottom: 6px; }
 .az-i { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-weight: 550; transition: color var(--dur-fast); }
 .az-i:hover { color: hsl(var(--h) 72% var(--tag-l)); }
 .az-i small { color: var(--text-3); font-size: 12.5px; font-weight: 450; }
@@ -486,6 +486,8 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 .glance-genres a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .glance-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .glance-chips > i { font-style: normal; padding: 3px 9px; border-radius: 3px; background: rgb(var(--text-rgb) / .07); color: var(--text-2); font-size: 12.5px; font-weight: 600; }
+.glance-chips > a > i { display: block; font-style: normal; padding: 3px 9px; border-radius: 3px; background: rgb(var(--text-rgb) / .07); color: var(--text-2); font-size: 12.5px; font-weight: 600; transition: background-color var(--dur-fast), color var(--dur-fast); }
+.glance-chips > a:hover > i { background: rgb(var(--text-rgb) / .13); color: var(--text); }
 .glance-warn { padding: 12px 16px; border-radius: var(--r-md); border: 1.5px solid rgb(var(--warn-rgb) / .55); background: rgb(var(--warn-rgb) / .1); font-size: 14px; color: var(--text-2); }
 .glance-warn b { color: var(--warn); margin-right: 6px; }
 .langs .tbl-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
@@ -512,3 +514,20 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 @media (max-width: 900px) { .sk-hero { min-height: 420px; } .sk-hero > .sk-stack { max-width: 100%; } }
 .meta-missing { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; font-weight: 600; }
 .meta-missing li::marker { color: var(--warn); }
+
+/* Adults-only (18+) games: the cover is blurred everywhere in the store and carries a label naming what it contains.
+   The game page keeps its picture blurred until the player confirms the warning. */
+img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: scale(1.15); }
+.art:has(> .mature-tag), .tl-prev .art { position: relative; }
+.mature-tag { position: absolute; left: 8px; bottom: 8px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 16px); padding: 3px 8px 3px 3px; border-radius: 4px; background: rgb(0 0 0 / .72); color: #fff; font-size: 11px; font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.mature-tag b { padding: 2px 5px; border-radius: 3px; background: var(--bad); color: #fff; font: 800 11px/1 var(--font-display); }
+.hero-art .mature-tag { left: auto; right: 12px; bottom: 12px; }
+.stage .poster.mature-blur { filter: blur(28px) saturate(.6) brightness(.6); transform: scale(1.15); }
+.mature-note { display: flex; gap: 12px; align-items: flex-start; margin: -6px 0 20px; padding: 14px 16px; border-radius: 6px; border: 1px solid rgb(var(--bad-rgb) / .4); background: rgb(var(--bad-rgb) / .08); }
+.mature-note > .age { flex: none; }
+.mgate { display: grid; gap: 12px; justify-items: center; max-width: 420px; padding: 20px; border-radius: 8px; background: rgb(0 0 0 / .78); color: #fff; text-align: center; }
+.mgate h3 { margin: 0; font-size: 18px; }
+.mgate ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.mgate li { padding: 2px 8px; border-radius: 999px; border: 1px solid rgb(255 255 255 / .35); font-size: 12px; }
+.mgate p { margin: 0; font-size: 13px; color: rgb(255 255 255 / .82); }
+@media (prefers-reduced-motion: reduce) { img.mature-blur, .stage .poster.mature-blur { transform: none; } }

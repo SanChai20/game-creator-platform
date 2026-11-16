@@ -1,8 +1,9 @@
-// The store page's game metadata: the At a glance panel (genre, age rating, players, session, progress, accessibility),
+// The store page's game metadata: the At a glance panel (genre, tags, age rating, players, session, progress, accessibility),
 // the Languages table and the "in your language" check. The rules live in web/src/gamemeta.ts and web/src/languages.ts.
 import type { ReactNode } from 'react';
 import type { Access, Content, Mode, Players, Progress } from './gamemeta';
 import { genresOf, sessionBucket } from './gamemeta';
+import { tagsOnly } from './tags';
 import { inYourLanguage, languageName, languageRows, type Languages } from './languages';
 import { genreName, getLang, LANGS, Link, t, type Lang } from './lib';
 
@@ -20,9 +21,9 @@ const accessName = (a: Access | string) => ({
   'one-handed': t('Playable with one hand', '单手可玩'), 'pause-anytime': t('Pause any time', '随时暂停'), 'no-time-pressure': t('No time pressure', '无时间压力'), 'visual-sound-cues': t('Visual cues for sounds', '声音的视觉提示'),
 } as Record<string, string>)[a] ?? a;
 const reasonName = (r: string) => ({
-  'violence:cartoon': t('Cartoon violence', '卡通暴力'), 'violence:fantasy': t('Fantasy violence', '奇幻暴力'), 'violence:realistic': t('Realistic violence', '写实暴力'), 'blood': t('Blood', '血腥'),
+  'violence:cartoon': t('Cartoon violence', '卡通暴力'), 'violence:fantasy': t('Fantasy violence', '奇幻暴力'), 'violence:realistic': t('Realistic violence', '写实暴力'), 'violence:graphic': t('Graphic violence', '血腥暴力'), 'blood': t('Blood', '血腥'),
   'language:mild': t('Mild language', '轻度粗口'), 'language:strong': t('Strong language', '强烈粗口'), 'fear:mild': t('Mildly scary', '轻度惊吓'), 'fear:intense': t('Intense horror', '强烈恐怖'),
-  'sexual:suggestive': t('Suggestive themes', '性暗示'), 'drugs': t('Drug references', '涉及药物'), 'gambling:simulated': t('Simulated gambling', '模拟赌博'),
+  'sexual:suggestive': t('Suggestive themes', '性暗示'), 'sexual:nudity': t('Nudity', '裸露'), 'sexual:explicit': t('Explicit sexual content', '露骨性内容'), 'adult_themes': t('Mature themes', '成人主题'), 'drugs': t('Drug references', '涉及药物'), 'gambling:simulated': t('Simulated gambling', '模拟赌博'),
 } as Record<string, string>)[r] ?? r;
 const sessionName = (m: number) => ({ '<5': t('Under 5 min', '5 分钟以内'), '5-15': t('5 to 15 min', '5 到 15 分钟'), '15-30': t('15 to 30 min', '15 到 30 分钟'), '30-60': t('30 to 60 min', '30 到 60 分钟'), '60+': t('Over an hour', '1 小时以上') } as Record<string, string>)[sessionBucket(m)];
 const notStated = () => <span className="dim">{t('Not stated', '未注明')}</span>;
@@ -45,8 +46,9 @@ export function LangPill({ l }: { l: Languages }) {
 /** The At a glance panel: what kind of game this is, for whom, and how it plays. */
 export function Glance({ meta, tags }: { meta: GameMeta; tags: string[] }) {
   const m = meta, items: [string, ReactNode, string][] = [];
-  const g = genresOf(tags), genres: string[] = g.primary ? [g.primary, ...g.secondary] : tags.slice(0, 1);
+  const g = genresOf(tags), genres: string[] = g.primary ? [g.primary, ...g.secondary] : [], rest = tagsOnly(tags);
   items.push([t('Genre', '类型'), genres.length ? <span className="glance-genres">{genres.map((x, i) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className={i ? 'dim' : ''}>{genreName(x)}</Link>)}</span> : notStated(), 'genre']);
+  if (rest.length) items.push([t('Tags', '标签'), <span className="glance-chips">{rest.map((x) => <Link key={x} to={`/c/${encodeURIComponent(x)}`}><i>{genreName(x)}</i></Link>)}</span>, 'tags']);
   items.push([t('Age rating', '年龄分级'), m.rating ? <span className="glance-age"><AgeBadge age={m.rating.age} /><span><b>{ageLabel(m.rating.age)}</b>{m.rating.reasons.length ? <small>{m.rating.reasons.map(reasonName).join(' · ')}</small> : <small>{t('No content of concern', '无需注意的内容')}</small>}</span></span> : notStated(), 'age']);
   items.push([t('Players', '玩家'), m.players ? <span><b>{playersText(m.players)}</b><small>{m.players.modes.map(modeName).join(' · ')}</small></span> : m.multiplayer ? <span><b>{t('Multiplayer', '多人')}</b><small>{t('Online rooms', '在线房间')}</small></span> : notStated(), 'players']);
   items.push([t('Session', '单局时长'), m.session_minutes ? <b>{sessionName(m.session_minutes)}</b> : notStated(), 'session']);

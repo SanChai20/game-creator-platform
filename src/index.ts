@@ -20,6 +20,7 @@ import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now } from './util';
 import { backfill } from './originality-check';
+import { backfillMature } from './mature';
 import { TOKENS_CSS } from '../web/src/ui/tokens';
 import { langTag, pageLang, TEXT } from './consent-text';
 import type { Lang } from '../web/src/i18n/langs';
@@ -263,6 +264,8 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // every few minutes: bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
     ctx.waitUntil(rolloutRuntime(env).catch((e) => console.error('runtime rollout failed', e)));
+    // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
+    ctx.waitUntil(backfillMature(env, 20).catch((e) => console.error('mature backfill failed', e)));
     if (event.cron !== DAILY_CRON) return;
     const t = now();
     ctx.waitUntil(env.DB.batch([

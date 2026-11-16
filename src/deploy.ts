@@ -80,7 +80,7 @@ async function urlIn(env: Env, id: string, script: string, origin: string): Prom
 type Row = { host: string | null; script: string | null; retired_host: string | null; retired_at: number | null; origin: string | null };
 async function deployedRow(env: Env, pid: string, e: GameEnv): Promise<Row | null> {
   try { return await env.DB.prepare('SELECT host, script, retired_host, retired_at, origin FROM game_workers WHERE project_id = ? AND env = ?').bind(pid, e).first<Row>(); }
-  catch { return null; }   // before migration 0013
+  catch { return null; }   // before migration 0014
 }
 
 /** The address a game is played at: where its Worker is now. While games move to another host, one that has not
