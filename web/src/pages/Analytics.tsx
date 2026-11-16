@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ago, api, count, Fail, num, t, useData } from '../lib';
-import { Badge, Bars, Card, ChartBlock, EmptyState, Notice, PageHeader, Segmented, Share, Spinner, Stat, StatGrid, StatusBadge, Table, Tabs } from '../ui';
+import { Badge, Bars, Card, ChartBlock, EmptyState, Notice, PageHeader, Segmented, Share, Stat, StatGrid, StatusBadge, Table, Tabs } from '../ui';
+import { AnalyticsSkeleton } from '../skeletons';
 
 const DEVICE: Record<string, () => string> = { phone: () => t('Phone', '手机'), tablet: () => t('Tablet', '平板'), desktop: () => t('Desktop', '桌面电脑'), other: () => t('Other', '其他') };
 const LENGTH: Record<string, () => string> = { 'under 30 s': () => t('under 30 s', '30 秒以内'), '30 s to 2 min': () => t('30 s to 2 min', '30 秒至 2 分钟'), '2 to 5 min': () => t('2 to 5 min', '2 至 5 分钟'), '5 to 15 min': () => t('5 to 15 min', '5 至 15 分钟'), '15 to 30 min': () => t('15 to 30 min', '15 至 30 分钟'), 'over 30 min': () => t('over 30 min', '30 分钟以上') };
@@ -33,7 +34,7 @@ export function Analytics({ id }: { id: string }) {
   const [days, setDays] = useState<'7' | '30' | '90'>('30');
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}/analytics?days=${days}`);
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
-  if (loading && !data) return <Spinner />;
+  if (loading && !data) return <AnalyticsSkeleton />;
   const p = data.project, x = data.totals, daily = data.daily as any[];
   const bar = (k: string) => daily.map((d) => ({ label: d.day, value: d[k] }));
   const empty = !x.sessions;

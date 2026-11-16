@@ -2,7 +2,7 @@
 // to how a button, card, stat or table looks is made once, here and in ui.css.
 import { useEffect, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { Link, t } from '../lib';
-import { CountUp, ToonIcon, type ToonIconKind } from './toon';
+import { CountUp } from './count';
 
 const cx = (...c: (string | false | null | undefined | 0)[]) => c.filter(Boolean).join(' ');
 
@@ -22,7 +22,7 @@ export function Button({ variant, size, block, icon, className, children, to, hr
 
 /** The big round call to action that sits on a game's poster. */
 export function PlayButton({ buy, children, ...rest }: { buy?: boolean; children: ReactNode } & ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button className={cx('play-btn', buy && 'buy')} data-fx-burst={buy ? 'coins' : 'stars'} {...rest}>{!buy && <span className="play-ico" aria-hidden="true" />}{children}</button>;
+  return <button className={cx('play-btn', buy && 'buy')} {...rest}>{!buy && <span className="play-ico" aria-hidden="true" />}<span>{children}</span></button>;
 }
 
 // ---- text -------------------------------------------------------------------------------------
@@ -98,10 +98,9 @@ export function ListRow({ to, media, title, meta, tail, className }: { to?: stri
 }
 
 // ---- data -------------------------------------------------------------------------------------
-/** One figure with a label and a line of context. Put several in a StatGrid. */
-/** A figure with its label. The value rolls up like a game score when it first shows; an icon makes it a HUD counter. */
-export function Stat({ label, value, sub, tone, to, icon }: { label: ReactNode; value: ReactNode; sub?: ReactNode; tone?: 'accent'; to?: string; icon?: ToonIconKind }) {
-  const body = <>{icon && <span className="stat-ico"><ToonIcon kind={icon} /></span>}<b className="stat-v"><CountUp value={value} burst={tone === 'accent'} /></b><span className="stat-l">{label}</span>{sub && <small>{sub}</small>}</>;
+/** One figure with its label and a line of context. The value rolls up when it first shows. Put several in a StatGrid. */
+export function Stat({ label, value, sub, tone, to }: { label: ReactNode; value: ReactNode; sub?: ReactNode; tone?: 'accent'; to?: string }) {
+  const body = <><span className="stat-l">{label}</span><b className="stat-v"><CountUp value={value} /></b>{sub && <small>{sub}</small>}</>;
   return to ? <Link to={to} className={cx('stat', 'is-link', tone && 'stat-accent')}>{body}</Link> : <div className={cx('stat', tone && 'stat-accent')}>{body}</div>;
 }
 export const StatGrid = ({ children }: { children: ReactNode }) => <div className="stats">{children}</div>;
@@ -164,7 +163,7 @@ export function Modal({ children, onClose, wide }: { children: ReactNode; onClos
 export function Code({ text }: { text: string }) {
   const [done, setDone] = useState(false);
   const copy = () => { void navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1400); }); };
-  return <div className="code">{text}<button className={cx('btn btn-secondary btn-sm copy', done && 'done')} onClick={copy}>{done ? t('Copied', '已复制') : t('Copy', '复制')}</button></div>;
+  return <div className="code ink"><span>{text}</span><button className={cx('btn btn-secondary btn-sm copy', done && 'done')} onClick={copy}>{done ? t('Copied', '已复制') : t('Copy', '复制')}</button></div>;
 }
 
 // ---- forms ------------------------------------------------------------------------------------

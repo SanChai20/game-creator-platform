@@ -2,7 +2,8 @@
 // choices: open it, or move on. What was seen is remembered in this browser only.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { api, artStyle, blurb, count, genreHue, genreName, Link, markSeen, navigate, num, price, RARITY, rarity, rarityHint, resetSeen, seenGames, t, Verdict, type GameCard } from '../lib';
-import { Button, EmptyState, Spinner } from '../ui';
+import { Button, EmptyState } from '../ui';
+import { RouteSkeleton } from '../skeletons';
 
 export function Queue() {
   const [pool, setPool] = useState<GameCard[] | null>(null), [i, setI] = useState(0), [round, setRound] = useState(0);
@@ -23,7 +24,7 @@ export function Queue() {
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   });
   const R = useMemo(() => (g ? RARITY[rarity(g)] : null), [g]);
-  if (!pool) return <Spinner />;
+  if (!pool) return <RouteSkeleton path="/queue" />;
   return (
     <div className="wrap page queue">
       <header className="browse-h">
@@ -37,10 +38,10 @@ export function Queue() {
           <article className="q-card" key={g.id} style={{ '--h': genreHue(g.tags[0] || ''), '--rc': R.color } as CSSProperties}>
             <Link to={`/g/${g.slug}`} className="q-art" onClick={() => markSeen(g.slug)}><span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</span></Link>
             <div className="q-info">
-              <div className="feat-tags"><span className="rar" title={rarityHint()}>{R.name()}</span>{g.tags.slice(0, 3).map((x) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>
+              <div className="hero-tags"><span className="rar" title={rarityHint()}>{R.name()}</span>{g.tags.slice(0, 3).map((x) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>
               <h2>{g.title}</h2>
               {blurb(g) && <p className="lede">{blurb(g)}</p>}
-              <dl className="feat-facts">
+              <dl className="hero-facts">
                 <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
                 <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>
                 <div><dt>{t('Played', '游玩')}</dt><dd className="num">{count(g.plays, 'time', 'times', '次')}{!!g.playing && <span className="live"> · {num(g.playing)} {t('now', '人在线')}</span>}</dd></div>

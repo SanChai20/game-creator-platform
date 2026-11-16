@@ -923,5 +923,10 @@
  "{n} min trial": "prueba de {n} min",
  "{players} tried it · {bought} then bought it": "{players} lo probaron · {bought} lo compraron después",
  "{sessions_per_player} per player · {counted_plays} counted plays": "{sessions_per_player} por jugador · {counted_plays} partidas contadas",
- "{total} in all": "{total} en total"
+ "{total} in all": "{total} en total",
+ "Dark": "Oscuro",
+ "Light": "Claro",
+ "Switch theme": "Cambiar tema",
+ "Theme": "Tema",
+ "Main": "Principal"
 }

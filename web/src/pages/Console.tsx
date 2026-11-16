@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ago, api, artStyle, date, Fail, GameTile, navigate, num, price, query, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Button, Card, Code, ListRow, Notice, PageHeader, Section, Segmented, Spinner, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
+import { Badge, Button, Card, Code, ListRow, Notice, PageHeader, Section, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
+import { ConsoleSkeleton } from '../skeletons';
+import { Skeleton, SkRows } from '../ui/skeleton';
 import { ConnectAgent, starterPrompt } from './Creators';
 import { Pager } from '../store';
 
@@ -31,7 +33,7 @@ export function Console() {
   }, [all, q, st, order]);
   useEffect(() => { setPage(1); }, [q, st, order]);
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
-  if (loading && !data) return <Spinner />;
+  if (loading && !data) return <ConsoleSkeleton />;
   const u = data.user, projects = all, pages = Math.max(1, Math.ceil(shown.length / PER)), slice = shown.slice((page - 1) * PER, page * PER);
   const buyLicense = () => act('fee', async () => { const r = await api<{ url?: string }>('/billing/creator-fee', { method: 'POST' }); if (r.url) location.href = r.url; else { await refresh(); await reload(); } });
   const revoke = (id: string) => act('rv' + id, async () => { await api(`/console/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }); await agents.reload(); }, t('Access revoked.', '已撤销访问权限。'));
@@ -53,10 +55,10 @@ export function Console() {
         )}
 
         <StatGrid>
-          <Stat icon="pad" label={t('Games', '游戏')} value={projects.length} sub={`${projects.filter((p) => p.status === 'live').length} ${t('live', '款已上线')}`} />
-          <Stat icon="play" label={t('Plays', '游玩次数')} value={num(projects.reduce((a, p) => a + p.plays, 0))} sub={`${num(projects.reduce((a, p) => a + p.minutes, 0))} ${t('minutes played', '分钟游玩时长')}`} />
-          <Stat icon="bag" label={t('Sales', '销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('earned', '累计收益')}`} />
-          <Stat icon="coin" tone="accent" to="/console/earnings" label={t('Available', '可提现')} value={usd(data.balance.available)} sub={<>{data.balance.pending > 0 ? `${usd(data.balance.pending)} ${t('pending', '待结算')}` : t('Open earnings', '查看收益')} →</>} />
+          <Stat label={t('Games', '游戏')} value={projects.length} sub={`${projects.filter((p) => p.status === 'live').length} ${t('live', '款已上线')}`} />
+          <Stat label={t('Plays', '游玩次数')} value={num(projects.reduce((a, p) => a + p.plays, 0))} sub={`${num(projects.reduce((a, p) => a + p.minutes, 0))} ${t('minutes played', '分钟游玩时长')}`} />
+          <Stat label={t('Sales', '销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('earned', '累计收益')}`} />
+          <Stat tone="accent" to="/console/earnings" label={t('Available', '可提现')} value={usd(data.balance.available)} sub={<>{data.balance.pending > 0 ? `${usd(data.balance.pending)} ${t('pending', '待结算')}` : t('Open earnings', '查看收益')} →</>} />
         </StatGrid>
 
         <div className="cols">
@@ -92,7 +94,7 @@ export function Console() {
                 <ListRow key={a.id} title={<b className="clip">{a.client}</b>}
                   meta={<>{t('connected', '连接于')} {date(a.created_at)}{a.expires_at ? ` · ${t('expires', '到期')} ${date(a.expires_at)}` : ''}</>}
                   tail={<Button size="sm" variant="danger" onClick={() => revoke(a.id)} disabled={busy === 'rv' + a.id}>{t('Revoke', '撤销')}</Button>} />
-              )) : <div className="pad mute">{agents.loading ? t('Loading…', '加载中…') : t('No agent has access to your account.', '目前没有智能体可以访问你的账户。')}</div>}
+              )) : agents.loading ? <Skeleton><SkRows n={2} thumb={false} /></Skeleton> : <div className="pad mute">{t('No agent has access to your account.', '目前没有智能体可以访问你的账户。')}</div>}
             </Card>
           </div>
         </div>

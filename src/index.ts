@@ -95,19 +95,24 @@ app.all('/__game/:pid/:env/*', async (c) => {
 
 // ----- OAuth consent ---------------------------------------------------------------------------
 // Server-rendered pages share the web app's design tokens (web/src/ui/tokens.ts), so they look like the rest of the site.
-const PAGE_CSS = `*,*::before,*::after{box-sizing:border-box}html,body{min-height:100%;margin:0;background:var(--bg-0);color:var(--text);font:400 var(--fs-md)/1.6 var(--font-sans);-webkit-font-smoothing:antialiased}
-body{display:grid;place-items:center;padding:24px;background:radial-gradient(55vw 45vh at 0% 0%,rgba(139,107,255,.16),transparent 70%),radial-gradient(45vw 40vh at 100% 0%,rgba(198,255,61,.07),transparent 70%),var(--bg-0)}
-main{width:min(460px,100%);display:grid;gap:14px;background:var(--bg-1);border:1px solid var(--line-3);border-radius:var(--r-xl);padding:clamp(22px,5vw,32px);box-shadow:var(--shadow-pop-lg),var(--shadow-3)}
-.mark{display:flex;align-items:center;gap:10px;font:700 14px/1 var(--font-display);letter-spacing:-.01em;margin-bottom:6px}.mark i{width:24px;height:24px;border-radius:var(--r-sm);background:var(--accent);display:grid;place-items:center;box-shadow:2px 2px 0 0 var(--hot);transform:rotate(-6deg)}.mark i::after{content:"";border-left:8px solid var(--accent-ink);border-top:5px solid transparent;border-bottom:5px solid transparent;margin-left:3px}
-h1{font:700 24px/1.15 var(--font-display);letter-spacing:-.03em;margin:0;text-wrap:balance}p{margin:0;color:var(--text-2)}strong{color:var(--text);font-weight:650}
-ul{margin:0;padding:12px 14px;list-style:none;display:grid;gap:8px;background:rgba(10,9,16,.6);border:1px solid var(--line);border-radius:var(--r-md);font-size:13.5px}li{padding-left:22px;position:relative}li::before{content:"✓";position:absolute;left:0;top:2px;width:15px;height:15px;border-radius:2px;background:var(--accent-wash);color:var(--accent);font:700 10px/15px var(--font-mono);text-align:center}
-.warn{border:1px solid rgba(255,93,108,.32);border-left:3px solid var(--bad);background:var(--bad-wash);border-radius:var(--r-md);padding:12px 14px;color:var(--text)}
-.web-only{font-size:13px;padding:9px 12px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:rgba(10,9,16,.6)}
-.row{display:flex;gap:12px;margin-top:6px}button{flex:1;height:48px;font:600 14px/1 var(--font-sans);border-radius:var(--r-md);cursor:pointer;border:1px solid var(--line-3);background:var(--bg-2);color:var(--text);transition:background var(--dur),transform var(--dur-fast),box-shadow var(--dur-fast)}button:hover{background:var(--bg-3)}button:active{transform:translate(1px,1px)}
-button.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;box-shadow:var(--shadow-pop)}button.go:hover{background:var(--accent-hi);transform:translate(-1px,-1px);box-shadow:4px 4px 0 0 var(--hot)}button.go:active{transform:translate(2px,2px);box-shadow:1px 1px 0 0 var(--hot)}
-small{display:block;color:var(--text-3);font-size:12.5px}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}`;
+const PAGE_CSS = `*,*::before,*::after{box-sizing:border-box}html,body{min-height:100%;margin:0;background:var(--paper);color:var(--text);font:400 var(--fs-md)/1.6 var(--font-sans);-webkit-font-smoothing:antialiased}
+body{display:grid;place-items:center;padding:24px}
+main{position:relative;width:min(470px,100%);display:grid;gap:14px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:clamp(24px,5vw,34px);box-shadow:var(--shadow-3)}
+main::before{content:"";position:absolute;left:-1px;top:-1px;width:84px;height:5px;background:var(--accent);clip-path:polygon(0 0,100% 0,calc(100% - 5px) 100%,0 100%)}
+.mark{display:flex;align-items:center;gap:10px;font:800 15px/1 var(--font-display);font-stretch:82%;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}.mark i{width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 34% 32%,var(--c-cream) 0 15%,transparent 16%),radial-gradient(circle at 26% 30%,var(--accent) 0 60%,var(--c-wine) 61%)}
+h1{font:800 27px/1.05 var(--font-display);font-stretch:80%;text-transform:uppercase;margin:0;text-wrap:balance}p{margin:0;color:var(--text-2)}strong{color:var(--text);font-weight:650}
+ul{margin:0;padding:14px 16px;list-style:none;display:grid;gap:9px;background:var(--sunk);border-radius:var(--r-sm);font-size:13.5px}li{padding-left:26px;position:relative}li::before{content:"";position:absolute;left:0;top:.5em;width:14px;height:7px;background:var(--accent);clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+.warn{border-left:4px solid var(--bad);background:rgb(var(--bad-rgb) / .09);border-radius:var(--r-sm);padding:12px 14px;color:var(--text)}
+.web-only{font-size:13px;padding-left:12px;border-left:2px solid var(--line-3)}
+.row{display:flex;gap:16px;margin-top:8px;padding-inline:5px}button{position:relative;isolation:isolate;flex:1;height:48px;font:700 14px/1 var(--font-display);letter-spacing:.06em;text-transform:uppercase;cursor:pointer;border:0;background:none;color:var(--text)}
+button::before{content:"";position:absolute;inset:0;z-index:-1;transform:skewX(-12deg);border-radius:3px;border:1.5px solid var(--line-2);background:var(--surface);transition:border-color var(--dur-fast),background-position var(--dur) var(--ease)}button:hover::before{border-color:var(--edge)}button:active{transform:translate(1px,1px)}
+button.go{color:var(--on-accent)}button.go::before{border-color:transparent;background:var(--accent) linear-gradient(105deg,transparent 0 49.8%,rgb(0 0 0 / .16) 50% 100%) 22% 0 / 300% 100% no-repeat}button.go:hover::before{border-color:transparent;background-position:62% 0}
+button.go::after{content:"";position:absolute;inset:0;z-index:-2;border-radius:3px;background:rgb(var(--accent-rgb) / .3);transform:skewX(-12deg) translate(3px,3px)}
+small{display:block;color:var(--text-3);font-size:12.5px}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}:lang(zh) h1,:lang(ja) h1,:lang(ko) h1{letter-spacing:0;line-height:1.25}`;
+// The same start-up line as the web app: the visitor's chosen theme, or the system's.
+const THEME_JS = `try{var t=localStorage.getItem('gcp.theme');document.documentElement.dataset.theme=t==='day'||t==='night'?t:matchMedia('(prefers-color-scheme: dark)').matches?'night':'day'}catch(e){document.documentElement.dataset.theme='day'}`;
 function page(title: string, body: string, lang: Lang = 'en'): string {
-  return `<!doctype html><html lang="${langTag(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#0a0910"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  return `<!doctype html><html lang="${langTag(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><script>${THEME_JS}</script>
 <style>${TOKENS_CSS}${PAGE_CSS}</style></head><body><main>${body}</main></body></html>`;
 }
 

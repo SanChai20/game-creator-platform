@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, artStyle, Link, navigate, num, query, t, useApp, useData, type GameCard } from '../lib';
-import { Button, Eyebrow, Field, Input, Notice, Spinner } from '../ui';
+import { Button, CelScene, Eyebrow, Field, Input, Notice } from '../ui';
+import { PageSkeleton } from '../skeletons';
 
 /** Only same-site paths are allowed as a return target. */
 const safeNext = (n: string | null) => (n && n.startsWith('/') && !n.startsWith('//') ? n : '/');
@@ -39,18 +40,17 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
   );
 }
 
-/** The other half of the sign-in page: a wall of the store's covers, so you can see what you are signing in to. */
+/** The other half of the sign-in page: the rendered scene, a few of the store's covers and what the account is for. */
 function Showcase() {
   const { data } = useData<{ stats: { games: number; creators: number }; shelves: { trending: GameCard[]; new: GameCard[] } }>('/home');
-  const covers = data ? [...data.shelves.trending, ...data.shelves.new].filter((g, i, a) => a.findIndex((x) => x.id === g.id) === i).slice(0, 12) : [];
+  const covers = data ? [...data.shelves.trending, ...data.shelves.new].filter((g, i, a) => a.findIndex((x) => x.id === g.id) === i).slice(0, 4) : [];
   return (
-    <aside className="auth-show" aria-hidden="true">
-      <div className="auth-wall">{(covers.length ? covers : Array.from({ length: 12 }, (_, k) => ({ id: String(k), slug: 'x' + k, cover: null }) as unknown as GameCard)).map((g, k) => (
-        <span key={g.id} className={'aw' + (k % 3)} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>
-      ))}</div>
+    <aside className="auth-show ink" aria-hidden="true">
+      <CelScene seed={4} />
       <div className="auth-pitch">
         <b>{data ? t('{games} web games. One account.', '{games} 款网页游戏，一个账户。', { games: num(data.stats.games) }) : t('Web games. One account.', '网页游戏，一个账户。')}</b>
         <span>{t('Play in your browser, keep your library, rate what you love, and publish your own with your agent.', '在浏览器里畅玩，收藏游戏库，为喜欢的作品评分，还能用智能体发布你自己的游戏。')}</span>
+        {covers.length > 0 && <div className="auth-wall">{covers.map((g, k) => <span key={g.id} className={'aw' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>)}</div>}
       </div>
     </aside>
   );
@@ -65,7 +65,7 @@ export function ClaimAdmin() {
     try { await api('/claim-admin', { body: { token } }); await refresh(); setState('done'); }
     catch (e) { setMsg((e as Error).message); setState('fail'); }
   };
-  if (!user) return <Spinner />;
+  if (!user) return <PageSkeleton />;
   return (
     <div className="auth"><div className="auth-card wide">
       <Eyebrow tone="accent">{t('Platform setup', '平台初始化')}</Eyebrow>

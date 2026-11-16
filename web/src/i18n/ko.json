@@ -923,5 +923,10 @@
  "{n} min trial": "{n}분 체험",
  "{players} tried it · {bought} then bought it": "{players}명 체험 · 그중 {bought}명 구매",
  "{sessions_per_player} per player · {counted_plays} counted plays": "1인당 {sessions_per_player}회 · 집계된 플레이 {counted_plays}회",
- "{total} in all": "총 {total}개"
+ "{total} in all": "총 {total}개",
+ "Dark": "다크",
+ "Light": "라이트",
+ "Switch theme": "테마 전환",
+ "Theme": "테마",
+ "Main": "메인"
 }

@@ -944,5 +944,10 @@
  "{n} min trial": "試玩 {n} 分鐘",
  "{players} tried it · {bought} then bought it": "{players} 人試玩 · 其中 {bought} 人購買",
  "{sessions_per_player} per player · {counted_plays} counted plays": "人均 {sessions_per_player} 次 · {counted_plays} 次計入遊玩",
- "{total} in all": "共 {total} 條"
+ "{total} in all": "共 {total} 條",
+ "Dark": "深色",
+ "Light": "淺色",
+ "Switch theme": "切換主題",
+ "Theme": "主題",
+ "Main": "主導覽"
 }

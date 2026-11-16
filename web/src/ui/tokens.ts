@@ -4,66 +4,43 @@
 // Plain data and strings only: this file is imported by the Worker as well as the browser.
 
 /** "r, g, b" of a #rrggbb colour, so CSS can use a token at any opacity: rgb(var(--accent-rgb) / .3). */
-const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
-const a = (hex: string, alpha: number) => `rgba(${rgb(hex)}, ${alpha})`;
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(' ');
 
-// The palette, "Ember & Jade": a warm plum-black night lit by ember orange for the one thing to do, cooled by jade
-// as its partner (the chosen tab, highlights). Gold stays for coins, stars and rewards; coral, cyan and mint are spot
-// colours for meaning and charts. The warm/cool complement follows games such as Hades and Hyper Light Drifter.
-// Every colour in the CSS and the effects is one of these, or black and white for shading.
-const base = {
-  bg0: '#110a0f',
-  bg1: '#1a1017',
-  bg2: '#22151e',
-  bg3: '#2d1c28',
-  bg4: '#3b2735',
-  tint: '#f6dccb',
-  text: '#fcf0e7',
-  text2: '#c8b1a6',
-  text3: '#977f75',
-  accent: '#ff8a3d',
-  accent2: '#f2622e',
-  accentHi: '#ffb36d',
-  accentInk: '#2b0d00',
-  accentLip: '#8a3a0b',
-  violet: '#36d1a0', // the partner colour (jade in this palette; the token keeps its old name so every use follows)
-  violetHi: '#86f0c9',
-  cyan: '#4fd6c8',
-  hot: '#ff5d7a',
-  gold: '#ffcf5a',
-  good: '#36d1a0',
-  bad: '#ff5d6c',
-  info: '#9cc3ff',
-  ink: '#070407',
-  frame: '#3a2734',
-  frameHi: '#56394c',
-  well: '#0c070b',
-  lip: '#040203',
-  badLip: '#7a1f2c',
-  key: '#3a2834',
-  keyLo: '#2a1c26',
-  keyHi: '#4a3442',
-  keyHiLo: '#382631',
-  plate: '#1c5244',
-  plateLo: '#123d32',
-  plateText: '#86f0c9',
-  horizon: '#6a2a2a',
-} as const;
-export const color = {
-  ...base,
-  pink: base.hot,
-  line: a(base.tint, 0.08), line2: a(base.tint, 0.15), line3: a(base.tint, 0.28),
-  accentWash: a(base.accent, 0.1), accentLine: a(base.accent, 0.4), accentGlow: a(base.accent, 0.32),
-  hotWash: a(base.hot, 0.12), violetWash: a(base.violet, 0.14), violetLine: a(base.violet, 0.45),
-  goodWash: a(base.good, 0.11), badWash: a(base.bad, 0.1), infoWash: a(base.info, 0.11),
-} as const;
-/** The channels behind the tokens that CSS needs at several opacities (--accent-rgb and so on). */
-const RGB_KEYS = ['bg0', 'bg1', 'bg2', 'bg3', 'tint', 'text', 'accent', 'accentLip', 'violet', 'cyan', 'hot', 'good', 'bad', 'info', 'ink'] as const;
+// The palette, "Cel": the page is shaded the way a toon renderer shades a model. Two tones and a hard edge between
+// them: paper for the lit side, ink for the shade side, and one hot colour (flare) where the light catches.
+// A warm ramp (cream, peach, flare, wine) is the sky in the rendered scenes and the series in charts; lilac is the one
+// cool note. Two themes share every name: "day" (paper is light) and "night" (paper is dark). Blocks marked .ink
+// are always the shade side.
+export interface Theme {
+  paper: string; surface: string; sunk: string; rise: string;
+  text: string; text2: string; text3: string; edge: string;
+  ink: string; ink2: string; ink3: string; onInk: string; onInk2: string; onInk3: string;
+  accent: string; accentHi: string; accentLo: string; accentText: string; onAccent: string;
+  good: string; bad: string; warn: string; info: string;
+}
+export const day: Theme = {
+  paper: '#f3f1ea', surface: '#ffffff', sunk: '#e9e6dc', rise: '#ffffff',
+  text: '#17151c', text2: '#565260', text3: '#8a8693', edge: '#17151c',
+  ink: '#17151c', ink2: '#24212b', ink3: '#35313e', onInk: '#f6f4ee', onInk2: '#b9b4c3', onInk3: '#857f91',
+  accent: '#f5284c', accentHi: '#ff5c77', accentLo: '#c9153a', accentText: '#cf1238', onAccent: '#ffffff',
+  good: '#0b7d57', bad: '#cf2a1b', warn: '#a8590a', info: '#5a47d6',
+};
+export const night: Theme = {
+  paper: '#111015', surface: '#1b1a21', sunk: '#0a090d', rise: '#24222b',
+  text: '#f6f4ee', text2: '#b9b4c3', text3: '#857f91', edge: '#f6f4ee',
+  ink: '#08070a', ink2: '#1b1a21', ink3: '#2d2a36', onInk: '#f6f4ee', onInk2: '#b9b4c3', onInk3: '#857f91',
+  accent: '#ff3d60', accentHi: '#ff7089', accentLo: '#d81f45', accentText: '#ff5c7a', onAccent: '#ffffff',
+  good: '#3ecf9a', bad: '#ff6b5e', warn: '#f0a548', info: '#a99bff',
+};
+/** Colours that are the same in both themes: the scene ramp, chart series and rarity marks. */
+export const hue = { cream: '#ffe9d2', peach: '#ffb08f', flare: '#f5284c', wine: '#7d1236', lilac: '#a99bff', plum: '#3b2a55', gold: '#e8a317', mint: '#3ecf9a' } as const;
+/** Kept for code that reads colours in TypeScript (rarity marks, charts). Values that differ by theme are CSS variables. */
+export const color = { ...day, ...hue, line: 'var(--line)', line2: 'var(--line-2)' } as const;
 
-/** Series colours for charts, in order. Readable on the dark surfaces and distinct from one another. */
+/** Series colours for charts, in order. */
 export const chart = {
-  series: [color.accent, color.violet, color.cyan, color.pink, color.good, color.info],
-  grid: color.line, axis: color.text3, label: color.text2, empty: color.bg4,
+  series: ['var(--accent)', 'var(--text)', hue.lilac, hue.peach, 'var(--good)', 'var(--text-3)'],
+  grid: 'var(--line)', axis: 'var(--text-3)', label: 'var(--text-2)', empty: 'var(--sunk)',
 } as const;
 
 // CJK faces per language, so Han characters take the right regional shapes (骨 and 直 differ between SC, TC and JP) and
@@ -79,70 +56,76 @@ const sys = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helve
 const monoSys = 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas';
 /** Latin pages list the CJK faces last (game titles can still be in any script); CJK pages list them right after the web fonts. */
 const stacks = (cjk: string, first: boolean) => ({
-  // Oxanium: squared, cut corners, like the cartridges. The brand (page titles, heavy) and display (heads, figures) face.
-  brand: first ? `"Oxanium", "IBM Plex Sans", ${cjk}, ${sys}, sans-serif` : `"Oxanium", "IBM Plex Sans", ${sys}, ${cjk}, sans-serif`,
-  display: first ? `"Oxanium", "IBM Plex Sans", ${cjk}, ${sys}, sans-serif` : `"Oxanium", "IBM Plex Sans", ${sys}, ${cjk}, sans-serif`,
-  // IBM Plex Sans: engineered and readable at small sizes, for everything people read.
-  sans: first ? `"IBM Plex Sans", ${cjk}, ${sys}, sans-serif` : `"IBM Plex Sans", ${sys}, ${cjk}, sans-serif`,
-  // Martian Mono: a wide terminal face for HUD labels, figures in tables, and code. CJK inside it uses the language's sans.
-  mono: `"Martian Mono", ${monoSys}, ${cjk}, monospace`,
+  // Bricolage Grotesque: a grotesque with a drawn, slightly uneven line, set tight and heavy for titles and figures.
+  display: first ? `"Bricolage Grotesque", ${cjk}, ${sys}, sans-serif` : `"Bricolage Grotesque", ${sys}, ${cjk}, sans-serif`,
+  // Geist: plain and even, for everything people read.
+  sans: first ? `"Geist", ${cjk}, ${sys}, sans-serif` : `"Geist", ${sys}, ${cjk}, sans-serif`,
+  // Geist Mono: for code, addresses and version numbers. CJK inside it uses the language's sans.
+  mono: `"Geist Mono", ${monoSys}, ${cjk}, monospace`,
 });
 export const font = stacks(CJK.zh, false);
-const fontVars = (f: ReturnType<typeof stacks>) => `--font-brand:${f.brand};--font-display:${f.display};--font-sans:${f.sans};--font-mono:${f.mono}`;
+const fontVars = (f: ReturnType<typeof stacks>) => `--font-display:${f.display};--font-sans:${f.sans};--font-mono:${f.mono}`;
 /** Per-language font stacks, keyed on <html lang>. */
 const LANG_FONTS_CSS = ([['zh-CN', CJK.zh], ['zh-TW', CJK['zh-TW']], ['ja', CJK.ja], ['ko', CJK.ko]] as const)
   .map(([tag, cjk]) => `:root:lang(${tag}){${fontVars(stacks(cjk, true))}}`).join('') +
   // zh-HK and other Traditional tags the Worker may set
   `:root:lang(zh-Hant),:root:lang(zh-HK){${fontVars(stacks(CJK['zh-TW'], true))}}`;
 
-/** Type scale. The large steps grow with the viewport so headings hold their weight on phones and wide screens. */
+/** Type scale. The large steps grow with the viewport so titles hold their weight on phones and wide screens. */
 export const size = {
-  xs: '11px', sm: '12.5px', md: '14px', lg: '15.5px', xl: '18px', '2xl': '22px',
-  '3xl': 'clamp(24px, 2.6vw, 34px)', '4xl': 'clamp(30px, 4vw, 50px)', '5xl': 'clamp(34px, 5.2vw, 72px)',
+  xs: '12px', sm: '13px', md: '15px', lg: '17px', xl: '20px', '2xl': '26px',
+  '3xl': 'clamp(28px, 3vw, 38px)', '4xl': 'clamp(36px, 5vw, 60px)', '5xl': 'clamp(44px, 7.4vw, 104px)',
 } as const;
 
-export const space = { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '56px', 10: '80px', 11: '112px' } as const;
-/** Rounded, chunky corners: the game UI reads as toy hardware (menus, slots, keycaps), not as sharp chrome. */
-export const radius = { xs: '4px', sm: '6px', md: '9px', lg: '12px', xl: '16px', '2xl': '20px', pill: '999px' } as const;
-export const shadow = {
-  1: '0 1px 2px rgba(0, 0, 0, .4)',
-  2: '0 12px 32px -8px rgba(0, 0, 0, .6)',
-  3: '0 32px 80px -16px rgba(0, 0, 0, .75)',
-  glow: `0 10px 34px -6px ${color.accentGlow}`,
-  inset: 'inset 0 1px 0 rgba(255, 255, 255, .05)',
-  // Pressable things: a top highlight and a soft lime bloom underneath, so the one action glows rather than shouts.
-  pop: `inset 0 1px 0 rgba(255, 255, 255, .35), 0 8px 22px -10px ${a(base.accent, 0.6)}`,
-  // Raised panels (menus, dialogs, cards on cards): a hairline highlight and a long, soft fall-off.
-  'pop-lg': 'inset 0 1px 0 rgba(255, 255, 255, .05), 0 1px 0 rgba(0, 0, 0, .4), 0 28px 64px -24px rgba(0, 0, 0, .85)',
-  'pop-ink': '0 10px 26px -12px rgba(0, 0, 0, .7)',
-} as const;
-export const motion = { ease: 'cubic-bezier(.2, .8, .2, 1)', fast: '.12s', base: '.2s', slow: '.4s' } as const;
-export const layout = { wrap: '1240px', gutter: 'clamp(16px, 4vw, 40px)', nav: '58px' } as const;
+export const space = { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '56px', 10: '80px', 11: '120px' } as const;
+export const radius = { xs: '3px', sm: '4px', md: '6px', lg: '8px', xl: '10px', '2xl': '12px', pill: '3px' } as const;
+export const motion = { ease: 'cubic-bezier(.2, .7, .1, 1)', fast: '.14s', base: '.24s', slow: '.5s' } as const;
+export const layout = { wrap: '1320px', gutter: 'clamp(16px, 4vw, 48px)', nav: '68px' } as const;
 export const z = { nav: 50, sticky: 20, modal: 120, toast: 200 } as const;
+export const shadow = {
+  1: '0 1px 2px rgb(23 21 28 / .06), 0 2px 8px -2px rgb(23 21 28 / .06)',
+  2: '0 2px 4px rgb(23 21 28 / .05), 0 14px 32px -12px rgb(23 21 28 / .18)',
+  3: '0 4px 8px rgb(23 21 28 / .06), 0 36px 80px -24px rgb(23 21 28 / .34)',
+} as const;
 
-const vars: Record<string, string | number> = {
-  ...Object.fromEntries(Object.entries(color).map(([k, v]) => [k.replace(/[A-Z0-9]/g, (m) => '-' + m.toLowerCase()), v])),
-  ...Object.fromEntries(RGB_KEYS.map((k) => [k.replace(/[A-Z0-9]/g, (m) => '-' + m.toLowerCase()) + '-rgb', rgb(base[k])])),
-  'grad-accent': `linear-gradient(135deg, ${color.accentHi} 0%, ${color.accent} 45%, ${color.accent2} 100%)`,
-  'grad-surface': `linear-gradient(180deg, rgba(255, 255, 255, .025), rgba(255, 255, 255, 0) 60%)`,
-  'grad-text': `linear-gradient(100deg, ${color.accentHi} 0%, ${color.accent} 50%, ${color.cyan})`,
-  'grad-hot': `linear-gradient(100deg, ${color.hot}, ${color.violet})`,
-  'font-brand': font.brand, 'font-display': font.display, 'font-sans': font.sans, 'font-mono': font.mono,
+const kebab = (k: string) => k.replace(/[A-Z0-9]/g, (m) => '-' + m.toLowerCase());
+const RGB_KEYS = ['paper', 'surface', 'text', 'ink', 'onInk', 'accent', 'good', 'bad', 'warn', 'info'] as const;
+const themeVars = (t: Theme, dark: boolean) => ({
+  ...Object.fromEntries(Object.entries(t).map(([k, v]) => [kebab(k), v])),
+  ...Object.fromEntries(RGB_KEYS.map((k) => [kebab(k) + '-rgb', rgb(t[k])])),
+  line: `rgb(${rgb(t.text)} / ${dark ? 0.1 : 0.09})`, 'line-2': `rgb(${rgb(t.text)} / ${dark ? 0.17 : 0.16})`, 'line-3': `rgb(${rgb(t.text)} / ${dark ? 0.3 : 0.3})`,
+  'accent-wash': `rgb(${rgb(t.accent)} / ${dark ? 0.16 : 0.09})`,
+  'shadow-1': dark ? '0 1px 2px rgb(0 0 0 / .4)' : shadow[1],
+  'shadow-2': dark ? '0 14px 32px -12px rgb(0 0 0 / .7)' : shadow[2],
+  'shadow-3': dark ? '0 36px 80px -24px rgb(0 0 0 / .85)' : shadow[3],
+});
+const shared: Record<string, string | number> = {
+  ...Object.fromEntries(Object.entries(hue).map(([k, v]) => ['c-' + k, v])),
+  'font-display': font.display, 'font-sans': font.sans, 'font-mono': font.mono,
   ...Object.fromEntries(Object.entries(size).map(([k, v]) => ['fs-' + k, v])),
   ...Object.fromEntries(Object.entries(space).map(([k, v]) => ['sp-' + k, v])),
   ...Object.fromEntries(Object.entries(radius).map(([k, v]) => ['r-' + k, v])),
-  ...Object.fromEntries(Object.entries(shadow).map(([k, v]) => ['shadow-' + k, v])),
-  ease: motion.ease, 'dur-fast': motion.fast, 'dur': motion.base, 'dur-slow': motion.slow,
+  ease: motion.ease, 'dur-fast': motion.fast, dur: motion.base, 'dur-slow': motion.slow,
   wrap: layout.wrap, gut: layout.gutter, 'nav-h': layout.nav,
   'z-nav': z.nav, 'z-sticky': z.sticky, 'z-modal': z.modal, 'z-toast': z.toast,
 };
+const decl = (o: Record<string, string | number>) => Object.entries(o).map(([k, v]) => `--${k}:${v}`).join(';');
+/** What a block on the shade side sees: the same names, pointing at the ink tones. */
+const inkVars = (t: Theme) => decl({
+  surface: t.ink2, sunk: 'rgb(0 0 0 / .28)', rise: t.ink3, text: t.onInk, 'text-2': t.onInk2, 'text-3': t.onInk3, edge: t.onInk, 'text-rgb': rgb(t.onInk),
+  line: `rgb(${rgb(t.onInk)} / .1)`, 'line-2': `rgb(${rgb(t.onInk)} / .18)`, 'line-3': `rgb(${rgb(t.onInk)} / .32)`,
+  accent: night.accent, 'accent-text': night.accentText, 'accent-wash': `rgb(${rgb(night.accent)} / .18)`, 'accent-rgb': rgb(night.accent),
+  good: night.good, bad: night.bad, warn: night.warn, info: night.info, 'good-rgb': rgb(night.good), 'bad-rgb': rgb(night.bad), 'warn-rgb': rgb(night.warn), 'info-rgb': rgb(night.info),
+});
 
-const face = (family: string, file: string, weights: string) =>
-  `@font-face{font-family:"${family}";font-style:normal;font-display:swap;font-weight:${weights};src:url(/fonts/${file}) format("woff2-variations"),url(/fonts/${file}) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2190-2199,U+2212,U+2215,U+FEFF,U+FFFD}`;
+const face = (family: string, file: string, weights: string, extra = '') =>
+  `@font-face{font-family:"${family}";font-style:normal;font-display:swap;font-weight:${weights};${extra}src:url(/fonts/${file}) format("woff2-variations"),url(/fonts/${file}) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2190-2199,U+2212,U+2215,U+FEFF,U+FFFD}`;
 
-/** Every token as a CSS custom property on :root, plus the self-hosted fonts (served from /fonts). */
+/** Every token as a CSS custom property, for both themes, plus the self-hosted fonts (served from /fonts). */
 export const TOKENS_CSS =
-  face('IBM Plex Sans', 'ibm-plex-sans-latin-wght-normal.woff2', '100 700') +
-  face('Oxanium', 'oxanium-latin-wght-normal.woff2', '200 800') +
-  face('Martian Mono', 'martian-mono-latin-wght-normal.woff2', '100 800') +
-  `:root{color-scheme:dark;${Object.entries(vars).map(([k, v]) => `--${k}:${v}`).join(';')}}` + LANG_FONTS_CSS;
+  face('Bricolage Grotesque', 'bricolage-grotesque-latin.woff2', '200 800', 'font-stretch:75% 100%;') +
+  face('Geist', 'geist-latin.woff2', '100 900') +
+  face('Geist Mono', 'geist-mono-latin.woff2', '100 900') +
+  `:root{color-scheme:light;${decl(shared)};${decl(themeVars(day, false))}}` +
+  `:root[data-theme="night"]{color-scheme:dark;${decl(themeVars(night, true))}}` +
+  `.ink{${inkVars(day)}}:root[data-theme="night"] .ink{${inkVars(night)}}` + LANG_FONTS_CSS;

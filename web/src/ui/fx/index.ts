@@ -1,3 +1,2 @@
-export { GpuLayer } from './GpuLayer';
-export { fxBurst, type BurstKind } from './overlay';
-export { fxForced, fxPlan, fxPref, fxTier, fxWeak, holdFx, setFxPref, type FxPlan, type FxTier } from './gl';
+export { CelScene } from './CelScene';
+export { fxPlan, fxPref, setFxPref, reducedMotion, type FxPlan, type FxTier } from './gl';

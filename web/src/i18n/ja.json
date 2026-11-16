@@ -924,5 +924,10 @@
  "{n} min trial": "{n}分の体験版",
  "{players} tried it · {bought} then bought it": "{players}人が試し · うち{bought}人が購入",
  "{sessions_per_player} per player · {counted_plays} counted plays": "1人あたり {sessions_per_player} 回 · カウントされたプレイ {counted_plays} 回",
- "{total} in all": "全 {total} 件"
+ "{total} in all": "全 {total} 件",
+ "Dark": "ダーク",
+ "Light": "ライト",
+ "Switch theme": "テーマを切り替え",
+ "Theme": "テーマ",
+ "Main": "メイン"
 }
