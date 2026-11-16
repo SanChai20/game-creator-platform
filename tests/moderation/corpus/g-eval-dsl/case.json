@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:uses-new-function", "owner": "eva",
+  "listing": { "title": "Robo Coder", "tagline": "Program a robot to reach the battery.", "description": "A programming puzzle: write tiny scripts (move, turn, repeat) to guide a robot through twelve grid levels. Your script runs in the game.", "tags": ["programming", "puzzle", "education"] },
+  "why": "A programming game that compiles the player's script with new Function: dynamic code that is not malicious." }

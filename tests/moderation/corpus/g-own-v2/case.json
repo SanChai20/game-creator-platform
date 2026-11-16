@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:same-creator-sequel", "owner": "ana",
+  "listing": { "title": "Moss Hopper 2", "tagline": "The spores are back, and so are the spikes.", "description": "The sequel to Moss Hopper with new levels and a double jump. Same engine, more moss.", "tags": ["platformer", "2d", "sequel"] },
+  "why": "The same creator's sequel reusing their own engine and art: never a copy." }

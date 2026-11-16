@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "broken:never-ready", "gate": "browser", "owner": "b3", "listing": { "title": "Untitled Game", "tagline": "A fun game.", "description": "Play now.", "tags": ["arcade"] }, "why": "Draws, but the loader waits for an asset that never arrives, so GCP.ready() is never called." }

@@ -1,0 +1,74 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pocket Checkers</title>
+<style>body{margin:0;background:#3b2a20;color:#f5e6c8;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh}#msg{margin:10px;font-size:18px}</style></head>
+<body><canvas id="cv" width="420" height="420"></canvas><div id="msg"></div>
+<script>
+const N = 6, SQ = 70, cv = document.getElementById('cv'), g = cv.getContext('2d'), msg = document.getElementById('msg');
+let board, sel = null, turn = 1, moves = [];
+function setup() {
+  board = Array.from({ length: N }, (_, y) => Array.from({ length: N }, (_, x) => ((x + y) % 2 ? (y < 2 ? -1 : y > 3 ? 1 : 0) : 0)));
+  sel = null; turn = 1; draw();
+}
+function legal(side) {
+  const out = [], caps = [];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const p = board[y][x]; if (Math.sign(p) !== side) continue;
+    const dirs = Math.abs(p) === 2 ? [-1, 1] : [-side];
+    for (const dy of dirs) for (const dx of [-1, 1]) {
+      const nx = x + dx, ny = y + dy, jx = x + 2 * dx, jy = y + 2 * dy;
+      if (ny < 0 || ny >= N || nx < 0 || nx >= N) continue;
+      if (board[ny][nx] === 0) out.push({ x, y, nx, ny });
+      else if (Math.sign(board[ny][nx]) === -side && jy >= 0 && jy < N && jx >= 0 && jx < N && board[jy][jx] === 0) caps.push({ x, y, nx: jx, ny: jy, cx: nx, cy: ny });
+    }
+  }
+  return caps.length ? caps : out;
+}
+function apply(m) {
+  const p = board[m.y][m.x]; board[m.y][m.x] = 0; board[m.ny][m.nx] = p;
+  if (m.cx !== undefined) board[m.cy][m.cx] = 0;
+  if ((m.ny === 0 && p === 1) || (m.ny === N - 1 && p === -1)) board[m.ny][m.nx] = p * 2;
+}
+const value = () => board.flat().reduce((a, p) => a + p, 0);
+function ai() {
+  const opts = legal(-1); if (!opts.length) return end('You win!');
+  let best = null, bestScore = Infinity;
+  for (const m of opts) {
+    const saved = board.map((r) => r.slice()); apply(m);
+    const replies = legal(1); let worst = -Infinity;
+    for (const r of replies) { const s2 = board.map((row) => row.slice()); apply(r); worst = Math.max(worst, value()); board = s2; }
+    const sc = replies.length ? worst : value(); board = saved;
+    if (sc < bestScore || (sc === bestScore && Math.random() < 0.3)) { bestScore = sc; best = m; }
+  }
+  apply(best); turn = 1; draw();
+  if (!legal(1).length) end('The computer wins.');
+}
+let over = '';
+function end(text) { over = text; draw(); }
+function draw() {
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    g.fillStyle = (x + y) % 2 ? '#7a4f35' : '#e8cfa5'; g.fillRect(x * SQ, y * SQ, SQ, SQ);
+    if (sel && sel.x === x && sel.y === y) { g.fillStyle = 'rgba(255,230,0,.35)'; g.fillRect(x * SQ, y * SQ, SQ, SQ); }
+    const p = board[y][x]; if (!p) continue;
+    g.fillStyle = p > 0 ? '#f8f1e3' : '#1c1310'; g.beginPath(); g.arc(x * SQ + SQ / 2, y * SQ + SQ / 2, SQ * 0.36, 0, 7); g.fill();
+    if (Math.abs(p) === 2) { g.fillStyle = '#d4a017'; g.beginPath(); g.arc(x * SQ + SQ / 2, y * SQ + SQ / 2, SQ * 0.14, 0, 7); g.fill(); }
+  }
+  if (sel) for (const m of legal(1)) if (m.x === sel.x && m.y === sel.y) { g.strokeStyle = '#ffe600'; g.lineWidth = 3; g.strokeRect(m.nx * SQ + 4, m.ny * SQ + 4, SQ - 8, SQ - 8); }
+  msg.textContent = over || (turn === 1 ? 'Your move (white).' : 'The computer is thinking…');
+}
+function click(x, y) {
+  if (turn !== 1 || over) { if (over) { over = ''; setup(); } return; }
+  const opts = legal(1);
+  const m = sel && opts.find((o) => o.x === sel.x && o.y === sel.y && o.nx === x && o.ny === y);
+  if (m) { apply(m); sel = null; turn = -1; draw(); setTimeout(ai, 350); return; }
+  sel = opts.some((o) => o.x === x && o.y === y) ? { x, y } : null; draw();
+}
+cv.addEventListener('pointerdown', (e) => { const r = cv.getBoundingClientRect(); click(Math.floor((e.clientX - r.left) / SQ), Math.floor((e.clientY - r.top) / SQ)); });
+setup(); GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  for (let k = 0; k < 3; k++) {
+    t.step('make move ' + (k + 1));
+    const m = legal(1)[0]; t.assert(m, 'a legal move exists'); click(m.x, m.y); click(m.nx, m.ny);
+    await t.until(() => turn === 1 || over, 3000, 'the computer to reply');
+    if (over) break;
+  }
+});
+</script></body></html>

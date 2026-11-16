@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:dom-form-like-puzzle", "owner": "sue",
+  "listing": { "title": "Mini Sudoku", "tagline": "Six by six sudoku, fresh puzzles every day.", "description": "Fill the 6x6 grid so each row, column and box holds 1 to 6. Hints and mistakes counter.", "tags": ["puzzle", "sudoku", "logic"] },
+  "why": "A logic puzzle whose cells are <input> elements: looks like a form to a naive rule." }

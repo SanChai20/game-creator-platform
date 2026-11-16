@@ -7,7 +7,7 @@
  "Allow games to ship server code (server/index.js)": "允许游戏包含服务端代码（server/index.js）",
  "Allow manual withdrawals (paid by an admin outside Stripe)": "允许人工提现（由管理员在 Stripe 之外打款）",
  "Allow new sign-ups": "开放新用户注册",
- "Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)": "仅在难以判断时询问 Workers AI（相似但不明显抄袭；可能不是游戏的交互页面）",
+ "Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game": "对边界情况询问 Workers AI（相似但不明显是复制），并判断每个未用游戏引擎构建的上传是否是游戏",
  "Authorization lifetime before the agent must be re-approved (seconds)": "授权有效期，到期后需重新批准智能体（秒）",
  "Block publishing a copy or a non-game (off: report it as a warning only)": "阻止发布抄袭作品或非游戏内容（关闭：仅作为警告报告）",
  "Brand": "品牌",
@@ -53,5 +53,10 @@
  "Slogan": "标语",
  "Verification": "验证",
  "Withdrawals": "提现",
- "Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)": "用 Workers AI 为每款开放游戏撰写通俗概述（每个发布版本一次，每次约 $0.001）"
+ "Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)": "用 Workers AI 为每款开放游戏撰写通俗概述（每个发布版本一次，每次约 $0.001）",
+ "Block publishing a version the content check refuses (off: report it as a warning only)": "阻止发布内容检查拒绝的版本（关闭：仅作为警告报告）",
+ "Check each verified version for harmful content (sexual content, hate, scams, phishing) and abusive code (miners, password forms, hidden servers)": "检查每个已验证版本是否含有有害内容（色情、仇恨、诈骗、钓鱼）和滥用代码（挖矿、密码表单、隐藏服务器）",
+ "Content and conduct": "内容与行为",
+ "How likely (percent) the content review must find a version harmful to refuse it": "内容审核判定版本有害的可能性（百分比）达到多少才拒绝",
+ "Most Workers AI content reviews per day (Clef with the screenshot, about $0.0003 each; past the cap a small rule set decides)": "每天最多的 Workers AI 内容审核次数（Clef 附截图，每次约 $0.0003；超过上限后由一小套规则决定）"
 }

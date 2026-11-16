@@ -1,0 +1,36 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>诗词接龙</title>
+<style>body{margin:0;background:#fdf6e3;color:#5b3a1e;font:20px/1.5 "Songti SC","Noto Serif SC",serif;display:flex;justify-content:center}main{width:min(560px,94vw);padding-top:24px}
+#q{font-size:26px;margin:18px 0}.opt{display:block;width:100%;margin:8px 0;padding:12px;font:inherit;border:2px solid #c9a27e;background:#fffaf0;border-radius:10px;cursor:pointer}
+.opt.right{background:#c8e6c9}.opt.wrong{background:#ffcdd2}#bar{height:6px;background:#e0c9a6;border-radius:3px}#fill{height:100%;background:#b5651d;border-radius:3px;width:100%}</style></head>
+<body><main><div id="top">得分 <b id="score">0</b> · 连击 <b id="combo">0</b> · 第 <b id="n">1</b>/20 题</div><div id="bar"><div id="fill"></div></div><div id="q"></div><div id="opts"></div></main>
+<script>
+const BANK = [
+  ['床前明月光', '疑是地上霜', ['低头思故乡', '举头望明月', '疑是地上霜', '夜来风雨声']],
+  ['白日依山尽', '黄河入海流', ['黄河入海流', '更上一层楼', '欲穷千里目', '孤帆远影碧']],
+  ['春眠不觉晓', '处处闻啼鸟', ['花落知多少', '处处闻啼鸟', '夜来风雨声', '春风又绿江']],
+  ['锄禾日当午', '汗滴禾下土', ['谁知盘中餐', '粒粒皆辛苦', '汗滴禾下土', '野火烧不尽']],
+  ['两个黄鹂鸣翠柳', '一行白鹭上青天', ['窗含西岭千秋雪', '一行白鹭上青天', '门泊东吴万里船', '千里莺啼绿映红']],
+  ['海内存知己', '天涯若比邻', ['天涯若比邻', '无为在歧路', '儿女共沾巾', '城阙辅三秦']],
+];
+let idx = 0, score = 0, combo = 0, left = 10, timer = null, locked = false;
+const $ = (id) => document.getElementById(id);
+function ask() {
+  const [up, , opts] = BANK[idx % BANK.length]; locked = false; left = 10;
+  $('q').textContent = up + '，____。'; $('n').textContent = idx + 1;
+  $('opts').innerHTML = ''; [...opts].sort(() => Math.random() - 0.5).forEach((o) => { const b = document.createElement('button'); b.className = 'opt'; b.textContent = o; b.onclick = () => answer(b, o); $('opts').appendChild(b); });
+  clearInterval(timer); timer = setInterval(() => { left -= 0.1; $('fill').style.width = Math.max(0, left * 10) + '%'; if (left <= 0) answer(null, ''); }, 100);
+}
+function answer(btn, text) {
+  if (locked) return; locked = true; clearInterval(timer);
+  const right = BANK[idx % BANK.length][1];
+  if (text === right) { combo++; score += 10 * combo; btn.classList.add('right'); } else { combo = 0; if (btn) btn.classList.add('wrong'); }
+  $('score').textContent = score; $('combo').textContent = combo;
+  setTimeout(() => { idx++; if (idx < 20) ask(); else { $('q').textContent = `完成！总分 ${score}`; $('opts').innerHTML = '<button class="opt" onclick="idx=0;score=0;combo=0;ask()">再来一局</button>'; } }, 600);
+}
+ask(); GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  t.step('答对三题');
+  for (let k = 0; k < 3; k++) { const right = BANK[idx % BANK.length][1]; [...document.querySelectorAll('.opt')].find((b) => b.textContent === right).click(); await t.wait(700); }
+  t.assert(combo === 3 && score === 60, '连击三次');
+});
+</script></body></html>

@@ -8,9 +8,9 @@ import { verifyPage } from './verify-core.js';
 export interface VerifyOutcome { report: Record<string, any>; shot: Uint8Array | null }
 
 /** Opens the deployed preview in a real browser and runs the playability check. */
-export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: string, usesWebGPU: boolean): Promise<VerifyOutcome> {
+export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: string, usesWebGPU: boolean, platformOrigin = ''): Promise<VerifyOutcome> {
   const s = await getSettings(env);
-  const opts = { readyTimeoutS: s.verify_ready_timeout_s, minFrames: s.verify_min_frames, observeS: s.verify_observe_s, playthroughS: Math.min(45, Math.max(3, s.verify_playthrough_s)), usesWebGPU };
+  const opts = { readyTimeoutS: s.verify_ready_timeout_s, minFrames: s.verify_min_frames, observeS: s.verify_observe_s, playthroughS: Math.min(45, Math.max(3, s.verify_playthrough_s)), usesWebGPU, platformOrigin };
   if (env.VERIFIER_URL) { // local development: a Playwright process runs the same check
     const r = await fetch(env.VERIFIER_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url, opts }) });
     if (!r.ok) return { report: { ok: false, browser: 'unavailable', summary: `Local verifier error ${r.status}`, checks: [], errors: [] }, shot: null };

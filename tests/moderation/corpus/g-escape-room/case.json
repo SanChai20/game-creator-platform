@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:password-puzzle", "owner": "eli",
+  "listing": { "title": "Locked Study", "tagline": "Find the clues and type the password to escape.", "description": "A tiny point-and-click escape room. Search the desk, the clock and the painting; the clues spell the password of the safe.", "tags": ["escape room", "puzzle", "point and click"] },
+  "why": "An escape room whose final puzzle is a password field: a legitimate use of type=password." }

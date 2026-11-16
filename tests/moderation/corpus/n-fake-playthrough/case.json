@@ -1,0 +1,3 @@
+{ "expect": "block", "kind": "not-game:fake-playthrough", "gate": "is_game", "owner": "spam6",
+  "listing": { "title": "Crypto Mining Simulator", "tagline": "Earn real rewards!", "description": "Join our Telegram channel for daily airdrops and rewards. Click below.", "tags": ["crypto"] },
+  "why": "A promo page that registers a trivial play-through hook so the 'is it a game' rule takes it for a game." }

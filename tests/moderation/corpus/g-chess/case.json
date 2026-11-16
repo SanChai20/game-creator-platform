@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:canvas-event-driven", "live": true, "owner": "kim",
+  "listing": { "title": "Pocket Checkers", "tagline": "Checkers on a 6x6 board against a sly computer.", "description": "A compact checkers variant. Capture all enemy pieces or leave them without a move. The computer looks two moves ahead.", "tags": ["board game", "strategy", "turn-based"] },
+  "why": "A turn-based board game drawn on a canvas only when something changes: no animation loop." }

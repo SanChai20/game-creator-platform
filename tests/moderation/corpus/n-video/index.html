@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Epic Gameplay Moments</title>
+<style>body{margin:0;background:#000;color:#fff;font-family:sans-serif;text-align:center}canvas{max-width:100%}button{padding:8px 18px;margin:6px}</style></head>
+<body><h2>Epic Gameplay Moments — Episode 12</h2><canvas id="v" width="640" height="360"></canvas><br><button id="pp">Pause</button><button id="rw">Restart</button>
+<p>Like and subscribe for more clips every week!</p>
+<script>
+const v = document.getElementById('v').getContext('2d'); let t = 0, playing = true;
+document.getElementById('pp').onclick = () => { playing = !playing; document.getElementById('pp').textContent = playing ? 'Pause' : 'Play'; };
+document.getElementById('rw').onclick = () => { t = 0; };
+(function f() { if (playing) t += 1 / 60; v.fillStyle = `hsl(${t * 30 % 360} 50% 20%)`; v.fillRect(0, 0, 640, 360); v.fillStyle = '#fff'; v.font = '28px sans-serif'; v.fillText('Clip ' + (1 + Math.floor(t / 5) % 10) + ' — ' + (t % 5).toFixed(1) + 's', 220, 190); v.fillRect(0, 350, 640 * (t % 50) / 50, 10); requestAnimationFrame(f); })();
+GCP.ready();
+</script></body></html>

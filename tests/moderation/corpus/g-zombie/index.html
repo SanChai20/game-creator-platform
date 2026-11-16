@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dead by Dawn</title>
+<style>html,body{margin:0;height:100%;background:#1b1b1b;overflow:hidden}canvas{display:block}</style></head>
+<body><canvas id="z"></canvas><script>
+const cv = document.getElementById('z'), x = cv.getContext('2d');
+function fit() { cv.width = innerWidth; cv.height = innerHeight; } fit(); addEventListener('resize', fit);
+const hero = { x: innerWidth / 2, y: innerHeight / 2, hp: 100, ammo: 60 }, zombies = [], bullets = [], blood = [];
+let wave = 1, kills = 0, aim = { x: 0, y: 0 }, keys = {}, firing = false, cooldown = 0, toSpawn = 8;
+addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'Space') firing = true; }); addEventListener('keyup', (e) => { keys[e.code] = false; if (e.code === 'Space') firing = false; });
+addEventListener('pointermove', (e) => { aim = { x: e.clientX, y: e.clientY }; }); addEventListener('pointerdown', (e) => { aim = { x: e.clientX, y: e.clientY }; firing = true; }); addEventListener('pointerup', () => { firing = false; });
+function spawn() { const a = Math.random() * Math.PI * 2, r = Math.max(cv.width, cv.height) * 0.6; zombies.push({ x: hero.x + Math.cos(a) * r, y: hero.y + Math.sin(a) * r, hp: 2 + wave, sp: 40 + wave * 6 + Math.random() * 20 }); }
+function shoot() { if (hero.ammo <= 0 || cooldown > 0) return; hero.ammo--; cooldown = 0.12; const a = Math.atan2(aim.y - hero.y, aim.x - hero.x); bullets.push({ x: hero.x, y: hero.y, vx: Math.cos(a) * 700, vy: Math.sin(a) * 700, life: 1 }); }
+let last = 0, spawnT = 0;
+function step(dt) {
+  hero.x += ((keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0)) * 180 * dt; hero.y += ((keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0)) * 180 * dt;
+  cooldown -= dt; if (firing) shoot();
+  if ((spawnT -= dt) <= 0 && toSpawn > 0) { spawn(); toSpawn--; spawnT = 1.2 / wave; }
+  if (!toSpawn && !zombies.length) { wave++; toSpawn = 6 + wave * 3; hero.ammo += 40; }
+  for (const b of bullets) { b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt; }
+  for (const z of zombies) {
+    const a = Math.atan2(hero.y - z.y, hero.x - z.x); z.x += Math.cos(a) * z.sp * dt; z.y += Math.sin(a) * z.sp * dt;
+    if (Math.hypot(z.x - hero.x, z.y - hero.y) < 20) hero.hp -= 20 * dt;
+    for (const b of bullets) if (b.life > 0 && Math.hypot(b.x - z.x, b.y - z.y) < 16) { b.life = 0; z.hp--; blood.push({ x: z.x, y: z.y, r: 4 + Math.random() * 8 }); }
+  }
+  for (let i = zombies.length - 1; i >= 0; i--) if (zombies[i].hp <= 0) { zombies.splice(i, 1); kills++; }
+  for (let i = bullets.length - 1; i >= 0; i--) if (bullets[i].life <= 0) bullets.splice(i, 1);
+  if (blood.length > 300) blood.splice(0, blood.length - 300);
+  if (hero.hp <= 0) { hero.hp = 100; wave = 1; kills = 0; zombies.length = 0; toSpawn = 8; hero.ammo = 60; }
+}
+function draw() {
+  x.fillStyle = '#2d2a26'; x.fillRect(0, 0, cv.width, cv.height);
+  x.fillStyle = '#7a0a0a'; for (const b of blood) { x.beginPath(); x.arc(b.x, b.y, b.r, 0, 7); x.fill(); }
+  x.fillStyle = '#6b8e23'; for (const z of zombies) { x.beginPath(); x.arc(z.x, z.y, 14, 0, 7); x.fill(); }
+  x.fillStyle = '#ffd166'; for (const b of bullets) x.fillRect(b.x - 2, b.y - 2, 4, 4);
+  x.fillStyle = '#4cc9f0'; x.beginPath(); x.arc(hero.x, hero.y, 14, 0, 7); x.fill();
+  x.fillStyle = '#eee'; x.font = '18px sans-serif'; x.fillText(`Wave ${wave} · Kills ${kills} · Ammo ${hero.ammo} · Health ${Math.ceil(hero.hp)}`, 14, 26);
+}
+requestAnimationFrame(function f(t) { step(Math.min(0.05, (t - last) / 1000 || 0)); last = t; draw(); requestAnimationFrame(f); });
+GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  t.step('shoot a zombie'); spawn(); const z = zombies[zombies.length - 1]; z.x = hero.x + 120; z.y = hero.y; z.sp = 0; aim = { x: z.x, y: z.y }; firing = true;
+  await t.until(() => kills >= 1, 6000, 'the kill'); firing = false;
+});
+</script></body></html>

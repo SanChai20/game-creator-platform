@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:dom-no-raf", "live": true, "owner": "mo",
+  "listing": { "title": "Tide Pool Pairs", "tagline": "Flip shells, find the pairs.", "description": "A memory card game with sea creatures. Find all pairs in as few moves as you can; three board sizes.", "tags": ["puzzle", "memory", "cards"] },
+  "why": "A DOM and CSS card game that never calls requestAnimationFrame: it only changes when the player clicks." }

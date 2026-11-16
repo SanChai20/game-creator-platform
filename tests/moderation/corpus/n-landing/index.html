@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Galaxy Legends</title>
+<style>body{margin:0;font-family:sans-serif;background:linear-gradient(135deg,#1e1b4b,#7c3aed);color:#fff;text-align:center}header{padding:60px 20px}h1{font-size:48px;margin:0}.cta{display:inline-block;margin:10px;padding:14px 28px;background:#facc15;color:#1e1b4b;border-radius:30px;font-weight:bold;border:0;font-size:18px}
+section{display:flex;gap:20px;justify-content:center;padding:20px;flex-wrap:wrap}.f{background:#ffffff1a;padding:20px;border-radius:12px;width:220px}</style></head>
+<body><header><h1>GALAXY LEGENDS</h1><p>The epic space RPG with 10 million players. Pre-register now and claim 500 free gems!</p>
+<button class="cta" onclick="document.getElementById('f').style.display='block'">Pre-register</button><button class="cta">Watch trailer</button></header>
+<section><div class="f"><h3>200+ heroes</h3><p>Collect legendary heroes from across the galaxy.</p></div><div class="f"><h3>Epic PvP</h3><p>Battle players worldwide in real time.</p></div><div class="f"><h3>Guilds</h3><p>Team up with friends.</p></div></section>
+<div id="f" style="display:none"><input type="email" placeholder="Your email"><button class="cta">Notify me</button></div>
+<p style="opacity:.6">© Galaxy Legends Studio. Available soon on the App Store and Google Play.</p>
+<script>
+let glow = 0; (function pulse() { glow = (glow + 1) % 360; document.querySelector('h1').style.textShadow = `0 0 ${10 + 5 * Math.sin(glow / 20)}px #facc15`; requestAnimationFrame(pulse); })();
+GCP.ready();
+</script></body></html>

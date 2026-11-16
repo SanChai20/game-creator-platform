@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dragon Kingdom</title><style>html,body{margin:0;height:100%;background:#000}canvas{display:block;width:100%;height:100%}</style></head><body><canvas id="c" width="960" height="540"></canvas><script>
+const x = document.getElementById('c').getContext('2d');
+// a "screenshot" painted once
+const sky = x.createLinearGradient(0, 0, 0, 540); sky.addColorStop(0, '#2b5876'); sky.addColorStop(1, '#4e4376'); x.fillStyle = sky; x.fillRect(0, 0, 960, 540);
+x.fillStyle = '#2d6a4f'; for (let i = 0; i < 12; i++) { x.beginPath(); x.moveTo(i * 90 - 40, 540); x.lineTo(i * 90 + 40, 300 + (i * 37) % 80); x.lineTo(i * 90 + 120, 540); x.fill(); }
+x.fillStyle = '#c1121f'; x.beginPath(); x.ellipse(620, 180, 90, 40, -0.3, 0, 7); x.fill(); x.fillStyle = '#ffd60a'; x.font = 'bold 48px serif'; x.fillText('DRAGON KINGDOM', 260, 90);
+x.fillStyle = '#fff'; x.fillRect(420, 380, 30, 60); x.font = '20px sans-serif'; x.fillText('HP 100   Gold 0   Level 1', 20, 520);
+addEventListener('keydown', () => {}); addEventListener('pointerdown', () => {});
+requestAnimationFrame(function f() { requestAnimationFrame(f); });
+GCP.ready();
+</script></body></html>

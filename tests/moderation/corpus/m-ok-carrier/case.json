@@ -1,0 +1,1 @@
+{ "expect": "publish", "kind": "legit:carrier-control", "owner": "m0", "listing": { "title": "Rock Dodger", "tagline": "Dodge the falling rocks.", "description": "Steer your ship and dodge rocks falling from the sky. How long can you last?", "tags": ["arcade", "casual"] }, "why": "The carrier game on its own, with nothing added: the control for the abusive cases built on it." }

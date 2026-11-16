@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "broken:blank", "gate": "browser", "owner": "b1", "listing": { "title": "Untitled Game", "tagline": "A fun game.", "description": "Play now.", "tags": ["arcade"] }, "why": "Calls GCP.ready() and runs a loop but never draws: a flat screen." }

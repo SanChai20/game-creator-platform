@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>The Lighthouse Keeper</title>
+<style>body{margin:0;background:#111827;color:#f3f4f6;font:18px/1.6 Georgia,serif;display:flex;justify-content:center}main{max-width:640px;padding:32px 20px}
+#text p{margin:0 0 14px}#choices button{display:block;width:100%;text-align:left;margin:8px 0;padding:12px 16px;background:#1f2937;color:#fde68a;border:1px solid #374151;border-radius:8px;font:inherit;cursor:pointer}
+#choices button:hover{background:#374151}#lamp{font-size:13px;color:#9ca3af}</style></head>
+<body><main><div id="lamp"></div><div id="text"></div><div id="choices"></div></main>
+<script>
+const story = {
+  start: { text: ['The storm came in at dusk. From the gallery you can just see a light, low on the water, blinking out of rhythm.', 'The lamp needs oil before midnight.'], choices: [['Climb down to the shore with a lantern', 'shore'], ['Fill the lamp first', 'oil'], ['Signal the ship with the shutters', 'signal']] },
+  oil: { lamp: 2, text: ['You haul the oil drum up a hundred and twelve steps. The great lamp flares, and its beam sweeps the rocks.', 'The blinking light turns away from the reef.'], choices: [['Keep the light steady until dawn', 'dawn'], ['Go down to meet the boat', 'shore']] },
+  shore: { lamp: -1, text: ['The path is slick and the wind takes your breath. On the shingle lies a sailor, half-drowned, holding a tin box.'], choices: [['Carry the sailor up to the tower', 'sailor'], ['Open the tin box', 'box']] },
+  signal: { text: ['You work the shutters: long, short, long. The ship answers with three flashes and drops anchor beyond the reef.'], choices: [['Row out at first light', 'row'], ['Wait in the tower', 'dawn']] },
+  sailor: { text: ['By the stove the sailor wakes and thanks you. "There were six of us," he says.'], choices: [['Go back for the others', 'others'], ['Stay with him', 'dawn']] },
+  box: { text: ['Inside the box: a logbook and a brass key. The last entry reads: "If the keeper finds this, the light was false."'], choices: [['Read on', 'mystery']] },
+  row: { end: 'The rescue', text: ['At dawn you row out. Every soul aboard is safe, and the captain names the ship after your light.'] },
+  dawn: { end: 'The long night', text: ['Dawn comes grey and calm. Out on the reef the wreck is quiet, but the lamp never went dark.'] },
+  others: { end: 'The keeper\'s courage', text: ['You find four more on the rocks. By morning the tower is full of steam, blankets and stories.'] },
+  mystery: { end: 'The false light', text: ['Someone lit a lantern on the headland to wreck ships. You keep the logbook, and the next keeper will know.'] },
+};
+let oil = 3, endings = new Set();
+const text = document.getElementById('text'), choices = document.getElementById('choices'), lamp = document.getElementById('lamp');
+function go(id) {
+  const node = story[id]; oil = Math.max(0, oil + (node.lamp || 0));
+  lamp.textContent = `Lamp oil: ${'▮'.repeat(oil)}${'▯'.repeat(Math.max(0, 5 - oil))}`;
+  text.innerHTML = node.text.map((p) => `<p>${p}</p>`).join('');
+  choices.innerHTML = '';
+  if (node.end) {
+    endings.add(node.end);
+    const p = document.createElement('p'); p.textContent = `Ending: ${node.end} (${endings.size} of 4 found)`; text.appendChild(p);
+    const again = document.createElement('button'); again.textContent = 'Begin the night again'; again.onclick = () => { oil = 3; go('start'); }; choices.appendChild(again);
+    return;
+  }
+  for (const [label, to] of node.choices) { const b = document.createElement('button'); b.textContent = label; b.onclick = () => go(to); choices.appendChild(b); }
+}
+go('start'); GCP.ready();
+GCP.test.onPlaythrough(async (t) => {
+  for (const path of [['oil', 'dawn'], ['signal', 'row']]) {
+    t.step('play to an ending through ' + path.join(' and '));
+    go('start'); for (const to of path) go(to);
+  }
+  t.assert(endings.size === 2, 'two endings reached');
+});
+</script></body></html>

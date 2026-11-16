@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:three-heavy", "owner": "hal",
+  "listing": { "title": "Lumber Rush", "tagline": "Chop a forest of three thousand trees before nightfall.", "description": "A 3D woodcutting race with a dense instanced forest, shadows and fog. Drive the cart with WASD, chop with Space.", "tags": ["3d", "arcade", "forest"] },
+  "why": "three.js with thousands of instanced trees and shadows: a heavy scene that must still pass on a software GPU." }

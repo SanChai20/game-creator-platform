@@ -1,0 +1,3 @@
+{ "expect": "block", "kind": "not-game:video-player", "gate": "is_game", "owner": "spam7",
+  "listing": { "title": "Epic Gameplay Moments", "tagline": "Watch the best clips.", "description": "A compilation of the best gameplay moments of the year.", "tags": ["video"] },
+  "why": "A page that only plays an animation like a video with play and pause buttons." }

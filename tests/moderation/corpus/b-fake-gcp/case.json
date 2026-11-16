@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "fake:tampers-verifier", "gate": "browser", "owner": "b9", "listing": { "title": "Speed Racer X", "tagline": "The fastest racing game.", "description": "Race at top speed.", "tags": ["racing"] }, "why": "A page of text that writes fake numbers into the verifier's own state (frames, ready, a passing play-through) instead of running a game." }

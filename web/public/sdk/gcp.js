@@ -10,6 +10,9 @@
 (function () {
   'use strict';
   var cfg = window.__GCP_CONFIG || null;
+  // the config carries the player's play token: keep it inside the SDK, out of reach of the page's own scripts
+  try { delete window.__GCP_CONFIG; } catch (e) { window.__GCP_CONFIG = undefined; }
+  try { var cs = document.currentScript, prev = cs && cs.previousElementSibling; if (prev && prev.tagName === 'SCRIPT' && prev.textContent.indexOf('__GCP_CONFIG') >= 0) prev.remove(); } catch (e) { /* not in a document */ }
   var standalone = !cfg;           // opened outside the platform (local file / local dev server)
   if (standalone) cfg = { api: '', token: '', gameId: 'local', version: 0, env: 'local', base: '', player: { id: 'local', name: 'Player' }, kind: 'owner', session: 'local' };
   var q = new URLSearchParams(location.search);
@@ -420,4 +423,11 @@
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
   if (window.parent !== window) { try { parent.postMessage({ gcp: 'display_query' }, '*'); } catch (e) { /* not framed */ } }
+  // What the verifier reads. The game runs in the same page, so the verifier's view is a read-only window onto the SDK's own
+  // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
+  var view = {};
+  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'playthrough', 'twoPlayers', 'probe'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
+  ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
+  ['hold', 'runPlaythrough', 'runTwoPlayers', 'roomInfo'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
+  try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }
 })();

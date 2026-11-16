@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:svg", "owner": "wes",
+  "listing": { "title": "Garden Moles", "tagline": "Bonk the moles before they eat the carrots.", "description": "Whack-a-mole in an SVG garden. Golden moles are worth triple. Sixty seconds per round.", "tags": ["arcade", "casual", "reflex"] },
+  "why": "Drawn with SVG elements instead of a canvas." }

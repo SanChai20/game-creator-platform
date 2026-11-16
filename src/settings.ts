@@ -47,8 +47,13 @@ export const SETTING_DEFS = {
 
   dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },
   dup_block: { v: true, type: 'bool', group: 'Originality', label: 'Block publishing a copy or a non-game (off: report it as a warning only)' },
-  dup_ai: { v: true, type: 'bool', group: 'Originality', label: 'Ask Workers AI about borderline cases only (similar but not clearly copied; interactive pages that may not be games)' },
-  dup_ai_daily: { v: 300, type: 'int', group: 'Originality', label: 'Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)' },
+  dup_ai: { v: true, type: 'bool', group: 'Originality', label: 'Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game' },
+  dup_ai_daily: { v: 1000, type: 'int', group: 'Originality', label: 'Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)' },
+
+  content_check: { v: true, type: 'bool', group: 'Content and conduct', label: 'Check each verified version for harmful content (sexual content, hate, scams, phishing) and abusive code (miners, password forms, hidden servers)' },
+  content_block: { v: true, type: 'bool', group: 'Content and conduct', label: 'Block publishing a version the content check refuses (off: report it as a warning only)' },
+  content_ai_daily: { v: 1000, type: 'int', group: 'Content and conduct', label: 'Most Workers AI content reviews per day (Clef with the screenshot, about $0.0003 each; past the cap a small rule set decides)' },
+  content_ai_threshold: { v: 50, type: 'int', group: 'Content and conduct', label: 'How likely (percent) the content review must find a version harmful to refuse it' },
 
   open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },
   open_impl_ai_daily: { v: 200, type: 'int', group: 'Open implementation', label: 'Most AI summaries written per day (the rest use the rule-based summary)' },

@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Neon Worm</title>
+<style>html,body{margin:0;height:100%;background:#05010d}canvas{width:100%;height:100%;display:block}</style></head>
+<body><canvas></canvas>
+<script type="module">
+const cv = document.querySelector('canvas'), cx = cv.getContext('2d');
+const S = { cols: 32, rows: 18, worm: [], dir: [1, 0], queue: [], orbs: [], wall: 0, t: 0, len: 5, alive: true, points: 0 };
+const fit = () => { cv.width = innerWidth; cv.height = innerHeight; };
+addEventListener('resize', fit); fit();
+function begin() {
+  Object.assign(S, { worm: [[8, 9]], dir: [1, 0], queue: [], orbs: [], wall: 0, t: 0, len: 5, alive: true, points: 0 });
+  for (let k = 0; k < 4; k++) spawnOrb();
+}
+function spawnOrb(gold = Math.random() < 0.2) {
+  const x = S.wall + 1 + Math.floor(Math.random() * (S.cols - 2 * S.wall - 2)), y = S.wall + 1 + Math.floor(Math.random() * (S.rows - 2 * S.wall - 2));
+  S.orbs.push({ x, y, gold });
+}
+const DIRS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], KeyW: [0, -1], KeyS: [0, 1], KeyA: [-1, 0], KeyD: [1, 0] };
+addEventListener('keydown', (ev) => { const d = DIRS[ev.code]; if (d) S.queue.push(d); else if (!S.alive && ev.code === 'Space') begin(); });
+addEventListener('pointerdown', (ev) => {
+  if (!S.alive) return begin();
+  const [hx, hy] = S.worm[0], cw = cv.width / S.cols, ch = cv.height / S.rows;
+  const dx = ev.clientX / cw - hx, dy = ev.clientY / ch - hy;
+  S.queue.push(Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)]);
+});
+function advance() {
+  while (S.queue.length) { const d = S.queue.shift(); if (d[0] !== -S.dir[0] || d[1] !== -S.dir[1]) { S.dir = d; break; } }
+  const [hx, hy] = S.worm[0], nx = hx + S.dir[0], ny = hy + S.dir[1];
+  const outside = nx <= S.wall - 1 || ny <= S.wall - 1 || nx >= S.cols - S.wall || ny >= S.rows - S.wall;
+  if (outside || S.worm.some(([x, y]) => x === nx && y === ny)) { S.alive = false; return; }
+  S.worm.unshift([nx, ny]);
+  const i = S.orbs.findIndex((o) => o.x === nx && o.y === ny);
+  if (i >= 0) { const o = S.orbs.splice(i, 1)[0]; S.len += o.gold ? 4 : 1; S.points += o.gold ? 50 : 10; spawnOrb(); }
+  while (S.worm.length > S.len) S.worm.pop();
+}
+function render(time) {
+  const cw = cv.width / S.cols, ch = cv.height / S.rows;
+  cx.fillStyle = '#05010d'; cx.fillRect(0, 0, cv.width, cv.height);
+  cx.strokeStyle = '#ff2fd0'; cx.lineWidth = 3; cx.shadowColor = '#ff2fd0'; cx.shadowBlur = 12;
+  cx.strokeRect(S.wall * cw, S.wall * ch, (S.cols - 2 * S.wall) * cw, (S.rows - 2 * S.wall) * ch);
+  for (const o of S.orbs) { cx.fillStyle = o.gold ? '#ffd23f' : '#3fffe2'; cx.shadowColor = cx.fillStyle; cx.beginPath(); cx.arc((o.x + .5) * cw, (o.y + .5) * ch, Math.min(cw, ch) * (.3 + .05 * Math.sin(time / 200)), 0, Math.PI * 2); cx.fill(); }
+  S.worm.forEach(([x, y], k) => { cx.fillStyle = `hsl(${(time / 20 + k * 12) % 360} 100% 60%)`; cx.shadowColor = cx.fillStyle; cx.fillRect(x * cw + 3, y * ch + 3, cw - 6, ch - 6); });
+  cx.shadowBlur = 0; cx.fillStyle = '#fff'; cx.font = '20px monospace'; cx.fillText(S.alive ? `${S.points} pts` : `Game over: ${S.points} pts. Space or tap`, 16, 28);
+}
+let last = 0, stepAcc = 0;
+function frame(time) {
+  const dt = Math.min(100, time - (last || time)); last = time;
+  if (S.alive) { stepAcc += dt; S.t += dt; while (stepAcc > 110) { advance(); stepAcc -= 110; } if (S.t > 20000 && S.wall < 5) { S.wall++; S.t = 0; S.orbs = S.orbs.filter((o) => o.x > S.wall && o.y > S.wall && o.x < S.cols - S.wall - 1 && o.y < S.rows - S.wall - 1); spawnOrb(); } }
+  render(time); requestAnimationFrame(frame);
+}
+begin(); render(0); GCP.ready(); requestAnimationFrame(frame);
+GCP.test.onPlaythrough(async (t) => {
+  t.step('eat an orb'); begin(); S.orbs.push({ x: S.worm[0][0] + 2, y: S.worm[0][1], gold: true });
+  await t.until(() => S.points >= 50, 6000, 'points');
+  t.step('crash into the wall'); S.dir = [0, -1];
+  await t.until(() => !S.alive, 5000, 'the crash');
+});
+</script></body></html>

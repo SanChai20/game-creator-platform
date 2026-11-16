@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Loan Calculator Pro</title>
+<style>body{font-family:sans-serif;margin:20px;background:#f8fafc}label{display:block;margin:6px 0}canvas{border:1px solid #cbd5e1;background:#fff}</style></head>
+<body><h1>Loan Calculator Pro</h1>
+<label>Amount <input id="amt" type="range" min="10000" max="900000" value="250000"> <span id="amtv"></span></label>
+<label>Rate % <input id="rate" type="range" min="1" max="12" step="0.1" value="5"> <span id="ratev"></span></label>
+<label>Years <input id="yrs" type="range" min="5" max="40" value="25"> <span id="yrsv"></span></label>
+<h2 id="pay"></h2><canvas id="chart" width="800" height="260"></canvas>
+<script>
+const $ = (i) => document.getElementById(i), ctx = $('chart').getContext('2d');
+function calc() {
+  const P = +$('amt').value, r = $('rate').value / 1200, n = $('yrs').value * 12, m = P * r / (1 - Math.pow(1 + r, -n));
+  $('amtv').textContent = '$' + P.toLocaleString(); $('ratev').textContent = $('rate').value + '%'; $('yrsv').textContent = $('yrs').value;
+  $('pay').textContent = `Monthly repayment: $${m.toFixed(2)} · Total interest: $${(m * n - P).toFixed(0)}`;
+  return { P, r, n, m };
+}
+let shown = 0;
+function draw() {
+  const { P, r, n, m } = calc(); let bal = P; shown = Math.min(1, shown + 0.02);
+  ctx.clearRect(0, 0, 800, 260); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2; ctx.beginPath();
+  for (let i = 0; i <= n * shown; i++) { const x = i / n * 780 + 10, y = 250 - bal / P * 230; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); bal = bal * (1 + r) - m; }
+  ctx.stroke(); requestAnimationFrame(draw);
+}
+document.querySelectorAll('input').forEach((i) => i.addEventListener('input', () => { shown = 0; }));
+addEventListener('keydown', (e) => { if (e.key === 'ArrowUp') $('rate').value = +$('rate').value + 0.1; });
+requestAnimationFrame(draw); GCP.ready();
+</script></body></html>

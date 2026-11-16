@@ -1,0 +1,3 @@
+{ "expect": "publish", "kind": "legit:canvas-dark-picture", "owner": "dax",
+  "listing": { "title": "Cellar Lantern", "tagline": "Find the way out of the cellar by the light of a dying lantern.", "description": "A short atmospheric exploration game. Almost everything is dark; your lantern shows a small circle around you. Find three keys and the door.", "tags": ["exploration", "atmospheric", "horror"] },
+  "why": "A mostly black screen lit by a small lantern circle." }

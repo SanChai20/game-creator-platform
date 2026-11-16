@@ -75,9 +75,16 @@ test('is it a game', () => {
   assert.equal(gameness(facts([['index.html', form]]), {}, form).verdict, 'unsure');
   const g = '<canvas></canvas><script>addEventListener("keydown", f); requestAnimationFrame(loop); c.getContext("2d")</script>';
   assert.equal(gameness(facts([['index.html', g]]), {}, g).verdict, 'game');
-  assert.equal(gameness(facts([['index.html', page]]), { playthrough: { ok: true } }, page).verdict, 'game');
+  // a page nobody can act on is not a game even when its own play-through hook says it passed
+  assert.equal(gameness(facts([['index.html', page]]), { playthrough: { ok: true, steps: ['x'] } }, page).verdict, 'not_game');
+  // canvas + loop + input is only a lean: landing pages and tools do that too, so the AI step decides
+  assert.equal(gameness(facts([['index.html', g]]), {}, g).sure, false);
   for (const t of ['blank', 'canvas2d-arcade', 'three-explorer']) {
     const html = tpl(t, 'index.html'), files = [['index.html', html], ['src/main.js', tpl(t, 'src/main.js')]];
     assert.equal(gameness(facts(files), {}, html).verdict, 'game', t);
+  }
+  const engine = facts([['index.html', '<script src="phaser.min.js"></script>'], ['phaser.min.js', '/* Phaser v3.80 */ var Phaser={};']]);
+  if (engine.engine === 'Phaser') assert.equal(gameness(engine, {}, '').sure, true);
+  {
   }
 });

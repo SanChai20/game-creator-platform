@@ -1,0 +1,1 @@
+{ "expect": "block", "kind": "abusive:popup-ads", "gate": "content", "owner": "m6", "listing": { "title": "Rock Dodger", "tagline": "Dodge the falling rocks.", "description": "Steer your ship and dodge rocks falling from the sky. How long can you last?", "tags": ["arcade", "casual"] }, "why": "Every click and key press opens an advertising window." }
