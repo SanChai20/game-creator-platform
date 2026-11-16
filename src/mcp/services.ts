@@ -186,10 +186,10 @@ export function platformServices(s: Settings, origin: string): Service[] {
       what: 'Fullscreen from inside the play frame (also on iPhone), orientation lock, touch detection and the platform\'s exit button on phones.',
       how_it_works: 'The game page frames the game and tells the SDK how it is shown; the <html> element carries gcp-fullscreen and gcp-touch classes. On phones and tablets Play enters fullscreen at once, inside the safe area, locked to the declared orientation where the browser allows it.',
       use_for: ['On-screen touch controls when display.touch is true', 'Landscape- or portrait-only games', 'A fullscreen button'],
-      sdk: ['GCP.fullscreen(on)', 'GCP.display', 'GCP.onDisplay(fn)', 'GCP.setDisplay({ orientation, exitButton, edgeToEdge })'],
+      sdk: ['GCP.fullscreen(on)', 'GCP.display', 'GCP.onDisplay(fn)', 'GCP.onEscape(fn)', 'GCP.setDisplay({ orientation, exitButton, edgeToEdge })'],
       mcp_tools: ['compatibility'],
       limits: { allowed_in_frame: 'fullscreen, gamepad, pointer lock, audio after a gesture', not_allowed: 'camera, microphone, geolocation' },
-      guidelines: ['Call GCP.fullscreen() from a tap or key press.', 'Declare orientation with the compatibility tool so phones are handled before launch.'],
+      guidelines: ['Call GCP.fullscreen() from a tap or key press.', 'Follow the Escape rule: register GCP.onEscape(fn) so Esc closes an open menu first and only an Esc with nothing open leaves fullscreen.', 'Declare orientation with the compatibility tool so phones are handled before launch.'],
       guide: 'contract',
     },
     {

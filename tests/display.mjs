@@ -20,7 +20,8 @@ function loadSdk() {
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(new URL('../web/public/sdk/gcp.js', import.meta.url), 'utf8'), ctx);
   const send = (d) => (listeners.message || []).forEach((f) => f({ source: parent, data: d }));
-  return { GCP: win.GCP, posted, props, send };
+  const key = (k) => { const e = { key: k, repeat: false, prevented: false, preventDefault() { this.prevented = true; } }; (listeners.keydown || []).forEach((f) => f(e)); return e; };
+  return { GCP: win.GCP, posted, props, send, key };
 }
 
 test('setDisplay passes edgeToEdge to the platform page', () => {
@@ -47,4 +48,26 @@ test('bad inset values are ignored', () => {
   const { GCP, send } = loadSdk();
   send({ gcp: 'display', fullscreen: true, edgeToEdge: true, safe: { top: 'x', right: -4, bottom: 1e9, left: null } });
   assert.deepEqual({ ...GCP.display.safe }, { top: 0, right: 0, bottom: 200, left: 0 });
+});
+
+test('the Escape rule: the game closes its menu first, and only then does Esc leave fullscreen', () => {
+  const { GCP, posted, send, key } = loadSdk();
+  let open = true; GCP.onEscape(() => { if (open) { open = false; return true; } return false; });
+  assert.deepEqual({ ...posted.find((x) => x.gcp === 'escape') }, { gcp: 'escape', on: true });
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', orientation: 'any', touch: false });
+  const first = key('Escape');
+  assert.equal(first.prevented, true); assert.equal(open, false);
+  assert.equal(posted.some((x) => x.gcp === 'fullscreen'), false, 'the first Esc only closed the menu');
+  key('Escape');
+  assert.deepEqual({ ...posted.find((x) => x.gcp === 'fullscreen') }, { gcp: 'fullscreen', on: false });
+});
+
+test('Esc forwarded by the platform page follows the same rule, and does nothing outside fullscreen', () => {
+  const { GCP, posted, send } = loadSdk();
+  GCP.onEscape(() => false);
+  send({ gcp: 'escape_key' });
+  assert.equal(posted.some((x) => x.gcp === 'fullscreen'), false);
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', orientation: 'any', touch: false });
+  send({ gcp: 'escape_key' });
+  assert.equal(posted.filter((x) => x.gcp === 'fullscreen').length, 1);
 });

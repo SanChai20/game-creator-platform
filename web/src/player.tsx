@@ -39,6 +39,15 @@ function requestFs(el: FsEl): Promise<void> {
   el.webkitRequestFullscreen?.();   // returns nothing: wait a moment and look
   return new Promise((ok, no) => setTimeout(() => (fsElement() === el ? ok() : no(new Error('refused'))), 350));
 }
+// The Escape rule. A game that registered GCP.onEscape gets Esc first while it is in real fullscreen: it closes its own
+// menu, and only an Esc with nothing open leaves fullscreen (the SDK then asks for that). The Keyboard Lock API makes the
+// browser deliver Esc to the page instead of leaving fullscreen at once; holding Esc still leaves. Browsers without it
+// keep the old behaviour.
+type KbNav = Navigator & { keyboard?: { lock?: (keys: string[]) => Promise<void>; unlock?: () => void } };
+function escLock(on: boolean) {
+  const kb = (navigator as KbNav).keyboard; if (!kb) return;
+  try { if (on) void kb.lock?.(['Escape'])?.catch(() => {}); else kb.unlock?.(); } catch { /* not allowed here */ }
+}
 function exitFs() { if (!fsElement()) return; if (document.exitFullscreen) void document.exitFullscreen().catch(() => {}); else doc().webkitExitFullscreen?.(); }
 type Orient = ScreenOrientation & { lock?: (o: string) => Promise<void>; unlock?: () => void };
 const lockOrientation = (o: Orientation) => { if (o === 'any') return; try { void (screen.orientation as Orient | undefined)?.lock?.(o)?.catch(() => {}); } catch { /* not supported */ } };
@@ -94,6 +103,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
 }) {
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null);
   const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false);
+  const gameEsc = useRef(false);
   const [prefs, setPrefs] = useState<{ orientation?: Orientation; exit?: Corner; edge?: boolean }>({});
   const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [turned, setTurned] = useState(false), [portrait, setPortrait] = useState(() => innerHeight > innerWidth);
@@ -124,7 +134,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
 
   // Real fullscreen ends by itself too (Esc, the back gesture): follow it.
   useEffect(() => {
-    const f = () => { const on = !!box.current && fsElement() === box.current; setFs(on); if (!on) unlockOrientation(); };
+    const f = () => { const on = !!box.current && fsElement() === box.current; setFs(on); if (!on) unlockOrientation(); escLock(on && gameEsc.current); };
     document.addEventListener('fullscreenchange', f); document.addEventListener('webkitfullscreenchange', f);
     return () => { document.removeEventListener('fullscreenchange', f); document.removeEventListener('webkitfullscreenchange', f); };
   }, []);
@@ -167,12 +177,22 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
         edge: typeof d.edgeToEdge === 'boolean' ? d.edgeToEdge : p.edge,
       }));
       if (d.gcp === 'display_query') post();
+      if (d.gcp === 'escape') { gameEsc.current = d.on === true; escLock(gameEsc.current && fsElement() === box.current); }
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
   }, [enter, exit, toggle, post, onTrialOver]);
   useEffect(() => { if (active && want !== 'any') lockOrientation(want); }, [active, want]);
   useEffect(() => { if (url) frame.current?.focus(); }, [url, active]);
+  useEffect(() => { gameEsc.current = false; escLock(false); }, [url]);
+  // Esc pressed while the page, not the game frame, has the keyboard: hand it to the game, which decides.
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.repeat || !gameEsc.current || fsElement() !== box.current) return;
+      e.preventDefault(); frame.current?.contentWindow?.postMessage({ gcp: 'escape_key' }, '*'); frame.current?.focus();
+    };
+    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
+  }, []);
   useWakeLock(!!url && handheld);
 
   const sideways = active && handheld && !turned && want !== 'any' && (want === 'landscape' ? portrait : !portrait);

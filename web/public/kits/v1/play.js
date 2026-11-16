@@ -601,12 +601,17 @@ export function minimapUI(hud, { size = 132, range = 40, center, color, markers,
   draw(); const id = setInterval(draw, 300); return { el: cv, refresh: draw, remove() { clearInterval(id); cv.remove(); } };
 }
 
+// The platform's Escape rule for everything this kit opens: Esc closes an open window first, and only an Esc with
+// nothing open leaves fullscreen (the pause menu then opens as the game leaves it).
+let escRule = false;
+function escapeRule(hud) { if (escRule || !window.GCP || typeof GCP.onEscape !== 'function') return; escRule = true; GCP.onEscape(() => !!hud.el.querySelector('.gp-win')); }
+
 /**
  * A pause menu on Escape (or P): Resume, the controls, your own buttons, Restart. Options: title, controls ([['WASD',
  * 'Move'], ['E', 'Use']]), buttons ([['Save', fn], ['Sound', fn]]), onPause, onResume, onRestart. Returns { open(), close(), isOpen }.
  */
 export function pauseMenu(hud, { title = 'Paused', controls = [], buttons = [], onPause, onResume, onRestart } = {}) {
-  css(); let win = null;
+  css(); let win = null; escapeRule(hud);
   const M = { get isOpen() { return !!win; },
     open() { if (win || hud.screenOpen) return M; win = el('div', 'gp-win'); const box = el('div', 'gp-box'), m = el('div', 'gp-menu'); m.appendChild(el('h2', null, title));
       const b = (label, fn, main) => { const x = el('button', main ? 'gh-b' : 'gh-sb', label); x.addEventListener('click', fn); m.appendChild(x); };

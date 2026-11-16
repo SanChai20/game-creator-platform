@@ -326,6 +326,12 @@
     ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
   }
   markDisplay();
+  var escFn = null;
+  function runEscape(e) {
+    var used = false; try { used = escFn() === true; } catch (err) { console.error(err); }
+    if (used) { if (e) e.preventDefault(); return; }
+    if (display.fullscreen || document.fullscreenElement) GCP.fullscreen(false);
+  }
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
@@ -419,6 +425,15 @@
     display: display,
     /** fn(display) whenever it changes (entering or leaving fullscreen, for example). */
     onDisplay: function (fn) { if (typeof fn === 'function') displayFns.push(fn); },
+    /** The Escape rule: Esc first closes whatever the game has open, and only an Esc with nothing open leaves fullscreen.
+        Register fn(); it is called on every Esc press and returns true when the game used the key (it closed a menu, a
+        dialog, a map…). When it returns anything else, the SDK leaves fullscreen. In fullscreen the platform page asks the
+        browser to send Esc to the game first (the Keyboard Lock API, Chromium browsers; holding Esc still leaves at
+        once). Where the browser does not allow that, Esc leaves fullscreen as it always did and fn is not called. */
+    onEscape: function (fn) {
+      escFn = typeof fn === 'function' ? fn : null;
+      if (window.parent !== window) { try { parent.postMessage({ gcp: 'escape', on: !!escFn }, '*'); } catch (e) { /* not framed */ } }
+    },
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
@@ -428,8 +443,10 @@
         black bars on phones with a notch) }. */
     setDisplay: function (prefs) { prefs = prefs || {}; try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ } },
   };
+  window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !e.repeat && escFn) runEscape(e); }, true);
   window.addEventListener('message', function (e) {
-    var d = e.data; if (e.source !== window.parent || !d || d.gcp !== 'display') return;
+    var d = e.data; if (e.source === window.parent && d && d.gcp === 'escape_key' && escFn) { runEscape(null); return; }
+    if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
