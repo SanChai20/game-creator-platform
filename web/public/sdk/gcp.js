@@ -317,8 +317,14 @@
   }
   // Display state, sent by the platform page (see GCP.display). The <html> element carries gcp-fullscreen and gcp-touch classes to match.
   var coarse = false; try { coarse = matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches; } catch (e) { /* old browser */ }
-  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse }, displayFns = [];
-  function markDisplay() { var c = document.documentElement && document.documentElement.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch); }
+  // safe: the screen's notch, rounded corners and home indicator, in CSS px, as the platform page measures them. An iframe
+  // never gets safe-area insets of its own (env(safe-area-inset-*) is always 0 in a frame), so they come from the page,
+  // also as the CSS variables --gcp-safe-top/right/bottom/left on <html>.
+  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 } }, displayFns = [];
+  function markDisplay() {
+    var h = document.documentElement, c = h && h.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch);
+    ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
+  }
   markDisplay();
   var GCP = window.GCP = {
     sdk: 1,
@@ -405,20 +411,27 @@
       else if (on !== false && el.requestFullscreen) el.requestFullscreen().catch(function () { });
     },
     /** How the game is shown right now. Kept up to date by the platform page:
-        { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation: 'any' | 'landscape' | 'portrait', touch }.
-        touch is true on phones and tablets (a finger is the main pointer): show on-screen controls then. */
+        { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation: 'any' | 'landscape' | 'portrait', touch, edgeToEdge, safe }.
+        touch is true on phones and tablets (a finger is the main pointer): show on-screen controls then. edgeToEdge is true
+        while the frame covers the whole screen, notch included (see setDisplay); safe is then { top, right, bottom, left } in
+        CSS px: keep buttons and text that far in from each edge (also the CSS variables --gcp-safe-top and so on). */
     display: display,
     /** fn(display) whenever it changes (entering or leaving fullscreen, for example). */
     onDisplay: function (fn) { if (typeof fn === 'function') displayFns.push(fn); },
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
-        (where the platform's small exit-fullscreen button sits on touch screens; 'none' if the game has its own) }. */
-    setDisplay: function (prefs) { prefs = prefs || {}; try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton }, '*'); } catch (e) { /* not framed */ } },
+        (where the platform's small exit-fullscreen button sits on touch screens; 'none' if the game has its own),
+        edgeToEdge: true (in fullscreen the game covers the whole screen, under the notch and the rounded corners too, and
+        keeps its own buttons inside display.safe; left out, the platform keeps the whole frame clear of them, which leaves
+        black bars on phones with a notch) }. */
+    setDisplay: function (prefs) { prefs = prefs || {}; try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ } },
   };
   window.addEventListener('message', function (e) {
     var d = e.data; if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
+    display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
+    display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
     markDisplay();
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
