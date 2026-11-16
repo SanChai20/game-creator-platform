@@ -312,6 +312,11 @@
     var run; try { run = Promise.resolve(fn(t, arg)); } catch (e) { run = Promise.reject(e); }
     return Promise.race([limit, run.then(function (v) { return out(true, '', v); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400)); })]);
   }
+  // Display state, sent by the platform page (see GCP.display). The <html> element carries gcp-fullscreen and gcp-touch classes to match.
+  var coarse = false; try { coarse = matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches; } catch (e) { /* old browser */ }
+  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse }, displayFns = [];
+  function markDisplay() { var c = document.documentElement && document.documentElement.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch); }
+  markDisplay();
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
@@ -384,7 +389,32 @@
       twoPlayers: q.get('gcp_two') ? { role: q.get('gcp_two') === 'guest' ? 'guest' : 'host', code: String(q.get('gcp_room') || 'VERIFY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'VERIFY' } : null,
       onTwoPlayers: function (fn) { pairFn = typeof fn === 'function' ? fn : null; S.twoPlayers = !!pairFn; },
     },
-    /** Ask the platform page to toggle fullscreen (works inside the play frame). */
-    fullscreen: function () { try { parent.postMessage({ gcp: 'fullscreen' }, '*'); } catch (e) { /* not framed */ } },
+    /** Ask the platform page for fullscreen (works inside the play frame, and on iPhones, where the game is given the
+        whole visible screen instead). No argument toggles; true enters; false leaves. Call it from a tap or key press. */
+    fullscreen: function (on) {
+      var msg = { gcp: 'fullscreen' }; if (on === true || on === false) msg.on = on;
+      if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } return; }
+      var d = document, el = d.documentElement;   // standalone: the page itself
+      if (d.fullscreenElement) { if (on !== true) d.exitFullscreen().catch(function () { }); }
+      else if (on !== false && el.requestFullscreen) el.requestFullscreen().catch(function () { });
+    },
+    /** How the game is shown right now. Kept up to date by the platform page:
+        { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation: 'any' | 'landscape' | 'portrait', touch }.
+        touch is true on phones and tablets (a finger is the main pointer): show on-screen controls then. */
+    display: display,
+    /** fn(display) whenever it changes (entering or leaving fullscreen, for example). */
+    onDisplay: function (fn) { if (typeof fn === 'function') displayFns.push(fn); },
+    /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
+        requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
+        turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
+        (where the platform's small exit-fullscreen button sits on touch screens; 'none' if the game has its own) }. */
+    setDisplay: function (prefs) { prefs = prefs || {}; try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton }, '*'); } catch (e) { /* not framed */ } },
   };
+  window.addEventListener('message', function (e) {
+    var d = e.data; if (e.source !== window.parent || !d || d.gcp !== 'display') return;
+    display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
+    markDisplay();
+    displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
+  });
+  if (window.parent !== window) { try { parent.postMessage({ gcp: 'display_query' }, '*'); } catch (e) { /* not framed */ } }
 })();

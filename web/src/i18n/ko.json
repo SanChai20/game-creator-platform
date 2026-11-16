@@ -928,5 +928,13 @@
  "Light": "라이트",
  "Switch theme": "테마 전환",
  "Theme": "테마",
- "Main": "메인"
+ "Main": "메인",
+ "Exit fullscreen": "전체 화면 종료",
+ "Turn your device": "기기를 돌려 주세요",
+ "Turn your phone sideways": "휴대폰을 가로로 돌려 주세요",
+ "Turn your phone upright": "휴대폰을 세로로 돌려 주세요",
+ "This game is made for landscape.": "이 게임은 가로 화면용입니다.",
+ "This game is made for portrait.": "이 게임은 세로 화면용입니다.",
+ "Play this way": "이대로 플레이",
+ "Fullscreen gives the game the whole screen.": "전체 화면으로 하면 게임이 화면 전체를 씁니다."
 }

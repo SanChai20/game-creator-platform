@@ -949,5 +949,13 @@
  "Light": "淺色",
  "Switch theme": "切換主題",
  "Theme": "主題",
- "Main": "主導覽"
+ "Main": "主導覽",
+ "Exit fullscreen": "退出全螢幕",
+ "Turn your device": "旋轉裝置",
+ "Turn your phone sideways": "請橫向遊玩",
+ "Turn your phone upright": "請直向遊玩",
+ "This game is made for landscape.": "這款遊戲為橫向設計。",
+ "This game is made for portrait.": "這款遊戲為直向設計。",
+ "Play this way": "就這樣玩",
+ "Fullscreen gives the game the whole screen.": "全螢幕可讓遊戲佔滿整個螢幕。"
 }
