@@ -118,7 +118,7 @@ export const rgb = (hex: string): [number, number, number] => {
   const n = parseInt(hex.slice(1), 16);
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 };
-export const palette = { ink: color.bg0, violet: color.violet, accent: color.accent, hot: color.hot, cyan: color.cyan, gold: color.gold, good: color.good, text: color.text } as const;
+export const palette = { horizon: color.horizon, ink: color.bg0, violet: color.violet, accent: color.accent, hot: color.hot, cyan: color.cyan, gold: color.gold, good: color.good, text: color.text } as const;
 
 /** Which world the page is in: the store's night sky, or the creators' workshop. */
 export type FxTheme = 'arcade' | 'workshop';

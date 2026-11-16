@@ -1,0 +1,310 @@
+/* The game UI skin. Every page (store, game pages, creators, docs, console, admin, sign-in) is dressed as the menus of
+   a casual game, with one small set of materials:
+
+     panel    a framed window: rounded, a 2px frame, a lit top edge and a solid lip underneath, so it sits up off the page
+     plate    a panel's title bar, with a lit gem as its marker
+     keycap   anything you press: an ink outline, a glossy top, a darker lip it sinks into when pressed
+     well     where things go in or sit inside: fields, search, tab bars, progress tracks (recessed, shadow at the top)
+     slot     a row you can pick (a game in the console, a result, a filter): a rounded slot that lights when pointed at
+     pill     labels, tags, rarity, status: rounded, outlined, bold
+
+   It loads after ui.css, styles.css, store.css and game.css and only changes materials (frames, fills, corners,
+   shadows); layout stays where it is. Colours and sizes come from tokens.ts. No motion here (that is game.css), so
+   reduced motion, the no-WebGL path and switched-off effects all get the same look. */
+
+/* ---- the materials, once --------------------------------------------------------------------------------------- */
+:root {
+  --panel-bg: linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, 0) 38%), var(--bg-1);
+  --panel-edge: inset 0 1px 0 rgba(255, 255, 255, .07);
+  --panel-shadow: var(--panel-edge), 0 5px 0 var(--lip), 0 22px 40px -22px rgba(0, 0, 0, .9);
+  --well-shadow: inset 0 3px 0 rgba(0, 0, 0, .38), inset 0 0 0 1px rgba(0, 0, 0, .2);
+  --key-bg: linear-gradient(180deg, var(--key) 0%, var(--key-lo) 100%);
+  --key-shadow: inset 0 2px 0 rgba(255, 255, 255, .13), inset 0 -3px 0 rgba(0, 0, 0, .28), 0 4px 0 var(--ink);
+  --key-pri-bg: linear-gradient(180deg, var(--accent-hi) 0%, var(--accent) 52%, var(--accent-2) 100%);
+  --key-pri-shadow: inset 0 2px 0 rgba(255, 255, 255, .6), inset 0 -3px 0 rgb(var(--accent-lip-rgb) / .35), 0 4px 0 var(--accent-lip), 0 4px 0 2px var(--ink), 0 12px 24px -12px var(--accent-glow);
+  --plate-on-bg: linear-gradient(180deg, var(--plate) 0%, var(--plate-lo) 100%);
+  --plate-on-shadow: inset 0 2px 0 rgba(255, 255, 255, .16), 0 3px 0 var(--ink);
+}
+
+/* ---- panels ------------------------------------------------------------------------------------------------------ */
+.card, .auth-card, .gp-cap, .filters-side, .tl-prev, .gp-buy, .qband, .pitch, .track > div, .tri > div, .savebar,
+.trial-bar, .term, .q-card, .feat-cap, .stat, .keys > div, .cat-fact, .kpi, .modal > div, .menu .pop, .mega, .sbox-pop {
+  clip-path: none; border: 2px solid var(--frame); border-radius: var(--r-xl); background: var(--panel-bg); box-shadow: var(--panel-shadow);
+}
+.card::after, .stats::after, .keys::after, .card-in::after, .cart::after { display: none; }
+.card { overflow: hidden; }
+.card.card-accent { border-color: var(--accent-line); background: radial-gradient(120% 80% at 0% 0%, var(--accent-wash), transparent 60%), var(--panel-bg); }
+.pad { padding: clamp(16px, 2vw, 22px); }
+/* the title plate */
+.card > header { min-height: 50px; border-bottom: 2px solid var(--frame); background: linear-gradient(180deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .015)); box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .3); }
+.card > header h3 { display: flex; align-items: center; gap: 11px; font: 700 13.5px/1.2 var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--text); }
+.card > header h3::before, .section-h h2::before, .eyebrow.sig::before {
+  content: ""; flex: none; width: 9px; height: 9px; border-radius: 2px; transform: rotate(45deg); opacity: 1;
+  background: linear-gradient(135deg, var(--accent-hi), var(--accent) 60%, var(--accent-2)); box-shadow: 0 0 0 2px var(--ink), 0 0 12px var(--accent-glow);
+}
+.card-aside { font: 500 11.5px/1.4 var(--font-sans); color: var(--text-3); }
+/* Dialogs: a thicker frame and a deeper lip. */
+.modal > div, .auth-card { border-width: 3px; border-color: var(--frame-hi); border-radius: var(--r-2xl); box-shadow: var(--panel-edge), 0 7px 0 var(--lip), 0 40px 80px -24px rgba(0, 0, 0, .9); }
+.menu .pop, .mega, .sbox-pop { border-color: var(--frame-hi); border-radius: var(--r-lg); background: var(--bg-2); }
+.mega { background: rgb(var(--bg-2-rgb) / .97); }
+.menu .pop a, .menu .pop button, .mega-i, .sbox-row { border-radius: var(--r-md); }
+.menu .pop a:hover, .menu .pop button:hover, .sbox-row:hover, .sbox-row.on { background: var(--plate-on-bg); color: var(--text); }
+.savebar { border-color: var(--accent-line); background: rgb(var(--bg-3-rgb) / .96); }
+.notice { border-width: 2px; border-radius: var(--r-lg); box-shadow: 0 4px 0 var(--lip); }
+.notice::before { left: 8px; top: 8px; bottom: 8px; width: 4px; border-radius: 4px; }
+.notice { padding-left: 22px; }
+.empty { border: 2px dashed var(--frame-hi); border-radius: var(--r-xl); background: rgb(var(--bg-1-rgb) / .6); }
+.empty-ico { border-radius: var(--r-lg); border: 2px solid var(--ink); background: var(--key-bg); box-shadow: var(--key-shadow); }
+
+/* ---- keycaps (buttons) ------------------------------------------------------------------------------------------- */
+.btn {
+  clip-path: none; height: 40px; padding: 0 17px; border: 2px solid var(--ink); border-radius: var(--r-lg);
+  background: var(--key-bg); color: var(--text); font: 700 13px/1 var(--font-display); letter-spacing: .02em; box-shadow: var(--key-shadow);
+}
+.btn:hover { background: linear-gradient(180deg, var(--key-hi) 0%, var(--key-hi-lo) 100%); border-color: var(--ink); }
+.btn:active { box-shadow: inset 0 2px 0 rgba(0, 0, 0, .3), 0 1px 0 var(--ink); transform: translateY(3px); }
+.btn-primary, .btn.pri { background: var(--key-pri-bg); color: var(--accent-ink); border-color: var(--ink); text-shadow: 0 1px 0 rgba(255, 255, 255, .35); box-shadow: var(--key-pri-shadow); }
+.btn-primary:hover, .btn.pri:hover { background: linear-gradient(180deg, #fff2c2 0%, var(--accent-hi) 50%, var(--accent) 100%); border-color: var(--ink); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .7), inset 0 -3px 0 rgb(var(--accent-lip-rgb) / .3), 0 5px 0 var(--accent-lip), 0 5px 0 2px var(--ink), 0 16px 30px -12px var(--accent-glow); }
+.btn-primary:active, .btn.pri:active { box-shadow: inset 0 2px 0 rgb(var(--accent-lip-rgb) / .3), 0 1px 0 var(--accent-lip), 0 1px 0 2px var(--ink); }
+.btn-primary[disabled]:hover { background: var(--key-pri-bg); }
+.btn-ghost, .btn.ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--text-2); }
+.btn-ghost:hover, .btn.ghost:hover { background: rgb(var(--tint-rgb) / .07); border-color: var(--frame); color: var(--text); }
+.btn-ghost:active, .btn.ghost:active { box-shadow: none; transform: translateY(1px); }
+.btn-danger, .btn.danger { color: #ffd6db; background: linear-gradient(180deg, #5a2232 0%, #42182a 100%); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .12), inset 0 -3px 0 rgba(0, 0, 0, .25), 0 4px 0 var(--ink); }
+.btn-danger:hover, .btn.danger:hover { background: linear-gradient(180deg, #74293d 0%, #561d31 100%); border-color: var(--ink); color: #fff; }
+.btn-lg, .btn.big { height: 50px; padding: 0 24px; font-size: 15px; border-radius: var(--r-xl); }
+.btn-sm, .btn.sm { height: 32px; padding: 0 12px; font-size: 12.5px; border-radius: var(--r-md); }
+.btn-sm:not(.btn-ghost) { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .12), inset 0 -2px 0 rgba(0, 0, 0, .28), 0 3px 0 var(--ink); }
+.btn-sm.btn-primary { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .55), inset 0 -2px 0 rgb(var(--accent-lip-rgb) / .3), 0 3px 0 var(--accent-lip), 0 3px 0 2px var(--ink); }
+.btn[disabled] { box-shadow: none; }
+/* The big play / buy button on a game's stage. */
+.play-btn { clip-path: none; height: 58px; border: 3px solid var(--ink); border-radius: var(--r-2xl); background: var(--key-pri-bg); text-shadow: 0 1px 0 rgba(255, 255, 255, .35);
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, .6), inset 0 -4px 0 rgb(var(--accent-lip-rgb) / .35), 0 6px 0 var(--ink), 0 22px 44px -14px var(--accent-glow); }
+.play-btn:hover { background: linear-gradient(180deg, #fff2c2 0%, var(--accent-hi) 50%, var(--accent) 100%); box-shadow: inset 0 3px 0 rgba(255, 255, 255, .7), inset 0 -4px 0 rgb(var(--accent-lip-rgb) / .3), 0 8px 0 var(--ink), 0 26px 50px -14px var(--accent-glow); }
+.play-btn:active { transform: translateY(4px); box-shadow: inset 0 3px 0 rgb(var(--accent-lip-rgb) / .3), 0 2px 0 var(--ink); }
+.play-ico { border-radius: 50%; border: 2px solid var(--ink); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .15); }
+/* Round icon keys: carousel arrows, shelf arrows. */
+.feat-arrow, .shelf-nav button { border: 2px solid var(--ink); border-radius: 50%; background: var(--key-bg); box-shadow: var(--key-shadow); }
+.feat-arrow:hover, .shelf-nav button:hover:not(:disabled) { background: linear-gradient(180deg, var(--key-hi), var(--key-hi-lo)); border-color: var(--ink); color: var(--accent); }
+.sbar-btn { height: 36px; border: 2px solid var(--ink); border-radius: var(--r-lg); background: var(--key-bg); box-shadow: 0 3px 0 var(--ink), inset 0 2px 0 rgba(255, 255, 255, .12); font-family: var(--font-display); font-weight: 700; }
+.sbar-btn:hover, .sbar-btn.open, .sbar-btn.on { border-color: var(--ink); background: linear-gradient(180deg, var(--key-hi), var(--key-hi-lo)); }
+.fx-toggle, .code .copy { border-radius: var(--r-pill); }
+.pg { min-width: 42px; height: 42px; border: 2px solid var(--ink); border-radius: var(--r-lg); background: var(--key-bg); color: var(--text-2); box-shadow: var(--key-shadow); }
+a.pg:hover { border-color: var(--ink); color: var(--accent); background: linear-gradient(180deg, var(--key-hi), var(--key-hi-lo)); }
+.pg.on { background: var(--key-pri-bg); color: var(--accent-ink); border-color: var(--ink); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .55), 0 4px 0 var(--accent-lip), 0 4px 0 2px var(--ink); }
+
+/* ---- wells (fields, search) -------------------------------------------------------------------------------------- */
+.input, select.input, textarea.input, .sbox input { border: 2px solid var(--frame); border-radius: var(--r-lg); background-color: var(--well); box-shadow: var(--well-shadow); }
+.input, select.input { height: 42px; }
+.input:hover, .sbox input:hover { border-color: var(--frame-hi); }
+.input:focus, .sbox input:focus { border-color: var(--accent); background-color: var(--bg-1); box-shadow: var(--well-shadow), 0 0 0 3px var(--accent-wash), 0 0 20px -6px var(--accent-glow); }
+select.input { background-position: calc(100% - 18px) 18px, calc(100% - 13px) 18px; }
+.sbox.big input { border-width: 3px; border-radius: var(--r-xl); box-shadow: var(--well-shadow), 0 5px 0 var(--lip); }
+.sbox-k, .kbd { border: 2px solid var(--frame-hi); border-bottom-width: 3px; border-radius: var(--r-sm); background: var(--bg-2); }
+.code-input { border-radius: var(--r-xl) !important; }
+.field > span { font: 700 11px/1.3 var(--font-display); letter-spacing: .1em; }
+/* A toggle that looks like a game's settings switch. */
+.switch { width: 48px; height: 28px; border-radius: var(--r-pill); border: 2px solid var(--ink); background: var(--well); box-shadow: var(--well-shadow); }
+.switch::after { top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(180deg, var(--text), var(--text-2)); box-shadow: 0 2px 0 var(--ink); }
+.switch:checked { background: var(--accent); border-color: var(--ink); box-shadow: inset 0 3px 0 rgb(var(--accent-lip-rgb) / .3); }
+.switch:checked::after { transform: translateX(20px); background: linear-gradient(180deg, #fff, #e4e4e4); }
+.lang { height: 32px; border: 2px solid var(--frame); border-radius: var(--r-pill); padding: 0 11px; background: var(--well); box-shadow: var(--well-shadow); }
+.lang:hover, .lang:focus-within { border-color: var(--frame-hi); }
+
+/* ---- tab bars and segmented controls: a recessed well with a raised plate on the chosen one --------------------- */
+.tabs, .seg, .tl-tabs { gap: 4px; padding: 4px; border: 2px solid var(--frame); border-radius: var(--r-xl); background: var(--well); box-shadow: var(--well-shadow); }
+.tabs { width: fit-content; max-width: 100%; }
+.tl-tabs { width: fit-content; max-width: 100%; margin: -4px 0 14px; }
+.tabs a, .seg button, .tl-tabs button {
+  display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border: 0; border-radius: var(--r-lg); background: none;
+  color: var(--text-2); font: 700 13px/1 var(--font-display); letter-spacing: .02em; white-space: nowrap;
+}
+.tabs a:hover, .seg button:hover, .tl-tabs button:hover { color: var(--text); background: rgb(var(--tint-rgb) / .06); }
+.tabs a.on, .seg button.on, .tl-tabs button.on { color: var(--plate-text); background: var(--plate-on-bg); border: 0; box-shadow: var(--plate-on-shadow); }
+.tabs a.on::after { display: none; }
+.seg button { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.legal .tabs { width: auto; }
+
+/* ---- the top bar and the store bar: a HUD strip with plates for where you are ------------------------------------ */
+.nav { background: rgb(var(--bg-1-rgb) / .88); border-bottom: 2px solid var(--frame); box-shadow: 0 4px 0 rgb(var(--bg-0-rgb) / .6); }
+.nav a.nl, .sbar-a { border-radius: var(--r-lg); font-family: var(--font-display); font-weight: 650; }
+.nav a.nl { padding: 8px 13px; }
+.nav a.nl:hover, .sbar-a:hover { background: rgb(var(--tint-rgb) / .07); color: var(--text); }
+.nav a.nl.on, .sbar-a.on { color: var(--plate-text); background: var(--plate-on-bg); box-shadow: var(--plate-on-shadow); }
+.nav a.nl.on::after, .sbar-a.on::after { display: none; }
+.sbar { background: rgb(var(--bg-1-rgb) / .72); border-bottom: 2px solid var(--frame); }
+@media (min-width: 861px) { .sbar .wrap { height: 56px; } }
+.logo { border-radius: var(--r-md); border: 2px solid var(--ink); background: var(--key-pri-bg); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .55), 0 3px 0 var(--ink); }
+.avatar { border-radius: var(--r-lg); border: 2px solid var(--ink); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .3), 0 3px 0 var(--ink); }
+.docs-nav a { margin: 1px 0; border-left: 0; border-radius: var(--r-md); border: 2px solid transparent; font-family: var(--font-display); font-weight: 600; }
+.docs-nav a:hover { border-color: var(--frame); background: var(--plate-on-bg); }
+
+/* ---- page titles and section heads ------------------------------------------------------------------------------- */
+.page-h h1, .browse-h h1, .gp-head h1, .cat-hero h1, .auth h1, .store-intro h1, .lead h1, .nf h1 { text-shadow: 0 3px 0 var(--ink), 0 0 36px rgb(var(--violet-rgb) / .28); }
+.page-h::before { opacity: .6; }
+.section-h h2 { display: flex; align-items: center; gap: 12px; }
+/* Section numbers are level badges. */
+.sh-n, .docs-body h2::before {
+  display: inline-grid; place-items: center; min-width: 32px; height: 26px; padding: 0 7px; margin-top: 0; align-self: center; border-radius: var(--r-md); border: 2px solid var(--ink);
+  background: var(--key-pri-bg); color: var(--accent-ink); font: 800 11.5px/1 var(--font-mono); letter-spacing: 0; text-shadow: none; opacity: 1; box-shadow: inset 0 2px 0 rgba(255, 255, 255, .5), 0 3px 0 var(--ink);
+}
+.catpage .sh-n, .gpage .sh-n { color: var(--accent-ink); background: linear-gradient(180deg, hsl(var(--h) 95% 80%), hsl(var(--h) 85% 64%)); }
+.sh { align-items: center; }
+.docs-body h2 { align-items: center; border-bottom: 2px solid var(--frame); }
+.rule::after { height: 2px; border-radius: 2px; }
+.eyebrow.sig::before { width: 8px; height: 8px; }
+
+/* ---- figures: HUD counters --------------------------------------------------------------------------------------- */
+.stats { gap: 12px; background: none; border: 0; border-radius: 0; overflow: visible; clip-path: none; }
+.stat { padding: 16px 18px 18px; border-radius: var(--r-xl); }
+.stat::before { display: none; }
+.stat.is-link:hover { background: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 40%), var(--bg-2); border-color: var(--frame-hi); }
+.stat.stat-accent { border-color: var(--accent-line); background: radial-gradient(120% 90% at 0% 0%, var(--accent-wash), transparent 60%), var(--panel-bg); }
+.stat-v, .keys b, .kpi b, .cat-fact b, .big-num, .price-big, .feat-price, .gp-price { text-shadow: 0 3px 0 var(--ink); }
+.stat.stat-accent .stat-v { text-shadow: 0 3px 0 var(--ink), 0 0 24px var(--accent-glow); }
+.stat-l, .kpi span, .cat-fact span { font: 700 10.5px/1.2 var(--font-display); letter-spacing: .1em; }
+.stat-ico { top: 12px; right: 12px; }
+@media (max-width: 620px) { .stats { gap: 10px; } .stat { padding: 13px 14px 15px; } }
+.keys { gap: 12px; border: 0; background: none; overflow: visible; clip-path: none; }
+.keys > div { border-right: 2px solid var(--frame); }
+.keys > div::before { display: none; }
+.keys > div:first-child { border-color: var(--accent-line); background: radial-gradient(120% 90% at 0% 0%, var(--accent-wash), transparent 60%), var(--panel-bg); }
+@media (max-width: 720px) { .keys > div { border-bottom: 2px solid var(--frame); } }
+.kpis { gap: 10px; }
+.kpi, .kpi:first-child { padding: 10px 14px 12px; border-radius: var(--r-lg); border: 2px solid var(--frame); }
+.kpi.is-live { border-color: rgb(var(--good-rgb) / .4); }
+@media (max-width: 560px) { .kpis { gap: 6px; } .kpi, .kpi:first-child { padding: 8px 8px 10px; } }
+.cat-facts { gap: 8px; background: none; border: 0; border-radius: 0; overflow: visible; }
+.cat-fact { border-radius: var(--r-lg); background: rgb(var(--bg-1-rgb) / .85); }
+.since-new { border: 2px solid var(--accent-line); border-radius: var(--r-lg); box-shadow: 0 4px 0 var(--lip); }
+
+/* ---- slots: rows you can pick ----------------------------------------------------------------------------------- */
+.card .list-row { margin: 8px 10px; padding: 10px 12px; border: 2px solid transparent; border-radius: var(--r-lg); background: rgb(var(--bg-0-rgb) / .35); }
+.card .list-row + .list-row { margin-top: 0; }
+.list-row.is-link:hover { background: var(--plate-on-bg); border-color: var(--frame-hi); box-shadow: 0 3px 0 var(--ink); }
+.thumb { border: 2px solid var(--ink); border-radius: var(--r-md); }
+.list-row.is-link:hover .thumb { border-color: var(--accent); }
+.grow-row { border: 2px solid transparent; border-radius: var(--r-lg); background: var(--panel-bg); }
+.grow-row:hover, .grow-row.on { background: var(--plate-on-bg); border-color: var(--frame-hi); box-shadow: 0 3px 0 var(--ink); }
+.grow-row .thumb, .sbox-row .thumb, .since-item .thumb { border: 2px solid var(--ink); border-radius: var(--r-md); }
+.grow-row.on::before { left: 4px; top: 10px; bottom: 10px; width: 4px; }
+.gr-price.paid { border-radius: var(--r-pill); border: 2px solid var(--ink); background: var(--key-pri-bg); }
+.since-item { border: 2px solid var(--frame); border-radius: var(--r-lg); background: var(--panel-bg); box-shadow: 0 3px 0 var(--lip); }
+.since-item:hover { border-color: var(--accent-line); }
+.ver > button { border-radius: var(--r-lg); }
+.ver { margin: 0 8px; border-bottom: 2px solid rgba(0, 0, 0, .25); }
+.set-row { border-bottom: 2px solid rgba(0, 0, 0, .25); }
+.fl-opt, .fl-g { border-radius: var(--r-md); border: 2px solid transparent; }
+.fl-opt:hover, .fl-g:hover { background: var(--plate-on-bg); border-color: var(--frame); }
+.fl-opt i { width: 16px; height: 16px; border: 2px solid var(--frame-hi); background: var(--well); }
+.fl-opt.on i { border-color: var(--ink); background: radial-gradient(var(--accent-ink) 30%, var(--accent) 36%); box-shadow: 0 0 0 2px var(--accent-line); }
+.fl-g i { width: 17px; height: 17px; border-radius: 5px; }
+.fl-sec { border-bottom: 2px solid rgba(0, 0, 0, .25); }
+.fl-sec h4 { font: 700 11px/1 var(--font-display); letter-spacing: .1em; color: var(--text-2); }
+.az-i { border-bottom: 1px dashed var(--frame); }
+
+/* ---- leaderboards (tables) and key-value lists ------------------------------------------------------------------- */
+.tbl th { font: 700 10.5px var(--font-display); letter-spacing: .1em; color: var(--text-2); background: rgba(255, 255, 255, .035); border-bottom: 2px solid var(--frame); }
+.tbl td { border-bottom: 1px solid rgba(0, 0, 0, .3); }
+.tbl tbody tr:nth-child(even) td { background: rgba(255, 255, 255, .018); }
+.tbl tbody tr:hover td { background: rgb(var(--accent-rgb) / .05); }
+.kv > div { border-bottom: 1px dashed var(--frame); }
+
+/* ---- pills: labels, tags, rarity, status -------------------------------------------------------------------------- */
+.badge { height: 23px; padding: 0 9px; border-radius: var(--r-pill); border: 1.5px solid var(--frame-hi); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; }
+.badge::before { width: 6px; height: 6px; border-radius: 50%; }
+.badge.good { border-color: rgb(var(--good-rgb) / .4); } .badge.bad { border-color: rgb(var(--bad-rgb) / .4); }
+.badge.sig { border-color: var(--accent-line); } .badge.info { border-color: rgb(var(--info-rgb) / .4); }
+.chip { height: 30px; padding: 0 12px; border-radius: var(--r-pill); border: 2px solid var(--frame); background: var(--well); font: 650 12px/1 var(--font-display); }
+.chip:hover { border-color: var(--frame-hi); }
+.chip.on { background: var(--key-pri-bg); color: var(--accent-ink); border-color: var(--ink); box-shadow: 0 3px 0 var(--ink); }
+.gtag { height: 25px; padding: 0 10px; border-radius: var(--r-pill); border-width: 1.5px; font-family: var(--font-display); font-weight: 650; }
+.act-chip { border-radius: var(--r-pill); border-width: 2px; }
+.trial-tag, .live-pill, .feat-kind, .lead .web-only { border-radius: var(--r-pill); }
+.live-pill.big { border-width: 2px; }
+/* Rarity reads as a gem label: outlined in its colour with a lit centre. */
+.rar-pill, .feat-tags .rar { border-radius: var(--r-pill); border: 2px solid var(--rc); background: radial-gradient(120% 140% at 50% 0%, color-mix(in srgb, var(--rc) 28%, transparent), color-mix(in srgb, var(--rc) 6%, transparent)); text-shadow: 0 0 10px color-mix(in srgb, var(--rc) 60%, transparent); box-shadow: 0 2px 0 var(--ink); }
+.fl-n { border: 2px solid var(--ink); height: 20px; }
+
+/* ---- meters: XP bars ---------------------------------------------------------------------------------------------- */
+.share-bar, .trial-meter, .dist i, .q-progress i { height: 10px; border-radius: var(--r-pill); background: var(--well); box-shadow: var(--well-shadow); border: 1px solid var(--frame); overflow: hidden; }
+.share-bar i, .trial-meter b, .dist i b { border-radius: var(--r-pill); background-image: linear-gradient(180deg, rgba(255, 255, 255, .4) 0 35%, transparent 35%); }
+.share-bar i { background-color: var(--accent); }
+.q-progress i.done { background: var(--violet); } .q-progress i.on { background: linear-gradient(180deg, rgba(255, 255, 255, .45) 0 35%, transparent 35%), var(--accent); }
+.bars div { border-radius: 4px 4px 1px 1px; background-image: linear-gradient(180deg, rgba(255, 255, 255, .35) 0 4px, transparent 4px); }
+.bars { border-bottom: 2px solid var(--frame); }
+.check i { border-radius: var(--r-sm); border: 2px solid currentColor; box-shadow: none; }
+.steps li::before { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--ink); background: var(--key-pri-bg); color: var(--accent-ink); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .5), 0 3px 0 var(--ink); }
+.ticks { border: 2px solid var(--frame); border-radius: var(--r-lg); background: var(--well); box-shadow: var(--well-shadow); }
+.ticks li::before { border-radius: 50%; border: 1.5px solid var(--accent-line); }
+
+/* ---- code and terminals ------------------------------------------------------------------------------------------ */
+.code { border: 2px solid var(--frame); border-left: 4px solid var(--accent); border-radius: var(--r-lg); box-shadow: var(--well-shadow); }
+.term { border-color: var(--frame-hi); border-radius: var(--r-2xl); filter: none; box-shadow: var(--panel-edge), 0 6px 0 var(--lip), 0 30px 60px -20px rgba(0, 0, 0, .8); }
+.term-bar { border-bottom: 2px solid var(--frame); }
+.term-bar i { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--ink); }
+.log { border-radius: var(--r-md); }
+
+/* ---- the store's furniture ---------------------------------------------------------------------------------------- */
+/* Game cards are collectibles: a rounded card in its rarity's colour, the cover set inside a dark bezel. */
+.game { --n: 0px; }
+.card-in { clip-path: none; padding: 6px 6px 0; border: 2px solid color-mix(in srgb, var(--rc) 45%, var(--frame)); border-radius: var(--r-xl);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--rc) 14%, var(--bg-2)), var(--bg-1) 70%); box-shadow: var(--panel-edge), 0 5px 0 var(--lip), 0 18px 30px -18px rgba(0, 0, 0, .9); }
+.card-in::before { left: 50%; top: 0; width: 34%; height: 3px; transform: translateX(-50%); border-radius: 0 0 3px 3px; box-shadow: 0 0 10px var(--rc); }
+.game:hover .card-in { border-color: color-mix(in srgb, var(--rc) 70%, var(--frame-hi)); }
+.game:focus-visible .card-in { border-color: var(--accent); }
+.game .art { border-radius: var(--r-lg); border: 2px solid var(--ink); }
+.card-body { padding: 10px 7px 12px; }
+.game .art .price, .rank { border-radius: var(--r-pill); }
+.game .art .price.paid { border: 2px solid var(--ink); background: var(--key-pri-bg); }
+.game .art .play-hint { border: 2px solid var(--ink); background: var(--key-pri-bg); box-shadow: 0 3px 0 var(--ink); }
+/* Ranked shelves give the top three medals. */
+.shelf-cell:nth-child(1) .rank { background: linear-gradient(180deg, #ffe48a, var(--gold)); border: 2px solid var(--ink); color: #2a1a00; }
+.shelf-cell:nth-child(2) .rank { background: linear-gradient(180deg, #f4f2fb, #b9b4cc); border: 2px solid var(--ink); color: #1a1726; }
+.shelf-cell:nth-child(3) .rank { background: linear-gradient(180deg, #ffc49a, #d98545); border: 2px solid var(--ink); color: #2a1200; }
+/* Featured, the queue and a game's buy box: framed windows with the art in a bezel. */
+.feat-cap, .q-card { overflow: hidden; border-width: 3px; border-radius: var(--r-2xl); box-shadow: var(--panel-edge), 0 7px 0 var(--lip), 0 30px 60px -24px rgba(0, 0, 0, .9); }
+.feat-info, .q-info { border-left: 2px solid var(--frame); }
+/* The featured window stays see-through so the GPU layer can draw the picture into it; the art sits in a bezel. */
+.feat-cap { background: none; }
+.feat-art { border: 8px solid var(--bg-2); border-right-width: 0; border-radius: var(--r-xl) 0 0 var(--r-xl); }
+@media (max-width: 900px) { .feat-art { border-width: 8px 8px 0; border-radius: var(--r-xl) var(--r-xl) 0 0; } }
+.feat-dot { border: 2px solid var(--frame); border-radius: var(--r-md); }
+.feat-dot.on { border-color: var(--accent); box-shadow: 0 3px 0 var(--ink); }
+.feat-bar { height: 3px; }
+.gp-buy, .qband, .tl-prev { border-color: hsl(var(--h, 270) 45% 45% / .55); }
+.qband { border-color: rgb(var(--violet-rgb) / .5); }
+.gp-buy-act { border: 2px solid var(--frame); border-radius: var(--r-xl); background: var(--well); box-shadow: var(--well-shadow); padding: 6px 6px 10px; }
+.gp-cap { border-radius: var(--r-xl); }
+.gp-cover, .tl-prev .art, .q-art .art { border-radius: var(--r-lg); }
+.gp-controls { border: 2px solid var(--frame); border-left: 5px solid hsl(var(--h) 85% 62%); border-radius: var(--r-lg); box-shadow: 0 4px 0 var(--lip); }
+.seal { border-width: 2px; border-radius: var(--r-lg); }
+/* The stage is a console screen: a dark bezel inside a lit frame. */
+.stage { border: 3px solid var(--ink); border-radius: var(--r-2xl); box-shadow: 0 0 0 2px var(--frame-hi), 0 8px 0 2px var(--lip), 0 30px 60px -24px rgba(0, 0, 0, .9); }
+.stage .poster { transform: none; } /* the GPU measures the poster box; keep it the size of the screen inside the bezel */
+.stage .over .mute { border-radius: var(--r-pill); }
+.trial-bar { border-radius: var(--r-lg); }
+/* Categories are cartridges with rounded shoulders. */
+.cart { clip-path: none; border: 2px solid hsl(var(--h) 55% 45% / .6); border-radius: var(--r-xl); box-shadow: var(--panel-edge), 0 5px 0 var(--lip); overflow: hidden; }
+.cart-art img { border: 2px solid var(--ink); border-radius: var(--r-sm); }
+.cart-label { border-left: 0; padding: 0; }
+.cart-label b::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; vertical-align: 2px; border-radius: 2px; transform: rotate(45deg); background: hsl(var(--h) 88% 66%); box-shadow: 0 0 0 2px var(--ink); }
+.cat-hero-art img, .qband-fan > span, .auth-wall > span { border: 2px solid var(--ink); border-radius: var(--r-md); }
+.pitch { border-radius: var(--r-xl); }
+.rv-avatar { border-radius: var(--r-md); border: 2px solid var(--ink); background: var(--key-bg); }
+.filters-side { border-radius: var(--r-xl); }
+@media (max-width: 980px) { .filters-side { border-radius: 0 var(--r-xl) var(--r-xl) 0; border-width: 0 2px 0 0; } }
+
+/* ---- creators page ------------------------------------------------------------------------------------------------ */
+.track > div { border-top: 2px solid var(--accent-line); }
+.track > div:not(:last-child)::after { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--ink); background: var(--key-pri-bg); color: var(--accent-ink); box-shadow: 0 3px 0 var(--ink); right: -18px; }
+.tri > div { border-top: 2px solid var(--accent-line); }
+.tri .ico { border-radius: var(--r-md); border: 2px solid var(--ink); background: var(--key-pri-bg); color: var(--accent-ink); box-shadow: 0 3px 0 var(--ink); }
+.lead::before { opacity: .45; }
+
+/* ---- sign-in, not found ------------------------------------------------------------------------------------------- */
+.auth-card { background: radial-gradient(120% 60% at 50% 0%, rgb(var(--violet-rgb) / .12), transparent 60%), var(--panel-bg); }
+.nf-big { filter: drop-shadow(0 5px 0 var(--ink)); }
+footer.foot { border-top: 2px solid var(--frame); }
+
+@media (max-width: 860px) { .docs-nav a { border: 2px solid var(--frame); border-radius: var(--r-pill); } }

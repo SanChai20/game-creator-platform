@@ -9,6 +9,7 @@
 // frame loop while particles are alive, so an idle page costs nothing. Sprites come from sprites.ts (drawn in code).
 import { buildAtlas, type Atlas, type SpriteKind } from './sprites';
 import { palette } from './gl';
+import { color } from '../tokens';
 
 export type BurstKind = 'stars' | 'coins' | 'confetti' | 'sparkle' | 'hearts' | 'gems';
 type P = { x: number; y: number; vx: number; vy: number; r: number; vr: number; age: number; life: number; size: number; sprite: number; color: string; g: number; ring?: boolean; w?: number };
@@ -139,7 +140,7 @@ export class Overlay {
       x.globalAlpha = k > 0.85 ? (1 - k) / 0.15 : 1;
       const c = Math.cos(p.r), sn = Math.sin(p.r);
       x.setTransform(d * c * (1 + st), d * sn * (1 + st), -d * sn * (1 - st), d * c * (1 - st), p.x * d, p.y * d);
-      if (p.sprite === -2) { x.fillStyle = p.color; x.fillRect(-s / 2, -s / 4, s, s / 2); x.strokeStyle = '#1a1030'; x.lineWidth = 1.5; x.strokeRect(-s / 2, -s / 4, s, s / 2); }
+      if (p.sprite === -2) { x.fillStyle = p.color; x.fillRect(-s / 2, -s / 4, s, s / 2); x.strokeStyle = color.ink; x.lineWidth = 1.5; x.strokeRect(-s / 2, -s / 4, s, s / 2); }
       else x.drawImage(this.atlas.canvas, p.sprite * cell, 0, cell, cell, -s / 2, -s / 2, s, s);
     }
     x.globalAlpha = 1;

@@ -1,25 +1,18 @@
 /* Cartoon game UI. The store and the creator console behave like the menus of a casual game: chunky buttons with a
    lip that squash when pressed, cards that spring up and wobble, a glossy shine that crosses collectibles, counters
-   that roll up like a score, and an "achievement" toast. The look stays the site's own (dark, neon, cut corners);
-   only the motion and the materials turn cartoon. Particles are drawn by ui/fx/overlay.ts.
+   that roll up like a score, and an "achievement" toast. The materials (panels, keycaps, wells) are in skin.css;
+   this file is the motion. Particles are drawn by ui/fx/overlay.ts.
    All motion lives inside prefers-reduced-motion: no-preference, so reduced motion keeps the static look. */
-:root { --spring: cubic-bezier(.34, 1.56, .64, 1); --toon-ink: #140c26; --lip: #6f9a12; }
+:root { --spring: cubic-bezier(.34, 1.56, .64, 1); }
 
 /* ---- materials (static: apply everywhere) ---------------------------------------------------------------------- */
-/* Buttons get a cel highlight on top and a darker lip at the bottom edge, drawn inside so cut corners keep them. */
-.btn-primary, .btn.pri { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .5), inset 0 -4px 0 rgba(13, 20, 0, .22), 0 10px 24px -12px rgba(198, 255, 61, .65); }
-.btn-primary:hover, .btn.pri:hover { box-shadow: inset 0 2px 0 rgba(255, 255, 255, .6), inset 0 -4px 0 rgba(13, 20, 0, .22), 0 14px 30px -10px rgba(198, 255, 61, .8); }
-.btn-primary:active, .btn.pri:active { box-shadow: inset 0 3px 0 rgba(13, 20, 0, .18), inset 0 -1px 0 rgba(13, 20, 0, .2), 0 4px 12px -6px rgba(198, 255, 61, .5); }
-.btn:not(.btn-primary):not(.pri):not(.btn-ghost):not(.ghost) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), inset 0 -3px 0 rgba(0, 0, 0, .28); }
-.btn:not(.btn-primary):not(.pri):active { box-shadow: inset 0 2px 0 rgba(0, 0, 0, .3); }
-
 /* Stats are score counters: a toon icon badge beside the label. */
 .stat-ico { position: absolute; right: 14px; top: 14px; width: 34px; height: 34px; filter: drop-shadow(0 3px 0 rgba(0, 0, 0, .35)); }
 .stat-ico svg { width: 100%; height: 100%; display: block; overflow: visible; }
 @media (max-width: 620px) { .stat-ico { width: 26px; height: 26px; right: 10px; top: 10px; } }
 
 /* The toast is an achievement: a badge with a star, a lip and a pop. */
-.toast { display: flex; align-items: center; gap: 10px; padding: 11px 18px 11px 12px; border-radius: 14px; box-shadow: inset 0 2px 0 rgba(255, 255, 255, .5), inset 0 -4px 0 rgba(13, 20, 0, .22), 0 14px 34px -10px rgba(0, 0, 0, .7); }
+.toast { display: flex; align-items: center; gap: 10px; padding: 11px 18px 11px 12px; border-radius: 14px; border: 2px solid var(--ink); box-shadow: inset 0 2px 0 rgba(255, 255, 255, .5), inset 0 -4px 0 rgb(var(--accent-lip-rgb) / .22), 0 4px 0 var(--ink), 0 14px 34px -10px rgba(0, 0, 0, .7); }
 .toast::before { content: ""; flex: none; width: 26px; height: 26px; background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-12 -12 24 24'%3E%3Cpath d='M0-10 2.9-4 9.5-3.1 4.7 1.5 5.9 8.1 0 5 -5.9 8.1-4.7 1.5-9.5-3.1-2.9-4Z' fill='%23ffc845' stroke='%23140c26' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 .toast.bad::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-12 -12 24 24'%3E%3Ccircle r='9.5' fill='%23fff' stroke='%23140c26' stroke-width='2'/%3E%3Cpath d='M0-5V1.5' stroke='%23140c26' stroke-width='2.6' stroke-linecap='round'/%3E%3Ccircle cy='5' r='1.5' fill='%23140c26'/%3E%3C/svg%3E"); }
 
