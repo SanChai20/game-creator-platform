@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pager } from '../store';
 import { ago, api, date, dateTime, Fail, Link, num, playTime, series, t, tr, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Spinner, Stat, StatGrid, StatusBadge, Switch, Table, Tabs } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, Table, Tabs } from '../ui';
+import { AdminSkeleton } from '../skeletons';
 
 const tabs = (): [string, string][] => [['overview', t('Overview', '概览')], ['settings', t('Settings', '参数设置')], ['users', t('Users', '用户')], ['games', t('Games', '游戏')], ['money', t('Money', '资金')]];
 
@@ -18,7 +19,7 @@ export function Admin({ tab }: { tab: string }) {
 function Overview() {
   const { data, error, loading, reload } = useData<any>('/admin/overview');
   if (error && !data) return <Fail error={error} retry={reload} />;
-  if (loading && !data) return <Spinner />;
+  if (loading && !data) return <AdminSkeleton tab="overview" />;
   const h = data.health, items: [string, boolean, string][] = [
     [t('Game deployment', '游戏部署'), h.deploy, h.deploy ? `${t('driver', '驱动')}: ${h.driver}` : t('CF_API_TOKEN and CF_ACCOUNT_ID are not set', '未设置 CF_API_TOKEN 与 CF_ACCOUNT_ID')],
     [t('Browser verification', '浏览器验证'), h.browser, h.browser ? t('ready', '就绪') : t('no browser binding', '缺少浏览器绑定')],
@@ -59,7 +60,7 @@ function Settings() {
   useEffect(() => { setDraft({}); }, [data]);
   const groups = useMemo(() => { const g = new Map<string, string[]>(); for (const [k, d] of Object.entries(data?.defs || {})) g.set(d.group, [...(g.get(d.group) || []), k]); return [...g.entries()]; }, [data]);
   if (error && !data) return <Fail error={error} retry={reload} />;
-  if (loading && !data) return <Spinner />;
+  if (loading && !data) return <AdminSkeleton tab="settings" />;
   const show = (k: string) => { const d = data!.defs[k], v = data!.values[k]; return k in draft ? draft[k] : d.type === 'cents' ? (v / 100).toFixed(2) : d.type === 'bool' ? !!v : String(v); };
   const dirty = Object.keys(draft).length;
   const save = () => act('save', async () => {
@@ -110,7 +111,7 @@ function Users() {
   return (
     <div className="stack l">
       <div className="admin-tools"><SearchInput placeholder={t('Search by email or name', '按邮箱或名称搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
-      {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <Spinner /> : (
+      {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : (
         <Card><Table>
           <thead><tr><th>{t('User', '用户')}</th><th>{t('Status', '状态')}</th><th className="n">{t('Games', '游戏')}</th><th className="n">{t('Balance', '余额')}</th><th className="n">{t('Bought', '已购')}</th><th className="n">{t('Played', '游玩')}</th><th>{t('Joined', '注册')}</th><th>{t('Seen', '最近活跃')}</th><th /></tr></thead>
           <tbody>{data.users.map((u: any) => (
@@ -139,7 +140,7 @@ function Games() {
   return (
     <div className="stack l">
       <div className="admin-tools"><SearchInput placeholder={t('Search by title, address or creator email', '按标题、地址或创作者邮箱搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
-      {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <Spinner /> : (
+      {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : (
         <Card><Table>
           <thead><tr><th>{t('Game', '游戏')}</th><th>{t('Status', '状态')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Plays', '游玩')}</th><th className="n">{t('7 days', '近 7 天')}</th><th className="n">{t('Time', '时长')}</th><th className="n">{t('Rating', '评分')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('Fees', '平台分成')}</th><th className="n">{t('Errors', '错误')}</th><th /></tr></thead>
           <tbody>{data.games.map((g: any) => (
@@ -165,7 +166,7 @@ function Money() {
   const { busy, act } = useAct(), { data, error, loading, reload } = useData<any>('/admin/money');
   const [grant, setGrant] = useState({ email: '', slug: '' });
   if (error && !data) return <Fail error={error} retry={reload} />;
-  if (loading && !data) return <Spinner />;
+  if (loading && !data) return <AdminSkeleton tab="money" />;
   const settle = (w: any, action: 'paid' | 'reject') => {
     const note = prompt(action === 'paid' ? t('Reference for this payment (for your records)', '本次打款的参考编号（用于留档）') : t('Reason shown to the creator', '向创作者显示的原因')); if (note === null) return;
     void act(w.id, async () => { await api(`/admin/withdrawals/${w.id}`, { body: { action, note } }); await reload(); }, action === 'paid' ? t('Marked as paid.', '已标记为已打款。') : t('Rejected. The balance was returned.', '已拒绝，余额已退回。'));

@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ago, api, bytes, dateTime, Fail, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Spinner, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
+import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
 import { projectTabs } from './Analytics';
+import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
+
+/** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
+function VersionCompat({ c }: { c: GameCompat }) {
+  const v = useCompat(c);
+  return <div className="ver-compat"><CompatSection c={c} v={v} /></div>;
+}
 
 function Report({ v }: { v: any }) {
   const r = v.report;
@@ -97,7 +105,7 @@ export function Project({ id }: { id: string }) {
   useEffect(() => { if (data && open === null && data.versions[0]) setOpen(data.versions[0].version); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
-  if (loading && !data) return <Spinner />;
+  if (loading && !data) return <ProjectSkeleton />;
   const p = data.project, versions = data.versions as any[];
   const playPreview = () => act('pv', async () => { const r = await api<{ url: string }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreview(r.url); });
   const offline = () => { if (confirm(t('Take this game offline? Players will not be able to open it until you put it back.', '确定下线这款游戏吗？在重新上线之前，玩家将无法打开它。'))) void act('off', async () => { await api(`/console/projects/${id}/offline`, { method: 'POST' }); await reload(); }, t('The game is offline.', '游戏已下线。')); };
@@ -158,6 +166,7 @@ export function Project({ id }: { id: string }) {
                           v.published_at && [t('Published', '发布于'), dateTime(v.published_at)],
                         ]} />
                       </div>
+                      {v.compat && <VersionCompat c={v.compat} />}
                     </div>
                   )}
                 </div>

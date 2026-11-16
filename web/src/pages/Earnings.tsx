@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, dateTime, Fail, Link, navigate, query, t, usd, useAct, useApp, useData } from '../lib';
-import { Badge, Button, Card, Field, ListRow, Modal, Notice, PageHeader, Select, Spinner, Stat, StatGrid, StatusBadge, Table, Textarea } from '../ui';
+import { Badge, Button, Card, Field, ListRow, Modal, Notice, PageHeader, Select, Stat, StatGrid, StatusBadge, Table, Textarea } from '../ui';
+import { EarningsSkeleton } from '../skeletons';
 import { ConsoleTabs } from './Console';
 
 // Countries where Stripe can pay out to a connected account. The creator picks where their bank is.
@@ -20,7 +21,7 @@ export function Earnings() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
-  if (loading && !data) return <Spinner />;
+  if (loading && !data) return <EarningsSkeleton />;
   const b = data.balance, u = data.user, ready = u.payouts_enabled, enough = b.available >= data.min_cents;
   const pending = data.withdrawals.some((w: any) => w.status === 'pending');
   const setup = () => act('acct', async () => { const r = await api<{ url: string }>('/billing/payout-account', { body: { country } }); location.href = r.url; });
@@ -34,9 +35,9 @@ export function Earnings() {
       <ConsoleTabs on="earnings" />
       <div className="stack l">
         <StatGrid>
-          <Stat icon="coin" tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
-          <Stat icon="clock" label={t('Pending', '待结算')} value={usd(b.pending)} sub={t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days })} />
-          <Stat icon="trophy" label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={t('The platform keeps {cut}% of each sale', '平台从每笔销售中收取 {cut}%', { cut: data.fee_percent })} />
+          <Stat tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
+          <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days })} />
+          <Stat label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={t('The platform keeps {cut}% of each sale', '平台从每笔销售中收取 {cut}%', { cut: data.fee_percent })} />
         </StatGrid>
 
         <div className="cols">
@@ -49,7 +50,7 @@ export function Earnings() {
                     {!enough && !pending && <Notice>{t('You can withdraw once your available balance reaches {min}. You are {available} away.', '可提现余额达到 {min} 后即可提现，还差 {available}。', { min: usd(data.min_cents), available: usd(Math.max(0, data.min_cents - b.available)) })}</Notice>}
                     {data.payments && (ready ? (
                       <div className="row wrapx"><div className="grow"><b>{t('Bank payout through Stripe', '通过 Stripe 提现至银行账户')}</b><div className="mute fs-sm">{t('Your payout account is ready', '收款账户已就绪')}{u.payout_country ? ` · ${u.payout_country}` : ''}</div></div>
-                        <Button variant="primary" data-fx-burst="coins" disabled={!enough || pending || busy === 'wd'} onClick={() => withdraw('stripe')}>{t('Withdraw', '提现')} {usd(b.available)}</Button></div>
+                        <Button variant="primary" disabled={!enough || pending || busy === 'wd'} onClick={() => withdraw('stripe')}>{t('Withdraw', '提现')} {usd(b.available)}</Button></div>
                     ) : (
                       <div className="stack">
                         <b>{u.has_payout_account ? t('Finish setting up your payout account', '完成收款账户设置') : t('Set up a payout account', '设置收款账户')}</b>

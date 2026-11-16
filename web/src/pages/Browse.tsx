@@ -3,7 +3,9 @@
 // as a grid of cards or as a dense list. The same engine (Catalogue) runs the browse page and each category page.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, ApiError, Fail, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, query, t, useLocation, type GameCard } from '../lib';
-import { Button, EmptyState, Spinner } from '../ui';
+import { Button, EmptyState } from '../ui';
+import { SkGrid } from '../skeletons';
+import { Sk } from '../ui/skeleton';
 import { GameRow, Pager, SearchBox, useGenres, type Genre } from '../store';
 
 const PAGE = 30;
@@ -84,7 +86,8 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
                   <input type="checkbox" checked={tags.includes(g.tag)} onChange={() => toggleTag(g.tag)} /><i aria-hidden="true" /><span className="clip">{genreName(g.tag)}</span><small className="num">{num(g.n)}</small>
                 </label>
               ))}
-              {!shownG.length && <span className="dim fs-sm">{t('No genre by that name.', '没有这个类型。')}</span>}
+              {!genres.length && !res && [0, 1, 2, 3, 4, 5].map((k) => <span key={k} className="fl-g" aria-hidden="true"><Sk kind="dot" w={14} h={14} /><Sk w={`${40 + (k * 17) % 36}%`} /></span>)}
+              {!shownG.length && (!!genres.length || !!res) && <span className="dim fs-sm">{t('No genre by that name.', '没有这个类型。')}</span>}
             </div>
             {!gq && glist.length > 12 && <button type="button" className="fl-more" onClick={() => setMoreG(!moreG)}>{moreG ? t('Show fewer', '收起') : t('Show all {n}', '显示全部 {n} 个', { n: glist.length })}</button>}
             {!pinned && <Link to="/categories" className="fl-more">{t('All categories', '全部分类')} →</Link>}
@@ -110,7 +113,7 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
             </div>
           )}
 
-          {error && !res ? <div className="home-empty"><Fail error={error} retry={load} /></div> : !res ? <Spinner /> : res.games.length ? (
+          {error && !res ? <div className="home-empty"><Fail error={error} retry={load} /></div> : !res ? <SkGrid /> : res.games.length ? (
             <div className={busy ? 'cat-res busy' : 'cat-res'}>
               {view === 'list'
                 ? <div className="glist">{res.games.map((g, i) => <GameRow key={g.id} g={g} rank={sort === 'trending' || sort === 'top' || sort === 'played' ? from + i : undefined} />)}</div>

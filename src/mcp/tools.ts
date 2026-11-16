@@ -6,7 +6,7 @@ import { AppError, bad, forbidden, type Env, type User } from '../env';
 import { balanceOf, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import {
-  assetText, checkProject, createProject, defaultImports, deleteFile, getVersion, listFiles, logEvent, ownedProject, publicVersion,
+  assetText, checkProject, createProject, defaultImports, deleteFile, ensureCompat, getVersion, listFiles, logEvent, ownedProject, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
 } from '../projects';
 import { takeOffline, trialStats } from '../routes/api';
@@ -17,6 +17,7 @@ import { gameAnalytics, onlineNow } from '../analytics';
 import { publishGate } from '../originality-check';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
+import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
 
 export interface ToolCtx { env: Env; user: User; origin: string; client: string }
@@ -83,15 +84,56 @@ async function versionReport(c: ToolCtx, p: { id: string; slug: string }, n: num
   const pub = publicVersion(v, c.origin), el = versionEligible(v, s.verify_browser_required);
   // the verifier also measures how finished a game looks; that is the console's business, not a rule agents build to
   if (pub.report && typeof pub.report === 'object') delete (pub.report as Record<string, unknown>).craft;
+  const { compat, ...rest } = pub;
   const running = RUNNING.includes(v.status);
   return {
     ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}). This is normal: it takes one to two minutes. Call list_versions {project, version: ${n}}; it waits for the result. Do not deploy the same files again.` } : {}),
-    ...pub, can_publish: el.ok, eligibility: el.reason,
+    ...rest, can_publish: el.ok, eligibility: el.reason, compatibility: compatSummary(compat),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     next: running ? `Still ${v.status} (${v.stage}). Call list_versions {project, version: ${n}}; it waits up to 40 seconds for the report.`
       : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
         : `Verified. A person can play it on the preview page first. To make it live: publish {project, version: ${n}}.`,
   };
+}
+
+/** The requirements block an agent writes: only what differs from nothing, so it reads like something a person would write. */
+function requirementsBlock(r: Requirements): Record<string, unknown> {
+  const out: Record<string, unknown> = { graphics: r.graphics };
+  if (r.gpu === 'hardware') out.gpu = 'hardware';
+  if (r.features.length) out.features = r.features;
+  if (r.optional.length) out.optional = r.optional;
+  out.input = r.input; out.devices = r.devices;
+  if (r.orientation !== 'any') out.orientation = r.orientation;
+  if (r.memory_gb) out.memory_gb = r.memory_gb;
+  if (Object.keys(r.browsers).length) out.browsers = r.browsers;
+  if (r.known_issues.length) out.known_issues = r.known_issues;
+  if (r.notes) out.notes = r.notes;
+  return out;
+}
+/** How a version's compatibility reads in a tool answer. */
+const compatSummary = (c: Compat | null | undefined) => c ? {
+  declared: c.declared, store_page_shows: describeRequirements(c.requirements), requirements: requirementsBlock(c.requirements),
+  ...(c.declared ? {} : { note: 'Not declared by the creator: the store shows what the platform detected. compatibility {action: "declare"} sets them.' }),
+} : null;
+
+const REQUIREMENTS_SCHEMA = obj({
+  graphics: { type: 'string', enum: [...GRAPHICS], description: 'The weakest graphics API the game still runs with. A WebGPU game with a WebGL 2 fallback is "webgl2" with "webgpu" under optional. three.js r163+ needs "webgl2".' },
+  gpu: { type: 'string', enum: ['any', 'hardware'], description: '"hardware" when the game is unplayable with a software renderer (no GPU acceleration). Default "any".' },
+  features: { type: 'array', items: { type: 'string', enum: [...FEATURE_IDS] }, description: 'Browser features the game cannot run without.' },
+  optional: { type: 'array', items: { type: 'string', enum: [...FEATURE_IDS] }, description: 'Features the game uses when present but works without.' },
+  input: { type: 'array', items: { type: 'string', enum: [...INPUTS] }, description: 'Every way the game can be played; a player needs any one of them.' },
+  devices: { type: 'array', items: { type: 'string', enum: [...DEVICES] }, description: 'Devices the game is made for. "mobile" needs touch controls.' },
+  orientation: { type: 'string', enum: [...ORIENTATIONS] },
+  memory_gb: { type: ['number', 'null'], description: 'Minimum device memory in GB, only for heavy games.' },
+  browsers: { type: 'object', description: `Minimum major version per browser when known, e.g. {"safari": 17}. Browsers: ${BROWSERS.join(', ')}.`, additionalProperties: { type: 'integer' } },
+  known_issues: { type: 'array', maxItems: 12, description: 'Where the game is known not to work well, shown to players there.', items: obj({ browser: { type: 'string', enum: [...BROWSERS] }, os: { type: 'string', enum: [...OSES] }, severity: { type: 'string', enum: ['broken', 'degraded'] }, note: { type: 'string', description: 'One sentence for players, under 200 characters.' } }, ['note']) },
+  notes: { type: 'string', description: 'Anything else players should know, under 300 characters.' },
+});
+
+/** gcp.json in the workspace, parsed, or an empty object. */
+async function workspaceManifest(c: ToolCtx, pid: string): Promise<Record<string, unknown>> {
+  try { const { bytes } = await readFile(c.env, pid, 'gcp.json'); const j = JSON.parse(new TextDecoder().decode(bytes)); return j && typeof j === 'object' && !Array.isArray(j) ? j : {}; }
+  catch (e) { if (e instanceof AppError && e.status === 404) return {}; throw bad('gcp.json in the workspace is not valid JSON.', 'Fix or replace it with upload_files, then call compatibility again.'); }
 }
 
 export const TOOLS: Tool[] = [
@@ -120,6 +162,7 @@ export const TOOLS: Tool[] = [
         workflow: [
           '1. create_project, once per game.',
           '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl.',
+          '2b. compatibility: check what the game needs from the player\'s browser (graphics API, GPU, features, input, devices), then declare it. Players see it on the store page and are told before launch whether their browser can run the game.',
           '3. deploy_preview: static checks, then a new numbered version deployed to its own preview address and checked in a real browser. With dry_run: true it runs only the static checks.',
           '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
           '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover; game_data and game_room manage the game\'s data and multiplayer rooms.',
@@ -131,6 +174,7 @@ export const TOOLS: Tool[] = [
           multiplayer: 'GCP.room(code): a realtime room per code on the platform\'s multiplayer servers, with a host and host migration. game_room inspects or resets one. get_started {topic: "multiplayer"}.',
           server_code: s.allow_server_code ? 'Optional server/index.js runs in the game\'s own Worker and is reached with GCP.server. get_started {topic: "saves"}.' : 'Disabled on this platform.',
           open_implementations: `Learn how other developers' live games were built, when they chose to share it: find_implementations searches them by kind of game, engine or technique and shows the patterns across them; get_implementation {game} returns one card (engine, rendering, input, audio, assets, platform services, loop and performance techniques, structure, verified play-through, summary). ${NEVER_SHARED} To share your own, ask the user, then update_project {open_implementation: true} or publish {open_implementation: true}.`,
+          compatibility: 'Each version carries its requirements: declared in gcp.json "requirements" (compatibility {action: "declare"} writes it), merged with what the platform detects in the code, frozen at deploy_preview. The store page lists them in a Compatibility section and checks the player\'s browser against them before launch. compatibility {action: "check"} shows what was detected and suggests a block.',
           verification_hooks: 'GCP.test.onPlaythrough(fn) lets the verifier play your rules to the end; GCP.test.onTwoPlayers(fn) checks a two-player session. Both optional. get_started {topic: "contract"}.',
         },
         account: await account(c),
@@ -278,6 +322,55 @@ export const TOOLS: Tool[] = [
     run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0) }; },
   },
   {
+    name: 'compatibility', title: 'Declare and check compatibility requirements',
+    description: 'What the game needs from the player\'s browser and device: the weakest graphics API it runs with (canvas, webgl, webgl2, webgpu), whether it needs a hardware GPU, required and optional browser features (WebAssembly, Web Audio, pointer lock…), input methods, devices, orientation, memory, minimum browser versions and known issues. The store page shows them in a Compatibility section and checks each player\'s browser against them before launch, so declare what is true. action "check" (default) scans the workspace and returns what the code shows it uses (with the reason for each item), what gcp.json declares, any problems, and a suggested block. action "declare" validates requirements and writes them into gcp.json "requirements" (fields you pass replace those fields; use_detected: true starts from what was detected); they take effect with the next deploy_preview. With version, returns what that version went out with. Without a declaration, the platform publishes what it detected and says so on the store page.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['check', 'declare'], description: 'Default "check".' },
+      requirements: { ...REQUIREMENTS_SCHEMA, description: 'For "declare": the fields to set.' },
+      use_detected: { type: 'boolean', description: 'For "declare": start from the detected requirements, then apply requirements on top.' },
+      replace: { type: 'boolean', description: 'For "declare": replace the whole declaration instead of only the fields given.' },
+      version: { type: 'integer', description: 'Optional. Show what this version went out with.' },
+    }, ['project']), annotations: { idempotentHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      if (a.version !== undefined && a.version !== null) {
+        const v = await getVersion(c.env, p.id, Number(a.version));
+        if (!v) throw bad(`Version ${a.version} does not exist.`, 'Call list_versions.');
+        return { version: v.n, ...compatSummary(await ensureCompat(c.env, v)) };
+      }
+      const action = a.action || 'check';
+      if (action !== 'check' && action !== 'declare') throw bad('action must be "check" or "declare".');
+      if (action === 'declare') {
+        if (!a.requirements && !a.use_detected) throw bad('Pass requirements, or use_detected: true.', 'Example: {"project": "…", "action": "declare", "requirements": {"graphics": "webgl2", "input": ["keyboard", "mouse", "touch"], "devices": ["desktop", "tablet", "mobile"]}}');
+        const parsed = parseRequirements(a.requirements ?? {});
+        const errors = parsed.issues.filter((i) => i.level === 'error');
+        if (errors.length) throw bad(`requirements: ${errors.map((i) => `${i.field}: ${i.message}${i.hint ? ` (${i.hint})` : ''}`).join(' · ')}`, 'Nothing was written. Fix those fields and call declare again.');
+        const gcp = await workspaceManifest(c, p.id);
+        const before = a.replace ? {} : (gcp.requirements && typeof gcp.requirements === 'object' ? gcp.requirements as Record<string, unknown> : {});
+        const base = a.use_detected ? requirementsBlock((await checkProject(c.env, p, c.origin)).manifest.compat!.detected) : {};
+        const next = { ...before, ...base, ...(a.requirements || {}) };
+        const check = parseRequirements(next);
+        if (check.issues.some((i) => i.level === 'error')) throw bad(`requirements: ${check.issues.filter((i) => i.level === 'error').map((i) => `${i.field}: ${i.message}`).join(' · ')}`, 'Nothing was written. With replace: true the whole declaration is replaced.');
+        await putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify({ ...gcp, requirements: check.value }, null, 2) + '\n'));
+        await logEvent(c.env, p.id, 'requirements', 'Compatibility requirements declared', null, c.client);
+      }
+      const check = await checkProject(c.env, p, c.origin), cp = check.manifest.compat!;
+      const issues = check.compatIssues.map((i) => `${i.level.toUpperCase()} ${i.field}: ${i.message}${i.hint ? `\n  fix: ${i.hint}` : ''}`);
+      return {
+        ...(action === 'declare' ? { written: 'gcp.json', takes_effect: 'with the next deploy_preview' } : {}),
+        declared: cp.declared ? (await workspaceManifest(c, p.id)).requirements ?? null : null,
+        detected: requirementsBlock(cp.detected), evidence: cp.evidence,
+        store_page_will_show: describeRequirements(cp.requirements), download_size_bytes: cp.download_bytes,
+        issues,
+        ...(cp.declared ? {} : { suggested: requirementsBlock(cp.detected) }),
+        next: issues.some((i) => i.startsWith('ERROR')) ? 'Fix the errors, then call compatibility again.'
+          : cp.declared ? 'Declared. Deploy with deploy_preview; the version carries these requirements.'
+            : 'Review the suggested block (correct anything the code scan got wrong, e.g. input it supports, devices, a hardware GPU), then call compatibility {action: "declare", requirements: {…}}.',
+      };
+    },
+  },
+  {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
     description: 'Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after 80 seconds the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile).',
     inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' } }, ['project']),
@@ -338,7 +431,7 @@ export const TOOLS: Tool[] = [
       let q = await ownedProject(c.env, c.user, p.id);
       while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
       const live = q.status === 'live' && q.live_version === v.n;
-      return { live, version: v.n, game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+      return { live, version: v.n, compatibility: compatSummary(await ensureCompat(c.env, v)), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
     },
   },
   {

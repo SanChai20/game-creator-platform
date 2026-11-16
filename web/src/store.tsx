@@ -3,13 +3,14 @@
 // category cartridges, the discovery queue and the pager. Everything here is sized for a catalogue of tens of
 // thousands of games: lists are paged, rows scroll sideways, and nothing assumes a fixed number of games.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
-import { CountUp } from './ui/toon';
+import { CountUp } from './ui/count';
+import { SkHits, SkShelf } from './skeletons';
 import { ago, api, artStyle, blurb, count, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[] }
 const still = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-const hue = (tag?: string) => ({ '--h': tag ? genreHue(tag) : 270 } as CSSProperties);
+const hue = (tag?: string) => ({ '--h': tag ? genreHue(tag) : 350 } as CSSProperties);
 
 // ---- the categories, fetched once per visit -----------------------------------------------------
 let genresCache: Promise<Genre[]> | null = null;
@@ -23,11 +24,10 @@ export function useGenres() {
 }
 
 // ---- section heads ------------------------------------------------------------------------------
-/** A numbered section head: a small index, the title in the brand face, a quiet note, and the way to see more. */
-export function SectionHead({ n, title, note, to, more, children, live }: { n?: string; title: ReactNode; note?: ReactNode; to?: string; more?: ReactNode; children?: ReactNode; live?: boolean }) {
+/** A section head: the title, a quiet note, and the way to see more. (`n` is accepted and not shown: sections are no longer numbered.) */
+export function SectionHead({ title, note, to, more, children, live }: { n?: string; title: ReactNode; note?: ReactNode; to?: string; more?: ReactNode; children?: ReactNode; live?: boolean }) {
   return (
     <header className="sh">
-      {n && <span className="sh-n" aria-hidden="true">{n}</span>}
       <div className="grow"><h2>{live && <i className="live-dot" aria-hidden="true" />}{title}</h2>{note && <p>{note}</p>}</div>
       {children}
       {to && <Link to={to} className="sh-all">{more || t('See all', '查看全部')} <em aria-hidden="true">→</em></Link>}
@@ -41,14 +41,14 @@ export function SectionHead({ n, title, note, to, more, children, live }: { n?: 
  * highlighted game, or the full results on the browse page. "/" focuses it from anywhere.
  */
 export function SearchBox({ initial = '', autoFocus, big, hotkey, onSubmit }: { initial?: string; autoFocus?: boolean; big?: boolean; hotkey?: boolean; onSubmit?: (q: string) => void }) {
-  const [q, setQ] = useState(initial), [hits, setHits] = useState<GameCard[]>([]), [total, setTotal] = useState(0), [open, setOpen] = useState(false), [sel, setSel] = useState(-1);
+  const [q, setQ] = useState(initial), [hits, setHits] = useState<GameCard[]>([]), [total, setTotal] = useState(0), [open, setOpen] = useState(false), [sel, setSel] = useState(-1), [wait, setWait] = useState(false);
   const box = useRef<HTMLInputElement>(null), wrap = useRef<HTMLDivElement>(null), id = useId(), seq = useRef(0);
   useEffect(() => { setQ(initial); }, [initial]);
   useEffect(() => {
-    const s = q.trim(); if (s.length < 2) { setHits([]); setTotal(0); return; }
-    const n = ++seq.current;
+    const s = q.trim(); if (s.length < 2) { setHits([]); setTotal(0); setWait(false); return; }
+    const n = ++seq.current; setWait(true);
     const tm = setTimeout(() => {
-      api<{ games: GameCard[]; total: number }>(`/games?q=${encodeURIComponent(s)}&limit=6&facets=0&sort=played`).then((r) => { if (n === seq.current) { setHits(r.games); setTotal(r.total); setSel(-1); } }, () => {});
+      api<{ games: GameCard[]; total: number }>(`/games?q=${encodeURIComponent(s)}&limit=6&facets=0&sort=played`).then((r) => { if (n === seq.current) { setHits(r.games); setTotal(r.total); setSel(-1); setWait(false); } }, () => { if (n === seq.current) setWait(false); });
     }, 160);
     return () => clearTimeout(tm);
   }, [q]);
@@ -86,7 +86,8 @@ export function SearchBox({ initial = '', autoFocus, big, hotkey, onSubmit }: { 
               <span className="sbox-p">{price(g.price_cents)}</span>
             </Link>
           ))}
-          {!hits.length && <div className="sbox-none">{t('No games match yet.', '暂无匹配的游戏。')}</div>}
+          {!hits.length && wait && <SkHits />}
+          {!hits.length && !wait && <div className="sbox-none">{t('No games match yet.', '暂无匹配的游戏。')}</div>}
           <button type="button" className="sbox-all" onClick={() => go(q.trim())}>{total ? t('See all {total} results', '查看全部 {total} 个结果', { total: num(total) }) : t('Search the whole catalogue', '在全部游戏中搜索')} <em aria-hidden="true">↵</em></button>
         </div>
       )}
@@ -95,7 +96,7 @@ export function SearchBox({ initial = '', autoFocus, big, hotkey, onSubmit }: { 
 }
 
 // ---- the store bar ------------------------------------------------------------------------------
-/** The row under the top bar on every store page: the categories menu, the main lists, the queue and search. */
+/** The row of places under the top bar on every store page: the categories menu, the main lists and the queue. */
 export function StoreBar() {
   const loc = useLocation(), path = loc.split('?')[0], qs = loc.includes('?') ? loc.slice(loc.indexOf('?')) : '';
   const [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null), genres = useGenres();
@@ -116,7 +117,7 @@ export function StoreBar() {
       <div className="wrap">
         <div className="sbar-cats" ref={ref}>
           <button type="button" className={'sbar-btn' + (open ? ' open' : '') + (path.startsWith('/c/') || path === '/categories' ? ' on' : '')} aria-expanded={open} aria-haspopup="true" onClick={() => setOpen(!open)}>
-            <i className="sbar-grid" aria-hidden="true" />{t('Categories', '分类')}<em aria-hidden="true">▾</em>
+            <i className="sbar-grid" aria-hidden="true" />{t('Categories', '分类')}<em className="caret" aria-hidden="true" />
           </button>
           {open && (
             <div className="mega" role="menu">
@@ -135,20 +136,19 @@ export function StoreBar() {
           {links.map(([to, q, l]) => <Link key={to} to={to} className={'sbar-a' + on('/browse', q)}>{l}</Link>)}
           <Link to="/queue" className={'sbar-a' + (path === '/queue' ? ' on' : '')}>{t('Your queue', '探索队列')}</Link>
         </nav>
-        <div className="sbar-search"><SearchBox hotkey /></div>
       </div>
     </div>
   );
 }
 
-// ---- featured carousel --------------------------------------------------------------------------
+// ---- the lead ------------------------------------------------------------------------------------
 /**
- * The home page's lead: a big capsule with its art on the left and the facts on the right, and the other picks
- * underneath. It advances by itself every eight seconds, stops while you hover or focus it, and never moves on
- * its own under reduced motion. The picture is drawn by the GPU layer (data-gl="hero") where that runs.
+ * The home page's lead: one game, large. The block is the shade side of the page; the game's picture is the lit side,
+ * cut in along a slanted edge. The other picks sit underneath as small covers. It advances by itself every eight
+ * seconds, stops while you hover or focus it, and never moves on its own under reduced motion.
  */
 export function Spotlight({ games }: { games: GameCard[] }) {
-  const picks = games.slice(0, 8), [i, setI] = useState(0), [paused, setPaused] = useState(false);
+  const picks = games.slice(0, 6), [i, setI] = useState(0), [paused, setPaused] = useState(false);
   const calm = useMemo(still, []);
   useEffect(() => {
     if (calm || paused || picks.length < 2) return;
@@ -156,39 +156,46 @@ export function Spotlight({ games }: { games: GameCard[] }) {
     return () => clearTimeout(tm);
   }, [i, paused, calm, picks.length]);
   if (!picks.length) return null;
-  const g = picks[Math.min(i, picks.length - 1)], R = RARITY[rarity(g)], step = (d: number) => setI((v) => (v + d + picks.length) % picks.length);
+  const g = picks[Math.min(i, picks.length - 1)], rar = rarity(g), R = RARITY[rar], step = (d: number) => setI((v) => (v + d + picks.length) % picks.length);
+  const to = `/g/${g.slug}`, trial = trialOf(g);
   return (
-    <section className="feat" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)} aria-roledescription={t('carousel', '轮播')} aria-label={t('Featured', '精选推荐')}>
-      <div className="feat-stage">
-        <button type="button" className="feat-arrow l" onClick={() => step(-1)} aria-label={t('Previous', '上一个')}>‹</button>
-        <Link to={`/g/${g.slug}`} className="feat-cap" key={g.id} style={hue(g.tags[0])}>
-          <div className="feat-art" data-gl-host="">
-            {g.cover && <span className="gl-slot" data-gl="hero" data-gl-src={g.cover} aria-hidden="true" />}
-            <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</div>
-            <span className="feat-kind">{g.featured ? t('Featured', '精选') : i === 0 ? t('#1 this week', '本周第一') : t('Trending', '热门')}</span>
-          </div>
-          <div className="feat-info" aria-live={paused ? 'polite' : 'off'}>
-            <div className="feat-tags" style={{ '--rc': R.color } as CSSProperties}><span className="rar" title={rarityHint()}>{R.name()}</span>{g.tags.slice(0, 3).map((x) => <span key={x} className="gtag" style={hue(x)}>{genreName(x)}</span>)}</div>
-            <h3>{g.title}</h3>
-            {blurb(g) && <p className="lede">{blurb(g)}</p>}
-            <dl className="feat-facts">
-              <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
-              <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>
-              <div><dt>{t('Played', '游玩')}</dt><dd className="num">{count(g.plays, 'time', 'times', '次')}{!!g.playing && <span className="live"> · {num(g.playing)} {t('now', '人在线')}</span>}</dd></div>
-            </dl>
-            <div className="feat-buy"><span className="feat-price">{price(g.price_cents)}</span>{!!trialOf(g) && <span className="trial-tag">{trialLabel(trialOf(g))}</span>}<span className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : `▶ ${t('Play free', '免费游玩')}`}</span></div>
-          </div>
-        </Link>
-        <button type="button" className="feat-arrow r" onClick={() => step(1)} aria-label={t('Next', '下一个')}>›</button>
+    <section className="hero ink" style={hue(g.tags[0])} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)} aria-roledescription={t('carousel', '轮播')} aria-label={t('Featured', '精选推荐')}>
+      <Link to={to} className="hero-art" key={'a' + g.id} tabIndex={-1} aria-hidden="true">
+        <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</span>
+      </Link>
+      <div className="hero-body" key={'b' + g.id} aria-live={paused ? 'polite' : 'off'}>
+        <span className="stick">{g.featured ? t('Featured', '精选') : i === 0 ? t('#1 this week', '本周第一') : t('Trending', '热门')}</span>
+        <h2><Link to={to}>{g.title}</Link></h2>
+        {blurb(g) && <p className="lede">{blurb(g)}</p>}
+        <div className="hero-tags" style={{ '--rc': R.color } as CSSProperties}>{rar !== 'common' && <span className="rar" title={rarityHint()}>{R.name()}</span>}{g.tags.slice(0, 3).map((x) => <span key={x} className="gtag" style={hue(x)}>{genreName(x)}</span>)}</div>
+        <dl className="hero-facts">
+          <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
+          <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>
+          <div><dt>{t('Played', '游玩')}</dt><dd className="num">{count(g.plays, 'time', 'times', '次')}{!!g.playing && <span className="live"> · {num(g.playing)} {t('now', '人在线')}</span>}</dd></div>
+        </dl>
+        <div className="hero-buy">
+          <Link to={to} className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : <><i className="play-tri" aria-hidden="true" />{t('Play free', '免费游玩')}</>}</Link>
+          <span className="hero-price">{price(g.price_cents)}</span>
+          {!!trial && <span className="trial-tag">{trialLabel(trial)}</span>}
+        </div>
       </div>
-      <div className="feat-strip" role="tablist" aria-label={t('Featured picks', '精选列表')}>
-        {picks.map((x, k) => (
-          <button key={x.id} role="tab" aria-selected={k === i} aria-label={x.title} className={'feat-dot' + (k === i ? ' on' : '') + (paused || calm ? ' held' : '')} onClick={() => setI(k)}>
-            <span className="thumb" style={x.cover ? undefined : artStyle(x.slug)}>{x.cover && <img src={x.cover} alt="" loading="lazy" />}</span>
-            {k === i && <i className="feat-bar" key={i + (paused ? 'p' : '')} aria-hidden="true" />}
-          </button>
-        ))}
-      </div>
+      {picks.length > 1 && (
+        <div className="hero-picks">
+          <div className="hero-strip" role="tablist" aria-label={t('Featured picks', '精选列表')}>
+            {picks.map((x, k) => (
+              <button key={x.id} role="tab" aria-selected={k === i} aria-label={x.title} className={'hero-pick' + (k === i ? ' on' : '') + (paused || calm ? ' held' : '')} onClick={() => setI(k)}>
+                <span className="thumb" style={x.cover ? undefined : artStyle(x.slug)}>{x.cover && <img src={x.cover} alt="" loading="lazy" />}</span>
+                {k === i && <i className="hero-bar" key={i + (paused ? 'p' : '')} aria-hidden="true" />}
+              </button>
+            ))}
+          </div>
+          <div className="hero-step">
+            <button type="button" onClick={() => step(-1)} aria-label={t('Previous', '上一个')}>‹</button>
+            <span className="num" aria-hidden="true">{String(i + 1).padStart(2, '0')}<em>/{String(picks.length).padStart(2, '0')}</em></span>
+            <button type="button" onClick={() => step(1)} aria-label={t('Next', '下一个')}>›</button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -233,10 +240,9 @@ function Preview({ g }: { g: GameCard }) {
     <Link to={`/g/${g.slug}`} className="tl-prev" key={g.id} style={hue(g.tags[0])}>
       <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" />}</span>
       <span className="tl-prev-b">
-        <span className="feat-tags" style={{ '--rc': R.color } as CSSProperties}><span className="rar">{R.name()}</span></span>
         <b>{g.title}</b>
         {blurb(g) && <span className="mute fs-sm">{blurb(g)}</span>}
-        <span className="row s wrapx">{g.tags.slice(0, 4).map((x) => <i key={x} className="gtag" style={hue(x)}>{genreName(x)}</i>)}</span>
+        <span className="row s wrapx" style={{ '--rc': R.color } as CSSProperties}>{rarity(g) !== 'common' && <span className="rar">{R.name()}</span>}{g.tags.slice(0, 4).map((x) => <i key={x} className="gtag" style={hue(x)}>{genreName(x)}</i>)}</span>
         <span className="tl-prev-v"><Verdict g={g} full /></span>
         <span className="mute fs-sm">{t('by', '作者')} {g.author} · {count(g.plays, 'play', 'plays', '次游玩')}</span>
       </span>
@@ -283,7 +289,7 @@ export function Shelf({ n, title, note, to, games, live, rank, freshSince }: { n
         </div>
       </SectionHead>
       <div className={'shelf-row' + (edge.l ? ' more-l' : '') + (edge.r ? ' more-r' : '')} ref={row} onScroll={check}>
-        {games.map((g, k) => <div className="shelf-cell" key={g.id}>{rank && <span className="rank" aria-hidden="true">{String(k + 1).padStart(2, '0')}</span>}<GameTile g={g} fresh={!!freshSince && !!g.published_at && g.published_at > freshSince} /></div>)}
+        {games.map((g, k) => <div className="shelf-cell" key={g.id}>{rank && <span className="rank" aria-hidden="true">{k + 1}</span>}<GameTile g={g} fresh={!!freshSince && !!g.published_at && g.published_at > freshSince} /></div>)}
       </div>
     </section>
   );
@@ -341,34 +347,36 @@ export function QueueBand({ pool }: { pool: GameCard[] }) {
   if (pool.length < 3) return null;
   const fan = (left.length ? left : pool).slice(0, 3);
   return (
-    <Link to="/queue" className="qband">
+    <Link to="/queue" className="qband ink">
       <span className="qband-fan" aria-hidden="true">{fan.map((g, k) => <span key={g.id} className={'q' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>)}</span>
       <span className="grow">
         <span className="eyebrow sig">{t('Your discovery queue', '你的探索队列')}</span>
         <b>{left.length ? t('{n} games you haven\'t opened yet', '{n} 款你还没打开过的游戏', { n: left.length }) : t('You have seen every pick. New ones arrive daily.', '推荐已全部看完，每天都有新游戏。')}</b>
         <small>{t('One at a time, with the facts that matter. Skip what you do not fancy.', '一次一款，只看重点，不喜欢就跳过。')}</small>
       </span>
-      <span className="btn btn-primary">{t('Start the queue', '开始探索')} →</span>
+      <span className="btn btn-primary">{t('Start the queue', '开始探索')} <em aria-hidden="true">→</em></span>
     </Link>
   );
 }
 
 /** "More like this" for a game page: the same genre, most played first, without the game itself. */
 export function MoreLike({ tag, slug, n }: { tag?: string; slug: string; n?: string }) {
-  const [games, setGames] = useState<GameCard[]>([]);
+  const [games, setGames] = useState<GameCard[] | null>(null);
   useEffect(() => {
-    if (!tag) return;
-    api<{ games: GameCard[] }>(`/games?tag=${encodeURIComponent(tag)}&limit=13&facets=0&sort=played`).then((r) => setGames(r.games.filter((g) => g.slug !== slug).slice(0, 12)), () => {});
+    if (!tag) { setGames([]); return; }
+    api<{ games: GameCard[] }>(`/games?tag=${encodeURIComponent(tag)}&limit=13&facets=0&sort=played`).then((r) => setGames(r.games.filter((g) => g.slug !== slug).slice(0, 12)), () => setGames([]));
   }, [tag, slug]);
+  if (!games) return <SkShelf />;
   return <Shelf n={n} title={t('More {tag} games', '更多{tag}游戏', { tag: genreName(tag || '') })} to={`/c/${encodeURIComponent(tag || '')}`} games={games} />;
 }
 /** "More from this creator" for a game page. */
 export function MoreFrom({ owner, author, slug, n }: { owner?: string; author: string; slug: string; n?: string }) {
-  const [games, setGames] = useState<GameCard[]>([]);
+  const [games, setGames] = useState<GameCard[] | null>(null);
   useEffect(() => {
-    if (!owner) return;
-    api<{ games: GameCard[] }>(`/games?by=${encodeURIComponent(owner)}&limit=13&facets=0&sort=played`).then((r) => setGames(r.games.filter((g) => g.slug !== slug).slice(0, 12)), () => {});
+    if (!owner) { setGames([]); return; }
+    api<{ games: GameCard[] }>(`/games?by=${encodeURIComponent(owner)}&limit=13&facets=0&sort=played`).then((r) => setGames(r.games.filter((g) => g.slug !== slug).slice(0, 12)), () => setGames([]));
   }, [owner, slug]);
+  if (!games) return <SkShelf />;
   return <Shelf n={n} title={t('More from {author}', '{author} 的更多作品', { author })} to={`/browse?by=${encodeURIComponent(owner || '')}&who=${encodeURIComponent(author)}`} games={games} />;
 }
 

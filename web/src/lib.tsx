@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { Button, Notice } from './ui/components';
 import { detectLang, langTag, matchLang, type Lang } from './i18n/langs';
-import { color } from './ui/tokens';
+import { hue as tone } from './ui/tokens';
 // Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
 export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
 
@@ -137,11 +137,11 @@ export function series<T extends { day: string }>(rows: T[], days: number, pick:
   for (let i = days - 1; i >= 0; i--) { const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10), r = by.get(d); out.push({ label: d, value: r ? pick(r) : 0 }); }
   return out;
 }
-/** Deterministic cover art for games that have no screenshot yet, so every card still looks like its own thing. */
+/** Deterministic cover art for games that have no screenshot yet: two flat tones and a sun, so every card still looks like its own thing. */
 export function artStyle(seed: string): CSSProperties {
   let h = 2166136261; for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); } h >>>= 0;
-  const a = h % 360, b = (a + 35 + ((h >> 9) % 90)) % 360, x = 15 + ((h >> 4) % 70), y = 10 + ((h >> 13) % 60);
-  return { background: `radial-gradient(90% 80% at ${x}% ${y}%, hsl(${a} 78% 58% / .95), transparent 62%), radial-gradient(70% 70% at ${100 - x}% ${100 - y}%, hsl(${b} 70% 45% / .8), transparent 65%), linear-gradient(135deg, hsl(${b} 40% 18%), hsl(${a} 45% 9%))` };
+  const a = h % 360, b = (a + 28 + ((h >> 9) % 40)) % 360, x = 18 + ((h >> 4) % 64), y = 22 + ((h >> 13) % 40), cut = 38 + ((h >> 17) % 30), tilt = 100 + ((h >> 21) % 50);
+  return { background: `radial-gradient(circle at ${x}% ${y}%, hsl(${a} 95% 88%) 0 11%, transparent 11.4%), linear-gradient(${tilt}deg, hsl(${a} 78% 62%) 0 ${cut}%, hsl(${b} 62% 44%) ${cut}.3% ${cut + 22}%, hsl(${b} 52% 26%) ${cut + 22}.3%)` };
 }
 export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
 /** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
@@ -154,10 +154,10 @@ export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | '
   return 'common';
 }
 export const RARITY: Record<Rarity, { color: string; foil: number; name: () => string }> = {
-  common: { color: color.text2, foil: 0.1, name: () => t('Common', '普通') },
-  rare: { color: color.cyan, foil: 0.3, name: () => t('Rare', '稀有') },
-  epic: { color: color.violet, foil: 0.6, name: () => t('Epic', '史诗') },
-  legendary: { color: color.gold, foil: 1, name: () => t('Legendary', '传说') },
+  common: { color: 'var(--text-3)', foil: 0.1, name: () => t('Common', '普通') },
+  rare: { color: tone.lilac, foil: 0.3, name: () => t('Rare', '稀有') },
+  epic: { color: 'var(--accent)', foil: 0.6, name: () => t('Epic', '史诗') },
+  legendary: { color: tone.gold, foil: 1, name: () => t('Legendary', '传说') },
 };
 export const rarityHint = () => t('Rarity is earned from ratings and plays.', '稀有度由评分和游玩次数决定。');
 
@@ -189,22 +189,25 @@ export function blurb(g: { title: string; tagline?: string | null }): string {
   return s && norm(s) !== norm(g.title) ? s : '';
 }
 
-/** A game as a card: a notched cartridge with a thin rarity edge. It lifts on hover; nothing else moves. */
+/** A game as a card: the cover, then its name, what players say and the price. The cover lifts off a halftone shadow on hover. */
 export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
-  const rar = rarity(g), genre = g.tags[0];
+  const rar = rarity(g), genre = g.tags[0], trial = trialOf(g);
   return (
-    <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`}>
-      <div className="card-in" style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 270 } as CSSProperties}>
-        <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
-          {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
-          <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}{!!trialOf(g) && <em className="price-trial">{trialLabel(trialOf(g), true)}</em>}</span>
-          {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
-          <span className="play-hint" aria-hidden="true" />
-        </div>
-        <div className="card-body">
-          <div className="card-tag"><span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>{fresh && <span className="new">{t('New', '新上架')}</span>}{!fresh && g.featured && <span className="feat">{t('Featured', '精选')}</span>}{genre && <span className="gen">{genreName(genre)}</span>}</div>
-          <h3 className="clip">{g.title}</h3>
-          <div className="meta"><Verdict g={g} /><span className="right num">{count(g.plays, 'play', 'plays', '次游玩')}</span></div>
+    <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`} style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 350 } as CSSProperties}>
+      <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
+        {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{g.title}</div>}
+        {fresh ? <span className="stick">{t('New', '新上架')}</span> : g.featured ? <span className="stick alt">{t('Featured', '精选')}</span> : null}
+        {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
+        {!!trial && <span className="art-trial">{trialLabel(trial, true)}</span>}
+      </div>
+      <div className="game-b">
+        <h3 className="clip">{g.title}</h3>
+        <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+        <div className="meta">
+          {rar !== 'common' && <span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>}
+          <Verdict g={g} />
+          {genre && <span className="gen">{genreName(genre)}</span>}
+          <span className="num plays">{count(g.plays, 'play', 'plays', '次游玩')}</span>
         </div>
       </div>
     </Link>

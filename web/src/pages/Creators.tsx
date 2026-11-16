@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t, usd, useApp } from '../lib';
-import { Button, Card, Code, Eyebrow, Segmented, Steps } from '../ui';
+import { Button, Card, CelScene, Code, Eyebrow, Segmented, Steps } from '../ui';
 
 /** How to add the MCP server in each agent. The server uses OAuth, so no key is ever pasted anywhere. */
 export function ConnectAgent() {
@@ -39,16 +39,17 @@ export function Creators() {
   const keep = 100 - s.platform_fee_percent;
   return (
     <>
-      <section className="lead"><div className="wrap">
-        <div>
+      <div className="wrap"><section className="lead ink">
+        <CelScene seed={3} />
+        <div className="lead-in">
           <Eyebrow tone="accent">{t('For creators', '面向创作者')}</Eyebrow>
           <h1>{t('Describe a game.', '描述一款游戏，')} <mark>{t('Your agent ships it.', '智能体帮你上线。')}</mark></h1>
           <p>{t('Use the agent you already have. We deploy every version, test it in a real browser and put it in front of players.', '用你已有的智能体。我们负责部署每个版本、在真实浏览器中测试，并把它送到玩家面前。')}</p>
-          <div className="web-only mute">{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。')}</div>
           <div className="row wrapx lead-actions">
-            <Button to={user ? '/console' : '/signup?next=%2Fconsole'} variant="primary" size="lg">{user ? t('Open your console', '打开控制台') : t('Start creating', '开始创作')} →</Button>
+            <Button to={user ? '/console' : '/signup?next=%2Fconsole'} variant="primary" size="lg">{user ? t('Open your console', '打开控制台') : t('Start creating', '开始创作')} <em aria-hidden="true">→</em></Button>
             <Button to="/docs" variant="ghost" size="lg">{t('Read the docs', '阅读文档')}</Button>
           </div>
+          <div className="web-only">{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。')}</div>
         </div>
         <div className="term" aria-label={t('How a game goes live', '游戏上线的过程')}>
           <div className="term-bar"><i /><i /><i /><span>agent — game-creator</span></div>
@@ -61,9 +62,9 @@ export function Creators() {
             <div className="p"><span className="cur" /></div>
           </div>
         </div>
-      </div></section>
+      </section></div>
 
-      <div className="wrap stack xl">
+      <div className="wrap stack xl creators">
         <div className="keys">
           <div><b>1</b><span>{t('prompt from an idea to a live game', '句话，从想法到上线')}</span></div>
           <div><b>0</b><span>{t('human review queues. Verified means live.', '人工审核排队。验证通过即上线。')}</span></div>
@@ -71,7 +72,7 @@ export function Creators() {
         </div>
 
         <section className="stack l">
-          <div className="rule"><em>01</em> {t('How it works', '如何运作')}</div>
+          <h2 className="rule">{t('How it works', '如何运作')}</h2>
           <div className="track">
             <div><h3>{t('Your agent builds it', '智能体创作')}</h3><p>{t('Any engine or none, as long as it runs in a browser.', '任何引擎或不用引擎，只要能在浏览器中运行。')}</p></div>
             <div><h3>{t('A real browser plays it', '真实浏览器试玩')}</h3><p>{t('It must boot, render, take input and throw no errors.', '必须能启动、渲染、响应输入且没有报错。')}</p></div>
@@ -80,10 +81,10 @@ export function Creators() {
         </section>
 
         <section className="stack l">
-          <div className="rule"><em>02</em> {t('Connect your agent', '连接你的智能体')}</div>
+          <h2 className="rule">{t('Connect your agent', '连接你的智能体')}</h2>
           <Card tone="accent" pad>
             <Code text={`claude mcp add --transport http game-creator ${config.mcp_url}`} />
-            <div className="row wrapx"><span className="mute grow wide">{t('Claude, ChatGPT, Codex, Cursor, OpenCode or any MCP client. No API keys: you approve it by signing in.', 'Claude、ChatGPT、Codex、Cursor、OpenCode 或任何 MCP 客户端。无需 API 密钥，登录授权即可。')}</span><Button to="/docs#connect" size="sm">{t('Setup for every agent', '各智能体的设置方法')} →</Button></div>
+            <div className="row wrapx"><span className="mute grow wide">{t('Claude, ChatGPT, Codex, Cursor, OpenCode or any MCP client. No API keys: you approve it by signing in.', 'Claude、ChatGPT、Codex、Cursor、OpenCode 或任何 MCP 客户端。无需 API 密钥，登录授权即可。')}</span><Button to="/docs#connect" size="sm">{t('Setup for every agent', '各智能体的设置方法')} <em aria-hidden="true">→</em></Button></div>
           </Card>
         </section>
       </div>

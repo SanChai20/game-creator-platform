@@ -4,27 +4,42 @@ Everything the platform's pages look like comes from this folder. Pages compose 
 
 | File | What it holds |
 | --- | --- |
-| `tokens.ts` | Colours, chart series colours, fonts, type scale, spacing, radii, shadows, motion, layout widths, z-index. Emitted as CSS custom properties (`TOKENS_CSS`). The web app injects it at start-up and the Worker inlines it into the server-rendered consent page, so both always match. |
+| `tokens.ts` | Colours for both themes, chart series colours, fonts, type scale, spacing, radii, shadows, motion, layout widths, z-index. Emitted as CSS custom properties (`TOKENS_CSS`). The web app injects it at start-up and the Worker inlines it into the server-rendered consent page, so both always match. |
 | `ui.css` | Base styles and every component's styles, using only `var(--…)` tokens. |
 | `components.tsx` | The React components. |
-| `../styles.css` | Page layouts only (top bar, billboard, creators terminal, docs, game page, console grids). |
+| `theme.ts` | Day and night: follows the system until the visitor picks one (`gcp.theme` in local storage), applied as `data-theme` on `<html>`. |
+| `icons.tsx`, `count.tsx` | The few line icons the shell uses, and `CountUp` for figures. |
+| `fx/` | The one rendered scene (`CelScene`) and the rules for when it may run. |
+| `../app.css` | The shell (top bar, phone tab bar, footer) and the pages outside the store. |
+| `../store.css` | The store: search, shelves, categories, the catalogue, the queue and the game page. |
 
-Fonts (Oxanium for titles and figures, IBM Plex Sans for text, Martian Mono for labels and code; all OFL) are self-hosted from `web/public/fonts/`. Chinese text falls back to the system CJK fonts.
+Fonts (Bricolage Grotesque for titles, figures and labels; Geist for text; Geist Mono for code; all OFL) are self-hosted from `web/public/fonts/`. Chinese, Japanese and Korean text falls back to the system CJK fonts.
 
 ## The look
 
-A game cabinet's HUD after dark: violet-black ink, acid lime (`--accent`) for the one thing to do on a screen, and a soft lime glow (`--shadow-pop`) under the primary action, which lifts a pixel on hover and settles when pressed. Raised panels (menus, dialogs) use `--shadow-pop-lg`. Page titles are set in the wide brand face (`--font-brand`); section heads, card titles and figures use the display face. Small labels are mono and upper case, surfaces are flat panels with hairline borders, figures sit in joined strips (`StatGrid`), and `<mark>` (or `.hl`) sets the one phrase that matters most in lime. Keep pages short: details belong on `/docs`.
+"Cel": the page is shaded the way a toon renderer shades a model. Two tones and a hard edge: **paper** is the lit side, **ink** (any block with the `.ink` class, which re-points the same token names at the ink tones) is the shade side, and **flare** (`--accent`) is the one hot colour, kept for the thing to do and the thing that is live. Where one tone meets another it does so through a slanted cut or a halftone screen (`--dots`), never a soft glow. There are two themes, day and night; `.ink` blocks look the same in both.
 
-## Effects (`fx/`) and the cartoon game UI (`game.css`, `toon.tsx`)
+The structure is a web platform's: a top bar with search, sections, a sidebar of filters, cards, tables. The pieces inside it take their shapes from current stylized games, and that is the rule for anything new:
 
-Effects are on by default. The look is stylized cartoon on top of the site's neon palette: cel-shaded props with thick outlines, glossy buttons with a lip that squash when pressed, springy cards, star, coin and confetti bursts. Cartoon was chosen over pixel art because it is the broadest-reaching game style (it dominates casual games and appears in every top-grossing genre), while pixel art reads as a niche, nostalgic choice.
+- **Slabs.** Buttons, chips, tabs and segmented controls are a straight label on a slanted plate (`--skew`). The plate is a pseudo-element, so text, hit area and focus ring stay square. The primary action is flare with a hard-edged shade facet that slides on hover and an echo plate behind it.
+- **Capitals.** Titles, labels, buttons and figures are Bricolage Grotesque, condensed, heavy and upper case. Running text is Geist in sentence case.
+- **Menu headings.** A section opens with a title over a rule that has a lit, slanted segment (`.section-h`, `.sh`); a panel title carries a slanted pip.
+- **HUD readouts.** Figures (`Stat`, the store's counters) are a lit tick, a small label, a heavy number and a halftone corner. Bars that show a share are segmented meters.
+- **Selection.** A game cover lifts off a halftone shadow and four corner brackets close in on it; rows and menu items light a marker on their leading edge.
+- **Loot labels.** Rarity is a diamond pip in the tier's colour, prices are slanted shop tags, "what players think" carries signal bars, small states are slanted stickers (`.stick`, `Badge`).
+- **Genre colour.** Every category has a hue (`--h`), used as a flat facet on an ink tile and in its tags.
 
-- **World behind the page** (`fx/world3d.ts`, Three.js, loaded as its own chunk after first paint): a banded cartoon sky with an instanced star field, a cel-shaded ringed planet, and props that pop in with an elastic scale. The store gets gems, coins, clouds and a gamepad; the creator pages (console, docs, creators, admin) get gears, toy blocks and a blueprint floor. Everything is generated in code: toon materials (`MeshToonMaterial` with a generated ramp, extended through `onBeforeCompile` with a rim light), inverted-hull outlines, `DataTexture`s computed from seeded noise, and meshes built from vertices or composed from primitives. Props stay in the margins beside the content column and fade where they pass behind text. On the full tier there is a light bloom, and the billboard and game posters are drawn as GPU surfaces (`data-gl="hero" | "poster"`, `data-gl-host` on a covering ancestor) with a glossy sweep on hover.
-- **Fallback world** (`fx/world2d.ts`): the same scene painted once with Canvas 2D, for browsers without a usable WebGL 2.
-- **Particle overlay** (`fx/overlay.ts`): a Canvas 2D layer above the page that never takes a click. Primary buttons, tabs and anything with `data-fx-burst="stars|coins|confetti|sparkle|hearts|gems"` burst when pressed; cards, categories and console rows twinkle while hovered; code can call `fxBurst(elementOrPoint, kind)`. It only runs a frame loop while particles are alive. Sprites are drawn in code (`fx/sprites.ts`).
-- **Game UI** (`game.css`, `toon.tsx`): `ToonIcon` (inline SVG icons in the same cel style), `CountUp` (figures roll up like a score; `Stat` uses it and takes an `icon`), achievement-style toasts, springy hover and press states. All motion sits inside `prefers-reduced-motion: no-preference`.
+Motion is small and tied to the pointer: a plate slides, a cover lifts, a marker grows. Nothing moves on its own beside the content. Keep pages short: details belong on `/docs`.
 
-Tiers (`fx/gl.ts`), decided once per page and again when the footer switch or the motion preference changes: **full** (WebGL 2 on a real GPU, desktop), **lite** (phones, weak devices, Save-Data: low resolution, 30 fps, fewer props, no bloom or GPU surfaces), **basic** (no WebGL 2, as on WebGL 1-only devices and old Safari or Android browsers, a software renderer, a failing driver: the Canvas 2D world plus the overlay), **still** (reduced motion: one frame, no particles), **off** (the footer switch, or no canvas at all). A failure at any point (the chunk will not load, a shader will not compile, a lost context) is remembered for the session and drops to basic; the page itself never depends on the layer. The world pauses in hidden tabs and steps down when frames run long. `localStorage.fx = 'force'` skips the GPU checks for testing; `__fx.plan` says which tier was chosen and why, and `__fx.stats` shows fps, CPU time and draw calls.
+## Effects (`fx/`)
+
+One effect: `CelScene`, a dusk landscape drawn by a WebGL 2 fragment shader in flat bands with a halftone sun and rim-lit ridges. It only appears inside large ink blocks (the creators lead, the home page pitch, sign-in, not found), never behind or beside content. Underneath it is the same picture painted in CSS (`.scene` in `ui.css`), which is what shows until the canvas is ready and whenever it is not used.
+
+Tiers (`fx/gl.ts`): **live** (WebGL 2: the shader animates slowly), **still** (reduced motion, Save-Data: one frame), **off** (the footer's Effects switch, no WebGL 2, or a failure, which is remembered for the session: the CSS painting). The page never depends on the canvas.
+
+## Loading (`skeleton.tsx`, `../skeletons.tsx`)
+
+Nothing that waits on the network shows a spinner. `skeleton.tsx` has the pieces (`Sk`, `SkText`, `SkStats`, `SkCard`, `SkRows`, `SkTable`, `SkBars`, inside a `Skeleton` frame that announces "Loading" once); `../skeletons.tsx` composes them into the outline of each page with the page's own layout classes, so content lands where its outline was. `RouteSkeleton` picks the outline for a path and `AppSkeleton` adds the top bar's, for the moment before the app has its session. Parts that load on their own (search results, shelves, a player's progress, connected agents, filter lists) carry their own outline, and a picture shows the same sheen until it arrives. A new page that loads data returns its skeleton while `loading && !data`. With reduced motion the sheen stands still.
 
 ## The store (`../store.tsx`, `../store.css`)
 
@@ -61,7 +76,7 @@ Return visits are kept in this browser only. `lastVisit()`, `recentPlays()` and 
 
 ## Tokens
 
-CSS names are the TypeScript keys in kebab case: `color.accentWash` is `var(--accent-wash)`, `space[4]` is `var(--sp-4)`, `size['3xl']` is `var(--fs-3xl)`, `radius.lg` is `var(--r-lg)`. A few composites are added: `--grad-accent`, `--grad-surface`, `--grad-text`.
+CSS names are the TypeScript keys in kebab case: `color.accentWash` is `var(--accent-wash)`, `space[4]` is `var(--sp-4)`, `size['3xl']` is `var(--fs-3xl)`, `radius.lg` is `var(--r-lg)`. Each colour also has an `-rgb` form for use at any opacity: `rgb(var(--accent-rgb) / .3)`.
 
 For charts, import `chart` from `ui/tokens`: `chart.series` is the ordered series palette, plus `grid`, `axis`, `label` and `empty`.
 
@@ -71,7 +86,7 @@ Import from `web/src/ui` (`import { Card, Stat } from '../ui'`).
 
 - **Actions:** `Button` (`variant` primary · secondary · ghost · danger, `size` sm · md · lg, `to` for an app link, `href` for a plain link, `block`), `PlayButton`.
 - **Layout:** `PageHeader` (eyebrow or `back`, title, `badge`, `sub`, `actions`), `Section`, `Card` (`title`, `aside`, `actions`, `pad`, `tone="accent"`), `ListRow`, `Tabs`.
-- **Data:** `StatGrid` + `Stat` (`tone="accent"`, `to`), `KeyValue`, `Table` (use `className="n"` on numeric cells), `Bars`, `ChartBlock`, `CheckRow`.
+- **Data:** `StatGrid` + `Stat` (`tone="accent"`, `to`), `CountUp`, `KeyValue`, `Table` (use `className="n"` on numeric cells), `Bars`, `ChartBlock`, `CheckRow`.
 - **Labels:** `Badge` (`tone` good · bad · accent · info · neutral, `dot`), `StatusBadge`, `Eyebrow`, `Chip`.
 - **Feedback:** `Notice` (`tone`, `title`, `actions`), `EmptyState`, `Spinner`, `Modal`, `Code` (with copy).
 - **Forms:** `Field`, `Input` (`mono`), `Select`, `Textarea`, `Switch`, `SearchInput`, `Segmented`.
