@@ -369,7 +369,11 @@ select.input option { background: var(--surface); color: var(--text); }
 .sk-stack { display: grid; gap: 14px; align-content: start; justify-items: start; min-width: 0; width: 100%; }
 .sk-tabs { gap: 12px; padding-bottom: 10px; }
 .sk-stat::after { display: none; }
-.sk-bars > .sk { animation-duration: 1.5s; border-radius: 1px 1px 0 0; }
+/* A chart skeleton is a .bars row: it fills its panel (skeleton stacks align their children to the start, which
+   squeezed it to 30 hairlines) and its bars keep the skeleton tone instead of the real chart's accent colour. */
+.bars.sk-bars { width: 100%; justify-self: stretch; align-self: stretch; }
+.bars.sk-bars > .sk { flex: 1 1 0; background-color: rgb(var(--text-rgb) / .09); border-radius: 1px 1px 0 0; }
+.bars.sk-bars > .sk:hover { background-color: rgb(var(--text-rgb) / .09); }
 .skel .list-main { gap: 9px; }
 .skel .card > header { min-height: 51px; }
 /* a picture that has not arrived shows the same sheen where it will be */
