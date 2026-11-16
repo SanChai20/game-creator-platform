@@ -134,6 +134,8 @@ npx wrangler secret put SESSION_SECRET     # and the other secrets above
 npm run deploy              # build the web app and deploy the Worker
 ```
 
+Game Workers are standard Workers today (`DEPLOY_DRIVER=cloudflare`). The code is ready to move them to a Workers for Platforms dispatch namespace with a configuration change (`DEPLOY_DRIVER=dispatch`, plus a dispatch Worker and an outbound Worker in `dispatcher/` and `outbound/`); the steps are in [docs/workers-for-platforms.md](docs/workers-for-platforms.md).
+
 To check a deployment end to end (sign-up, OAuth, MCP, a real game Worker and browser verification for each template) without touching the admin claim:
 
 ```sh

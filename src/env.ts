@@ -10,7 +10,12 @@ export interface Env {
   BROWSER?: Fetcher;
   AI?: Ai;                          // Workers AI: plain-language summaries of open implementations
   OAUTH_PROVIDER: OAuthHelpers;
-  DEPLOY_DRIVER: string;            // cloudflare | local
+  DEPLOY_DRIVER: string;            // cloudflare | dispatch | local (src/hosting.ts)
+  DISPATCHER?: DispatchNamespace;   // Workers for Platforms: the dispatch namespace games are deployed to (driver "dispatch")
+  DISPATCH_NAMESPACE?: string;      // its name, for the upload API
+  GAME_HOST?: string;               // games are served at <script>.<GAME_HOST> (needed for "dispatch"; optional otherwise)
+  GAME_OUTBOUND?: string;           // set when the DISPATCHER binding has the outbound Worker (outbound/wrangler.jsonc)
+  GAME_ZONE_ID?: string;            // zone of GAME_HOST, for per-script routes while games are still standard Workers
   GAMES_BUCKET: string;
   STRIPE_API_BASE: string;
   SESSION_SECRET: string;

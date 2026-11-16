@@ -63,6 +63,10 @@ export const SETTING_DEFS = {
   open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },
   open_impl_ai_daily: { v: 200, type: 'int', group: 'Open implementation', label: 'Most AI summaries written per day (the rest use the rule-based summary)' },
 
+  game_cpu_ms: { v: 0, type: 'int', group: 'Game Workers', label: 'CPU time a game Worker may use per request, in milliseconds (0: the Cloudflare default, 30000; at most 300000)', public: true },
+  game_subrequests: { v: 0, type: 'int', group: 'Game Workers', label: 'Outgoing requests a game Worker may make per request, including its calls to the platform (0: the Cloudflare default, 10000)', public: true },
+  game_blocked_hosts: { v: '', type: 'text', group: 'Game Workers', label: 'Hosts game server code may not call, comma-separated (enforced by the outbound Worker once games run on Workers for Platforms)' },
+
   oauth_access_ttl_s: { v: 3600, type: 'int', group: 'Agent access (OAuth)', label: 'Access token lifetime (seconds)' },
   oauth_grant_ttl_s: { v: 30 * 86400, type: 'int', group: 'Agent access (OAuth)', label: 'Authorization lifetime before the agent must be re-approved (seconds)' },
 } as const;
