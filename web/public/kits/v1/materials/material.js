@@ -176,11 +176,22 @@ const SETS = new Map(), MATS = new Map();
 // bases that cover large areas: these hide their repeat by blending a second, turned copy of the texture
 const GROUND = new Set(['concrete', 'asphalt', 'grass', 'dirt', 'mud', 'sand', 'gravel', 'rock', 'snow', 'ice', 'moss', 'forest', 'cobble', 'plaster', 'lava']);
 const sizeFor = (st, size) => size || (st && st.software ? 256 : st && st.quality === 'low' ? 256 : st && st.quality === 'high' ? 1024 : 512);
-function rendererFor(opts) { const st = opts.stage || currentStage(); return opts.renderer || (st && st.renderer) || privateRenderer(); }
+let OWN = null, warned = false;
+/**
+ * Without craft's createStage: name the THREE.WebGLRenderer that draws your scene, once, before the first material()
+ * or model(). Textures are painted on that renderer's GPU and can only be drawn by it; with createStage nothing is needed.
+ * Example: const renderer = new THREE.WebGLRenderer(); useRenderer(renderer);
+ */
+export function useRenderer(renderer) { OWN = renderer || null; }
+function rendererFor(opts, drawn) {
+  const st = opts.stage || currentStage(), r = opts.renderer || (st && st.renderer) || OWN;
+  if (!r && drawn && !warned) { warned = true; console.warn('@gcp/materials.js: no renderer known, so textures are painted on a private one and draw black in your scene. Call useRenderer(renderer) first, or use createStage from @gcp/craft.js.'); }
+  return r || privateRenderer();
+}
 
 /** The baked textures of a recipe (cached): { albedo, orm, normal, tile, size }. For your own materials or shaders. */
 export function materialTextures(recipe, opts = {}) {
-  const spec = resolveRecipe(recipe), st = opts.stage || currentStage(), renderer = rendererFor(opts), size = sizeFor(st, opts.size), key = bakeKey(spec, size);
+  const spec = resolveRecipe(recipe), st = opts.stage || currentStage(), renderer = rendererFor(opts, true), size = sizeFor(st, opts.size), key = bakeKey(spec, size);
   let set = SETS.get(key);
   if (!set || set.renderer !== renderer) { set = { ...bakeTextures(renderer, spec, size), renderer, spec }; SETS.set(key, set); }
   return set;

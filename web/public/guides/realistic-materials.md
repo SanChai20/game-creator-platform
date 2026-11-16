@@ -75,7 +75,7 @@ stage.run((dt) => { /* your game */ });
 
 ## Models
 
-`model(name, options)` returns a kind: `place(kind, x, y, z, { rotY, scale })` puts one in the world, `scatter()` places many, and `toGroup(kind)` gives a plain `THREE.Group` for a scene without craft. Options: `seed` (another copy: other boards, another colour) and the model's own (`length`, `width`, `color`, `text`, …; `get_block model` lists them). `kind.size` is the bounding box and `kind.colliders` the boxes to collide with.
+`model(name, options)` returns a kind: `place(kind, x, y, z, { rotY, scale })` puts one in the world, `scatter()` places many, and `toGroup(kind)` gives a plain `THREE.Group` for a scene without craft. In a scene without craft, call `useRenderer(renderer)` once before the first `material()` or `model()`: the textures are painted on that renderer's GPU, and another renderer draws them black. Options: `seed` (another copy: other boards, another colour) and the model's own (`length`, `width`, `color`, `text`, …; `get_block model` lists them). `kind.size` is the bounding box and `kind.colliders` the boxes to collide with.
 
 `parts()` builds your own. Every size and position is in metres, y is up, and a model usually stands on y = 0.
 
