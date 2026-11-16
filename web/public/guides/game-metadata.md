@@ -197,7 +197,7 @@ The platform gives every game an age rating from what the creator declares about
 | `drugs` | `false`, `true` | Drug, alcohol or tobacco use or references. |
 | `gambling` | `none`, `simulated` | Casino-style play with in-game currency. Real-money gambling is not allowed. |
 | `flashing_lights` | `false`, `true` | Rapid flashing lights or patterns. Shows a photosensitivity warning. Does not change the rating. |
-| `player_chat` | `false`, `true` | Players can send each other free text. Shown on the page. Does not change the rating. |
+| `player_chat` | `false`, `true` | Players can send each other free text. Shown on the page. Does not change the rating. A multiplayer game is warned when its code mentions chat and has a field for free text; short fields such as a room code or a name do not count. |
 | `adult_themes` | `false`, `true` | Themes meant only for adults that the descriptors above do not cover: drug use shown on screen, torture, self-harm depicted. |
 
 Descriptors left out count as `none` or `false`, so `"content": {}` declares a game with none of these. The rating is the highest band any descriptor reaches:
@@ -248,7 +248,7 @@ How long a typical sitting lasts, in minutes, 1 to 600. Shown as a bucket: under
 - `leaderboards`: the game posts scores with `GCP.leaderboard`.
 - `offline`: the game keeps working with no connection once it has loaded (it makes no network calls after loading).
 
-The platform detects all three from the code. Declaring them is optional; a declaration that disagrees with the code is reported as a warning.
+The platform detects all three from the code, including when the game reaches the SDK under another name (`const sdk = window.GCP; sdk.save.set(…)`, or `const { save } = GCP`). Declaring them is optional; a declaration that disagrees with the code is reported as a warning.
 
 ## Accessibility
 

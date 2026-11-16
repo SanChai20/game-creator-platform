@@ -139,3 +139,23 @@ test('adults-only games: what reaches 18+ and why', () => {
   const issues = []; parseContent({ sexual: 'hardcore' }, issues);
   assert.match(issues[0].message, /none, suggestive, nudity, explicit/);
 });
+
+test('services are found through aliases of the SDK, and only a free-text field counts as chat', () => {
+  const meta = { players: { min: 1, max: 4, modes: ['single', 'co-op'] }, content: {}, progress: { cloud_saves: true, leaderboards: true } };
+  const aliased = {
+    'index.html': '<html lang="en"><input id="code" maxlength="4" placeholder="ROOM"><button id="chat-toggle">Join</button><script src="g.js"></script></html>',
+    'g.js': 'const GCPx = window.GCP; GCPx.save.get("slot"); GCPx.save.set("slot", 1); GCPx.leaderboard.submit("best", 3); const room = GCPx.room("lobby"); room.onChat = 0;',
+  };
+  const a = buildMeta(meta, aliased, Object.keys(aliased));
+  assert.deepEqual(a.record.detected.progress, { cloud_saves: true, leaderboards: true, offline: false });
+  assert.equal(a.record.detected.multiplayer, true);
+  assert.deepEqual(a.issues.filter((i) => i.level === 'warning' && !i.field.startsWith('languages')).map((i) => i.field), []);
+  for (const code of ['const sdk = GCP; sdk?.save.set("a", 1);', 'const { save, leaderboard: lb } = window.GCP;', 'let api; api = globalThis.GCP; api["save"].set("a", 1);'])
+    assert.equal(buildMeta({}, { 'g.js': code }, ['g.js']).record.detected.progress.cloud_saves, true, code);
+  assert.equal(buildMeta({}, { 'g.js': 'const save = GCP.version; mySave.set(1); GCPS.save.set(1);' }, ['g.js']).record.detected.progress.cloud_saves, false);
+  // a real chat box still warns
+  const chat = { 'index.html': '<input id="msg" placeholder="Say something"><script src="g.js"></script>', 'g.js': 'const r = GCP.room("x"); function sendChat(t) { r.send({ chat: t }); }' };
+  assert.ok(buildMeta(meta, chat, Object.keys(chat)).issues.some((i) => i.field === 'content.player_chat'));
+  const made = { 'g.js': 'const r = GCP.room("x"); const box = document.createElement("textarea"); box.onkeydown = () => r.send({ chat: box.value });' };
+  assert.ok(buildMeta(meta, made, ['g.js']).issues.some((i) => i.field === 'content.player_chat'));
+});
