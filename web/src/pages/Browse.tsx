@@ -6,6 +6,7 @@ import { api, ApiError, Fail, GameTile, genreHue, genreName, lastVisit, Link, na
 import { Button, EmptyState } from '../ui';
 import { SkGrid } from '../skeletons';
 import { Sk } from '../ui/skeleton';
+import { Icon } from '../ui/icons';
 import { GameRow, Pager, SearchBox, useGenres, type Genre } from '../store';
 
 const PAGE = 30;
@@ -102,8 +103,8 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
               <select className="input" value={sort} onChange={(e) => set({ sort: e.target.value === 'trending' ? null : e.target.value })}>{sorts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
             </label>
             <div className="seg cat-view" role="group" aria-label={t('View', '视图')}>
-              <button type="button" className={view === 'grid' ? 'on' : ''} aria-pressed={view === 'grid'} onClick={() => set({ view: null })} title={t('Cards', '卡片')}>▦</button>
-              <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => set({ view: 'list' })} title={t('List', '列表')}>☰</button>
+              <button type="button" className={view === 'grid' ? 'on' : ''} aria-pressed={view === 'grid'} onClick={() => set({ view: null })} title={t('Cards', '卡片')} aria-label={t('Cards', '卡片')}><Icon kind="grid" /></button>
+              <button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => set({ view: 'list' })} title={t('List', '列表')} aria-label={t('List', '列表')}><Icon kind="list" /></button>
             </div>
           </div>
           {active.length > 0 && (

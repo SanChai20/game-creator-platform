@@ -1,6 +1,7 @@
 // The component kit. Pages compose these instead of writing their own markup and inline styles, so a change
 // to how a button, card, stat or table looks is made once, here and in ui.css.
-import { useEffect, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, t } from '../lib';
 import { CountUp } from './count';
 
@@ -156,8 +157,17 @@ export function EmptyState({ title, children, action, compact }: { title: ReactN
 export const Spinner = () => <div className="spinner" role="status" aria-label={t('Loading', '加载中')} />;
 
 export function Modal({ children, onClose, wide }: { children: ReactNode; onClose: () => void; wide?: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [onClose]);
-  return <div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" className={wide ? 'wide' : ''}>{children}</div></div>;
+  // Open in front of the person, wherever they had scrolled: the page behind stops scrolling, focus moves into the
+  // dialog and returns to what opened it on close.
+  useEffect(() => {
+    const back = document.activeElement as HTMLElement | null, html = document.documentElement, was = html.style.overflow;
+    html.style.overflow = 'hidden'; box.current?.focus({ preventScroll: true });
+    return () => { html.style.overflow = was; back?.focus?.({ preventScroll: true }); };
+  }, []);
+  // Rendered into <body> so no transformed or filtered ancestor can capture its position: fixed.
+  return createPortal(<div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" tabIndex={-1} ref={box} className={wide ? 'wide' : ''}>{children}</div></div>, document.body);
 }
 
 export function Code({ text }: { text: string }) {
@@ -183,7 +193,15 @@ export function Segmented<T extends string>({ options, value, onChange, wrap, la
 
 /** Page-level navigation between sibling views (console tabs, admin tabs). */
 export function Tabs({ items, active }: { items: { key: string; to: string; label: ReactNode }[]; active: string }) {
-  return <nav className="tabs">{items.map((i) => <Link key={i.key} to={i.to} className={active === i.key ? 'on' : ''}>{i.label}</Link>)}</nav>;
+  // On a narrow screen the tab row scrolls sideways: keep the current tab in sight.
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = ref.current, on = nav?.querySelector<HTMLElement>('a.on');
+    if (!nav || !on || nav.scrollWidth <= nav.clientWidth) return;
+    const a = on.getBoundingClientRect(), n = nav.getBoundingClientRect();
+    nav.scrollLeft += a.left - n.left - (n.width - a.width) / 2;
+  }, [active]);
+  return <nav className="tabs" ref={ref}>{items.map((i) => <Link key={i.key} to={i.to} className={active === i.key ? 'on' : ''}>{i.label}</Link>)}</nav>;
 }
 
 export function Chip({ active, onClick, to, children }: { active?: boolean; onClick?: () => void; to?: string; children: ReactNode }) {

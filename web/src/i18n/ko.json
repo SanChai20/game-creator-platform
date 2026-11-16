@@ -928,5 +928,11 @@
  "Light": "라이트",
  "Switch theme": "테마 전환",
  "Theme": "테마",
- "Main": "메인"
+ "Main": "메인",
+ "1 minute free, then {price} to keep playing.": "1분은 무료, 이후 {price}에 계속 플레이할 수 있습니다.",
+ "Under a minute of your free minute left.": "무료 1분이 곧 끝납니다.",
+ "1 minute before buying": "구매 전 1분 플레이 가능",
+ "Sales clear after 1 day": "판매 수익은 1일 후 확정됩니다",
+ "1 game you haven't opened yet": "아직 열어 보지 않은 게임 1개",
+ "Games you have not opened yet, one at a time.": "아직 열어 보지 않은 게임을 하나씩 보여 줍니다."
 }

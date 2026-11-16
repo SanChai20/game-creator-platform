@@ -351,7 +351,7 @@ export function QueueBand({ pool }: { pool: GameCard[] }) {
       <span className="qband-fan" aria-hidden="true">{fan.map((g, k) => <span key={g.id} className={'q' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>)}</span>
       <span className="grow">
         <span className="eyebrow sig">{t('Your discovery queue', '你的探索队列')}</span>
-        <b>{left.length ? t('{n} games you haven\'t opened yet', '{n} 款你还没打开过的游戏', { n: left.length }) : t('You have seen every pick. New ones arrive daily.', '推荐已全部看完，每天都有新游戏。')}</b>
+        <b>{left.length ? (left.length === 1 ? t('1 game you haven\'t opened yet', '1 款你还没打开过的游戏') : t('{n} games you haven\'t opened yet', '{n} 款你还没打开过的游戏', { n: left.length })) : t('You have seen every pick. New ones arrive daily.', '推荐已全部看完，每天都有新游戏。')}</b>
         <small>{t('One at a time, with the facts that matter. Skip what you do not fancy.', '一次一款，只看重点，不喜欢就跳过。')}</small>
       </span>
       <span className="btn btn-primary">{t('Start the queue', '开始探索')} <em aria-hidden="true">→</em></span>
