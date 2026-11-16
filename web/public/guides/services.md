@@ -193,7 +193,7 @@ Limits (defaults): play-through 30 seconds and 60 steps. WebGPU-only games are v
 
 ## Publish checks
 
-Before a verified version goes live it is compared with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and common libraries ignored), checked for harmful content and abusive code, and confirmed to be a web game. Workers AI decision models review only borderline cases. `publish` says which check refused a version and how to fix it.
+Before a verified version goes live it is compared with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and common libraries ignored), checked for content and abusive code, and confirmed to be a web game. Workers AI decision models review only borderline copies; every version's content is reviewed from frames taken while the verification browser plays it. Adult games (sexual content, graphic violence, other mature themes) are allowed when `content` declares them: they are listed as 18+ with a blurred cover, and players confirm a warning before they start. Undeclared sexual content or realistic violence fails the review (`get_started {topic: "metadata"}`). `publish` says which check refused a version and how to fix it.
 
 ## Marketplace, payments and payouts
 

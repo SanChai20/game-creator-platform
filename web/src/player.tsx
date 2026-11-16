@@ -69,8 +69,10 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, orientation = 'any', badge, ctl }: {
+export function Stage({ poster, seed, url, children, onTrialOver, orientation = 'any', badge, ctl, blur }: {
   poster: string | null; seed: string; url: string | null; children?: ReactNode; onTrialOver?: () => void;
+  /** Blur the poster: an adults-only game before the player has confirmed its warning. */
+  blur?: boolean;
   /** The orientation the game declared (requirements.orientation). */
   orientation?: Orientation;
   /** Shown beside the exit button while the stage fills the screen (the free-trial clock). */
@@ -153,7 +155,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
     <div>
       <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '')} ref={box}>
         {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" allowFullScreen /> : (
-          <><div className="poster" style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
+          <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
         {active && (corner !== 'none' || badge) && (
           <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner)}>

@@ -53,36 +53,61 @@ export interface Progress { cloud_saves: boolean; leaderboards: boolean; offline
 export const ACCESSIBILITY = ['remappable-controls', 'colorblind-modes', 'subtitles', 'adjustable-difficulty', 'reduced-motion', 'scalable-text', 'one-handed', 'pause-anytime', 'no-time-pressure', 'visual-sound-cues'] as const;
 export type Access = typeof ACCESSIBILITY[number];
 export interface Content {
-  violence: 'none' | 'cartoon' | 'fantasy' | 'realistic';
+  violence: 'none' | 'cartoon' | 'fantasy' | 'realistic' | 'graphic';
   blood: boolean;
   language: 'none' | 'mild' | 'strong';
   fear: 'none' | 'mild' | 'intense';
-  sexual: 'none' | 'suggestive';
+  sexual: 'none' | 'suggestive' | 'nudity' | 'explicit';
   drugs: boolean;
   gambling: 'none' | 'simulated';
   flashing_lights: boolean;
   player_chat: boolean;
+  /** Themes meant only for adults that the other descriptors do not cover (depicted drug use, torture, self-harm shown on screen). Rated 18+. */
+  adult_themes: boolean;
 }
 export const CONTENT_CHOICES: { [K in keyof Content]: readonly (Content[K] & (string | boolean))[] } = {
-  violence: ['none', 'cartoon', 'fantasy', 'realistic'], blood: [false, true], language: ['none', 'mild', 'strong'], fear: ['none', 'mild', 'intense'],
-  sexual: ['none', 'suggestive'], drugs: [false, true], gambling: ['none', 'simulated'], flashing_lights: [false, true], player_chat: [false, true],
+  violence: ['none', 'cartoon', 'fantasy', 'realistic', 'graphic'], blood: [false, true], language: ['none', 'mild', 'strong'], fear: ['none', 'mild', 'intense'],
+  sexual: ['none', 'suggestive', 'nudity', 'explicit'], drugs: [false, true], gambling: ['none', 'simulated'], flashing_lights: [false, true], player_chat: [false, true],
+  adult_themes: [false, true],
 };
 export type Age = 3 | 7 | 12 | 16 | 18;
 
 /** The platform's age rating, from the content descriptors. The highest band any descriptor reaches wins. */
 export function ageRating(c: Content): { age: Age; reasons: (keyof Content | `${keyof Content}:${string}`)[] } {
   const hits: [Age, string][] = [];
-  if (c.violence === 'realistic') hits.push([c.blood ? 18 : 16, 'violence:realistic']);
+  if (c.violence === 'graphic') hits.push([18, 'violence:graphic']);
+  else if (c.violence === 'realistic') hits.push([c.blood ? 18 : 16, 'violence:realistic']);
   else if (c.violence === 'fantasy') hits.push([12, 'violence:fantasy']);
   else if (c.violence === 'cartoon') hits.push([7, 'violence:cartoon']);
-  if (c.blood && c.violence !== 'realistic') hits.push([12, 'blood']);
+  if (c.blood && c.violence !== 'realistic' && c.violence !== 'graphic') hits.push([12, 'blood']);
   if (c.language === 'strong') hits.push([16, 'language:strong']); else if (c.language === 'mild') hits.push([12, 'language:mild']);
   if (c.fear === 'intense') hits.push([16, 'fear:intense']); else if (c.fear === 'mild') hits.push([7, 'fear:mild']);
-  if (c.sexual === 'suggestive') hits.push([16, 'sexual:suggestive']);
+  if (c.sexual === 'explicit') hits.push([18, 'sexual:explicit']);
+  else if (c.sexual === 'nudity') hits.push([18, 'sexual:nudity']);
+  else if (c.sexual === 'suggestive') hits.push([16, 'sexual:suggestive']);
   if (c.drugs) hits.push([16, 'drugs']);
   if (c.gambling === 'simulated') hits.push([12, 'gambling:simulated']);
+  if (c.adult_themes) hits.push([18, 'adult_themes']);
   const age = hits.reduce<number>((a, [n]) => Math.max(a, n), 3) as Age;
   return { age, reasons: hits.map(([, r]) => r) as never };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Mature (adults only) games
+// ---------------------------------------------------------------------------------------------
+// Sexual content and graphic violence are allowed when the game declares them. A game whose descriptors reach 18+
+// is "mature": the store blurs its cover, labels it, and asks every player to confirm before it starts. The content
+// review (src/content-check.js) plays the game and refuses a version that shows more than it declares.
+export type MatureCategory = 'sexual' | 'violence' | 'other';
+export const MATURE_AGE = 18;
+/** Whether a game is for adults only, and why: the categories players are warned about. */
+export function matureOf(c: Content | null | undefined): { mature: boolean; categories: MatureCategory[] } {
+  if (!c) return { mature: false, categories: [] };
+  const cats: MatureCategory[] = [];
+  if (c.sexual === 'nudity' || c.sexual === 'explicit') cats.push('sexual');
+  if (c.violence === 'graphic' || (c.violence === 'realistic' && c.blood)) cats.push('violence');
+  if (!cats.length && ageRating(c).age >= MATURE_AGE) cats.push('other');
+  return { mature: cats.length > 0, categories: cats };
 }
 
 export interface BuildMeta {

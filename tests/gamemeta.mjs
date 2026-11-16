@@ -1,7 +1,7 @@
 // Game metadata: genres, languages, players, content descriptors and the age rating, detection, and what publishing needs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ageRating, buildMeta, genresOf, genreTags, missingForPublish, normGenre, parseContent, parsePlayers, sessionBucket } from '../web/src/gamemeta.ts';
+import { ageRating, buildMeta, matureOf, genresOf, genreTags, missingForPublish, normGenre, parseContent, parsePlayers, sessionBucket } from '../web/src/gamemeta.ts';
 import { buildLanguages, detectLanguages, inYourLanguage, languageRows, normLang, parseLanguages, parseListings } from '../web/src/languages.ts';
 
 test('genres are normalized and become the first tags', () => {
@@ -121,4 +121,21 @@ test('publishing needs genre, requirements, languages, players and content', () 
   assert.deepEqual(missingForPublish(empty, false, []).map((m) => m.split(' ')[0]), ['genre', 'requirements', 'languages', 'players', 'content']);
   const full = buildMeta({ languages: ['en'], players: { min: 1, max: 1, modes: ['single'] }, content: {} }, files, Object.keys(files)).record;
   assert.deepEqual(missingForPublish(full, true, ['puzzle']), []);
+});
+
+test('adults-only games: what reaches 18+ and why', () => {
+  assert.equal(ageRating(parseContent({ violence: 'graphic' }, [])).age, 18);
+  assert.equal(ageRating(parseContent({ sexual: 'nudity' }, [])).age, 18);
+  assert.equal(ageRating(parseContent({ sexual: 'explicit' }, [])).age, 18);
+  assert.equal(ageRating(parseContent({ adult_themes: true }, [])).age, 18);
+  assert.equal(ageRating(parseContent({ sexual: 'suggestive' }, [])).age, 16);
+  assert.deepEqual(matureOf(parseContent({ sexual: 'explicit', violence: 'graphic' }, [])), { mature: true, categories: ['sexual', 'violence'] });
+  assert.deepEqual(matureOf(parseContent({ violence: 'realistic', blood: true }, [])).categories, ['violence']);
+  assert.deepEqual(matureOf(parseContent({ adult_themes: true }, [])).categories, ['other']);
+  assert.deepEqual(matureOf(parseContent({ sexual: 'suggestive', violence: 'realistic', language: 'strong' }, [])), { mature: false, categories: [] });
+  assert.deepEqual(matureOf(null), { mature: false, categories: [] });
+  // a record stored before adult_themes existed still reads
+  assert.equal(matureOf({ violence: 'fantasy', blood: false, language: 'none', fear: 'none', sexual: 'none', drugs: false, gambling: 'none', flashing_lights: false, player_chat: false }).mature, false);
+  const issues = []; parseContent({ sexual: 'hardcore' }, issues);
+  assert.match(issues[0].message, /none, suggestive, nudity, explicit/);
 });

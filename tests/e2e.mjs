@@ -104,7 +104,7 @@ async function main() {
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
-  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 3 && started.services.multiplayer && started.account && started.guides.length === 6 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
+  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 4 && started.services.multiplayer && started.account && started.guides.length === 6 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
   assert.ok(!JSON.stringify(started).match(/design_scene|list_blocks|recommend_pipeline|craft score/), 'get_started must not teach how to make a game');
   for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer', 'services']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
   assert.equal((await rpc('resources/list')).resources.length, 7);
@@ -620,6 +620,40 @@ async function main() {
   const flagged = must(await ADM.get('/api/admin/overview')).flags;
   assert.ok(flagged.some((f) => f.kind === 'copy_flagged' && f.id === cp.project) && flagged.some((f) => f.kind === 'not_game_flagged' && f.id === ng.project), JSON.stringify(flagged).slice(0, 600));
   ok(`duplication check: an original game passes and so does another creator's game built on the same template as a live one; a renamed copy by another creator fails "${orc.label}" (${cv.report.originality.matches[0].code}% of its code) and cannot be published; a page that is not a game fails "${ig.label}"; both show up for the admin`);
+
+  // adult games: allowed when declared, refused when the review sees what the version does not declare, blurred and confirmed in the store
+  const adult = await tool('create_project', { title: `After Dark ${run}`, tagline: 'An NSFW arcade for adults', tags: ['arcade'] });
+  await tool('upload_files', { project: adult.project, files: [{ path: 'index.html', content: fix('index.html') }, { path: 'game.js', content: fix('game.js') }] });
+  await declareMeta(tool, adult.project, { content: {} });
+  const av1 = await waitV(tool, adult.project, await tool('deploy_preview', { project: adult.project, note: 'undeclared' }));
+  const und = av1.report.checks.find((c) => c.id === 'content');
+  assert.ok(av1.status === 'failed' && und && !und.ok && und.label === 'Content is declared' && /content\.sexual "none"/.test(und.detail) && /game_metadata/.test(und.hint) && av1.report.content.undeclared, JSON.stringify(av1.report.checks).slice(0, 1500));
+  assert.ok(av1.report.frames.length >= 3, `review frames: ${JSON.stringify(av1.report.frames)}`);
+  assert.match(await tool('publish', { project: adult.project }, true), /not passed verification|cannot be published/i);
+  await tool('game_metadata', { project: adult.project, action: 'declare', content: { sexual: 'explicit', violence: 'cartoon' } });
+  const am = await tool('game_metadata', { project: adult.project });
+  const av2 = await waitV(tool, adult.project, await tool('deploy_preview', { project: adult.project, note: 'declared' }));
+  assert.equal(av2.status, 'verified', JSON.stringify(av2.report?.checks || av2).slice(0, 1200));
+  assert.ok(/18\+/.test(JSON.stringify(am)), JSON.stringify(am).slice(0, 600));
+  assert.equal((await tool('publish', { project: adult.project })).live, true);
+  const aslug = (await tool('list_projects', { project: adult.project })).slug;
+  for (let i = 0; i < 30 && !(must(await B.get(`/api/games/${aslug}`)).game.status === 'live'); i++) await sleep(1000);
+  const ag = must(await B.get(`/api/games/${aslug}`));
+  assert.deepEqual(ag.mature, ['sexual']); assert.equal(ag.meta.rating.age, 18); assert.deepEqual(ag.game.mature, ['sexual']); assert.equal(ag.game.age, 18);
+  const listed = must(await B.get(`/api/games?q=${encodeURIComponent('After Dark ' + run)}`)).games;
+  assert.deepEqual(listed[0].mature, ['sexual']);
+  assert.deepEqual(must(await B.get(`/api/games?q=${encodeURIComponent('Comet Herder ' + run)}`)).games[0].mature, []);
+  const noConfirm = await B.post(`/api/games/${aslug}/play`);
+  assert.ok(noConfirm.status === 428 && noConfirm.json.code === 'mature_confirm', noConfirm.text);
+  assert.equal((await B.post(`/api/games/${aslug}/play`, { confirm_mature: false })).status, 428);
+  assert.ok(must(await B.post(`/api/games/${aslug}/play`, { confirm_mature: true })).url);
+  assert.ok(must(await B.post(`/api/games/${origSlug}/play`)).url, 'a game for everyone needs no confirmation');
+  // the admin can switch adult games off: a version that declares them is refused
+  must(await ADM.put('/api/admin/settings', { mature_allowed: false }));
+  const av3 = await waitV(tool, adult.project, await tool('deploy_preview', { project: adult.project, note: 'adult games off' }));
+  assert.ok(av3.status === 'failed' && /does not take adult games/.test(av3.report.checks.find((c) => c.id === 'content').detail), JSON.stringify(av3.report.checks).slice(0, 800));
+  must(await ADM.put('/api/admin/settings', { mature_allowed: true }));
+  ok(`adult games: undeclared sexual content fails "${und.label}" (reviewed from ${av1.report.frames.length} frames of play), declared it verifies and publishes as 18+ (sexual), listings mark it, play needs the player's confirmation (428 without), and the admin can switch adult games off`);
   const fresh = await agent('/oauth/token', { grant_type: 'refresh_token', refresh_token: dtok.json.refresh_token, client_id: dtok.json.client_id });
   assert.equal(fresh.status, 200, JSON.stringify(fresh.json)); assert.ok(fresh.json.access_token && fresh.json.access_token !== dtok.json.access_token);
   const cAgents = must(await C.get('/api/console/agents')).agents;

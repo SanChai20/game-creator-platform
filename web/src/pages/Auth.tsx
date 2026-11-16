@@ -43,7 +43,7 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
 /** The other half of the sign-in page: the rendered scene, a few of the store's covers and what the account is for. */
 function Showcase() {
   const { data } = useData<{ stats: { games: number; creators: number }; shelves: { trending: GameCard[]; new: GameCard[] } }>('/home');
-  const covers = data ? [...data.shelves.trending, ...data.shelves.new].filter((g, i, a) => a.findIndex((x) => x.id === g.id) === i).slice(0, 4) : [];
+  const covers = data ? [...data.shelves.trending, ...data.shelves.new].filter((g, i, a) => !g.mature?.length && a.findIndex((x) => x.id === g.id) === i).slice(0, 4) : [];
   return (
     <aside className="auth-show ink" aria-hidden="true">
       <CelScene seed={4} />

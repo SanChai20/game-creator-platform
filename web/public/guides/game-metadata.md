@@ -154,22 +154,24 @@ The platform gives every game an age rating from what the creator declares about
     "drugs": false,
     "gambling": "none",
     "flashing_lights": true,
-    "player_chat": false
+    "player_chat": false,
+    "adult_themes": false
   }
 }
 ```
 
 | Descriptor | Values | Means |
 |---|---|---|
-| `violence` | `none`, `cartoon`, `fantasy`, `realistic` | Cartoon: slapstick, no injury shown. Fantasy: combat against non-human or clearly unreal foes. Realistic: lifelike people hurt or killed. |
+| `violence` | `none`, `cartoon`, `fantasy`, `realistic`, `graphic` | Cartoon: slapstick, no injury shown. Fantasy: combat against non-human or clearly unreal foes. Realistic: lifelike people hurt or killed. Graphic: gore, dismemberment, torture or injury shown in detail. |
 | `blood` | `false`, `true` | Blood or gore is shown. |
 | `language` | `none`, `mild`, `strong` | Mild: words like "damn". Strong: swearing or slurs. |
 | `fear` | `none`, `mild`, `intense` | Mild: spooky or tense. Intense: horror, jump scares, disturbing images. |
-| `sexual` | `none`, `suggestive` | Suggestive themes or revealing outfits. Explicit content is not allowed on the platform. |
+| `sexual` | `none`, `suggestive`, `nudity`, `explicit` | Suggestive: innuendo, kissing, revealing outfits, no nudity. Nudity: bare breasts, buttocks or genitals, in any art style. Explicit: sexual activity shown or described in detail. |
 | `drugs` | `false`, `true` | Drug, alcohol or tobacco use or references. |
 | `gambling` | `none`, `simulated` | Casino-style play with in-game currency. Real-money gambling is not allowed. |
 | `flashing_lights` | `false`, `true` | Rapid flashing lights or patterns. Shows a photosensitivity warning. Does not change the rating. |
 | `player_chat` | `false`, `true` | Players can send each other free text. Shown on the page. Does not change the rating. |
+| `adult_themes` | `false`, `true` | Themes meant only for adults that the descriptors above do not cover: drug use shown on screen, torture, self-harm depicted. |
 
 Descriptors left out count as `none` or `false`, so `"content": {}` declares a game with none of these. The rating is the highest band any descriptor reaches:
 
@@ -179,7 +181,27 @@ Descriptors left out count as `none` or `false`, so `"content": {}` declares a g
 | **7+** | cartoon violence, mild fear |
 | **12+** | fantasy violence, blood without realistic violence, mild language, simulated gambling |
 | **16+** | realistic violence, strong language, intense fear, suggestive themes, drugs |
-| **18+** Adults only | realistic violence with blood |
+| **18+** Adults only | graphic violence, realistic violence with blood, nudity, explicit sexual content, adult themes |
+
+### Adults-only (18+) games
+
+Sexual content, violence and other mature themes are allowed on the platform. What is not allowed is hiding them. A game whose descriptors reach 18+ is an adults-only game, and the store handles it so:
+
+- Its cover is blurred everywhere in the store and carries an **18+** label naming what it contains (sexual content, violence, mature themes). Category tiles never use it.
+- Its page says it is for adults only, keeps its picture blurred, and every player sees a warning and confirms they are 18 or older and want to continue before the game starts. The play endpoint refuses to start it without that confirmation.
+- The admin can switch adult games off (`mature_allowed`); a version that declares 18+ content is then refused.
+
+**The review checks the declaration.** After a version passes the browser check, the platform's content review (a Workers AI vision model) looks at frames taken while the verification browser starts the game, plays its play-through and gives it input, with the listing and the on-screen text. It measures how sexual and how violent the game is and compares that with `content`:
+
+| The review sees, not declared | Result |
+|---|---|
+| nudity or explicit sexual content | the version fails ("Content is declared") and cannot be published |
+| realistic or graphic violence | the version fails |
+| suggestive content, cartoon or fantasy violence | a note in the report: declare it so the rating is right |
+
+The review only sees what the verification browser reaches, so declare what any player can reach later in the game too: a game that hides adult content behind progress and is found out is taken down. Register a play-through (`GCP.test.onPlaythrough`) that reaches the game's real content, so the review judges the game, not its title screen.
+
+Some content is refused even when declared: sexual content involving minors or characters presented as children, sexual content of real people, hate, scams and phishing, promotion of self-harm, and real drug or weapons trade.
 
 ## Session length
 

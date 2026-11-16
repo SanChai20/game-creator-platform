@@ -19,7 +19,7 @@ import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
-import { ACCESSIBILITY, CONTENT_CHOICES, GENRES, MODES, genresOf, missingForPublish, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
+import { ACCESSIBILITY, CONTENT_CHOICES, GENRES, MODES, genresOf, matureOf, missingForPublish, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
 import { languageName, parseLanguages, type Languages } from '../../web/src/languages';
 import type { Project } from '../env';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
@@ -160,6 +160,7 @@ function metaSummary(p: Project, compat: Compat | null | undefined, meta: MetaRe
       progress: m?.progress ?? null,
       accessibility: m?.accessibility ?? null,
       age_rating: rating ? `${AGE_TEXT[rating.age]}${rating.reasons.length ? `: ${rating.reasons.join(', ')}` : ''}` : null,
+      adults_only: m?.content ? (matureOf(m.content).mature ? `Yes (${matureOf(m.content).categories.join(', ')}): the store blurs the cover, labels it 18+, and every player confirms a warning before the game starts.` : 'No') : null,
     } : null,
     missing_for_publish: missingForPublish(meta, !!compat?.declared, tags),
   };
@@ -179,7 +180,7 @@ function metadataChecklist(p: Project, compat: Compat, meta: MetaRecord) {
     step(2, 'requirements', true, compat.declared, 'What does the game need from the browser? Confirm the detected block, correcting input, devices or a hardware GPU.', { graphics: GRAPHICS, gpu: ['any', 'hardware'], features: FEATURE_IDS, input: INPUTS, devices: DEVICES, orientation: ORIENTATIONS }, requirementsBlock(compat.detected), declare({ requirements: requirementsBlock(compat.detected) })),
     step(3, 'languages', true, d.has('languages'), 'Which languages can players choose? For each: interface text, voice, subtitles. Does the game start in the player\'s platform language (GCP.lang)?', { code: 'BCP 47 (en, ja, ko, es, zh-Hans, zh-Hant, fr, de, pt-BR…)', interface: 'boolean', audio: 'boolean', subtitles: 'boolean', follows_platform: 'boolean' }, langs, declare({ languages: { default: langs.default, supported: langs.supported, follows_platform: langs.follows_platform } })),
     step(4, 'players', true, d.has('players'), 'How many people play, and how: alone, together on one device, or online?', { min: '1-100', max: '>= min', modes: MODES }, det.multiplayer ? { min: 1, max: 4, modes: ['single', 'coop-online'] } : { min: 1, max: 1, modes: ['single'] }, declare({ players: det.multiplayer ? { min: 1, max: 4, modes: ['single', 'coop-online'] } : { min: 1, max: 1, modes: ['single'] } })),
-    step(5, 'content', true, d.has('content'), 'What does the game contain? Answer every descriptor honestly; the platform derives the age rating from them. {} means none of them.', CONTENT_CHOICES, {}, declare({ content: { violence: 'none', blood: false, language: 'none', fear: 'none', sexual: 'none', drugs: false, gambling: 'none', flashing_lights: false, player_chat: false } })),
+    step(5, 'content', true, d.has('content'), 'What does the game contain, anywhere a player can reach? Answer every descriptor honestly; the platform derives the age rating from them. Adult games are allowed: declare sexual "nudity" or "explicit", violence "graphic" (or "realistic" with blood) or adult_themes, and the game is listed as 18+ with a blurred cover and a warning players confirm. The review plays the game and refuses a version that shows more sexual content or violence than it declares. {} means none of them.', CONTENT_CHOICES, {}, declare({ content: { violence: 'none', blood: false, language: 'none', fear: 'none', sexual: 'none', drugs: false, gambling: 'none', flashing_lights: false, player_chat: false, adult_themes: false } })),
     step(6, 'session_minutes', false, d.has('session_minutes'), 'How long is a typical session, in minutes?', '1-600', 10, declare({ session_minutes: 10 })),
     step(7, 'accessibility', false, d.has('accessibility'), 'Which accessibility features does the game have? [] when none.', ACCESSIBILITY, [], declare({ accessibility: [] })),
     step(8, 'progress', false, d.has('progress'), 'Confirm what is kept for the player: cloud saves, leaderboards, and whether it plays offline.', { cloud_saves: 'boolean', leaderboards: 'boolean', offline: 'boolean' }, det.progress, declare({ progress: det.progress })),
@@ -193,7 +194,7 @@ const BUILD_FIELDS = ['requirements', 'languages', 'players', 'session_minutes',
 const LISTING_FIELDS = ['title', 'tagline', 'description', 'controls', 'genre', 'genres', 'tags', 'listing_translations'] as const;
 const LANGUAGES_SCHEMA = { type: ['object', 'array'], description: 'Languages the game can be played in. {"default": "en", "supported": [{"code": "en", "interface": true, "audio": true, "subtitles": false}, {"code": "ja", "interface": true, "subtitles": true}], "follows_platform": true} or the shorthand ["en", "ja"] (interface text). Codes are BCP 47: en, ja, ko, es, zh-Hans, zh-Hant, fr, de, pt-BR… follows_platform: the game starts in GCP.lang (the player\'s platform language) when it has it.' };
 const PLAYERS_SCHEMA = { type: 'object', description: `{"min": 1, "max": 4, "modes": ["single", "coop-online"]}. Modes: ${MODES.join(', ')}.` };
-const CONTENT_SCHEMA = { type: 'object', description: `Content descriptors; the platform derives the age rating from them. Each one left out means none. ${Object.entries(CONTENT_CHOICES).map(([k, v]) => `${k}: ${v.join(' | ')}`).join('; ')}. Pass {} for a game with none of them (rated 3+).` };
+const CONTENT_SCHEMA = { type: 'object', description: `Content descriptors; the platform derives the age rating from them. Each one left out means none. ${Object.entries(CONTENT_CHOICES).map(([k, v]) => `${k}: ${v.join(' | ')}`).join('; ')}. Pass {} for a game with none of them (rated 3+). Adults only (18+): sexual nudity or explicit, violence graphic, violence realistic with blood, or adult_themes; such games are allowed, shown blurred with a warning players confirm. Declare everything a player can see: the review plays the game, and undeclared nudity, sexual content or realistic or graphic violence fails it.` };
 const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The primary genre; the store groups games by it.' };
 
 export const TOOLS: Tool[] = [
@@ -216,9 +217,10 @@ export const TOOLS: Tool[] = [
           'A web page: index.html at the bundle root, plus the files it loads with relative paths. There is no build step on the platform: upload what the browser runs.',
           'Call GCP.ready() once, right after the first playable frame is drawn. GCP is injected by the platform; never bundle or import it.',
           'Run with no uncaught errors, keep rendering frames (or, for a turn-based page, change when the player acts), survive keyboard, mouse and touch input, and stay on the page (no redirects, downloads or popups). That is what verification checks.',
+          'Declare what the game shows (game_metadata content). Sexual content, violence and other mature themes are allowed when declared; adults-only games are shown blurred, labelled 18+ and start only after the player confirms a warning. The review plays the game and refuses a version whose sexual content or violence is not declared.',
         ],
         engines: ENGINE_EXPORTS,
-        originality: 'After the browser check passes, each version is compared with other creators\' live games, and a copy (even with renamed variables or new titles) cannot be published. Platform templates, kits and common libraries are ignored, so starting from them is fine. An upload that is not a game is refused too, and so is harmful content (sexual content, hate, scams, phishing) or abusive code (miners, password forms). Game violence and horror are fine. get_started {topic: "versions"} explains these checks.',
+        originality: 'After the browser check passes, each version is compared with other creators\' live games, and a copy (even with renamed variables or new titles) cannot be published. Platform templates, kits and common libraries are ignored, so starting from them is fine. An upload that is not a game is refused too, and so is content that is never allowed (hate, scams, phishing, sexual content involving minors) or abusive code (miners, password forms). Adult games (sexual content, graphic violence) are allowed when declared in the content descriptors: the review plays the game, looks at what it shows, and refuses a version that shows more than it declares. get_started {topic: "versions"} explains these checks.',
         workflow: [
           '1. create_project, once per game.',
           '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl.',

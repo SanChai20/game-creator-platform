@@ -198,12 +198,12 @@ export function platformServices(s: Settings, origin: string): Service[] {
     },
     {
       id: 'publish_checks', name: 'Publish checks (originality, content, web only)', category: 'quality', status: 'automatic',
-      what: 'Before a verified version can go live it is compared with other creators\' live games, checked for harmful content and abusive code, and confirmed to be a web game.',
+      what: 'Before a verified version can go live it is compared with other creators\' live games, its content is reviewed from frames taken while the verification browser plays it and compared with the declared content descriptors, its code is checked for abuse, and it is confirmed to be a web game.',
       how_it_works: 'Code fingerprints that survive renaming, identical files and a screenshot hash catch copies (platform templates, kits and common libraries are ignored). Workers AI decision models review only borderline cases under a daily cap. Native programs, installers, app-store links and redirects to other sites are refused.',
       use_for: ['Knowing why publish refused a version (the report names the check and the fix)'],
       sdk: [], mcp_tools: ['deploy_preview', 'list_versions', 'publish'],
       limits: {},
-      guidelines: ['Starting from platform templates or kits is fine.', 'Game violence and horror are fine; sexual content, hate, scams, phishing, miners and password forms are not.', 'Multiplayer must go through GCP.room: a background worker talking to an outside server is treated as a miner.'],
+      guidelines: ['Starting from platform templates or kits is fine.', 'Sexual content, violence and other mature themes are allowed when declared in game_metadata content: the game is listed as 18+, its cover is blurred and players confirm a warning before it starts. Undeclared nudity, sexual content or realistic violence fails the review.', 'Never allowed, declared or not: hate, scams, phishing, sexual content involving minors, miners and password forms.', 'Multiplayer must go through GCP.room: a background worker talking to an outside server is treated as a miner.'],
       guide: 'versions',
     },
     {

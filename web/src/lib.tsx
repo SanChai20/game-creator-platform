@@ -143,7 +143,7 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 28 + ((h >> 9) % 40)) % 360, x = 18 + ((h >> 4) % 64), y = 22 + ((h >> 13) % 40), cut = 38 + ((h >> 17) % 30), tilt = 100 + ((h >> 21) % 50);
   return { background: `radial-gradient(circle at ${x}% ${y}%, hsl(${a} 95% 88%) 0 11%, transparent 11.4%), linear-gradient(${tilt}deg, hsl(${a} 78% 62%) 0 ${cut}%, hsl(${b} 62% 44%) ${cut}.3% ${cut + 22}%, hsl(${b} 52% 26%) ${cut + 22}.3%)` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number }
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number; age?: number | null; mature?: string[] }
 /** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
@@ -206,13 +206,27 @@ export function blurb(g: { title: string; tagline?: string | null }): string {
   return s && norm(s) !== norm(g.title) ? s : '';
 }
 
+/** Adults-only games: what they are flagged for, in words. */
+export const matureName = (c: string) => ({ sexual: t('Sexual content', '性内容'), violence: t('Graphic violence', '血腥暴力'), other: t('Mature themes', '成人主题') } as Record<string, string>)[c] ?? c;
+export const isMature = (g: { mature?: string[] } | null | undefined) => !!g?.mature?.length;
+/** A cover image: blurred for an adults-only game, everywhere in the store, until its page has been confirmed. */
+export function CoverImg({ g, src, lazy = true }: { g: { mature?: string[] }; src: string; lazy?: boolean }) {
+  return <img src={src} alt="" loading={lazy ? 'lazy' : undefined} decoding="async" className={isMature(g) ? 'mature-blur' : undefined} />;
+}
+/** The 18+ label on an adults-only game's cover, naming what it contains. */
+export function MatureTag({ g }: { g: { mature?: string[] } }) {
+  if (!isMature(g)) return null;
+  return <span className="mature-tag" title={g.mature!.map(matureName).join(' · ')}><b>18+</b>{g.mature!.map(matureName).join(' · ')}</span>;
+}
+
 /** A game as a card: the cover, then its name, what players say and the price. The cover lifts off a halftone shadow on hover. */
 export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
   const rar = rarity(g), genre = g.tags[0], trial = trialOf(g);
   return (
     <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`} style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 350 } as CSSProperties}>
       <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
-        {g.cover ? <img src={g.cover} alt="" loading="lazy" decoding="async" /> : <div className="mono-title">{local(g, 'title')}</div>}
+        {g.cover ? <CoverImg g={g} src={g.cover} /> : <div className="mono-title">{local(g, 'title')}</div>}
+        <MatureTag g={g} />
         {fresh ? <span className="stick">{t('New', '新上架')}</span> : g.featured ? <span className="stick alt">{t('Featured', '精选')}</span> : null}
         {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
         {!!trial && <span className="art-trial">{trialLabel(trial, true)}</span>}
