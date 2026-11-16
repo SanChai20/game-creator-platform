@@ -7,7 +7,7 @@
 //             accessibility, content (from which the platform derives the age rating)
 //   platform  never declared: price, trial, verification, version, dates, download size
 // No imports except the sibling modules, so the Worker, the web app and the tests share one set of rules.
-import { buildLanguages, type LangIssue, type LanguagesRecord } from './languages';
+import { buildLanguages, type LangIssue, type LanguagesRecord } from './languages.ts';
 
 export type MetaIssue = LangIssue;
 

@@ -2,7 +2,7 @@
 // the Languages table and the "in your language" check. The rules live in web/src/gamemeta.ts and web/src/languages.ts.
 import type { ReactNode } from 'react';
 import type { Access, Content, Mode, Players, Progress } from './gamemeta';
-import { sessionBucket } from './gamemeta';
+import { genresOf, sessionBucket } from './gamemeta';
 import { inYourLanguage, languageName, languageRows, type Languages } from './languages';
 import { genreName, getLang, LANGS, Link, t, type Lang } from './lib';
 
@@ -45,7 +45,7 @@ export function LangPill({ l }: { l: Languages }) {
 /** The At a glance panel: what kind of game this is, for whom, and how it plays. */
 export function Glance({ meta, tags }: { meta: GameMeta; tags: string[] }) {
   const m = meta, items: [string, ReactNode, string][] = [];
-  const genres = tags.slice(0, 3).filter((x, i) => i === 0 || /^[a-z-]+$/.test(x));
+  const g = genresOf(tags), genres: string[] = g.primary ? [g.primary, ...g.secondary] : tags.slice(0, 1);
   items.push([t('Genre', '类型'), genres.length ? <span className="glance-genres">{genres.map((x, i) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className={i ? 'dim' : ''}>{genreName(x)}</Link>)}</span> : notStated(), 'genre']);
   items.push([t('Age rating', '年龄分级'), m.rating ? <span className="glance-age"><AgeBadge age={m.rating.age} /><span><b>{ageLabel(m.rating.age)}</b>{m.rating.reasons.length ? <small>{m.rating.reasons.map(reasonName).join(' · ')}</small> : <small>{t('No content of concern', '无需注意的内容')}</small>}</span></span> : notStated(), 'age']);
   items.push([t('Players', '玩家'), m.players ? <span><b>{playersText(m.players)}</b><small>{m.players.modes.map(modeName).join(' · ')}</small></span> : m.multiplayer ? <span><b>{t('Multiplayer', '多人')}</b><small>{t('Online rooms', '在线房间')}</small></span> : notStated(), 'players']);

@@ -5,8 +5,25 @@ import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
 import { projectTabs } from './Analytics';
 import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
+import { AgeBadge, ageLabel } from '../meta-ui';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
+const metaField = (f: string) => ({ genre: t('Genre', '类型'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
+
+/** What the store page shows about the newest version, and what publishing still needs. */
+function StoreMetadata({ m }: { m: { version: number; required: boolean; missing: string[]; age: number | null } }) {
+  return (
+    <Card title={t('Store page metadata', '商店页面元数据')} aside={<span className="dim fs-sm">v{m.version}</span>} pad>
+      {m.age != null && <div className="row"><AgeBadge age={m.age} /><b>{ageLabel(m.age)}</b></div>}
+      {m.missing.length ? <>
+        <p className="mute fs-sm">{m.required ? t('Publishing needs these first:', '发布前需要先填写：') : t('Not filled in yet:', '尚未填写：')}</p>
+        <ul className="meta-missing">{m.missing.map((f) => <li key={f}>{metaField(f)}</li>)}</ul>
+        <p className="dim fs-sm">{t('Ask your agent to run game_metadata. It walks through each one with the allowed values and what it detected in the code.', '让你的智能体执行 game_metadata。它会逐项说明可选的值以及从代码中检测到的内容。')}</p>
+      </> : <p className="mute fs-sm"><Badge tone="good" dot={false}>{t('Complete', '已完整')}</Badge> {t('Everything the store page needs is on record.', '商店页面所需的信息都已齐全。')}</p>}
+    </Card>
+  );
+}
+
 function VersionCompat({ c }: { c: GameCompat }) {
   const v = useCompat(c);
   return <div className="ver-compat"><CompatSection c={c} v={v} /></div>;
@@ -187,6 +204,7 @@ export function Project({ id }: { id: string }) {
           </div>
 
           <div className="stack l">
+            {data.metadata && <StoreMetadata m={data.metadata} />}
             <Card title={t('Price', '价格')} pad>
               {priceText === null ? (
                 <div className="row"><b className="price-big">{p.price_cents > 0 ? usd(p.price_cents) : t('Free', '免费')}</b>{s.paid_games_enabled && <Button size="sm" className="right" onClick={() => setPriceText((p.price_cents / 100).toFixed(2))}>{t('Change', '修改')}</Button>}</div>

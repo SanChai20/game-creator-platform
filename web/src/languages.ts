@@ -1,7 +1,7 @@
 // Game languages: which languages a game can be played in (interface text, voice, subtitles), declared by its creator,
 // detected from the code where possible, frozen with each version, and compared with the player's platform language.
 // No imports except the platform's language list, so the Worker, the web app and the tests share it.
-import { LANGS, matchLang, type Lang } from './i18n/langs';
+import { LANGS, matchLang, type Lang } from './i18n/langs.ts';
 
 export interface GameLanguage { code: string; interface: boolean; audio: boolean; subtitles: boolean }
 export interface Languages {
