@@ -2,7 +2,7 @@
 
 Every game on the platform describes itself the same way, so its store page can tell a player, before they press Play, what kind of game it is, who it is for, whether it runs on their device and whether it speaks their language. This guide is the specification: every field, the values it accepts, where it is stored, what the platform detects by itself, and what the store page shows.
 
-The short version for an agent: call `game_metadata` with `action: "check"`. It returns a numbered checklist with what is still missing, the values each field accepts and a ready-made `declare` call pre-filled from what the platform detected in the code. Fix each step with `game_metadata` `action: "declare"`, deploy a preview, and publish. Publishing is refused until the five required fields are on record.
+The short version for an agent: call `game_metadata` with `action: "check"`. It returns a numbered checklist with what is still missing, the values each field accepts and a ready-made `declare` call pre-filled from what the platform detected in the code. Fix each step with `game_metadata` `action: "declare"`, deploy a preview, and publish. Publishing is refused until the six required fields are on record.
 
 ## Where metadata lives
 
@@ -10,7 +10,7 @@ Metadata comes in two kinds, stored in two places.
 
 | Kind | Fields | Stored in | Takes effect |
 |---|---|---|---|
-| **Listing** (about the project) | `genre`, `genres`, `title`, `tagline`, `description`, `controls`, `listing_translations` | the project | at once, on every version |
+| **Listing** (about the project) | `genre`, `genres`, `tags`, `title`, `tagline`, `description`, `controls`, `listing_translations` | the project | at once, on every version |
 | **Build** (about one version) | `requirements`, `languages`, `players`, `session_minutes`, `progress`, `accessibility`, `content` | `gcp.json` in the workspace | frozen with the next `deploy_preview`; the store shows the live version's |
 
 Build metadata is versioned with the code on purpose: a version that adds Japanese or online co-op declares it in the same deploy, and a rollback brings back the metadata that matched that code.
@@ -22,10 +22,11 @@ Build metadata is versioned with the code on purpose: a version that adds Japane
 | # | Field | Why it is required |
 |---|---|---|
 | 1 | `genre` | The store's categories, search and "more like this" |
-| 2 | `requirements` | The Compatibility section and the check before launch |
-| 3 | `languages` | The Languages section and the "in your language" check |
-| 4 | `players` | How many people play, and how |
-| 5 | `content` | The platform's age rating |
+| 2 | `tags` (2 to 8 from the platform list) | The store's filters, tag pages and search |
+| 3 | `requirements` | The Compatibility section and the check before launch |
+| 4 | `languages` | The Languages section and the "in your language" check |
+| 5 | `players` | How many people play, and how |
+| 6 | `content` | The platform's age rating |
 
 The others are recommended: they fill the At a glance panel. When a required field is missing, `publish` answers `409 metadata_incomplete` with the missing steps. Rolling back to an earlier version is never blocked. An admin can turn the requirement off with the `metadata_required` setting.
 
@@ -38,7 +39,33 @@ The others are recommended: they fill the At a glance panel. When a required fie
 - `genre`: the primary genre, exactly one of: `action`, `adventure`, `arcade`, `board`, `card`, `casual`, `fighting`, `idle`, `music`, `platformer`, `puzzle`, `racing`, `rpg`, `roguelike`, `sandbox`, `shooter`, `simulation`, `sports`, `strategy`, `survival`, `tower-defense`, `word`, `horror`, `educational`.
 - `genres`: up to two secondary genres from the same list.
 - Common spellings are accepted and normalized (`role-playing` → `rpg`, `roguelite` → `roguelike`, `rhythm` → `music`, `clicker` → `idle`, `fps` → `shooter`, `td` → `tower-defense`).
-- The genres become the project's first tags, so free tags (`update_project` `tags`) still work after them.
+- The genres become the project's first tags; the tags below follow them.
+
+## Tags
+
+```json
+{ "tags": ["space", "relaxing", "physics", "pixel-art"] }
+```
+
+Tags say more about a game than its genre: where it is set, how it feels, how it plays, who it is played with and how it looks. Players filter the store by them, every tag has its own page, and search matches them. So that every game is described with the same words, **tags come only from the platform list below**. Anything else is refused, with the closest tags on the list as a hint.
+
+- Choose **2 to 8**, the ones a player would filter by. Publishing needs at least 2.
+- Genres are not tags: put them in `genre` and `genres`. A genre named in `tags` is taken as a secondary genre.
+- Common spellings are accepted and mapped (`scifi` → `sci-fi`, `pixel` → `pixel-art`, `chill` → `relaxing`, `side-scroller` → `side-view`, `roguelite` → the genre `roguelike`).
+- `game_metadata` `check` suggests tags it can tell from the code (`2d` for a Canvas 2D game, `first-person` for pointer lock, `short-sessions` for a short session, `multiplayer`, `co-op` or `pvp` from the declared players); the rest is the agent's choice.
+- Set them with `game_metadata` `declare`, `update_project` or `create_project` (`tags`). They apply at once.
+
+| Group | Tags |
+|---|---|
+| Setting and theme (`theme`) | `fantasy`, `sci-fi`, `space`, `cyberpunk`, `steampunk`, `post-apocalyptic`, `medieval`, `historical`, `mythology`, `military`, `western`, `pirates`, `ninja`, `superheroes`, `zombies`, `monsters`, `dinosaurs`, `animals`, `robots`, `aliens`, `magic`, `nature`, `ocean`, `farming`, `cooking`, `city`, `school`, `detective`, `mystery`, `dungeon`, `vehicles` |
+| Mood (`mood`) | `relaxing`, `cozy`, `cute`, `funny`, `wholesome`, `family-friendly`, `dark`, `atmospheric`, `spooky`, `emotional`, `story-rich`, `fast-paced`, `challenging`, `competitive`, `satisfying` |
+| Gameplay (`gameplay`) | `physics`, `procedural`, `crafting`, `building`, `base-building`, `exploration`, `open-world`, `stealth`, `turn-based`, `real-time`, `deck-building`, `match-3`, `hidden-object`, `endless`, `bullet-hell`, `hack-and-slash`, `twin-stick`, `metroidvania`, `point-and-click`, `management`, `tycoon`, `trading`, `collecting`, `upgrades`, `loot`, `permadeath`, `boss-fights`, `level-editor`, `choices-matter`, `character-customization`, `tactics`, `auto-battler`, `merge`, `logic`, `minigames`, `typing`, `drawing`, `math`, `one-button`, `short-sessions` |
+| Players (`players`) | `multiplayer`, `co-op`, `pvp`, `local-multiplayer`, `asynchronous` |
+| Visual style and view (`style`) | `pixel-art`, `low-poly`, `voxel`, `hand-drawn`, `cartoon`, `realistic`, `minimalist`, `retro`, `neon`, `2d`, `3d`, `isometric`, `top-down`, `side-view`, `first-person`, `third-person` |
+
+### Tags from before the list
+
+Games tagged before the list existed keep their genres. Their other tags were mapped to the list where the meaning is clear (`pixel` → `pixel-art`, `roguelite` → `roguelike`, `co-op` stays `co-op`) and dropped otherwise. A game left with fewer than 2 tags keeps its live version; its next publish asks for tags from the list, and `game_metadata` `check` suggests some.
 
 ## Requirements
 
@@ -248,13 +275,13 @@ Any of: `remappable-controls`, `colorblind-modes`, `subtitles`, `adjustable-diff
 and on the project:
 
 ```json
-{ "genre": "platformer", "listing_translations": { "ja": { "title": "星の庭", "tagline": "小さな星を育てるパズル" } } }
+{ "genre": "platformer", "tags": ["fantasy", "cute", "exploration", "pixel-art"], "listing_translations": { "ja": { "title": "星の庭", "tagline": "小さな星を育てるパズル" } } }
 ```
 
 ## The workflow with the tools
 
 1. `game_metadata` `{"project_id": "…", "action": "check"}` returns:
-   - `checklist`: ten numbered steps (five required, then five recommended), each with its `status` (`done`, `missing` or `optional`), the question to answer (`ask`), the allowed values (`allowed`), what was detected (`suggestion`) and an exact `call` to make;
+   - `checklist`: eleven numbered steps (six required, then five recommended), each with its `status` (`done`, `missing` or `optional`), the question to answer (`ask`), the allowed values (`allowed`), what was detected (`suggestion`) and an exact `call` to make;
    - `summary`: what the store page will show;
    - `issues`: errors and warnings from the last check.
 2. Answer each missing step with `game_metadata` `{"action": "declare", …}`. One call can carry several fields. Every field is validated before anything is written; an invalid one is refused with the reason and the allowed values.
@@ -265,7 +292,8 @@ and on the project:
 
 - **Header**: the age rating badge.
 - **Buy box**: whether the game works on this device and whether it is playable in the viewer's language.
-- **At a glance**: genre, age rating with its reasons, players and modes, session length, progress, accessibility, the photosensitivity warning and the player-chat note.
+- **At a glance**: genre and tags, age rating with its reasons, players and modes, session length, progress, accessibility, the photosensitivity warning and the player-chat note.
 - **Compatibility**: every requirement, checked against this browser.
 - **Languages**: one row per language with interface, voice, subtitles and store page, the viewer's own language marked, and whether the creator listed the languages or the platform detected them.
+- **Store filters and category pages**: one filter group per tag group (genres, setting and theme, mood, gameplay, visual style and view), and a page for every genre and tag.
 - **Everywhere**: store cards, search and the page itself use the translated title and tagline in the viewer's language.

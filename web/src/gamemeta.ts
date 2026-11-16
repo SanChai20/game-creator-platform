@@ -34,7 +34,8 @@ export function normGenre(v: unknown): Genre | null {
 /** Puts the primary genre first, then secondary genres, then free tags: the store treats the first tag as the genre. */
 export function genreTags(primary: Genre, secondary: Genre[], tags: string[]): string[] {
   const out: string[] = [primary, ...secondary.filter((g) => g !== primary).slice(0, 2)];
-  for (const t of tags) if (!out.includes(t) && out.length < 8) out.push(t);
+  const cap = out.length + 8;   // up to 8 tags besides the genres (MAX_TAGS in tags.ts)
+  for (const t of tags) if (!out.includes(t) && !(GENRES as readonly string[]).includes(t) && out.length < cap) out.push(t);
   return out;
 }
 /** The genres a project's tags declare: the first tag when it is a known genre, plus the known genres among the next two. */

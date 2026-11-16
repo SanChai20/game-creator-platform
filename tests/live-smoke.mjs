@@ -46,7 +46,7 @@ let failed = 0;
 const tplDir = new URL('../web/public/templates/', import.meta.url), tplIndex = JSON.parse(readFileSync(new URL('index.json', tplDir), 'utf8'));
 for (const t of templates) {
   // each template is uploaded the way an agent uploads its own files
-  const p = await tool('create_project', { title: `${t} ${run}`, tagline: 'Smoke test', tags: ['test'] });
+  const p = await tool('create_project', { title: `${t} ${run}`, tagline: 'Smoke test', tags: ['casual', 'minimalist', 'short-sessions'] });
   state.projects[t] = p.project; save();
   await tool('upload_files', { project: p.project, files: tplIndex.templates.find((x) => x.name === t).files.map((f) => ({ path: f.path, content: readFileSync(new URL(`${t}/${f.path}`, tplDir), 'utf8') })) });
   const c = await tool('deploy_preview', { project: p.project, dry_run: true }); assert.equal(c.ok, true, c.errors.join('\n'));

@@ -10,6 +10,7 @@ import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
 import { buildMeta, genreTags, genresOf, normGenre, GENRES, type Genre, type MetaIssue, type MetaRecord } from '../web/src/gamemeta';
 import { parseListings } from '../web/src/languages';
+import { MAX_TAGS, normalizeStoredTags, parseTags, TAG_GROUPS, tagsOnly, type TagIssue } from '../web/src/tags';
 
 export const wsKey = (pid: string, path: string) => `ws/${pid}/${path}`;
 export const verKey = (pid: string, n: number, path: string) => `v/${pid}/${n}/${path}`;
@@ -41,11 +42,22 @@ export async function createProject(env: Env, user: User, input: { title: string
   if (await env.DB.prepare('SELECT 1 FROM projects WHERE slug = ?').bind(slug).first()) slug = `${slug.slice(0, 40)}-${rid(4)}`;
   const id = rid(10), t = now();
   await env.DB.prepare('INSERT INTO projects (id, owner_id, slug, title, tagline, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(id, user.id, slug, title, String(input.tagline || '').slice(0, 140), String(input.description || '').slice(0, 4000), JSON.stringify(cleanTags(input.tags)), t, t).run();
+    .bind(id, user.id, slug, title, String(input.tagline || '').slice(0, 140), String(input.description || '').slice(0, 4000), JSON.stringify(chooseTags(input.tags)), t, t).run();
   await logEvent(env, id, 'created', title, null, actor);
   return (await getProject(env, id))!;
 }
-export const cleanTags = (tags: unknown) => (Array.isArray(tags) ? tags : []).map((t) => String(t).toLowerCase().trim().replace(/[^\p{L}\p{N}\- ]/gu, '').slice(0, 24)).filter(Boolean).slice(0, 8);
+/** The platform tag list, grouped, for refusals and tool descriptions. */
+export const TAG_LIST_TEXT = Object.entries(TAG_GROUPS).map(([g, l]) => `${g}: ${l.join(', ')}`).join('; ');
+const tagRefusal = (unknown: TagIssue[]) => bad(
+  `Tags come from the platform list. ${unknown.map((u) => `"${u.word}" is not on it${u.suggestions.length ? ` (closest: ${u.suggestions.join(', ')})` : ''}`).join('; ')}.`,
+  `Pick up to ${MAX_TAGS} that describe the game. ${TAG_LIST_TEXT}. Genres (${GENRES.join(', ')}) go in genre and genres.`);
+/** Tags an agent chose: on the platform list or refused. Genres named among them lead, the first as the primary genre. */
+export function chooseTags(raw: unknown): string[] {
+  const r = parseTags(raw);
+  if (r.unknown.length) throw tagRefusal(r.unknown);
+  if (r.tags.length > MAX_TAGS) throw bad(`At most ${MAX_TAGS} tags besides the genres (got ${r.tags.length}).`, 'Keep the ones a player would filter by.');
+  return r.genres.length ? genreTags(r.genres[0], r.genres.slice(1, 3), r.tags) : r.tags;
+}
 
 export async function updateProjectMeta(env: Env, p: Project, input: Record<string, unknown>) {
   const sets: string[] = [], vals: unknown[] = [];
@@ -54,17 +66,27 @@ export async function updateProjectMeta(env: Env, p: Project, input: Record<stri
   if (typeof input.tagline === 'string') put('tagline', input.tagline.slice(0, 140));
   if (typeof input.description === 'string') put('description', input.description.slice(0, 4000));
   if (typeof input.controls === 'string') put('controls', input.controls.slice(0, 1000));
-  // Genres: the primary genre is the first tag (the store groups games by it), then up to two secondary genres, then free tags.
-  let tags = Array.isArray(input.tags) ? cleanTags(input.tags) : null;
+  // Genres: the primary genre is the first tag (the store groups games by it), then up to two secondary genres, then
+  // tags from the platform list. Tags a game carried before the list existed are mapped or dropped when it next changes.
+  let tags: string[] | null = null, tagGenres: Genre[] = [];
+  const stored = normalizeStoredTags(JSON.parse(p.tags || '[]'));
+  if (input.tags !== undefined) {
+    const r = parseTags(input.tags);
+    if (r.unknown.length) throw tagRefusal(r.unknown);
+    if (r.tags.length > MAX_TAGS) throw bad(`At most ${MAX_TAGS} tags besides the genres (got ${r.tags.length}).`, 'Keep the ones a player would filter by.');
+    tags = r.tags; tagGenres = r.genres;
+    const cur = genresOf(stored), primary = cur.primary ?? tagGenres[0];
+    if (primary && input.genre === undefined && input.genres === undefined) tags = genreTags(primary, tagGenres.length ? tagGenres.filter((g) => g !== primary) : cur.secondary, r.tags);
+  }
   if (input.genre !== undefined || input.genres !== undefined) {
-    const cur = genresOf(JSON.parse(p.tags || '[]'));
-    const primary = input.genre !== undefined ? normGenre(input.genre) : cur.primary;
+    const cur = genresOf(stored);
+    const primary = input.genre !== undefined ? normGenre(input.genre) : cur.primary ?? tagGenres[0] ?? null;
     if (input.genre !== undefined && !primary) throw bad(`genre "${input.genre}" is not one of the platform genres.`, `Genres: ${GENRES.join(', ')}. Put anything more specific in tags.`);
     const secondary: Genre[] = [];
-    for (const g of Array.isArray(input.genres) ? input.genres : input.genres === undefined ? cur.secondary : []) { const n = normGenre(g); if (!n) throw bad(`"${g}" in genres is not one of the platform genres.`, `Genres: ${GENRES.join(', ')}.`); if (!secondary.includes(n)) secondary.push(n); }
+    for (const g of Array.isArray(input.genres) ? input.genres : input.genres === undefined ? (tagGenres.length ? tagGenres.filter((x) => x !== primary) : cur.secondary) : []) { const n = normGenre(g); if (!n) throw bad(`"${g}" in genres is not one of the platform genres.`, `Genres: ${GENRES.join(', ')}.`); if (!secondary.includes(n)) secondary.push(n); }
     if (secondary.length > 2) throw bad('At most two secondary genres.');
     if (!primary) throw bad('Set genre (the primary genre) before secondary genres.');
-    const free = (tags ?? JSON.parse(p.tags || '[]') as string[]).filter((t) => !(GENRES as readonly string[]).includes(t));
+    const free = tagsOnly(tags ?? stored);
     tags = genreTags(primary, secondary, free);
   }
   if (tags) put('tags', JSON.stringify(tags));
