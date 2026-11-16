@@ -32,6 +32,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Service | Status | Game uses | Agent uses | Guide |
 | --- | --- | --- | --- | --- |
 | Game hosting and delivery | available | `GCP.env`, `GCP.version` | `create_project`, `upload_files`, `create_upload_url`, `deploy_preview`, `publish`, `rollback`, `unpublish`, `list_versions` | versions |
+| Game storage | available | none | `game_storage`, `list_files`, `upload_files`, `list_projects` | storage |
 | Hosted libraries and import map | available | `import 'three'`, `@gcp/…` | `get_started` (`import_map`) | contract |
 | SDK and game lifecycle | available | `GCP.ready`, `GCP.progress`, `GCP.fatal` | `get_started` | contract |
 | Player accounts and play sessions | available | `GCP.player`, `GCP.lang` | none | saves |
@@ -64,7 +65,18 @@ Each version of a game runs on its own Cloudflare Worker, `gcp-<project>-preview
 - Upload text files with `upload_files`. For big or binary files, or a whole folder (an engine's web export), use `create_upload_url` and curl: the URL is valid for 30 minutes, `PUT …?path=<file>` sends one file and `POST …/zip` a zipped folder.
 - There is no build step on the platform. Upload what the browser runs.
 
-Limits (defaults): 300 files per bundle, 50 MB per bundle, 20 MB per file, 50 projects per creator.
+Limits (defaults): 300 files per game, 50 MB of storage per game, 20 MB per file, 50 projects per creator.
+
+## Game storage
+
+Every game has a storage limit: how much all its files may add up to (50 MB by default; the platform can set a different amount for one game), plus the largest file (20 MB) and the number of files (300).
+
+- **Enforced on the server.** `upload_files`, the upload URL and zip uploads refuse a change that would take the game over its storage; the whole call is checked first, deletions included, and only growth is refused, so deleting or shrinking files always works. `deploy_preview` refuses a workspace that is over, and `publish` refuses a new version that is over (a rollback to a version that was live before is allowed).
+- **Visible all the time.** Every upload, `list_files`, `list_projects {project}` and `deploy_preview` answer has `storage`: used, storage, free and percent used, with a `warning` from 80% used. `game_storage {project}` shows what uses the space and every way to save it. Tell the developer about the limit when planning the game, not at upload time.
+- **Keep games small.** Generate meshes, terrain, textures, sound and music from code at boot; load large or optional content at run time from a host the developer controls (any HTTPS host that sends CORS headers, with plain GET requests); compress what ships. Platform-hosted Three.js and `@gcp/` modules do not count.
+- **More when needed.** `game_storage {project, action: "request", megabytes, reason}` asks for more for one game (up to 200 MB by default). An admin reviews each request unless the platform approves small ones automatically. Ask the developer first.
+
+`get_started {topic: "storage"}` is the long form.
 
 ## Hosted libraries and the import map
 
@@ -219,7 +231,7 @@ The MCP server is at `{{ORIGIN}}/mcp` (Streamable HTTP, stateless). Sign-in is O
 How to discover services:
 
 - `platform_services`: the catalog with this platform's live limits; `platform_services {service: "multiplayer"}` for one entry.
-- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `metadata`, `versions`, `saves`, `multiplayer`, `services`).
+- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `metadata`, `versions`, `storage`, `saves`, `multiplayer`, `services`).
 - MCP resources: `gcp://services` (the catalog as JSON) and `gcp://guides/<topic>`.
 - On the web: `{{ORIGIN}}/guides/services.md` and the Docs page, `{{ORIGIN}}/docs#services`.
 
@@ -238,6 +250,7 @@ Plan around these instead of looking for them.
 | Server-authoritative simulation inside rooms | The host is the authority; validate results that matter in server code. |
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |
 | Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store` for data. A key can live in `server/` (never served), but there is no secrets store or rotation: prefer keys you can revoke. |
+| Asset hosting beyond the game's storage (a CDN or bucket for large downloads) | Generate content from code, or load it at run time from a host the developer controls (any HTTPS host with CORS). `game_storage` explains both and asks for more storage when a game truly needs it. |
 | Custom analytics events | Count with player stats; `game_data summary` aggregates them. |
 | Uploads from players (screenshots, levels, avatars) | Small player-made content as JSON in saves, or in shared data through server code. |
 | Push notifications and email to players | None; use shared data for in-game announcements. |

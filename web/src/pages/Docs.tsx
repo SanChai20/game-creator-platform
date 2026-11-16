@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { t, usd, useApp } from '../lib';
+import { bytes, t, usd, useApp } from '../lib';
 import { Card, Code, PageHeader, Ticks } from '../ui';
 import { ConnectAgent, starterPrompt } from './Creators';
 
@@ -9,7 +9,7 @@ export function Docs() {
   useEffect(() => { const id = location.hash.slice(1); if (id) document.getElementById(id)?.scrollIntoView(); }, []);
   const sections: [string, string][] = [
     ['connect', t('Connect your agent', '连接智能体')], ['prompt', t('Your first prompt', '第一句指令')], ['rules', t('The three rules', '三条规则')],
-    ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['metadata', t('Game metadata', '游戏元数据')], ['services', t('Platform services', '平台服务')], ['money', t('Pricing and payouts', '费用与收益')],
+    ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['metadata', t('Game metadata', '游戏元数据')], ['services', t('Platform services', '平台服务')], ['storage', t('Game storage', '游戏存储空间')], ['money', t('Pricing and payouts', '费用与收益')],
   ];
   return (
     <div className="wrap page">
@@ -135,6 +135,18 @@ const record = await GCP.playRecord();`} />
             </div>
             <p>{t('Not provided: AI models for games, in-game purchases, achievements, matchmaking, friends and chat, and secrets for server code. The services guide says what to use instead.', '不提供：供游戏使用的 AI 模型、游戏内购买、成就、匹配、好友与聊天，以及服务端代码的密钥。服务指南说明了替代做法。')}</p>
             <p><a className="sig" href="/guides/services.md" target="_blank" rel="noreferrer">{t('Read the services guide', '阅读服务指南')} →</a></p>
+          </section>
+
+          <section id="storage">
+            <h2>{t('Game storage', '游戏存储空间')}</h2>
+            <p>{t('Each game has {size} of storage for all its files together (one file at most {file}). Uploads that would go over it are refused, and a version over it cannot be deployed or published. Your agent sees how much is used in every answer and tells you as it fills up.', '每款游戏的全部文件共享 {size} 的存储空间（单个文件最大 {file}）。超出空间的上传会被拒绝，超出空间的版本无法部署或发布。你的智能体在每次回复中都能看到已用空间，并会在快满时告诉你。', { size: bytes(Number(s.bundle_max_bytes)), file: bytes(Number(s.file_max_bytes)) })}</p>
+            <Ticks items={[
+              t('Generate it: meshes, terrain, textures, sound and music built from code at boot cost kilobytes, not megabytes.', '程序化生成：启动时用代码生成网格、地形、纹理、音效与音乐，只占几 KB，而不是几 MB。'),
+              t('Load it at run time: large or optional content can live on your own host and be fetched while the game runs. Any HTTPS host that sends CORS headers works.', '运行时加载：大型或可选内容可以放在你自己的服务器上，在游戏运行时下载。任何发送 CORS 头的 HTTPS 服务器都可以。'),
+              t('Compress what ships: Draco or Meshopt models, KTX2 or WebP textures, Opus or OGG audio. Three.js and the platform modules are hosted for you and do not count.', '压缩要打包的资源：Draco 或 Meshopt 模型、KTX2 或 WebP 纹理、Opus 或 OGG 音频。Three.js 与平台模块由平台托管，不占用空间。'),
+              ...(s.storage_requests_open ? [t('Need more? Your agent can ask for up to {size} for one game, with a reason. The platform reviews each request.', '还不够？你的智能体可以说明原因，为单款游戏申请最多 {size}。平台会审核每个申请。', { size: bytes(Number(s.storage_max_bytes)) })] : []),
+            ]} />
+            <p><a className="sig" href="/guides/storage.md" target="_blank" rel="noreferrer">{t('Read the storage guide', '阅读存储空间指南')} →</a></p>
           </section>
 
           <section id="money">
