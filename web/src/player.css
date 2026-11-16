@@ -4,7 +4,8 @@
 .stage:fullscreen, .stage.immersive { aspect-ratio: auto; }
 /* The game is kept clear of notches, rounded corners and the home indicator: an iframe does not get the
    safe-area insets of the page, so the frame itself sits inside them. */
-.stage.filled iframe { inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); width: auto; height: auto; }
+.stage.filled iframe { inset: auto; top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px);
+  width: calc(100% - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)); height: calc(100% - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
 /* iPhone Safari has no element fullscreen: the stage covers the visible viewport instead. */
 .stage.immersive { position: fixed; inset: 0; z-index: calc(var(--z-toast) - 1); width: 100vw; height: 100vh; height: 100dvh; touch-action: none; overscroll-behavior: none; }
 html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none; }
