@@ -90,6 +90,22 @@ function pad() {
 - Start audio from the first key press or tap; see the audio guide.
 - Fullscreen: `GCP.fullscreen()` asks the platform page to toggle it, which works even though the game is framed.
 
+## The Escape rule
+
+Esc first closes whatever the game has open (a menu, the inventory, a dialog, the map). Only an Esc with nothing open leaves fullscreen. Every game should follow it, so a player closing a menu is never thrown out of fullscreen.
+
+```js
+GCP.onEscape(() => {
+  if (dialog.isOpen) { dialog.close(); return true; }   // true: the game used the key
+  if (panel.isOpen) { panel.close(); return true; }
+  if (!GCP.display.fullscreen) { pause.open(); return true; }
+  return false;                                          // nothing open: the SDK leaves fullscreen
+});
+GCP.onDisplay((d) => { if (!d.fullscreen && playing && !pause.isOpen) pause.open(); });   // pause when fullscreen ends
+```
+
+Register one function and route Esc through it instead of listening for the key yourself. In fullscreen the platform asks the browser to send Esc to the game first (Chromium browsers; holding Esc still leaves at once). Other browsers leave fullscreen on Esc as before and do not call the function, so also pause when `GCP.onDisplay` reports that fullscreen ended. Pointer lock is separate: the browser releases it on Esc without a key event, so treat `pointerlockchange` as "open the pause menu" only when nothing else is open. Show the cursor whenever a menu is open and hide it (pointer lock) when play resumes. `pauseMenu` and the windows of `@gcp/play.js` follow the rule already.
+
 ## Phones and tablets
 
 What the platform does for every game, with nothing to write:

@@ -53,6 +53,7 @@ GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages that share one room; 
 GCP.fullscreen()  // asks the platform page to toggle fullscreen (true enters, false leaves); call it from a tap or key press
 GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch }, kept current
 GCP.onDisplay(fn) // fn(display) when it changes
+GCP.onEscape(fn)  // the Escape rule: fn() returns true when it closed something; otherwise Esc leaves fullscreen (input guide)
 GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' })   // see "Phones and tablets" in the input guide
 ```
 
