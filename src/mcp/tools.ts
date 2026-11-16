@@ -15,6 +15,7 @@ import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
 import { gameAnalytics, onlineNow } from '../analytics';
 import { publishGate } from '../originality-check';
+import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
@@ -37,6 +38,7 @@ export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summ
   { topic: 'versions', file: 'troubleshooting', title: 'Versions and failed verification', summary: 'How previews, versions, publishing and rollback relate, each verification check, why it usually fails, and the fix.' },
   { topic: 'saves', file: 'saves', title: 'Player progress, saves, leaderboards and server code', summary: 'Each player\'s progress: cloud saves and stats per player and game, the play record the platform keeps, shared game data, leaderboards, and optional server code that runs in the game\'s own Worker.' },
   { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
+  { topic: 'services', file: 'services', title: 'Platform services', summary: 'Every service the platform gives games and agents (hosting, accounts, saves, stats, shared data, leaderboards, rooms, server code, display, verification, payments, analytics, agent access): how each works, how to reach it, its limits, and what the platform does not provide.' },
 ];
 export async function guideText(env: Env, origin: string, topic: string) {
   const t = String(topic || '').toLowerCase().trim();
@@ -139,7 +141,7 @@ async function workspaceManifest(c: ToolCtx, pid: string): Promise<Record<string
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
-    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms). Pass topic to read one platform guide in full: "contract", "versions", "saves" or "multiplayer". It does not tell you how to make your game; that is up to you.`,
+    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms). Pass topic to read one platform guide in full: "contract", "versions", "saves", "multiplayer" or "services". platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
     inputSchema: obj({ topic: { type: 'string', enum: PLATFORM_GUIDES.map((g) => g.topic), description: 'Optional. Returns that platform guide as Markdown instead of the overview.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (a.topic) {
@@ -168,6 +170,7 @@ export const TOOLS: Tool[] = [
           '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover; game_data and game_room manage the game\'s data and multiplayer rooms.',
         ],
         services: {
+          catalog: 'platform_services lists every service (what it is, how it works, SDK calls, MCP tools, limits, guidelines) and what the platform does not provide. Read it before planning a game that needs more than hosting. get_started {topic: "services"} is the long form.',
           sdk: 'window.GCP, injected into every page. GCP.ready(), GCP.progress(f, label), GCP.fatal(err), GCP.player, GCP.env, GCP.fullscreen(), GCP.display (fullscreen, touch), GCP.setDisplay({ orientation, exitButton }). On phones the platform puts the game in fullscreen at Play; see the input guide for touch controls. Every page is opened by a signed-in player, so GCP.player.id is always that player.',
           saves: 'Every game should keep each player\'s progress with the platform: GCP.save.get/set/remove for the player\'s save (JSON), GCP.playerStats.add/max/min/set for numbers worth tracking (levels cleared, coins, best lap), GCP.playRecord() for what the platform recorded on its own (sessions, play time, first and last played). All of it is private to the signed-in player and this game, and preview is kept apart from live; the server enforces it, so a game cannot read another player\'s data. GCP.shared.get reads data every player sees. Load the save before the first playable frame and save at checkpoints and when the tab is hidden. game_data seeds shared data, aggregates saves and stats and manages leaderboards. get_started {topic: "saves"}.',
           leaderboards: 'GCP.leaderboard.submit(board, score, order) and GCP.leaderboard.top(board, n, order). game_data {action: "leaderboard"} reads or clears one.',
@@ -181,6 +184,25 @@ export const TOOLS: Tool[] = [
         session: `The access token lasts ${Math.round(Math.max(60, s.oauth_access_ttl_s) / 60)} minutes. When a call answers 401, do not sign in again: POST ${c.origin}/oauth/token with grant_type=refresh_token, refresh_token and client_id, keep the new access_token and refresh_token from the answer, and repeat the call. The whole authorization ends after ${Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400))} days or when the user revokes it. Projects, files and versions stay as they are across all of that.`,
         import_map: { note: 'The platform adds an import map to index.html unless the page has its own, so these bare imports resolve without a bundler. Using them is optional.', entries: defaultImports(c.origin) },
         guides: PLATFORM_GUIDES.map((g) => `${g.topic}: ${g.summary}`),
+      };
+    },
+  },
+  {
+    name: 'platform_services', title: 'List the platform services',
+    description: 'Lists every service this platform gives games and the agents that build them: hosting and versions, player accounts, cloud saves, player stats, the play record, shared game data, leaderboards, realtime multiplayer rooms, network smoothing, game server code, display and fullscreen, compatibility, verification hooks, publish checks, marketplace listing, paid games and trials, analytics, open implementations and agent access. Each entry says what it is, how it works, what to use it for, the SDK calls (window.GCP) and MCP tools that reach it, its limits on this platform, and usage guidelines. not_provided lists what the platform does not offer (AI for games, in-game purchases, achievements, matchmaking, secrets for server code, and more) with what to do instead. Call it when planning a game, before building your own backend for something the platform already does. Pass service for one entry.',
+    inputSchema: obj({ service: { type: 'string', description: 'Optional. One service id (e.g. "multiplayer", "saves", "server_code") to return only that entry.' } }), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const all = platformServices(await getSettings(c.env), c.origin);
+      if (a.service) {
+        const one = all.find((x) => x.id === String(a.service).toLowerCase().trim());
+        if (!one) throw bad(`No service "${a.service}".`, `Services: ${all.map((x) => x.id).join(', ')}`);
+        return { service: one, more: one.guide ? `get_started {topic: "${one.guide}"}` : 'get_started' };
+      }
+      return {
+        summary: 'Everything below is reached from the game through window.GCP (injected; never bundle it) or by you through this server\'s tools. Nothing needs keys, setup or a backend of your own: the platform takes the game, environment and player from the signed play session.',
+        services: all.map((x) => ({ ...x, guide: x.guide ? `get_started {topic: "${x.guide}"}` : null })),
+        not_provided: NOT_PROVIDED,
+        discover: DISCOVERY,
       };
     },
   },

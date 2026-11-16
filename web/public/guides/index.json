@@ -14,6 +14,7 @@
     {"topic": "audio", "title": "Audio", "summary": "The autoplay rule, synthesised effects with WebAudio, simple generative music, loading audio files when you want them."},
     {"topic": "saves", "title": "Player progress, saves, leaderboards and server code", "summary": "Each player's progress: cloud saves and stats per player and game, the play record the platform keeps by itself, shared game data, leaderboards, and optional server code that runs inside the game's own Worker."},
     {"topic": "multiplayer", "title": "Multiplayer", "summary": "Realtime rooms on the platform, the host-authoritative model, snapshots and interpolation, host migration, turn-based games."},
+    {"topic": "services", "title": "Platform services", "summary": "Every service the platform gives games and agents: hosting, accounts, saves, stats, shared data, leaderboards, multiplayer rooms, server code, display, verification, payments, analytics and agent access. How each works, how to reach it from the game and through MCP, its limits, and what the platform does not provide."},
     {"topic": "troubleshooting", "title": "Troubleshooting a failed verification", "summary": "Each verification check, the usual reasons it fails, and the fix, plus what to do when the server cannot be reached (401, 403). Start here when deploy_preview comes back not verified."}
   ]
 }

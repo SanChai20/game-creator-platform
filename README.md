@@ -6,14 +6,14 @@ A platform where people publish web games made with their own AI agent (Claude, 
 
 **Web games only.** The platform hosts games that run in a browser page: HTML, JavaScript, CSS and WebAssembly. Native, mobile, console and desktop builds are refused: uploads are checked by their bytes as well as their names, and a page that sends players to a download, an app store or another site fails the static checks. Engines that export to the web (Unity WebGL, Godot Web, Phaser, PlayCanvas, Babylon.js, Three.js) are welcome.
 
-**Hosting, not authoring.** The MCP server covers deploying, going live, versions and the platform services (saves, leaderboards, multiplayer rooms). It does not tell agents how to make a game: engine, renderer, art and asset pipeline are the creator's.
+**Hosting, not authoring.** The MCP server covers deploying, going live, versions and the platform services (saves, leaderboards, multiplayer rooms, server code and more; `platform_services` and [the services guide](web/public/guides/services.md) list them all, with what is not provided). It does not tell agents how to make a game: engine, renderer, art and asset pipeline are the creator's.
 
 ## What is in here
 
 | Part | Where | What it does |
 | --- | --- | --- |
 | Platform Worker | `src/` | API, OAuth, MCP server, deployment pipeline, realtime rooms, web app hosting |
-| MCP server | `src/mcp/` | 18 tools for agents: get_started (rules, account, services, platform guides), projects, file uploads, compatibility requirements (detect, declare), preview and verification, versions, publish, rollback, unpublish, stats, and the hosted services: game data (shared data, saves, leaderboards) and multiplayer rooms, plus find_implementations and get_implementation, which show how other creators' live games were built when they opted in (never code) |
+| MCP server | `src/mcp/` | 19 tools for agents: get_started (rules, account, services, platform guides), platform_services (the catalog of every service with its SDK calls, tools, live limits and what is not provided; also the `gcp://services` resource), projects, file uploads, compatibility requirements (detect, declare), preview and verification, versions, publish, rollback, unpublish, stats, and the hosted services: game data (shared data, saves, leaderboards) and multiplayer rooms, plus find_implementations and get_implementation, which show how other creators' live games were built when they opted in (never code) |
 | Web-only checks | `src/web-only.js` | Refuses programs, installers and archives by their bytes, and flags pages that lead to a native download, an app store or another site |
 | Game runtime | `src/runtime/game-worker.js` | The entry module of every deployed game Worker: serves the bundle from R2, gates it behind a signed play token, injects the SDK |
 | Verifier | `src/verify-core.js`, `src/verify.ts` | Opens a deployed game in a real browser and decides whether it is playable |
@@ -21,7 +21,7 @@ A platform where people publish web games made with their own AI agent (Claude, 
 | Open implementation | `src/implementation.js`, `src/implementations.ts` | Opt-in cards that tell other agents how a live game is built, written from facts about the build, never its code |
 | SDK | `web/public/sdk/gcp.js` | `GCP.ready()`, per-player saves and stats, the play record, leaderboards, rooms, test hooks. Injected into every game |
 | Hosted modules | `web/public/kits/v1/` | `@gcp/…` modules (procedural core, building blocks, loop, input, Three.js and canvas helpers, multiplayer) that published games already import. Still served at `/kits/v1/`; agents are no longer pointed at them |
-| Guides | `web/public/guides/` | The four platform guides served through MCP: the contract, versions and troubleshooting, saves, multiplayer. The older authoring guides stay readable at `/guides/` for existing games |
+| Guides | `web/public/guides/` | The five platform guides served through MCP: the contract, versions and troubleshooting, saves, multiplayer, and platform services (the long form of the catalog in `src/mcp/services.ts`). The older authoring guides stay readable at `/guides/` for existing games |
 | Templates | `web/public/templates/` | Starting points that pass verification, used by the end-to-end tests |
 | Web app | `web/src/` | Marketplace, game pages, creator console, earnings, admin console (React, in English, 简体中文, 繁體中文, 日本語, 한국어 and Español; see `web/src/i18n/`) |
 | Schema | `migrations/` | D1 tables |

@@ -152,7 +152,12 @@
 .tri .ico { width: auto; height: auto; justify-self: start; padding: 5px 13px; background: var(--accent-wash); color: var(--accent-text); font: 700 14px/1.2 var(--font-mono); margin-bottom: 6px; clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .tri h3 { font: 800 16px/1.2 var(--font-display); letter-spacing: .03em; text-transform: uppercase; }
 .tri p { color: var(--text-2); font-size: 14.5px; }
-@media (max-width: 860px) { .docs { grid-template-columns: minmax(0, 1fr); } .docs-nav { position: static; display: flex; flex-wrap: wrap; gap: 8px; } .docs-nav a { padding: 7px 14px; border: 1.5px solid var(--line-2); border-radius: var(--r-pill); font-size: 13.5px; } .tri, .tri.quad { grid-template-columns: minmax(0, 1fr); } }
+.svc-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.svc-list > div { display: grid; gap: 6px; align-content: start; padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); min-width: 0; }
+.svc-list h3 { font: 800 15px/1.2 var(--font-display); letter-spacing: .03em; text-transform: uppercase; }
+.svc-list p { color: var(--text-2); font-size: 14.5px; }
+.svc-list code { justify-self: start; max-width: 100%; overflow-wrap: anywhere; color: var(--accent-text); font: 600 12.5px/1.5 var(--font-mono); }
+@media (max-width: 860px) { .docs { grid-template-columns: minmax(0, 1fr); } .docs-nav { position: static; display: flex; flex-wrap: wrap; gap: 8px; } .docs-nav a { padding: 7px 14px; border: 1.5px solid var(--line-2); border-radius: var(--r-pill); font-size: 13.5px; } .tri, .tri.quad, .svc-list { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---- console: a project's versions, price and activity ------------------------------------------ */
 .ver { border-bottom: 1px solid var(--line); }

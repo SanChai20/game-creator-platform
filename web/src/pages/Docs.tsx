@@ -9,7 +9,7 @@ export function Docs() {
   useEffect(() => { const id = location.hash.slice(1); if (id) document.getElementById(id)?.scrollIntoView(); }, []);
   const sections: [string, string][] = [
     ['connect', t('Connect your agent', '连接智能体')], ['prompt', t('Your first prompt', '第一句指令')], ['rules', t('The three rules', '三条规则')],
-    ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['money', t('Pricing and payouts', '费用与收益')],
+    ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['services', t('Platform services', '平台服务')], ['money', t('Pricing and payouts', '费用与收益')],
   ];
   return (
     <div className="wrap page">
@@ -76,6 +76,29 @@ const record = await GCP.playRecord();`} />
               t('Players see their own progress on the game page and can reset it. Creators see totals and averages, never one player\'s data.', '玩家可在游戏页面查看并重置自己的进度。创作者只能看到总数与平均值，看不到任何单个玩家的数据。'),
             ]} />
             <p><a className="sig" href="/guides/saves.md" target="_blank" rel="noreferrer">{t('Read the saves guide', '阅读存档指南')} →</a></p>
+          </section>
+
+          <section id="services">
+            <h2>{t('Platform services', '平台服务')}</h2>
+            <p>{t('Everything below is ready for every game, with no keys, setup or backend of your own. The game reaches it through the injected GCP object; your agent reaches it through the platform\'s MCP tools. Agents can list it all, with this platform\'s limits, with the platform_services tool.', '以下能力对每款游戏开箱即用，无需密钥、配置或自建后端。游戏通过平台注入的 GCP 对象调用，智能体通过平台的 MCP 工具调用。智能体可用 platform_services 工具列出全部服务及本平台的限制。')}</p>
+            <div className="svc-list">
+              {([
+                [t('Hosting and versions', '托管与版本'), t('Each version runs on its own Cloudflare Worker, preview and live apart. Every version is kept for rollback.', '每个版本运行在独立的 Cloudflare Worker 上，预览与正式版分开。所有版本都会保留，可随时回滚。'), 'deploy_preview · publish · rollback'],
+                [t('Player accounts', '玩家账户'), t('Every game is opened by a signed-in player. The game gets their id and display name, never an email or password.', '每款游戏都由已登录的玩家打开。游戏可获得玩家 ID 与显示名称，永远拿不到邮箱或密码。'), 'GCP.player'],
+                [t('Saves, stats and play record', '存档、统计与游玩记录'), t('Cloud saves and named numbers per player and game, plus sessions and play time recorded by the platform.', '按玩家和游戏保存的云存档与具名数值，以及平台自动记录的游玩次数和时长。'), 'GCP.save · GCP.playerStats · GCP.playRecord()'],
+                [t('Shared data and leaderboards', '共享数据与排行榜'), t('Game-wide data every player reads, written only by you or your server code, and boards that keep each player\'s best.', '所有玩家都能读取、只有你或你的服务端代码能写入的全局数据，以及保留每位玩家最佳成绩的排行榜。'), 'GCP.shared · GCP.leaderboard · game_data'],
+                [t('Multiplayer rooms', '多人房间'), t('Realtime rooms by code, with a host, host migration, a snapshot for late joiners and smooth remote movement.', '按房间码加入的实时房间，带主机、主机迁移、供后加入者使用的快照，以及平滑的远端移动。'), 'GCP.room(code) · GCP.smooth() · game_room'],
+                [t('Server code', '服务端代码'), t('Optional server/index.js runs in the game\'s own Worker, for checks players must not be able to tamper with.', '可选的 server/index.js 运行在游戏自己的 Worker 中，用于玩家无法篡改的校验。'), 'GCP.server(path) · env.store'],
+                [t('Display and devices', '显示与设备'), t('Fullscreen inside the frame and on iPhone, orientation lock, touch detection and declared requirements.', '框架内及 iPhone 上的全屏、屏幕方向锁定、触屏检测与声明的兼容性要求。'), 'GCP.fullscreen() · GCP.display · compatibility'],
+                [t('Verification', '验证'), t('A real browser plays every preview, and can run your own play-through and a two-player check.', '真实浏览器会试玩每个预览，并可运行你自己的通关脚本和双人检查。'), 'GCP.test.onPlaythrough · GCP.test.onTwoPlayers'],
+                [t('Sales and payouts', '销售与收益'), t('One-time prices and free trials handled by the platform on Stripe. The game itself never takes payments.', '一次性定价与免费试玩由平台通过 Stripe 处理，游戏本身从不收款。'), 'update_project'],
+                [t('Analytics', '数据分析'), t('Players online, sessions, play time, devices, browsers, sales and the errors real players hit.', '在线玩家、游玩次数、时长、设备、浏览器、销量以及真实玩家遇到的错误。'), 'get_stats'],
+              ] as [string, string, string][]).map(([title, text, reach]) => (
+                <div key={reach}><h3>{title}</h3><p>{text}</p><code>{reach}</code></div>
+              ))}
+            </div>
+            <p>{t('Not provided: AI models for games, in-game purchases, achievements, matchmaking, friends and chat, and secrets for server code. The services guide says what to use instead.', '不提供：供游戏使用的 AI 模型、游戏内购买、成就、匹配、好友与聊天，以及服务端代码的密钥。服务指南说明了替代做法。')}</p>
+            <p><a className="sig" href="/guides/services.md" target="_blank" rel="noreferrer">{t('Read the services guide', '阅读服务指南')} →</a></p>
           </section>
 
           <section id="money">
