@@ -57,6 +57,19 @@ function lockPage(): () => void {
   };
 }
 
+type Insets = { top: number; right: number; bottom: number; left: number };
+const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
+/** The screen's safe-area insets (notch, rounded corners, home indicator) in CSS px. A frame cannot see them itself. */
+function safeInsets(): Insets {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+  document.body.appendChild(el);
+  const cs = getComputedStyle(el), px = (v: string) => Math.max(0, Math.round(parseFloat(v) || 0));
+  const out = { top: px(cs.paddingTop), right: px(cs.paddingRight), bottom: px(cs.paddingBottom), left: px(cs.paddingLeft) };
+  el.remove(); return out;
+}
+const sameInsets = (a: Insets, b: Insets) => a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left;
+
 /** Keeps the screen on while a game is running on a phone (players often watch without touching). */
 function useWakeLock(on: boolean) {
   useEffect(() => {
@@ -81,9 +94,13 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
 }) {
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null);
   const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false);
-  const [prefs, setPrefs] = useState<{ orientation?: Orientation; exit?: Corner }>({});
+  const [prefs, setPrefs] = useState<{ orientation?: Orientation; exit?: Corner; edge?: boolean }>({});
+  const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [turned, setTurned] = useState(false), [portrait, setPortrait] = useState(() => innerHeight > innerWidth);
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
+  // A game that keeps its own buttons clear of the notch (setDisplay({ edgeToEdge: true })) gets the whole screen in
+  // fullscreen and is told the insets; any other game's frame is kept inside them.
+  const edge = active && !!prefs.edge;
   const unlock = useRef<(() => void) | null>(null);
 
   const leaveImmersive = useCallback(() => { unlock.current?.(); unlock.current = null; setImmersive(false); }, []);
@@ -122,14 +139,22 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
     addEventListener('resize', f); addEventListener('orientationchange', f);
     return () => { removeEventListener('resize', f); removeEventListener('orientationchange', f); };
   }, []);
+  // The insets change with rotation, and only show at all once the page is fullscreen or pinned with viewport-fit=cover.
+  useEffect(() => {
+    if (!active) { setInsets(NO_INSETS); return; }
+    const f = () => { const v = safeInsets(); setInsets((o) => (sameInsets(o, v) ? o : v)); };
+    f(); const t1 = setTimeout(f, 150), t2 = setTimeout(f, 600);
+    addEventListener('resize', f); addEventListener('orientationchange', f);
+    return () => { clearTimeout(t1); clearTimeout(t2); removeEventListener('resize', f); removeEventListener('orientationchange', f); };
+  }, [active]);
   // The game stopped (trial over, preview closed): give the page back.
   const hadUrl = useRef(false);
   useEffect(() => { if (hadUrl.current && !url) exit(); hadUrl.current = !!url; }, [url, exit]);
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld }, '*');
-  }, [active, fs, immersive, want, handheld]);
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets]);
   useEffect(() => { post(); }, [post]);
   useEffect(() => {
     const f = (e: MessageEvent) => {
@@ -139,6 +164,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
       if (d.gcp === 'display_prefs') setPrefs((p) => ({
         orientation: ['any', 'landscape', 'portrait'].includes(d.orientation) ? d.orientation : p.orientation,
         exit: ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'none'].includes(d.exitButton) ? d.exitButton : p.exit,
+        edge: typeof d.edgeToEdge === 'boolean' ? d.edgeToEdge : p.edge,
       }));
       if (d.gcp === 'display_query') post();
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
@@ -153,7 +179,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
   const corner = prefs.exit ?? 'top-left';
   return (
     <div>
-      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '')} ref={box}>
+      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '')} ref={box}>
         {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" allowFullScreen /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}

@@ -185,7 +185,7 @@ Whether server code is allowed on this platform is shown by `get_started` under 
 
 ## Display, fullscreen and devices
 
-`GCP.fullscreen()` (call it from a tap or key press) works inside the play frame and on iPhones. `GCP.display` is `{ fullscreen, mode, orientation, touch }` and `GCP.onDisplay(fn)` tells you when it changes; show on-screen controls when `touch` is true. `GCP.setDisplay({ orientation, exitButton })` sets the orientation and where the platform's exit button sits on touch screens. On phones, Play enters fullscreen at once inside the safe area. Fullscreen, gamepad, pointer lock and audio after a gesture are allowed in the frame; camera, microphone and geolocation are not.
+`GCP.fullscreen()` (call it from a tap or key press) works inside the play frame and on iPhones. `GCP.display` is `{ fullscreen, mode, orientation, touch, edgeToEdge, safe }` and `GCP.onDisplay(fn)` tells you when it changes; show on-screen controls when `touch` is true. `GCP.setDisplay({ orientation, exitButton, edgeToEdge })` sets the orientation, where the platform's exit button sits on touch screens, and whether the game fills the whole screen (notch included) in fullscreen. On phones, Play enters fullscreen at once: inside the safe area, or edge to edge with the insets in `GCP.display.safe` and the `--gcp-safe-*` CSS variables when the game asked for `edgeToEdge`. Fullscreen, gamepad, pointer lock and audio after a gesture are allowed in the frame; camera, microphone and geolocation are not.
 
 ## Compatibility requirements
 

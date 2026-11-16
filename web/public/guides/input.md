@@ -96,7 +96,7 @@ What the platform does for every game, with nothing to write:
 
 - **Fullscreen at Play.** On a phone or tablet the game goes fullscreen as soon as the player presses Play. Android and iPad get the real Fullscreen API. iPhone Safari has none for pages, so the game is given the whole visible screen instead (`GCP.display.mode === 'immersive'`): the page under it cannot scroll or zoom, the back gesture closes it, and the address bar may stay visible.
 - **Orientation.** Declare it (`"orientation": "landscape"` in the requirements, or `GCP.setDisplay({ orientation: 'landscape' })` at run time). The screen is locked to it in fullscreen where the browser allows (Android); elsewhere the player is asked to turn the phone, and can choose to play as it is. Your game must still lay itself out for either shape: a resize can come at any moment.
-- **Safe areas.** In fullscreen the frame sits inside the notch, rounded corners and home indicator, so `env(safe-area-inset-*)` inside the game is usually 0. Keep using it: it costs nothing, and it is right when the game is opened on its own.
+- **Safe areas.** By default the frame sits inside the notch, rounded corners and home indicator in fullscreen, which leaves black bars on those phones. To fill the whole screen, call `GCP.setDisplay({ edgeToEdge: true })` and keep your buttons and text inside `GCP.display.safe` (`{ top, right, bottom, left }` in CSS px, also the CSS variables `--gcp-safe-top`, `--gcp-safe-right`, `--gcp-safe-bottom` and `--gcp-safe-left`). A frame never sees `env(safe-area-inset-*)` itself, so combine the two: `max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px))` is right on the platform and when the game is opened on its own.
 - **An exit button.** A small button in the top-left corner leaves fullscreen on touch screens, since there is no Esc key. It fades after a few seconds. Move it out of your HUD's way with `GCP.setDisplay({ exitButton: 'top-right' })` (or a bottom corner), or hide it with `'none'` if your pause menu offers `GCP.fullscreen(false)`.
 - **The screen stays on** while the game runs.
 
@@ -108,7 +108,7 @@ import { createInput } from '@gcp/input.js';
 const input = createInput(canvas);                       // floating left-thumb stick and right-side look come with it
 input.bind({ jump: ['Space'], fire: ['KeyJ', 'Mouse0'] }, { touch: { jump: '⤒', fire: '✦' } });   // round buttons, right thumb
 
-GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' });
+GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right', edgeToEdge: true });
 GCP.onDisplay((d) => { hud.classList.toggle('compact', d.touch && !d.fullscreen); });
 document.documentElement.classList.contains('gcp-touch');   // also set: gcp-fullscreen
 ```
