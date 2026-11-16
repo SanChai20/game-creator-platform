@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { Button, Notice } from './ui/components';
 import { detectLang, langTag, matchLang, type Lang } from './i18n/langs';
+import { color } from './ui/tokens';
 // Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
 export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
 
@@ -153,10 +154,10 @@ export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | '
   return 'common';
 }
 export const RARITY: Record<Rarity, { color: string; foil: number; name: () => string }> = {
-  common: { color: '#a9a4b8', foil: 0.1, name: () => t('Common', '普通') },
-  rare: { color: '#3fe0ff', foil: 0.3, name: () => t('Rare', '稀有') },
-  epic: { color: '#8b6bff', foil: 0.6, name: () => t('Epic', '史诗') },
-  legendary: { color: '#ffc845', foil: 1, name: () => t('Legendary', '传说') },
+  common: { color: color.text2, foil: 0.1, name: () => t('Common', '普通') },
+  rare: { color: color.cyan, foil: 0.3, name: () => t('Rare', '稀有') },
+  epic: { color: color.violet, foil: 0.6, name: () => t('Epic', '史诗') },
+  legendary: { color: color.gold, foil: 1, name: () => t('Legendary', '传说') },
 };
 export const rarityHint = () => t('Rarity is earned from ratings and plays.', '稀有度由评分和游玩次数决定。');
 

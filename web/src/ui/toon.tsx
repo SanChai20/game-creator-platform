@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { color } from './tokens';
 import { fxBurst } from './fx/overlay';
 
-const INK = '#140c26';
+const INK = color.ink;
 export type ToonIconKind = 'pad' | 'play' | 'bag' | 'coin' | 'star' | 'trophy' | 'gem' | 'clock';
 
 /** A cartoon icon. Decorative: it is hidden from assistive technology, the label beside it carries the meaning. */

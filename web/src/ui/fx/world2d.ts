@@ -3,10 +3,11 @@
 // that failed earlier in the session) and for reduced motion when WebGL 2 is missing. It repaints only on resize or
 // when the page moves between the store and the creator pages, so it costs nothing between those.
 import { palette, rng, type FxTheme, type FxTier } from './gl';
+import { color } from '../tokens';
 import { paintSprite, shade, type SpriteKind } from './sprites';
 
 export type World2dStats = { tier: FxTier; engine: 'canvas'; paints: number; ms: number };
-const OUTLINE = '#140c26';
+const OUTLINE = color.ink;
 
 export class World2d {
   stats: World2dStats;
@@ -29,7 +30,7 @@ export class World2d {
     const work = this.theme === 'workshop', r = rng(work ? 23 : 11);
 
     // sky: flat cartoon bands from ink to a warm (store) or cool (workshop) horizon
-    const low = work ? palette.cyan : palette.hot;
+    const low = work ? palette.cyan : palette.violet;
     for (let i = 0; i < 6; i++) {
       const k = i / 5;
       x.fillStyle = mixHex(palette.ink, mixHex(shade(palette.violet, -0.55), shade(low, -0.6), Math.max(0, (k - 0.55) / 0.45)), Math.min(1, k * 0.42));
