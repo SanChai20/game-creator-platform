@@ -68,11 +68,11 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'identity', name: 'Player accounts and play sessions', category: 'player data', status: 'available',
       what: 'Every game is opened by a signed-in platform account. The game gets that player\'s id and display name, and every service call is tied to them.',
-      how_it_works: `Pressing Play on the game page starts a play session: the platform signs a play token (HMAC with the game's own key) naming the game, environment (preview or live) and player, valid ${6} hours (a free-trial token only as long as the trial has left). The game Worker checks it before serving index.html; the SDK keeps it out of reach of the page's own scripts and attaches it to every service call. Accounts, sign-in, purchases and the game page are the platform's; a game never handles passwords or emails.`,
+      how_it_works: `${s.require_login_to_play ? 'Players must be signed in ("Require login to play" is on).' : 'Free games can also be played as a guest ("Require login to play" is off): GCP.player.guest is true, the id is kept per browser, and paid games still need an account.'} Pressing Play on the game page starts a play session: the platform signs a play token (HMAC with the game's own key) naming the game, environment (preview or live) and player, valid ${6} hours (a free-trial token only as long as the trial has left). The game Worker checks it before serving index.html; the SDK keeps it out of reach of the page's own scripts and attaches it to every service call. Accounts, sign-in, purchases and the game page are the platform's; a game never handles passwords or emails.`,
       use_for: ['Greeting the player by name', 'Opening in the player\'s platform language (GCP.lang) when the game declares languages.follows_platform', 'Telling players apart in rooms', 'Keying anything per player in server code (env.player.id)'],
-      sdk: ['GCP.player', 'GCP.env', 'GCP.lang'],
+      sdk: ['GCP.player', 'GCP.player.guest', 'GCP.env', 'GCP.lang'],
       mcp_tools: [],
-      limits: { session_hours: 6, player_fields: 'id, name (display name only)' },
+      limits: { session_hours: 6, player_fields: 'id, name (display name only), guest', login_required: s.require_login_to_play, guest_session_hours: 1 },
       guidelines: ['Never ask for emails, real names or anything personal inside a game.', 'GCP.player.id is stable per account: use it, not localStorage, to recognise a player.', 'A player may open the game in two tabs: rooms give each connection its own peer id.'],
       guide: 'saves',
     },
@@ -156,12 +156,12 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'server_code', name: 'Game server code', category: 'runtime', status: on(s.allow_server_code),
       what: 'Optional server/index.js in the bundle, run inside the game\'s own Cloudflare Worker for requests under /api/.',
-      how_it_works: 'At deploy the platform uploads the server/ modules into the game\'s Worker. GCP.server(path, init) calls it with the player\'s play token attached; the module gets env.GAME, env.player (verified, or null) and env.store, which reads and writes shared data and any player\'s save for this game through the platform. It runs on the standard Workers runtime (fetch, Web Crypto, streams). It has no access to the platform\'s own data or secrets, and no bindings of its own (no KV, D1, Durable Objects, cron or AI).',
+      how_it_works: 'At deploy the platform uploads the server/ modules into the game\'s Worker; the Worker never serves them as files (any path under server/ answers 404, in preview and live). GCP.server(path, init) calls it with the player\'s play token attached; the module gets env.GAME, env.player (verified, or null) and env.store, which reads and writes shared data and any player\'s save for this game through the platform. It runs on the standard Workers runtime (fetch, Web Crypto, streams). It has no access to the platform\'s own data or secrets, and no bindings of its own (no KV, D1, Durable Objects, cron or AI).',
       use_for: ['Validating scores and runs before they count', 'Daily challenges and seeds', 'State that spans sessions: persistent worlds, turn-based games played over days', 'Anything players must not be able to tamper with'],
       sdk: ['GCP.server(path, init)'],
       mcp_tools: ['upload_files', 'deploy_preview', 'game_data'],
       limits: { allowed_on_this_platform: s.allow_server_code, entry: 'server/index.js with export default { fetch(request, env, ctx) }', imports: 'other files under server/ by relative path', store: '256 KB per value' },
-      guidelines: ['Most games need none; use it when something must be decided where players cannot tamper with it.', 'Never put API keys or other secrets in it: files in the bundle, server/ included, are served with the game and can be downloaded.', 'Keep each request short; check env.player before trusting a caller.'],
+      guidelines: ['Most games need none; use it when something must be decided where players cannot tamper with it.', 'Files under server/ are never served to players (the game Worker answers 404 for them); everything else in the bundle is public. Keep secrets out of client files.', 'There is no secrets store: a key written into server/ is readable by you through MCP and by the platform\'s automated checks, so use only keys you could rotate, and rotate them if a project is shared.', 'Keep each request short; check env.player before trusting a caller.'],
       guide: 'saves',
     },
     {
@@ -262,7 +262,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
 
 /** What the platform does not provide, and what to do instead. */
 export const NOT_PROVIDED: Missing[] = [
-  { need: 'AI models for games (text, images, speech)', status: 'not provided', instead: 'The platform uses Workers AI only for its own checks. Generate assets while building, or call an outside API from server code you control; never put its key in the bundle.' },
+  { need: 'AI models for games (text, images, speech)', status: 'not provided', instead: 'The platform uses Workers AI only for its own checks. Generate assets while building, or call an outside API from server code (files under server/ are never served to players; never put a key in client files).' },
   { need: 'In-game purchases, currencies sold for money, subscriptions', status: 'not provided', instead: 'Sell the whole game (update_project price_cents) or offer a free trial. In-game currencies earned by play can live in saves or player stats.' },
   { need: 'Checking from game code whether the player bought the game', status: 'not provided', instead: 'Not needed: the platform only opens a paid game for owners and players with trial time left, and pauses it when a trial ends.' },
   { need: 'Achievements and badges', status: 'not provided', instead: 'Track milestones with GCP.playerStats (players see them on the game page) and show them in the game.' },
@@ -270,7 +270,7 @@ export const NOT_PROVIDED: Missing[] = [
   { need: 'Matchmaking and a list of open rooms', status: 'not provided', instead: 'Use fixed or player-shared room codes; for a lobby list, have players join a "lobby" room and advertise their own codes there.' },
   { need: 'Server-authoritative simulation inside rooms', status: 'not provided', instead: 'The host player is the authority; rooms relay and keep one snapshot. Validate results that matter in server code.' },
   { need: 'Persistent rooms and worlds while nobody is connected', status: 'not provided', instead: 'Store the world in server code with env.store (or the host saves it) and load it when the room opens again.' },
-  { need: 'Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code', status: 'not provided', instead: 'Use env.store for data. Files in the bundle, server/ included, can be downloaded, so nothing secret can be shipped.' },
+  { need: 'Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code', status: 'not provided', instead: 'Use env.store for data. A key can be written into server/ (never served to players), but there is no secrets store or rotation: prefer keys you can revoke.' },
   { need: 'Custom analytics events', status: 'not provided', instead: 'Count what matters with player stats; game_data summary aggregates them across players.' },
   { need: 'Uploads from players (screenshots, levels, avatars)', status: 'not provided', instead: 'Keep small player-made content as JSON in saves (256 KB per key) or, through server code, in shared data.' },
   { need: 'Push notifications and email to players', status: 'not provided', instead: 'None; use shared data for in-game announcements.' },

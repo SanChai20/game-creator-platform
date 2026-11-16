@@ -1,7 +1,7 @@
 // The web app's API: accounts, marketplace, play sessions, purchases, the creator console and billing.
 import { Hono } from 'hono';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from '../env';
-import { checkPassword, COOKIE, createSession, hashPassword, newUserId, rateLimit, readCookie, requireUser, sessionCookie, type Ctx } from '../auth';
+import { checkPassword, COOKIE, createSession, guestIdentity, hashPassword, newUserId, rateLimit, readCookie, requireUser, sessionCookie, type Ctx } from '../auth';
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
@@ -221,18 +221,31 @@ api.get('/games/:slug', async (c) => {
   });
 });
 
-async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User, trialSeconds?: number) {
+const GUEST_SESSION_S = 3600;   // a guest's play session is short, so switching "Require login to play" on ends guest play within the hour even where the game's own Worker serves it
+async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User, trialSeconds?: number, lifeS = 6 * 3600) {
   const kind = u.id === p.owner_id || u.role === 'admin' ? 'owner' : 'player', sid = 'ps_' + rid(16), t = now(), trial = trialSeconds !== undefined;
   await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at, trial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t, trial ? 1 : 0).run();
   // A trial token lasts only as long as the trial time left (plus a little slack for the last heartbeat); a full one six hours.
-  const life = trial ? trialSeconds + 20 : 6 * 3600;
+  const life = trial ? trialSeconds + 20 : lifeS;
   const token = await signPlayToken({ g: p.id, e: envName, u: u.id, n: u.name, k: kind, s: sid, x: Math.floor(t / 1000) + life, ...(trial ? { tr: 1 } : {}) }, await playKey(c.env, p.id));
   return { url: `${await gameUrl(c.env, c.get('origin'), p.id, envName)}?gcp_t=${token}`, session: sid, version, ...(trial ? { trial: { remaining_seconds: trialSeconds } } : {}) };
 }
 
 api.post('/games/:slug/play', async (c) => {
-  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  const p = await liveGame(c, c.req.param('slug'));
   if (p.status !== 'live' || !p.live_version) throw new AppError(409, 'This game is offline.', 'offline');
+  // "Require login to play" is enforced here, where play sessions are signed: with it on (the default) only accounts get
+  // one. With it off, a visitor without an account plays a free game as a guest; paid games always need an account
+  // (buying and free trials belong to one). Every service the game then calls checks the setting again (routes/rt.ts).
+  if (!c.get('user')) {
+    const s = await getSettings(c.env);
+    if (s.require_login_to_play) throw new AppError(401, 'Sign in to play.', 'unauthenticated');
+    if (p.price_cents > 0) throw new AppError(401, 'Sign in to buy or try this game.', 'unauthenticated');
+    const g = await guestIdentity(c.env, c.req.raw);
+    if (g.cookie) c.header('set-cookie', g.cookie, { append: true });
+    return c.json(await startPlay(c, p, 'live', p.live_version, { id: g.id, name: g.name, role: 'player' } as unknown as User, undefined, GUEST_SESSION_S));
+  }
+  const u = requireUser(c);
   if (p.price_cents > 0 && u.id !== p.owner_id && u.role !== 'admin' && !(await owns(c.env, u.id, p.id))) {
     // Not bought: a free trial if the game offers one and this account has time left, otherwise the purchase prompt.
     const tr = await beginTrial(c.env, p, await getSettings(c.env), u.id);

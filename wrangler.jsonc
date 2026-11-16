@@ -25,7 +25,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }],
   "browser": { "binding": "BROWSER" },
   "ai": { "binding": "AI" },
-  "triggers": { "crons": ["17 3 * * *"] },
+  "triggers": { "crons": ["17 3 * * *", "*/10 * * * *"] },   // daily cleanup; game runtime rollout (src/deploy.ts)
   "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
   "observability": { "enabled": true },
   "vars": {

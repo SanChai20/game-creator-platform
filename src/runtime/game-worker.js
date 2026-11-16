@@ -54,7 +54,7 @@ function inject(html, env, auth, token, base) {
   const manifest = JSON.parse(env.MANIFEST || '{}');
   const cfg = {
     api: env.PLATFORM, token, gameId: env.GAME_ID, slug: env.SLUG, title: env.TITLE, version: Number(env.VERSION), env: env.ENV, base,
-    player: { id: auth.u, name: auth.n }, kind: auth.k, session: auth.s,
+    player: { id: auth.u, name: auth.n, guest: String(auth.u).startsWith('guest_') }, kind: auth.k, session: auth.s,
   };
   let head = `<script>window.__GCP_CONFIG=${JSON.stringify(cfg).replace(/</g, '\\u003c')}</script><script src="${env.PLATFORM}/sdk/gcp.js"></script>`;
   // One import map for the whole page. If the game wrote its own, leave it alone (browsers only honour the first).
@@ -85,6 +85,13 @@ function storeClient(env) {
   };
 }
 
+/** True for any request path that names a file under the bundle's server/ folder. */
+export function isServerPath(path) {
+  const parts = [];
+  for (const seg of String(path).split('/')) { if (!seg || seg === '.') continue; if (seg === '..') parts.pop(); else parts.push(seg); }
+  return parts[0] === 'server';
+}
+
 export async function handle(request, env, ctx, base = '') {
   const url = new URL(request.url);
   let path;
@@ -96,11 +103,14 @@ export async function handle(request, env, ctx, base = '') {
   if (path.startsWith('/api/')) {
     if (!userServer || typeof userServer.fetch !== 'function') return Response.json({ error: 'This game has no server code.' }, { status: 404 });
     const auth = await verifyPlayToken(request.headers.get('x-gcp-token') || token, env.PLAY_KEY, env.GAME_ID, env.ENV);
-    const safeEnv = { GAME: { id: env.GAME_ID, slug: env.SLUG, version: Number(env.VERSION), env: env.ENV }, player: auth ? { id: auth.u, name: auth.n } : null, store: storeClient(env) };
+    const safeEnv = { GAME: { id: env.GAME_ID, slug: env.SLUG, version: Number(env.VERSION), env: env.ENV }, player: auth ? { id: auth.u, name: auth.n, guest: String(auth.u).startsWith('guest_') } : null, store: storeClient(env) };
     try { return await userServer.fetch(request, safeEnv, ctx); }
     catch (e) { return Response.json({ error: 'Game server error', message: String(e && e.message || e) }, { status: 500 }); }
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
+  // The game's server code (server/ in the bundle) runs here and is never served as a file: it may hold logic or data the
+  // creator does not want players to read. Checked on the storage key, so '//server/…' or '/./server/…' cannot get around it.
+  if (isServerPath(path)) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   if (path.endsWith('/')) path += 'index.html';
   const ext = (path.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
   const key = env.PREFIX + path.slice(1);

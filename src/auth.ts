@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import { AppError, type Env, type User } from './env';
-import { b64u, unb64, now, rid, sha256, token, safeEqual } from './util';
+import { b64u, hmacHex, unb64, now, rid, sha256, token, safeEqual } from './util';
 
 const ITER = 100_000; // the Workers runtime caps PBKDF2 at 100k iterations
 const SESSION_DAYS = 30;
@@ -44,6 +44,22 @@ export async function userFromRequest(env: Env, req: Request): Promise<User | nu
 }
 export async function userById(env: Env, id: string): Promise<User | null> {
   return env.DB.prepare(`SELECT ${USER_COLS} FROM users u WHERE u.id = ?`).bind(id).first<User>();
+}
+
+// ---- guests: players without an account, only when the admin setting "Require login to play" is off ----
+// A guest is a random id kept in a signed, HttpOnly cookie, so one browser keeps its saves between visits. The id has its
+// own prefix, so every service can tell a guest from an account and refuse guests the moment the setting is switched on.
+export const GUEST_PREFIX = 'guest_';
+const GUEST_COOKIE = 'gcp_guest';
+export const isGuestId = (id: unknown) => typeof id === 'string' && id.startsWith(GUEST_PREFIX);
+/** The guest id this browser already has, or a new one with the Set-Cookie header that keeps it (a year). */
+export async function guestIdentity(env: Env, req: Request): Promise<{ id: string; name: string; cookie: string | null }> {
+  const sign = (id: string) => hmacHex(env.SESSION_SECRET, 'guest:' + id);
+  const raw = readCookie(req, GUEST_COOKIE), [id, sig] = (raw || '').split('.');
+  if (id && sig && isGuestId(id) && /^guest_[a-z0-9]{12,40}$/.test(id) && safeEqual(sig, await sign(id))) return { id, name: 'Guest', cookie: null };
+  const fresh = GUEST_PREFIX + rid(20).toLowerCase();
+  const secure = new URL(req.url).protocol === 'https:';
+  return { id: fresh, name: 'Guest', cookie: `${GUEST_COOKIE}=${fresh}.${await sign(fresh)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure ? '; Secure' : ''}` };
 }
 
 export type Ctx = Context<{ Bindings: Env; Variables: { user: User | null; origin: string } }>;

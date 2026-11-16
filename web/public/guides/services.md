@@ -92,7 +92,7 @@ The SDK also records uncaught errors, failed file loads and `console.error` for 
 
 ## Player accounts and play sessions
 
-Every game is opened by a signed-in platform account. `GCP.player` is `{ id, name }`: a stable account id and the display name the player chose. `GCP.lang` is the player's platform language (en, zh, zh-TW, ja, ko, es), for games that declare `languages.follows_platform`. Pressing Play signs a play session (valid six hours; for a free trial, only as long as the trial has left) that names the game, the environment and the player. The SDK keeps the token away from your page's scripts and attaches it to every service call.
+By default every game is opened by a signed-in platform account. `GCP.player` is `{ id, name, guest }`: a stable account id and the display name the player chose. When the platform's administrators switch "Require login to play" off, free games can also be played without an account: `GCP.player.guest` is `true`, the id is kept per browser, and the session lasts an hour. Paid games, reviews and progress on the game page always need an account. The rule is enforced by the server, which signs play sessions and checks the setting on every service call. `GCP.lang` is the player's platform language (en, zh, zh-TW, ja, ko, es), for games that declare `languages.follows_platform`. Pressing Play signs a play session (valid six hours; for a free trial, only as long as the trial has left) that names the game, the environment and the player. The SDK keeps the token away from your page's scripts and attaches it to every service call.
 
 Accounts, sign-in, purchases and the store page belong to the platform. A game never handles passwords or emails and must not ask for anything personal.
 
@@ -165,7 +165,7 @@ export default {
 
 It runs on the standard Workers runtime (fetch, Web Crypto, streams) with no access to the platform's own data or secrets and no bindings of its own (no KV, D1, Durable Objects, cron or AI). Use it to validate scores, run daily challenges or keep a world that lasts between sessions.
 
-**Do not put secrets in it.** Files in the bundle, `server/` included, are served with the game and can be downloaded.
+**`server/` is never served.** The game Worker answers 404 for every path under `server/`, in preview and live, so players cannot download your server code; every other file in the bundle is public. There is no secrets store: a key written into `server/` stays readable to you through MCP and to the platform's automated checks, so use keys you can revoke and never put one in a client file.
 
 Whether server code is allowed on this platform is shown by `get_started` under `account.limits.server_code`.
 
@@ -229,7 +229,7 @@ Plan around these instead of looking for them.
 
 | Need | What to do instead |
 | --- | --- |
-| AI models for games (text, images, speech) | The platform uses Workers AI only for its own checks. Generate assets while building, or call an outside API from server code you control; never put its key in the bundle. |
+| AI models for games (text, images, speech) | The platform uses Workers AI only for its own checks. Generate assets while building, or call an outside API from server code (never served to players); never put a key in a client file. |
 | In-game purchases, currencies sold for money, subscriptions | Sell the whole game or offer a free trial. Currencies earned by play live in saves or stats. |
 | Checking from game code whether the player bought the game | Not needed: only owners and trial players can open a paid game. |
 | Achievements and badges | Track milestones with `GCP.playerStats` and show them in the game. |
@@ -237,7 +237,7 @@ Plan around these instead of looking for them.
 | Matchmaking and a list of open rooms | Fixed or shared room codes; for a lobby list, players join a `lobby` room and advertise their codes there. |
 | Server-authoritative simulation inside rooms | The host is the authority; validate results that matter in server code. |
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |
-| Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store`. Nothing secret can be shipped in a bundle. |
+| Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store` for data. A key can live in `server/` (never served), but there is no secrets store or rotation: prefer keys you can revoke. |
 | Custom analytics events | Count with player stats; `game_data summary` aggregates them. |
 | Uploads from players (screenshots, levels, avatars) | Small player-made content as JSON in saves, or in shared data through server code. |
 | Push notifications and email to players | None; use shared data for in-game announcements. |

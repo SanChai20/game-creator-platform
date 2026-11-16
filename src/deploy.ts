@@ -3,9 +3,9 @@
 // itself stays in R2 and is read through a bucket binding, so switching versions is one API call.
 import { AppError, type Env, type Project, type Version } from './env';
 import { GAME_WORKER_SOURCE } from './generated/runtime-source';
-import { verKey } from './projects';
 import { getState, setState } from './settings';
-import { hmacHex, parseJson } from './util';
+import { hmacHex, now, parseJson, sha256 } from './util';
+import { getVersion, verKey } from './projects';
 
 export type GameEnv = 'preview' | 'live';
 export const workerName = (pid: string, e: GameEnv) => `gcp-${pid}-${e}`;
@@ -62,7 +62,55 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
   }
   await cf(env, 'PUT', `/workers/scripts/${name}`, form);
   await cf(env, 'POST', `/workers/scripts/${name}/subdomain`, JSON.stringify({ enabled: true, previews_enabled: false }), { 'content-type': 'application/json' });
+  await env.DB.prepare('INSERT INTO game_workers (project_id, env, version, runtime, origin, deployed_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, env) DO UPDATE SET version = excluded.version, runtime = excluded.runtime, origin = excluded.origin, deployed_at = excluded.deployed_at')
+    .bind(p.id, e, v.n, await runtimeHash(), origin, now()).run();
   return url;
+}
+
+let runtimeSum: string | null = null;
+/** Identifies the runtime source this platform build deploys game Workers with. */
+export async function runtimeHash(): Promise<string> { return (runtimeSum ??= (await sha256(GAME_WORKER_SOURCE)).slice(0, 16)); }
+
+/** The platform origin an existing game Worker was deployed for, read from its PLATFORM binding (for Workers deployed before game_workers existed). */
+async function deployedOrigin(env: Env, name: string): Promise<string | null> {
+  try {
+    const s = await cf(env, 'GET', `/workers/scripts/${name}/settings`);
+    const b = (s?.bindings || []).find((x: any) => x.name === 'PLATFORM' && typeof x.text === 'string');
+    return b ? b.text : null;
+  } catch (err) { if (err instanceof AppError && /\(404\)/.test(err.message)) return null; throw err; }
+}
+
+/** Redeploys, a few at a time, every game Worker that runs an older runtime than this build, with the version it already serves.
+    Runs from the scheduled handler, so a runtime fix (such as never serving server code as a file) reaches every game. */
+export async function rolloutRuntime(env: Env, max = 8): Promise<{ updated: string[]; skipped: string[]; failed: string[]; remaining: number }> {
+  const out = { updated: [] as string[], skipped: [] as string[], failed: [] as string[], remaining: 0 };
+  if (env.DEPLOY_DRIVER === 'local' || !env.CF_API_TOKEN || !env.CF_ACCOUNT_ID) return out;
+  const rt = await runtimeHash();
+  const stale = `FROM projects p CROSS JOIN (SELECT 'live' AS env UNION ALL SELECT 'preview') e
+    LEFT JOIN game_workers w ON w.project_id = p.id AND w.env = e.env
+    WHERE p.status != 'removed' AND (CASE e.env WHEN 'live' THEN p.status = 'live' AND p.live_version IS NOT NULL ELSE p.preview_version IS NOT NULL END)
+      AND (w.runtime IS NULL OR w.runtime != ?1)`;
+  const rows = await env.DB.prepare(`SELECT p.id, e.env AS env, CASE e.env WHEN 'live' THEN p.live_version ELSE p.preview_version END AS n, w.origin AS origin ${stale} ORDER BY e.env = 'live' DESC, p.updated_at DESC LIMIT ?2`)
+    .bind(rt, max).all<{ id: string; env: GameEnv; n: number; origin: string | null }>();
+  for (const r of rows.results) {
+    const name = workerName(r.id, r.env);
+    try {
+      const p = await env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(r.id).first<Project>(), v = await getVersion(env, r.id, r.n);
+      const origin = r.origin || await deployedOrigin(env, name);
+      if (!p || !v || !origin) {
+        // no Worker to refresh (never deployed, or deleted): remember that, so the rollout does not keep coming back to it
+        await env.DB.prepare('INSERT INTO game_workers (project_id, env, version, runtime, origin, deployed_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, env) DO UPDATE SET runtime = excluded.runtime, deployed_at = excluded.deployed_at')
+          .bind(r.id, r.env, r.n, rt, origin || '', now()).run();
+        out.skipped.push(name); continue;
+      }
+      await deployGame(env, origin, p, v, r.env);
+      out.updated.push(name);
+    } catch (err) { console.error('runtime rollout failed', name, err); out.failed.push(name); }
+  }
+  const left = await env.DB.prepare(`SELECT COUNT(*) AS n ${stale}`).bind(rt).first<{ n: number }>();
+  out.remaining = left?.n || 0;
+  if (out.updated.length || out.failed.length) console.log('runtime rollout', JSON.stringify(out));
+  return out;
 }
 
 export async function undeployGame(env: Env, pid: string, e: GameEnv): Promise<void> {

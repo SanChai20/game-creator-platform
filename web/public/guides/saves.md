@@ -4,7 +4,7 @@ Each game runs on its own origin, and the preview and live versions are differen
 
 ## Player progress: what every game should do
 
-Every game should keep each player's progress with the platform, not only in `localStorage`. Every player is signed in when a game opens, so `GCP.player.id` is always a real account, and each of the services below belongs to one player in one game:
+Every game should keep each player's progress with the platform, not only in `localStorage`. Every player is signed in when a game opens (or, where the platform allows guests for free games, has a guest id kept per browser, with `GCP.player.guest` true), so `GCP.player.id` always identifies one player, and each of the services below belongs to one player in one game:
 
 - The platform takes the game, the environment (preview or live) and the player from the signed play session on every call. Nothing in a request can name another player or another game, so a game cannot read or overwrite anyone else's progress, even by mistake.
 - Preview data is kept apart from live data. The verification browser plays under a throwaway identity of its own, so it always starts from no save and never touches your own progress.
@@ -129,10 +129,10 @@ What the server module receives in `env`:
 | Name | What it is |
 | --- | --- |
 | `env.GAME` | `{ id, slug, version, env }` |
-| `env.player` | `{ id, name }` of the caller, or `null` when the request carries no valid play session |
+| `env.player` | `{ id, name, guest }` of the caller, or `null` when the request carries no valid play session |
 | `env.store` | `get(key, { player })`, `set(key, value, { player })`, `delete(key, { player })`, `list(prefix, { player })`. Without `player` the data is game-wide and is what `GCP.shared.get` reads. With `player` it is that player's save, the same data `GCP.save` uses. |
 
-Rules for server code: it is an ES module with a default export that has `fetch`; it may import other files under `server/` by relative path; it has no access to the platform's own data or secrets; keep each request short. `deploy_preview` validates the syntax, and whether this platform allows server code is shown by `get_started` under `account.limits`.
+Rules for server code: it is an ES module with a default export that has `fetch`; it may import other files under `server/` by relative path; it has no access to the platform's own data or secrets; keep each request short. Files under `server/` are never served to players (the game Worker answers 404 for them), but there is no secrets store: a key written there stays readable to you and to the platform's checks, so use keys you can revoke. `deploy_preview` validates the syntax, and whether this platform allows server code is shown by `get_started` under `account.limits`.
 
 ## Privacy
 

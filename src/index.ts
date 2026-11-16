@@ -4,7 +4,9 @@ import { AuthorizationError, CimdFetchError, OAuthProvider, type ConsentDescript
 import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
 import { userFromRequest } from './auth';
-import { gameBindings } from './deploy';
+import { gameBindings, rolloutRuntime } from './deploy';
+
+const DAILY_CRON = '17 3 * * *';   // must match the first cron in wrangler.jsonc
 import { handleMcp } from './mcp/server';
 import { THREE_VERSION } from './generated/runtime-source';
 import { getProject, getVersion } from './projects';
@@ -247,7 +249,10 @@ export default {
     }
     return res;
   },
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // every few minutes: bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
+    ctx.waitUntil(rolloutRuntime(env).catch((e) => console.error('runtime rollout failed', e)));
+    if (event.cron !== DAILY_CRON) return;
     const t = now();
     ctx.waitUntil(env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),

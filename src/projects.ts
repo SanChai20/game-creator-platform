@@ -402,7 +402,7 @@ export async function ensureVersionMeta(env: Env, v: Version): Promise<{ compat:
   if (m.compat?.v === 1 && m.meta?.v === 1) return { compat: m.compat, meta: m.meta };
   const files = parseJson<{ path: string; size: number }[]>(v.files, []), texts = new Map<string, string>();
   for (const f of files) {
-    if (!isText(f.path) || f.size > 6 * 1024 * 1024 || texts.size >= 200) continue;
+    if (!isText(f.path) || f.path.startsWith('server/') || f.size > 6 * 1024 * 1024 || texts.size >= 200) continue;   // server code is not what the browser runs
     const obj = await env.FILES.get(verKey(v.project_id, v.n, f.path));
     if (obj) texts.set(f.path, await obj.text());
   }
