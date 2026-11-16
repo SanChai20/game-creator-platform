@@ -51,7 +51,7 @@ const hexRgb = (hex: string): [number, number, number] => { const n = parseInt(h
 const toonRamp = () => dataTex(3, 1, (x) => { const v = [90, 175, 255][x]; return [v, v, v, 255]; }, THREE.NearestFilter);
 /** Gas-giant bands: warped noise quantised into a few flat colours. */
 function planetTexture() {
-  const n = noise2(7), cols = ['#3b2370', palette.violet, '#c25bd6', palette.hot, '#6b4fd8', '#2a1a55'].map(hexRgb);
+  const n = noise2(7), cols = [color.bg3, palette.violet, color.violetHi, palette.hot, color.plate, color.bg2].map(hexRgb);
   return dataTex(256, 128, (x, y) => {
     const u = x / 256, v = y / 128;
     let w = 0, a = 1, f = 3; for (let o = 0; o < 4; o++) { w += a * n(u * f * 4, v * f); a *= 0.5; f *= 2; }
@@ -72,7 +72,7 @@ function blockTexture() {
 /** The ring: thin flat stripes with gaps. */
 function ringTexture() {
   const r = rng(3), stripes: number[] = []; for (let i = 0; i < 128; i++) stripes.push(r());
-  return dataTex(128, 1, (x) => { const s = stripes[x], g = x < 6 || x > 121 || (x > 70 && x < 78) ? 0 : 1; const c = hexRgb(s > 0.5 ? palette.cyan : '#a99cff'); return [c[0], c[1], c[2], Math.round(g * (140 + s * 100))]; });
+  return dataTex(128, 1, (x) => { const s = stripes[x], g = x < 6 || x > 121 || (x > 70 && x < 78) ? 0 : 1; const c = hexRgb(s > 0.5 ? palette.cyan : color.violetHi); return [c[0], c[1], c[2], Math.round(g * (140 + s * 100))]; });
 }
 /** A coin face, painted with the same code as the overlay's coin sprite. */
 function coinFace() {
@@ -189,10 +189,10 @@ function roundedBox(size: number, radius: number) {
 function gamepad(m: Mats) {
   const g = new THREE.Group();
   const body = new THREE.CapsuleGeometry(0.9, 2.2, 8, 20); body.rotateZ(Math.PI / 2); body.scale(1, 1, 0.55);
-  g.add(inked(body, m.toon('#3a2c6e', { rim: palette.violet }), m));
-  for (const sx of [-1, 1]) { const grip = new THREE.SphereGeometry(0.75, 20, 14); grip.translate(sx * 1.45, -0.55, 0); grip.scale(1, 1, 0.55); g.add(inked(grip, m.toon('#3a2c6e', { rim: palette.violet }), m)); }
+  g.add(inked(body, m.toon(color.plate, { rim: palette.violet }), m));
+  for (const sx of [-1, 1]) { const grip = new THREE.SphereGeometry(0.75, 20, 14); grip.translate(sx * 1.45, -0.55, 0); grip.scale(1, 1, 0.55); g.add(inked(grip, m.toon(color.plate, { rim: palette.violet }), m)); }
   const dpad = mergeGeometries([new THREE.BoxGeometry(0.75, 0.24, 0.2), new THREE.BoxGeometry(0.24, 0.75, 0.2)].map((x) => x.toNonIndexed()))!; dpad.translate(-1.25, 0.12, 0.5);
-  g.add(inked(dpad, m.toon('#1d1538'), m));
+  g.add(inked(dpad, m.toon(color.bg2), m));
   ([[0, 0.38, palette.accent], [0.36, 0.05, palette.hot], [-0.36, 0.05, palette.cyan], [0, -0.28, palette.gold]] as [number, number, string][]).forEach(([x, y, c]) => {
     const b = new THREE.CylinderGeometry(0.17, 0.17, 0.2, 16); b.rotateX(Math.PI / 2); b.translate(1.25 + x, 0.1 + y, 0.48);
     g.add(inked(b, m.toon(c, { emissive: 0.25 }), m));
@@ -222,10 +222,10 @@ function makeProps(theme: FxTheme, m: Mats, tex: { block: THREE.Texture; coin: T
       const hullGeo = mergeVertices(geo.clone().deleteAttribute('normal').deleteAttribute('uv'), 1e-3); hullGeo.computeVertexNormals(); coin.add(new THREE.Mesh(hullGeo, m.outline));
       add(coin, side(i + 1) * 0.92, 2 - i * 19, -2 - r() * 10, 0.55 + r() * 0.2, i < 1, new THREE.Vector3(0, 0.6, 0), 0.3);
     }
-    for (let i = 0; i < 2; i++) add(inked(cloudGeometry(40 + i), m.toon(i % 2 ? '#d9d2ff' : '#bfb3ff', { rim: palette.hot }), m), (i % 2 ? 1 : -1) * (0.45 + r() * 0.6), -6 - i * 9, -18 - r() * 10, 1.4 + r() * 0.9, i < 2, new THREE.Vector3(0, 0.02, 0), 0.25);
+    for (let i = 0; i < 2; i++) add(inked(cloudGeometry(40 + i), m.toon(i % 2 ? color.tint : color.violetHi, { rim: palette.hot }), m), (i % 2 ? 1 : -1) * (0.45 + r() * 0.6), -6 - i * 9, -18 - r() * 10, 1.4 + r() * 0.9, i < 2, new THREE.Vector3(0, 0.02, 0), 0.25);
     const pad = gamepad(m); add(pad, 0.78, -2, -6, 1.1, true, new THREE.Vector3(0.05, 0.15, 0.02), 0.25);
   } else {
-    const gearCols = [palette.accent, palette.cyan, '#8e7dff', palette.gold];
+    const gearCols = [palette.accent, palette.cyan, color.violetHi, palette.gold];
     for (let i = 0; i < 3; i++) {
       const teeth = 8 + (i % 3) * 2, g = inked(gearGeometry(teeth, 1.4), m.toon(gearCols[i % gearCols.length], { rim: '#ffffff' }), m);
       g.rotation.x = -0.25 + r() * 0.5;
@@ -233,7 +233,7 @@ function makeProps(theme: FxTheme, m: Mats, tex: { block: THREE.Texture; coin: T
     }
     const blockCols = [palette.hot, palette.cyan, palette.accent, palette.violet, palette.gold];
     for (let i = 0; i < 4; i++) add(inked(roundedBox(1.6, 0.28), m.toon(blockCols[i % blockCols.length], { map: tex.block, rim: '#ffffff' }), m), side(i + 1), 3 - i * 14, -3 - r() * 14, 0.7 + r() * 0.4, i < 2, new THREE.Vector3(0.15, 0.25, 0.08), 0.3);
-    for (let i = 0; i < 1; i++) add(inked(cloudGeometry(60 + i), m.toon('#b9b0ff', { rim: palette.cyan }), m), (i % 2 ? 1 : -1) * (0.5 + r() * 0.5), -10 - i * 14, -22, 1.6, false, new THREE.Vector3(0, 0.02, 0), 0.25);
+    for (let i = 0; i < 1; i++) add(inked(cloudGeometry(60 + i), m.toon(color.violetHi, { rim: palette.cyan }), m), (i % 2 ? 1 : -1) * (0.5 + r() * 0.5), -10 - i * 14, -22, 1.6, false, new THREE.Vector3(0, 0.02, 0), 0.25);
   }
   return out;
 }
@@ -345,14 +345,14 @@ export class World {
     const tri = new THREE.BufferGeometry(); tri.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
     this.sky = new THREE.Mesh(tri, new THREE.ShaderMaterial({
       vertexShader: SKY_VS, fragmentShader: SKY_FS, depthWrite: false, depthTest: false,
-      uniforms: { t: { value: 0 }, work: { value: this.work }, lean: { value: new THREE.Vector2() }, res: { value: new THREE.Vector2() }, ink: { value: C(palette.ink) }, violet: { value: C(palette.violet) }, hot: { value: C(palette.hot) }, cyan: { value: C(palette.cyan) } },
+      uniforms: { t: { value: 0 }, work: { value: this.work }, lean: { value: new THREE.Vector2() }, res: { value: new THREE.Vector2() }, ink: { value: C(palette.ink) }, violet: { value: C(palette.horizon) }, hot: { value: C(palette.hot) }, cyan: { value: C(palette.cyan) } },
     }));
     this.sky.frustumCulled = false; this.sky.renderOrder = -10; this.scene.add(this.sky);
 
     // stars: a generated 4-point star shape, instanced, twinkling in the vertex shader
     const sh = new THREE.Shape(); for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2, rr = i % 2 ? 0.09 : 0.32; i ? sh.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : sh.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); }
     const n = full ? 140 : 60, sr = rng(5), phase = new Float32Array(n);
-    this.stars = new THREE.InstancedMesh(new THREE.ShapeGeometry(sh), new THREE.ShaderMaterial({ vertexShader: STAR_VS, fragmentShader: STAR_FS, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending, uniforms: { t: { value: 0 }, col: { value: C('#e9e4ff') }, readCol: column } }), n);
+    this.stars = new THREE.InstancedMesh(new THREE.ShapeGeometry(sh), new THREE.ShaderMaterial({ vertexShader: STAR_VS, fragmentShader: STAR_FS, depthWrite: false, transparent: true, blending: THREE.AdditiveBlending, uniforms: { t: { value: 0 }, col: { value: C(color.tint) }, readCol: column } }), n);
     const mtx = new THREE.Matrix4();
     for (let i = 0; i < n; i++) { phase[i] = sr(); const s = 0.4 + sr() * 1.1; mtx.makeScale(s, s, 1).setPosition((sr() - 0.5) * 120, (sr() - 0.2) * 60, -60); this.stars.setMatrixAt(i, mtx); }
     this.stars.geometry.setAttribute('phase', new THREE.InstancedBufferAttribute(phase, 1));

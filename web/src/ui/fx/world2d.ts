@@ -30,7 +30,7 @@ export class World2d {
     const work = this.theme === 'workshop', r = rng(work ? 23 : 11);
 
     // sky: flat cartoon bands from ink to a warm (store) or cool (workshop) horizon
-    const low = work ? palette.cyan : palette.violet;
+    const low = work ? palette.cyan : palette.horizon;
     for (let i = 0; i < 6; i++) {
       const k = i / 5;
       x.fillStyle = mixHex(palette.ink, mixHex(shade(palette.violet, -0.55), shade(low, -0.6), Math.max(0, (k - 0.55) / 0.45)), Math.min(1, k * 0.42));
@@ -42,7 +42,7 @@ export class World2d {
     x.fillStyle = g; x.fillRect(0, 0, W, H);
 
     // stars
-    for (let i = 0; i < 40; i++) this.sprite('sparkle', r() * W, r() * H * 0.7, 3 + r() * 5, '#8f87b0');
+    for (let i = 0; i < 40; i++) this.sprite('sparkle', r() * W, r() * H * 0.7, 3 + r() * 5, color.text3);
 
     // keep the art in the margins beside the content column, as the GPU world does
     const el = document.querySelector('main .wrap') || document.querySelector('.wrap'), rect = el?.getBoundingClientRect();
@@ -74,7 +74,7 @@ export class World2d {
   private sprite(k: SpriteKind, px: number, py: number, s: number, tint: string) { const x = this.x; x.save(); x.translate(px, py); paintSprite(x, k, s, tint); x.restore(); }
 
   private planet(cx: number, cy: number, R: number) {
-    const x = this.x, cols = ['#3b2370', palette.violet, '#c25bd6', palette.hot, '#6b4fd8'];
+    const x = this.x, cols = [color.bg3, palette.violet, color.violetHi, palette.hot, color.plate];
     x.save(); x.translate(cx, cy); x.rotate(0.28);
     const ring = (front: boolean) => { x.beginPath(); x.ellipse(0, 0, R * 1.85, R * 0.42, 0, front ? 0 : Math.PI, front ? Math.PI : Math.PI * 2); x.lineWidth = R * 0.28; x.strokeStyle = 'rgba(169,156,255,.55)'; x.stroke(); x.lineWidth = R * 0.07; x.strokeStyle = 'rgba(63,224,255,.6)'; x.stroke(); };
     ring(false);

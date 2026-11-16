@@ -120,7 +120,7 @@ select.input { background-position: calc(100% - 18px) 18px, calc(100% - 13px) 18
   color: var(--text-2); font: 700 13px/1 var(--font-display); letter-spacing: .02em; white-space: nowrap;
 }
 .tabs a:hover, .seg button:hover, .tl-tabs button:hover { color: var(--text); background: rgb(var(--tint-rgb) / .06); }
-.tabs a.on, .seg button.on, .tl-tabs button.on { color: var(--accent); background: var(--plate-on-bg); border: 0; box-shadow: var(--plate-on-shadow); }
+.tabs a.on, .seg button.on, .tl-tabs button.on { color: var(--plate-text); background: var(--plate-on-bg); border: 0; box-shadow: var(--plate-on-shadow); }
 .tabs a.on::after { display: none; }
 .seg button { height: 30px; padding: 0 12px; font-size: 12.5px; }
 .legal .tabs { width: auto; }
@@ -130,7 +130,7 @@ select.input { background-position: calc(100% - 18px) 18px, calc(100% - 13px) 18
 .nav a.nl, .sbar-a { border-radius: var(--r-lg); font-family: var(--font-display); font-weight: 650; }
 .nav a.nl { padding: 8px 13px; }
 .nav a.nl:hover, .sbar-a:hover { background: rgb(var(--tint-rgb) / .07); color: var(--text); }
-.nav a.nl.on, .sbar-a.on { color: var(--accent); background: var(--plate-on-bg); box-shadow: var(--plate-on-shadow); }
+.nav a.nl.on, .sbar-a.on { color: var(--plate-text); background: var(--plate-on-bg); box-shadow: var(--plate-on-shadow); }
 .nav a.nl.on::after, .sbar-a.on::after { display: none; }
 .sbar { background: rgb(var(--bg-1-rgb) / .72); border-bottom: 2px solid var(--frame); }
 @media (min-width: 861px) { .sbar .wrap { height: 56px; } }

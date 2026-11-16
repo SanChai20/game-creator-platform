@@ -7,21 +7,47 @@
 const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ');
 const a = (hex: string, alpha: number) => `rgba(${rgb(hex)}, ${alpha})`;
 
-// The palette: a deep indigo night, warm gold for the one thing to do (the colour of coins, stars and rewards), and
-// an electric violet as its partner for the chosen tab, highlights and glows. Cyan, coral and mint are spot colours
-// for meaning and charts. Every colour in the CSS is one of these, or black and white for shading.
+// The palette, "Ember & Jade": a warm plum-black night lit by ember orange for the one thing to do, cooled by jade
+// as its partner (the chosen tab, highlights). Gold stays for coins, stars and rewards; coral, cyan and mint are spot
+// colours for meaning and charts. The warm/cool complement follows games such as Hades and Hyper Light Drifter.
+// Every colour in the CSS and the effects is one of these, or black and white for shading.
 const base = {
-  bg0: '#090b1a', bg1: '#10132b', bg2: '#161a38', bg3: '#1f2449', bg4: '#2b315f',
-  tint: '#a9b2ff', // the cool white that lines and hover washes are made of
-  text: '#eef0ff', text2: '#a6acd2', text3: '#7a80aa',
-  accent: '#ffc53d', accent2: '#ff9f1c', accentHi: '#ffe27a', accentInk: '#2b1700', accentLip: '#9a5300',
-  violet: '#8b6cff', violetHi: '#b3a0ff', cyan: '#3fd4ff', hot: '#ff5e8e', gold: '#ffc53d',
-  good: '#3ee8a5', bad: '#ff5d6c', info: '#5fb3ff',
-  // Game UI materials (ui/skin.css): the ink outline round every pressable thing, the frame of a panel and its lit
-  // edge, the recessed well a field or a tab bar sits in, and the solid "lip" under a raised thing that gives it depth.
-  ink: '#05061a', frame: '#2a3068', frameHi: '#454d9a', well: '#0a0c20', lip: '#03040e', badLip: '#7a1f2c',
-  key: '#343a75', keyLo: '#252a58', keyHi: '#424a8f', keyHiLo: '#30366d', // a plain keycap, its hover
-  plate: '#4a37a8', plateLo: '#36288a', // the raised plate under the chosen tab: violet
+  bg0: '#110a0f',
+  bg1: '#1a1017',
+  bg2: '#22151e',
+  bg3: '#2d1c28',
+  bg4: '#3b2735',
+  tint: '#f6dccb',
+  text: '#fcf0e7',
+  text2: '#c8b1a6',
+  text3: '#977f75',
+  accent: '#ff8a3d',
+  accent2: '#f2622e',
+  accentHi: '#ffb36d',
+  accentInk: '#2b0d00',
+  accentLip: '#8a3a0b',
+  violet: '#36d1a0', // the partner colour (jade in this palette; the token keeps its old name so every use follows)
+  violetHi: '#86f0c9',
+  cyan: '#4fd6c8',
+  hot: '#ff5d7a',
+  gold: '#ffcf5a',
+  good: '#36d1a0',
+  bad: '#ff5d6c',
+  info: '#9cc3ff',
+  ink: '#070407',
+  frame: '#3a2734',
+  frameHi: '#56394c',
+  well: '#0c070b',
+  lip: '#040203',
+  badLip: '#7a1f2c',
+  key: '#3a2834',
+  keyLo: '#2a1c26',
+  keyHi: '#4a3442',
+  keyHiLo: '#382631',
+  plate: '#1c5244',
+  plateLo: '#123d32',
+  plateText: '#86f0c9',
+  horizon: '#6a2a2a',
 } as const;
 export const color = {
   ...base,
