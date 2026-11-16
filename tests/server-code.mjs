@@ -41,3 +41,22 @@ test('a game with server code: /api/* runs it (with its imports and the player),
   assert.equal((await mod.handle(new Request('https://g.example/server/secret.js'), env, {})).status, 404);
   assert.equal((await mod.handle(new Request('https://g.example/server/index.js', { method: 'HEAD' }), env, {})).status, 404);
 });
+
+test('a crash in server code answers 500 marked as the server code\'s, with where it came from in a preview', async () => {
+  const { mkdtempSync, mkdirSync, copyFileSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'gcp-srv-'));
+  copyFileSync(new URL('../src/runtime/game-worker.js', import.meta.url), join(dir, 'game-worker.js'));
+  mkdirSync(join(dir, 'server'));
+  writeFileSync(join(dir, 'server/index.js'), "export default { async fetch() { const world = null; return Response.json(world.cells); } };\n");
+  const mod = await import(join(dir, 'game-worker.js'));
+  const env = (ENV) => ({ PREFIX: 'v/', GAME_ID: 'abc123', SLUG: 's', VERSION: '1', ENV, PLAY_KEY: 'k', PLATFORM: 'https://p', FILES: { get: async () => null } });
+  const r = await mod.handle(new Request('https://g.example/api/world'), env('preview'), {});
+  assert.equal(r.status, 500);
+  assert.equal(r.headers.get('x-gcp-server-error'), '1');
+  const j = await r.json();
+  assert.match(j.message, /null/);
+  assert.ok(j.stack.some((l) => l.includes('server/index.js')));
+  const live = await (await mod.handle(new Request('https://g.example/api/world'), env('live'), {})).json();
+  assert.equal(live.stack, undefined);   // players of the live game never see where the creator's code failed
+});

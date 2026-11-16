@@ -159,3 +159,16 @@ test('services are found through aliases of the SDK, and only a free-text field 
   const made = { 'g.js': 'const r = GCP.room("x"); const box = document.createElement("textarea"); box.onkeydown = () => r.send({ chat: box.value });' };
   assert.ok(buildMeta(meta, made, ['g.js']).issues.some((i) => i.field === 'content.player_chat'));
 });
+
+test('a clean zip upload keeps the declared build metadata its gcp.json leaves out', async () => {
+  const { mergeManifest } = await import('../web/src/gamemeta.ts');
+  const enc = (o) => new TextEncoder().encode(JSON.stringify(o)), dec = (b) => JSON.parse(new TextDecoder().decode(b));
+  const workspace = enc({ imports: { a: './a.js' }, requirements: { graphics: 'webgl2' }, languages: ['en', 'zh-Hans'], players: { min: 1, max: 4 }, content: {} });
+  const m = mergeManifest(workspace, enc({ imports: { b: './b.js' }, players: { min: 1, max: 2 } }));
+  assert.deepEqual(m.carried, ['requirements', 'languages', 'content']);
+  assert.deepEqual(dec(m.bytes), { imports: { b: './b.js' }, players: { min: 1, max: 2 }, requirements: { graphics: 'webgl2' }, languages: ['en', 'zh-Hans'], content: {} });
+  // nothing to carry, or a copy that is not a JSON object: the zip's file goes in unchanged
+  assert.equal(mergeManifest(enc({ players: { min: 1 } }), enc({ players: { min: 2 } })), null);
+  assert.equal(mergeManifest(workspace, new TextEncoder().encode('{ not json')), null);
+  assert.equal(mergeManifest(new TextEncoder().encode('[]'), enc({})), null);
+});

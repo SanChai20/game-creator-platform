@@ -20,7 +20,7 @@ import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
-import { ACCESSIBILITY, CONTENT_CHOICES, GENRES, MODES, genresOf, matureOf, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
+import { ACCESSIBILITY, BUILD_FIELDS, CONTENT_CHOICES, MANIFEST, mergeManifest, GENRES, MODES, genresOf, matureOf, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
 import { MAX_TAGS, MIN_TAGS, missingTags, missingToPublish, normalizeStoredTags, TAG_GROUPS, tagGroup, TAGS, tagsOnly } from '../../web/src/tags';
 import { languageName, parseLanguages, type Languages } from '../../web/src/languages';
 import type { Project } from '../env';
@@ -211,7 +211,6 @@ function metadataChecklist(p: Project, compat: Compat, meta: MetaRecord) {
 }
 
 const metaIssueLine = (i: MetaIssue) => `${i.level.toUpperCase()} ${i.field}: ${i.message}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
-const BUILD_FIELDS = ['requirements', 'languages', 'players', 'session_minutes', 'progress', 'accessibility', 'content'] as const;
 const LISTING_FIELDS = ['title', 'tagline', 'description', 'controls', 'genre', 'genres', 'tags', 'listing_translations'] as const;
 const LANGUAGES_SCHEMA = { type: ['object', 'array'], description: 'Languages the game can be played in. {"default": "en", "supported": [{"code": "en", "interface": true, "audio": true, "subtitles": false}, {"code": "ja", "interface": true, "subtitles": true}], "follows_platform": true} or the shorthand ["en", "ja"] (interface text). Codes are BCP 47: en, ja, ko, es, zh-Hans, zh-Hant, fr, de, pt-BR… follows_platform: the game starts in GCP.lang (the player\'s platform language) when it has it.' };
 const PLAYERS_SCHEMA = { type: 'object', description: `{"min": 1, "max": 4, "modes": ["single", "coop-online"]}. Modes: ${MODES.join(', ')}.` };
@@ -435,7 +434,7 @@ export const TOOLS: Tool[] = [
         expires_in_minutes: 30,
         one_file: `curl -fsS -X PUT --data-binary @index.html "${base}?path=index.html"`,
         whole_folder: `zip -qr /tmp/game.zip . -x '.*' && curl -fsS -X POST --data-binary @/tmp/game.zip "${base}/zip"`,
-        note: 'Run whole_folder inside the folder that holds index.html. Paths inside the zip become paths in the workspace. Add ?clean=1 to the zip URL to delete workspace files that are not in the zip. Each call prints JSON listing what was written.',
+        note: 'Run whole_folder inside the folder that holds index.html. Paths inside the zip become paths in the workspace. Add ?clean=1 to the zip URL to delete workspace files that are not in the zip (gcp.json, which holds the declared build metadata, is kept; a gcp.json in the zip replaces it but keeps any build field it leaves out). Each call prints JSON listing what was written.',
       };
     },
   },
@@ -827,15 +826,31 @@ export async function importZip(env: Env, user: User, projectId: string, zip: Ui
   const target = new Map<string, string>(), skipped: string[] = [];
   for (const n of names) { const path = cleanPath(strip ? n.slice(strip.length) : n); if (path) target.set(n, path); else skipped.push(n); }
   const existing = await listFiles(env, p.id), incoming = new Set(target.values());
-  const removing = clean ? existing.filter((f) => !incoming.has(f.path)).map((f) => f.path) : [];
+  // gcp.json holds what game_metadata and compatibility declared (requirements, languages, players, content…), which a local
+  // build folder usually does not have: a clean upload keeps it rather than silently dropping those declarations.
+  const keptManifest = clean && !incoming.has(MANIFEST) && existing.some((f) => f.path === MANIFEST);
+  const removing = clean ? existing.filter((f) => !incoming.has(f.path) && f.path !== MANIFEST).map((f) => f.path) : [];
   assertFits(s, p, existing, [...target].map(([n, path]) => ({ path, size: sizes[n] })), removing);
   let entries: Record<string, Uint8Array>;
   try { entries = unzipSync(zip, { filter: (f) => target.has(f.name) }); } catch (e) { throw bad(`Not a readable zip file: ${(e as Error).message}`); }
+  // A gcp.json in the zip replaces the workspace one, but build fields it leaves out are carried over from the workspace copy.
+  let carried: string[] = [];
+  const zipManifest = [...target].find(([, path]) => path === MANIFEST);
+  if (zipManifest && existing.some((f) => f.path === MANIFEST)) {
+    const before = await readFile(env, p.id, MANIFEST).then((f) => f.bytes).catch(() => null);
+    const merged = before && mergeManifest(before, entries[zipManifest[0]]);
+    if (merged) { entries[zipManifest[0]] = merged.bytes; carried = merged.carried; }
+  }
   // the directory's sizes are the zip's own claim: check again with what actually came out
   assertFits(s, p, existing, [...target].map(([n, path]) => ({ path, size: entries[n]?.byteLength ?? 0 })), removing);
   const written: string[] = [];
   for (const [n, path] of target) { await putFile(env, p, path, entries[n], true); written.push(path); }
   const removed: string[] = [];
   for (const path of removing) { await deleteFile(env, p.id, path); removed.push(path); }
-  return { written, skipped, removed, storage: await storageLine(env, p), next: 'Call deploy_preview (dry_run: true runs only the static checks).' };
+  const notes = [
+    ...(keptManifest ? ['gcp.json is not in the zip, so the workspace copy was kept with its declared build metadata. To remove it, pass delete: ["gcp.json"] to upload_files.'] : []),
+    ...(carried.length ? [`The zip's gcp.json leaves out ${carried.join(', ')}, so those were carried over from the workspace copy. To drop one, declare it again with game_metadata.`] : []),
+  ];
+  return { written, skipped, removed, ...(keptManifest ? { kept: [MANIFEST] } : {}), ...(carried.length ? { carried_over: carried } : {}), ...(notes.length ? { notes } : {}), storage: await storageLine(env, p), next: 'Call deploy_preview (dry_run: true runs only the static checks).' };
 }
+

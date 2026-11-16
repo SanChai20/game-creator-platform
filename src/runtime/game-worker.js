@@ -108,7 +108,11 @@ export async function handle(request, env, ctx, base = '') {
     const auth = await verifyPlayToken(request.headers.get('x-gcp-token') || token, env.PLAY_KEY, env.GAME_ID, env.ENV);
     const safeEnv = { GAME: { id: env.GAME_ID, slug: env.SLUG, version: Number(env.VERSION), env: env.ENV }, player: auth ? { id: auth.u, name: auth.n, guest: String(auth.u).startsWith('guest_') } : null, store: storeClient(env) };
     try { return await userServer.fetch(request, safeEnv, ctx); }
-    catch (e) { return Response.json({ error: 'Game server error', message: String(e && e.message || e) }, { status: 500 }); }
+    catch (e) {
+      // Marked so the verifier reports it as the game's server code failing, not as a missing file. A preview also says where.
+      const where = env.ENV === 'preview' ? String(e && e.stack || '').split('\n').slice(1, 4).map((l) => l.trim()).filter(Boolean) : [];
+      return Response.json({ error: 'Game server error', message: String(e && e.message || e), ...(where.length ? { stack: where } : {}) }, { status: 500, headers: { 'x-gcp-server-error': '1' } });
+    }
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') return new Response('Method not allowed', { status: 405 });
   // The game's server code (server/ in the bundle) runs here and is never served as a file: it may hold logic or data the
