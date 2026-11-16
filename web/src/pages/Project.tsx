@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ago, api, bytes, dateTime, Fail, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
+import { ago, api, bytes, dateTime, Fail, genreName, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
@@ -8,7 +8,7 @@ import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
 import { AgeBadge, ageLabel } from '../meta-ui';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
-const metaField = (f: string) => ({ genre: t('Genre', '类型'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
+const metaField = (f: string) => ({ genre: t('Genre', '类型'), tags: t('Tags from the platform list', '平台标签'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
 
 /** What the store page shows about the newest version, and what publishing still needs. */
 function StoreMetadata({ m }: { m: { version: number; required: boolean; missing: string[]; age: number | null } }) {
@@ -221,7 +221,7 @@ export function Project({ id }: { id: string }) {
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],
                 [t('Working files', '工作区文件'), `${data.files.count} · ${bytes(data.files.bytes)}`],
                 [t('Storage', '存储空间'), <span className={data.files.bytes > data.files.storage_bytes ? 'bad' : data.files.bytes >= data.files.storage_bytes * 0.8 ? 'sig' : undefined}>{t('{used} of {size} ({pct}%)', '已用 {used}，共 {size}（{pct}%）', { used: bytes(data.files.bytes), size: bytes(data.files.storage_bytes), pct: Math.round((data.files.bytes / Math.max(1, data.files.storage_bytes)) * 100) })}{data.files.request?.status === 'pending' && <span className="mute"> · {t('asked for {size}', '已申请 {size}', { size: bytes(data.files.request.bytes) })}</span>}</span>],
-                [t('Tags', '标签'), p.tags.join(', ') || '—'],
+                [t('Tags', '标签'), p.tags.map(genreName).join(', ') || '—'],
                 [t('Rating', '评分'), <Stars rating={p.rating} count={p.rating_count} />],
                 [t('Project id', '项目 ID'), p.id, 'mono'],
               ]} />

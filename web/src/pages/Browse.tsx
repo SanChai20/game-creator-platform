@@ -2,7 +2,7 @@
 // number in the address so any view can be shared or bookmarked. Results come 30 to a page with numbered pages,
 // as a grid of cards or as a dense list. The same engine (Catalogue) runs the browse page and each category page.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { api, ApiError, Fail, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, query, t, useLocation, type GameCard } from '../lib';
+import { api, ApiError, Fail, GameTile, genreHue, genreName, tagGroupName, lastVisit, Link, navigate, num, query, t, useLocation, type GameCard } from '../lib';
 import { Button, EmptyState } from '../ui';
 import { SkGrid } from '../skeletons';
 import { Sk } from '../ui/skeleton';
@@ -10,6 +10,7 @@ import { Icon } from '../ui/icons';
 import { GameRow, Pager, SearchBox, useGenres, type Genre } from '../store';
 
 const PAGE = 30;
+const FACET_GROUPS = ['genre', 'theme', 'mood', 'gameplay', 'players', 'style'] as const;
 interface Page { games: GameCard[]; total: number; next_offset: number | null }
 
 const radio = <T extends string>(name: string, value: T, options: [T, ReactNode][], set: (v: T) => void) => (
@@ -56,9 +57,10 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
   const sorts: [string, string][] = [['trending', t('Trending', '热门')], ['new', t('Newest', '最新')], ['top', t('Top rated', '好评')], ['playing', t('Playing now', '在玩')], ['played', t('Most played', '最多游玩')]];
   const prices: [string, string][] = [['', t('Any price', '任意价格')], ['free', t('Free', '免费')], ['under5', t('Under $5', '5 美元以下')], ['paid', t('Paid', '付费')], ['trial', t('Free trial', '可免费试玩')]];
   const ratings: [string, string][] = [['', t('Any rating', '任意评分')], ['3', '★ 3+'], ['4', '★ 4+'], ['4.5', '★ 4.5+']];
-  const [gq, setGq] = useState(''), [moreG, setMoreG] = useState(false);
-  const glist = useMemo(() => genres.filter((g) => g.tag !== pinned && (!gq || g.tag.includes(gq.toLowerCase()))), [genres, gq, pinned]);
-  const shownG = moreG || gq ? glist : glist.slice(0, 12);
+  const [gq, setGq] = useState(''), [moreG, setMoreG] = useState<Record<string, boolean>>({});
+  const glist = useMemo(() => { const f = gq.trim().toLowerCase(); return genres.filter((g) => g.tag !== pinned && (!f || g.tag.includes(f) || genreName(g.tag).toLowerCase().includes(f))); }, [genres, gq, pinned]);
+  // genres first, then the platform's tag groups: each shows its most used tags, with the rest a click away
+  const groups = useMemo(() => FACET_GROUPS.map((k) => [k, glist.filter((g) => (g.group || 'genre') === k)] as const).filter(([, l]) => l.length), [glist]);
 
   const active: [string, () => void][] = [
     ...tags.map((x) => [genreName(x), () => toggleTag(x)] as [string, () => void]),
@@ -78,21 +80,27 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
           <div className="fl-sec"><SearchBox initial={search} onSubmit={(s) => set({ q: s || null })} /></div>
           <div className="fl-sec"><h4>{t('Price', '价格')}</h4>{radio(t('Price', '价格'), priceF, prices, (v) => set({ price: v || null }))}</div>
           <div className="fl-sec"><h4>{t('Players say', '玩家评分')}</h4>{radio(t('Rating', '评分'), rating, ratings, (v) => set({ rating: v || null }))}</div>
-          <div className="fl-sec">
-            <h4>{pinned ? t('Narrow by genre', '再按类型筛选') : t('Genres', '类型')} {tags.length > 0 && <span className="fl-n">{tags.length}</span>}</h4>
-            {genres.length > 12 && <input className="input fl-find" type="search" placeholder={t('Find a genre', '查找类型')} value={gq} onChange={(e) => setGq(e.target.value)} aria-label={t('Find a genre', '查找类型')} />}
-            <div className="fl-genres">
-              {shownG.map((g) => (
-                <label key={g.tag} className={'fl-g' + (tags.includes(g.tag) ? ' on' : '')} style={{ '--h': genreHue(g.tag) } as CSSProperties}>
-                  <input type="checkbox" checked={tags.includes(g.tag)} onChange={() => toggleTag(g.tag)} /><i aria-hidden="true" /><span className="clip">{genreName(g.tag)}</span><small className="num">{num(g.n)}</small>
-                </label>
-              ))}
-              {!genres.length && !res && [0, 1, 2, 3, 4, 5].map((k) => <span key={k} className="fl-g" aria-hidden="true"><Sk kind="dot" w={14} h={14} /><Sk w={`${40 + (k * 17) % 36}%`} /></span>)}
-              {!shownG.length && (!!genres.length || !!res) && <span className="dim fs-sm">{t('No genre by that name.', '没有这个类型。')}</span>}
-            </div>
-            {!gq && glist.length > 12 && <button type="button" className="fl-more" onClick={() => setMoreG(!moreG)}>{moreG ? t('Show fewer', '收起') : t('Show all {n}', '显示全部 {n} 个', { n: glist.length })}</button>}
-            {!pinned && <Link to="/categories" className="fl-more">{t('All categories', '全部分类')} →</Link>}
-          </div>
+          {genres.length > 12 && <div className="fl-sec"><input className="input fl-find" type="search" placeholder={t('Find a genre or tag', '查找类型或标签')} value={gq} onChange={(e) => setGq(e.target.value)} aria-label={t('Find a genre or tag', '查找类型或标签')} /></div>}
+          {groups.map(([k, list]) => {
+            const open = moreG[k] || !!gq, shown = open ? list : list.slice(0, k === 'genre' ? 10 : 6), on = list.filter((g) => tags.includes(g.tag)).length;
+            return (
+              <div className="fl-sec" key={k}>
+                <h4>{k === 'genre' && pinned ? t('Narrow by genre', '再按类型筛选') : tagGroupName(k)} {on > 0 && <span className="fl-n">{on}</span>}</h4>
+                <div className="fl-genres">
+                  {shown.map((g) => (
+                    <label key={g.tag} className={'fl-g' + (tags.includes(g.tag) ? ' on' : '')} style={{ '--h': genreHue(g.tag) } as CSSProperties}>
+                      <input type="checkbox" checked={tags.includes(g.tag)} onChange={() => toggleTag(g.tag)} /><i aria-hidden="true" /><span className="clip">{genreName(g.tag)}</span><small className="num">{num(g.n)}</small>
+                    </label>
+                  ))}
+                </div>
+                {!gq && list.length > shown.length && <button type="button" className="fl-more" onClick={() => setMoreG({ ...moreG, [k]: true })}>{t('Show all {n}', '显示全部 {n} 个', { n: list.length })}</button>}
+                {!gq && open && list.length > (k === 'genre' ? 10 : 6) && <button type="button" className="fl-more" onClick={() => setMoreG({ ...moreG, [k]: false })}>{t('Show fewer', '收起')}</button>}
+              </div>
+            );
+          })}
+          {!genres.length && !res && <div className="fl-sec"><div className="fl-genres">{[0, 1, 2, 3, 4, 5].map((k) => <span key={k} className="fl-g" aria-hidden="true"><Sk kind="dot" w={14} h={14} /><Sk w={`${40 + (k * 17) % 36}%`} /></span>)}</div></div>}
+          {!groups.length && !!gq && <div className="fl-sec"><span className="dim fs-sm">{t('No genre or tag by that name.', '没有这个类型或标签。')}</span><button type="button" className="fl-more" onClick={() => setGq('')}>{t('Clear', '清除')}</button></div>}
+          {!pinned && <div className="fl-sec"><Link to="/categories" className="fl-more">{t('All categories', '全部分类')} →</Link></div>}
         </aside>
 
         <div className="cat-main" ref={top}>

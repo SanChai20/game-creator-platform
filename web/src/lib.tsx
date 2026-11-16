@@ -175,9 +175,39 @@ export const genreName = (tag: string): string => {
     puzzle: () => t('Puzzle', '解谜'), racing: () => t('Racing', '竞速'), rpg: () => t('RPG', '角色扮演'), roguelike: () => t('Roguelike', 'Roguelike'), sandbox: () => t('Sandbox', '沙盒'),
     shooter: () => t('Shooter', '射击'), simulation: () => t('Simulation', '模拟'), sports: () => t('Sports', '体育'), strategy: () => t('Strategy', '策略'), survival: () => t('Survival', '生存'),
     'tower-defense': () => t('Tower defense', '塔防'), word: () => t('Word and trivia', '文字与问答'), horror: () => t('Horror', '恐怖'), educational: () => t('Educational', '教育'),
+    // the platform tag list (web/src/tags.ts)
+    multiplayer: () => t('Multiplayer', '多人'), 'co-op': () => t('Co-op', '合作'), pvp: () => t('Player versus player', '玩家对战'), 'local-multiplayer': () => t('Local multiplayer', '本地多人'), asynchronous: () => t('Asynchronous play', '异步对战'),
+    fantasy: () => t('Fantasy', '奇幻'), 'sci-fi': () => t('Sci-fi', '科幻'), space: () => t('Space', '太空'), cyberpunk: () => t('Cyberpunk', '赛博朋克'),
+    steampunk: () => t('Steampunk', '蒸汽朋克'), 'post-apocalyptic': () => t('Post-apocalyptic', '末日废土'), medieval: () => t('Medieval', '中世纪'), historical: () => t('Historical', '历史'),
+    mythology: () => t('Mythology', '神话'), military: () => t('Military', '军事'), western: () => t('Western', '西部'), pirates: () => t('Pirates', '海盗'),
+    ninja: () => t('Ninjas and samurai', '忍者与武士'), superheroes: () => t('Superheroes', '超级英雄'), zombies: () => t('Zombies', '僵尸'), monsters: () => t('Monsters', '怪物'),
+    dinosaurs: () => t('Dinosaurs', '恐龙'), animals: () => t('Animals', '动物'), robots: () => t('Robots', '机器人'), aliens: () => t('Aliens', '外星人'), magic: () => t('Magic', '魔法'),
+    nature: () => t('Nature', '自然'), ocean: () => t('Ocean', '海洋'), farming: () => t('Farming', '农场'), cooking: () => t('Cooking', '烹饪'), city: () => t('City', '城市'),
+    school: () => t('School', '校园'), detective: () => t('Detective', '侦探'), mystery: () => t('Mystery', '悬疑'), dungeon: () => t('Dungeons', '地牢'),
+    vehicles: () => t('Vehicles', '载具'), relaxing: () => t('Relaxing', '放松'), cozy: () => t('Cozy', '温馨'), cute: () => t('Cute', '可爱'), funny: () => t('Funny', '搞笑'),
+    wholesome: () => t('Wholesome', '治愈'), 'family-friendly': () => t('Family friendly', '适合全家'), dark: () => t('Dark', '黑暗'), atmospheric: () => t('Atmospheric', '氛围感'),
+    spooky: () => t('Spooky', '阴森'), emotional: () => t('Emotional', '感人'), 'story-rich': () => t('Story rich', '剧情丰富'), 'fast-paced': () => t('Fast paced', '快节奏'),
+    challenging: () => t('Challenging', '高难度'), competitive: () => t('Competitive', '竞技'), satisfying: () => t('Satisfying', '解压'), physics: () => t('Physics', '物理'),
+    procedural: () => t('Procedural generation', '程序生成'), crafting: () => t('Crafting', '制作'), building: () => t('Building', '建造'), 'base-building': () => t('Base building', '基地建设'),
+    exploration: () => t('Exploration', '探索'), 'open-world': () => t('Open world', '开放世界'), stealth: () => t('Stealth', '潜行'), 'turn-based': () => t('Turn based', '回合制'),
+    'real-time': () => t('Real time', '即时'), 'deck-building': () => t('Deck building', '卡组构筑'), 'match-3': () => t('Match 3', '三消'), 'hidden-object': () => t('Hidden object', '找东西'),
+    endless: () => t('Endless', '无尽'), 'bullet-hell': () => t('Bullet hell', '弹幕'), 'hack-and-slash': () => t('Hack and slash', '砍杀'), 'twin-stick': () => t('Twin stick', '双摇杆'),
+    metroidvania: () => t('Metroidvania', '类银河战士恶魔城'), 'point-and-click': () => t('Point and click', '点击冒险'), management: () => t('Management', '经营管理'),
+    tycoon: () => t('Tycoon', '大亨'), trading: () => t('Trading', '交易'), collecting: () => t('Collecting', '收集'), upgrades: () => t('Upgrades', '升级'), loot: () => t('Loot', '战利品'),
+    permadeath: () => t('Permadeath', '永久死亡'), 'boss-fights': () => t('Boss fights', '首领战'), 'level-editor': () => t('Level editor', '关卡编辑器'),
+    'choices-matter': () => t('Choices matter', '选择影响剧情'), 'character-customization': () => t('Character customization', '角色定制'), tactics: () => t('Tactics', '战术'),
+    'auto-battler': () => t('Auto battler', '自走棋'), merge: () => t('Merge', '合成'), logic: () => t('Logic', '逻辑'), minigames: () => t('Minigames', '小游戏合集'),
+    typing: () => t('Typing', '打字'), drawing: () => t('Drawing', '绘画'), math: () => t('Math', '数学'), 'one-button': () => t('One button', '单键操作'),
+    'short-sessions': () => t('Short sessions', '碎片时间'), 'pixel-art': () => t('Pixel art', '像素'), 'low-poly': () => t('Low poly', '低多边形'), voxel: () => t('Voxel', '体素'),
+    'hand-drawn': () => t('Hand drawn', '手绘'), cartoon: () => t('Cartoon', '卡通'), realistic: () => t('Realistic', '写实'), minimalist: () => t('Minimalist', '极简'),
+    retro: () => t('Retro', '复古'), neon: () => t('Neon', '霓虹'), '2d': () => t('2D', '2D'), '3d': () => t('3D', '3D'), isometric: () => t('Isometric', '等距视角'),
+    'top-down': () => t('Top down', '俯视'), 'side-view': () => t('Side view', '横版'), 'first-person': () => t('First person', '第一人称'), 'third-person': () => t('Third person', '第三人称'),
   };
   return known[tag]?.() ?? tag.charAt(0).toUpperCase() + tag.slice(1).replace(/-/g, ' ');
 };
+
+/** The name of a group of tags, as the store's filters show it. */
+export const tagGroupName = (g: string): string => ({ genre: t('Genres', '类型'), theme: t('Setting and theme', '背景与题材'), mood: t('Mood', '氛围'), gameplay: t('Gameplay', '玩法'), players: t('Players', '玩家'), style: t('Visual style and view', '画面风格与视角') } as Record<string, string>)[g] ?? g;
 
 /** A listing field in the viewer's language when the creator translated the listing, otherwise as written. */
 export function local<K extends 'title' | 'tagline' | 'description' | 'controls'>(g: { [k in K]?: string | null } & { i18n?: Record<string, Partial<Record<string, string>>>; listing_i18n?: Record<string, Partial<Record<string, string>>> }, k: K): string {

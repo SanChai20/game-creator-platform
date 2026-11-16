@@ -226,11 +226,11 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'marketplace', name: 'Marketplace listing, ratings and reviews', category: 'business', status: 'available',
       what: 'Each live game has a store page with title, tagline, description, tags, controls, cover, standardized metadata (genre, languages, players and modes, content and age rating, session length, progress, accessibility, compatibility), ratings and reviews.',
-      how_it_works: `update_project sets the listing; game_metadata detects, suggests and declares the standardized metadata (genre on the project, the rest in gcp.json, frozen with each version), and publish is refused until the required fields are on record. Players rate and review from the game page${s.review_requires_play ? ' after a counted play' : ''}; a play counts after ${s.play_min_seconds} seconds of active play.`,
+      how_it_works: `update_project sets the listing; game_metadata detects, suggests and declares the standardized metadata (genre and tags on the project, the rest in gcp.json, frozen with each version), and publish is refused until the required fields are on record. Tags come only from the platform list (setting and theme, mood, gameplay, players, visual style and view; 2 to 8 per game), and the store's filters and category pages are built from them. Players rate and review from the game page${s.review_requires_play ? ' after a counted play' : ''}; a play counts after ${s.play_min_seconds} seconds of active play.`,
       use_for: ['Discoverability by tag and category', 'Telling players how to play'],
       sdk: [], mcp_tools: ['update_project', 'game_metadata', 'list_projects', 'get_stats'],
       limits: { cover: 'png, jpg or webp, under 2 MB', counted_play_seconds: s.play_min_seconds },
-      guidelines: ['Fill controls with the actual keys and touch gestures.', 'Set a cover from a real in-game picture.', 'Run game_metadata before the first publish; it lists what is missing.'],
+      guidelines: ['Fill controls with the actual keys and touch gestures.', 'Set a cover from a real in-game picture.', 'Run game_metadata before the first publish; it lists what is missing.', 'Choose tags a player would filter by from the platform list; other words are refused with the closest matches.'],
       guide: 'metadata',
     },
     {

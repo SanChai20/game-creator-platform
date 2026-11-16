@@ -85,6 +85,7 @@ const record = await GCP.playRecord();`} />
               <thead><tr><th>{t('Field', '字段')}</th><th>{t('What it says', '说明')}</th><th>{t('To publish', '发布要求')}</th></tr></thead>
               <tbody>{([
                 ['genre', t('One primary genre from a fixed list of 24, and up to two more', '从 24 种固定类型中选择一个主类型，另可再选两个'), true],
+                ['tags', t('2 to 8 tags from the platform list: setting and theme, mood, gameplay, players, visual style and view. Other words are refused; the store\'s filters and tag pages are built from them.', '从平台标签中选择 2 到 8 个：背景与题材、氛围、玩法、玩家、画面风格与视角。其他词语会被拒绝；商店的筛选与标签页面都基于这些标签。'), true],
                 ['requirements', t('Graphics, browser features, input, devices and orientation', '图形接口、浏览器功能、操作方式、设备与屏幕方向'), true],
                 ['languages', t('Each language with interface, voice and subtitles, and whether the game follows the platform language', '每种语言的界面、语音与字幕支持，以及游戏是否跟随平台语言'), true],
                 ['players', t('Minimum and maximum players, and the modes: single, co-op or versus, local or online', '最少与最多玩家人数，以及模式：单人、合作或对战，同屏或在线'), true],
@@ -106,7 +107,7 @@ const record = await GCP.playRecord();`} />
   "accessibility": ["pause-anytime", "remappable-controls"]
 }`} />
             <Ticks items={[
-              t('Genre and translated listings belong to the project and apply at once. Everything in gcp.json belongs to one version, so a rollback brings back the metadata that matched that code.', '类型与翻译后的商品信息属于项目，立即生效。gcp.json 中的内容属于单个版本，因此回滚时会一并恢复与该代码相符的元数据。'),
+              t('Genre, tags and translated listings belong to the project and apply at once. Everything in gcp.json belongs to one version, so a rollback brings back the metadata that matched that code.', '类型、标签与翻译后的商品信息属于项目，立即生效。gcp.json 中的内容属于单个版本，因此回滚时会一并恢复与该代码相符的元数据。'),
               t('Publishing is refused until the required fields are on record. Rolling back is never blocked.', '在必填字段齐全之前，发布会被拒绝。回滚永远不受影响。'),
               t('The platform scans the code at every deploy. Anything the declaration leaves out is shown as detected, and anything that disagrees with the code is reported to your agent.', '平台在每次部署时都会扫描代码。声明中缺少的内容会以“检测得出”的形式显示，与代码不符的地方会报告给你的智能体。'),
             ]} />
