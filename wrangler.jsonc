@@ -28,15 +28,27 @@
   "triggers": { "crons": ["17 3 * * *", "*/10 * * * *"] },   // daily cleanup; game runtime rollout (src/deploy.ts)
   "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
   "observability": { "enabled": true },
+  // Workers for Platforms (docs/workers-for-platforms.md): with DEPLOY_DRIVER "dispatch", games are user Workers in this
+  // namespace. The platform uses the binding for health checks; players reach games through the dispatch Worker
+  // (dispatcher/wrangler.jsonc). Uncomment when the namespace exists.
+  // "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "gcp-games" }],
   "vars": {
-    // "cloudflare" deploys each game as its own Worker. "local" serves games from this Worker (wrangler dev).
+    // "cloudflare" deploys each game as its own standard Worker (today). "dispatch" deploys each game as a user Worker in
+    // the DISPATCH_NAMESPACE dispatch namespace (Workers for Platforms). "local" serves games from this Worker (wrangler dev).
+    // Switching from "cloudflare" to "dispatch" moves every game over a few at a time (the scheduled rollout).
     "DEPLOY_DRIVER": "cloudflare",
+    // "DISPATCH_NAMESPACE": "gcp-games",
+    // Games are served at <script>.<GAME_HOST>. Needed for "dispatch". With "cloudflare" plus GAME_ZONE_ID, standard
+    // game Workers get per-script routes on that host instead of workers.dev, so addresses do not change at the move.
+    // "GAME_HOST": "play.example.com",
+    // "GAME_ZONE_ID": "<zone id of GAME_HOST>",
     "GAMES_BUCKET": "gcp-games",
     "STRIPE_API_BASE": "https://api.stripe.com"
   }
   // Secrets (wrangler secret put …):
   //   SESSION_SECRET          signs play tokens and consent cookies (required)
-  //   CF_API_TOKEN            Cloudflare token with Workers Scripts:Edit, used to deploy game Workers (required)
+  //   CF_API_TOKEN            Cloudflare token with Workers Scripts:Edit, used to deploy game Workers (required);
+  //                           plus Workers Routes:Edit on GAME_ZONE_ID when that is set
   //   CF_ACCOUNT_ID           the account games are deployed into (required)
   //   ADMIN_CLAIM_TOKEN       one-time token for claiming the first admin account
   //   STRIPE_SECRET_KEY       Stripe secret key (payments + Connect payouts)

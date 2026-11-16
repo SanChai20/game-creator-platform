@@ -165,6 +165,8 @@ export default {
 
 It runs on the standard Workers runtime (fetch, Web Crypto, streams) with no access to the platform's own data or secrets and no bindings of its own (no KV, D1, Durable Objects, cron or AI). Use it to validate scores, run daily challenges or keep a world that lasts between sessions.
 
+**Limits per request.** Each request to server code has a CPU time budget and a budget of outgoing requests (`fetch()` and every `env.store` call count); the numbers for this platform are in `platform_services` under `server_code.limits` (`cpu_ms_per_request`, `outgoing_requests_per_request`, and any `blocked_hosts`). A request past either budget fails with HTTP 503 and `{"code": "limit_exceeded"}`: tell the developer which budget was hit and move the heavy part out of the request (precompute while building, cache in `env.store`, or split the work over several calls). Read everything from the `env` argument of `fetch`: `import { env } from 'cloudflare:workers'` and `process.env` are empty in game Workers.
+
 **`server/` is never served.** The game Worker answers 404 for every path under `server/`, in preview and live, so players cannot download your server code; every other file in the bundle is public. There is no secrets store: a key written into `server/` stays readable to you through MCP and to the platform's automated checks, so use keys you can revoke and never put one in a client file.
 
 Whether server code is allowed on this platform is shown by `get_started` under `account.limits.server_code`.

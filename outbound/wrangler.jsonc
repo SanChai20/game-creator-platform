@@ -1,0 +1,10 @@
+{
+  // The outbound Worker for games on Workers for Platforms (see docs/workers-for-platforms.md, step 3).
+  // Not used while DEPLOY_DRIVER is "cloudflare". Deploy with: npx wrangler deploy -c outbound/wrangler.jsonc
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "gcp-games-outbound",
+  "main": "../src/runtime/outbound-worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "observability": { "enabled": true }
+}
