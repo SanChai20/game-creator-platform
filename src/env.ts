@@ -38,6 +38,7 @@ export interface Project {
   listing_i18n: string;                         // JSON: the store listing translated into platform languages
   age: number | null;                           // the live version's age rating (null until recorded)
   mature: string;                               // adults-only categories of the live version, comma-separated: sexual, violence, other ('' for everyone)
+  storage_bytes?: number | null;                // storage this game may use; null: the platform default (bundle_max_bytes)
 }
 
 export interface Version {

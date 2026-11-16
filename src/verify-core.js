@@ -213,15 +213,15 @@ export async function verifyPage(page, url, opts = {}) {
     // player's first key or tap would, so sounds played during the play-through are real and can be measured.
     try { await page.mouse.click(2, 2); await sleep(120); } catch { /* no pointer */ }
     // 4b. play-through: if the game registered one, it plays itself to the end and every step is reported.
-    let play = null, sampling = true;
-    const sampler = (async () => { for (let i = 0; i < 4; i++) { await sleep(2500); if (!sampling) return; await snap(); } })();
+    let play = null;
     try {
       play = await Promise.race([
         page.evaluate((ms) => (window.__GCP && window.__GCP.runPlaythrough ? window.__GCP.runPlaythrough(ms) : { ran: false }), o.playthroughS * 1000),
         sleep(o.playthroughS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The play-through did not finish within ${o.playthroughS} s.`, steps: [], ms: o.playthroughS * 1000, frames: 0 })),
       ]);
     } catch (e) { play = { ran: true, ok: false, error: 'The page reloaded or closed during the play-through: ' + String(e && e.message || e).slice(0, 200), steps: [], ms: 0, frames: 0 }; }
-    sampling = false; await sampler.catch(() => {});
+    // where the play-through left the game (screenshots are not taken during it: they can stall frames in a slow browser)
+    if (play && play.ran) await snap();
     if (play && play.ran) {
       const last = play.steps.length ? play.steps[play.steps.length - 1] : '';
       add('playthrough', !!play.ok, 'The game plays through', play.ok ? `${play.steps.length} step(s) in ${(play.ms / 1000).toFixed(1)} s: ${play.steps.join(' → ').slice(0, 600)}` : `${play.error}${last ? ` (during step ${play.steps.length}: "${last}")` : ''}`,
@@ -307,6 +307,8 @@ export async function verifyPage(page, url, opts = {}) {
   report.errors = errs; report.warnings.push(...(s.warnings || [])); report.missing = missing;
   report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / o.observeS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
+  // a few more frames of the game left running after the checks, for the content review; nothing here can fail the version
+  if (report.ok) for (let i = 0; i < 3 && frames.length < 7; i++) { await sleep(1500); await snap(); }
   // The portrait. The checks above ran on a CPU renderer, where a well-made game rightly draws less (lower resolution,
   // sparser grass, no finishing passes). People judge the game by what a device with a graphics card draws, so the game
   // is loaded once more with ?gcp_portrait=1, which asks it for exactly that, and one picture is taken. It is the

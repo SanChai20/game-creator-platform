@@ -8,6 +8,8 @@ This page is the whole set of rules. Everything in the other guides is advice th
 2. **Call `GCP.ready()` once**, right after the first frame a player could act on is drawn. Not at script start, not when a menu is still loading.
 3. **Stay alive.** After ready the page must keep rendering frames through `requestAnimationFrame`, must not throw uncaught errors, and must survive keyboard, mouse and touch input.
 
+4. **Fit the game's storage.** All of a game's files together may use the game's storage (50 MB by default, the largest file 20 MB; `get_started` shows this platform's numbers under `storage`). Uploads that would go over are refused, and a version over it cannot be deployed or published. Generate content from code, load large or optional content at run time from your own host, and tell the developer about the limit when planning. `get_started {topic: "storage"}`.
+
 That is all. Genre, art style, camera, engine, rendering technique, file layout, UI and controls are yours.
 
 ## What the platform gives the page
@@ -171,7 +173,8 @@ Requirements are one part of the metadata every game declares: also its genre, l
 - Files are cached hard because each version is immutable. A new version gets a new address, so you never fight a stale cache.
 - Fullscreen, gamepad, pointer lock and autoplay-after-gesture are allowed in the frame. Camera, microphone and geolocation are not.
 - On phones and tablets, pressing Play puts the game in fullscreen at once: the Fullscreen API on Android and iPad, and the whole visible screen on iPhone, where Safari has no element fullscreen. The frame sits inside the screen's safe area, so nothing the game draws ends up under a notch or the home indicator. The screen is locked to the declared `orientation` where the browser allows it; elsewhere the player is asked to turn the phone. The input guide has the details.
-- Keep the bundle lean. Limits on file count and size are shown by `get_started` under `account.limits`.
+- Keep the bundle lean. The game's storage, the largest file and the file count are shown by `get_started` under `storage` and in every upload answer; `game_storage {project}` shows what uses the space.
+- The page has no Content-Security-Policy on connections or media, so it can load data and media at run time from any HTTPS host that sends CORS headers. The storage guide covers how to do it so verification and players are not caught out.
 
 ## A complete minimal game
 
