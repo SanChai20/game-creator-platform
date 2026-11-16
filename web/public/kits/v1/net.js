@@ -6,12 +6,15 @@
 /**
  * joinSession(code, handlers) -> session
  *   handlers.snapshot()            host: return the whole shared state as plain JSON (keep it small)
- *   handlers.apply(state, isFirst) everyone else: receive the host's state
+ *   handlers.apply(state, isFirst, meta) everyone else: receive the host's state (meta.at: when the host sent it)
  *   handlers.input(peerId, data)   host: a guest's input arrived
  *   handlers.event(data, from)     everyone: a one-off message sent with session.emit()
  *   handlers.open(session)         connected; session.isHost tells you which side you are
  *   handlers.players(list)         someone joined or left
  */
+// The send time of the snapshot being applied right now, so Interpolator.push(state) inside handlers.apply picks it up by itself.
+let sentAt;
+
 export function joinSession(code, handlers = {}, { hz = 10, max } = {}) {
   const room = window.GCP.room(code, { max });
   const s = {
@@ -38,9 +41,9 @@ export function joinSession(code, handlers = {}, { hz = 10, max } = {}) {
     if (info.host) startHost();
     handlers.open && handlers.open(s); handlers.players && handlers.players(s.players);
   });
-  room.on('message', (m, from) => {
+  room.on('message', (m, from, meta) => {
     if (!m) return;
-    if (m.k === 's' && !room.isHost) handlers.apply && handlers.apply(m.d, false);
+    if (m.k === 's' && !room.isHost) { sentAt = meta && meta.at; try { handlers.apply && handlers.apply(m.d, false, meta); } finally { sentAt = undefined; } }
     else if (m.k === 'i' && room.isHost) handlers.input && handlers.input(from, m.d);
     else if (m.k === 'e') handlers.event && handlers.event(m.d, from);
   });
@@ -52,22 +55,33 @@ export function joinSession(code, handlers = {}, { hz = 10, max } = {}) {
 
 /**
  * Smooths movement between snapshots. push(state) on every snapshot; sample() each frame returns positions
- * blended ~100 ms in the past. Entities are matched by id: state = { [id]: { x, y, z?, ... } }.
+ * blended a little in the past. Entities are matched by id: state = { [id]: { x, y, z?, ... } }.
+ * Uses the platform's GCP.smooth: snapshots are placed by the time the host sent them, not when they arrived, and the
+ * delay adapts to the connection (delayMs is the least it waits), so late messages no longer make movement stutter.
  */
 export class Interpolator {
-  constructor(delayMs = 120) { this.delay = delayMs; this.buf = []; }
-  push(state) { this.buf.push({ t: performance.now(), s: state }); if (this.buf.length > 20) this.buf.shift(); }
+  constructor(delayMs = 120) {
+    this.delay = delayMs; this.buf = [];
+    this.smooth = window.GCP && window.GCP.smooth ? window.GCP.smooth({ minDelay: Math.min(delayMs, 200) }) : null;
+  }
+  push(state, at = sentAt) { if (this.smooth) return this.smooth.push(state, at); this.buf.push({ t: performance.now(), s: state }); if (this.buf.length > 20) this.buf.shift(); }
   sample() {
+    if (this.smooth) { const r = this.smooth.sample(); return r ? blend(r.a, r.b, Math.min(r.k, 1.5)) : {}; }
     const b = this.buf; if (!b.length) return {};
     const t = performance.now() - this.delay;
     let i = b.length - 1; while (i > 0 && b[i].t > t) i--;
-    const a = b[i], c = b[Math.min(i + 1, b.length - 1)], k = c.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (c.t - a.t))) : 1, out = {};
-    for (const id in c.s) {
-      const p = a.s[id], q = c.s[id];
-      if (!p) { out[id] = q; continue; }
-      const o = out[id] = { ...q };
-      for (const f of ['x', 'y', 'z']) if (typeof q[f] === 'number' && typeof p[f] === 'number') o[f] = p[f] + (q[f] - p[f]) * k;
-    }
-    return out;
+    const a = b[i], c = b[Math.min(i + 1, b.length - 1)], k = c.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (c.t - a.t))) : 1;
+    return blend(a.s, c.s, k);
   }
+}
+
+function blend(A, B, k) {
+  const out = {};
+  for (const id in B) {
+    const p = A && A[id], q = B[id];
+    if (!p || !q || typeof q !== 'object') { out[id] = q; continue; }
+    const o = out[id] = { ...q };
+    for (const f of ['x', 'y', 'z']) if (typeof q[f] === 'number' && typeof p[f] === 'number') o[f] = p[f] + (q[f] - p[f]) * k;
+  }
+  return out;
 }
