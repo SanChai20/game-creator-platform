@@ -50,10 +50,11 @@ GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the 
 GCP.test.onPlaythrough(fn) // fn(t) plays the game to its end; the verifier runs it and reports each step
 GCP.test.twoPlayers       // { role: 'host' | 'guest', code } when the verifier opened this page for the two-player check, else null
 GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages that share one room; return { players, world } (see the multiplayer guide)
-GCP.fullscreen()  // asks the platform page to toggle fullscreen (true enters, false leaves); call it from a tap or key press
-GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch }, kept current
-GCP.onDisplay(fn) // fn(display) when it changes
-GCP.onEscape(fn)  // the Escape rule: fn() returns true when it closed something; otherwise Esc leaves fullscreen (input guide)
+GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch, paused, menu }, kept current
+GCP.onDisplay(fn) // fn(display) when it changes; pause while display.paused is true
+GCP.onEscape(fn)  // the Escape rule: fn() returns true when it closed something; otherwise Esc opens the platform menu (input guide)
+GCP.menu()        // opens the platform menu (Resume, Quit game); GCP.quit() quits straight away
+GCP.fullscreen()  // false leaves fullscreen (the game waits behind a paused card); every game already starts in fullscreen
 GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' })   // see "Phones and tablets" in the input guide
 ```
 

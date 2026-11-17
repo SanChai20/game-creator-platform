@@ -1,14 +1,19 @@
-// The play surface on a game's page: a poster until the player starts, then the game in a frame on its own origin.
+// The play surface on a game's page. There is no in-page play: Start launches the game into a player the platform owns,
+// like launching a game from a store client. The player covers the whole screen and only the game, or the platform's
+// own menu inside the player, leaves it. This works the same for every game, whatever its creator built.
 //
-// Fullscreen has to work on phones, where the browsers disagree:
-//   - Android (Chrome, Samsung Internet, Firefox) and iPad Safari: the Fullscreen API on the stage element, with
-//     the screen orientation locked to the one the game declared (requirements.orientation).
-//   - iPhone Safari has no element fullscreen. There the stage fills the visible viewport instead ("immersive"):
-//     fixed over the page, page scroll and pinch zoom off, the back gesture closes it, and a hint asks the player
-//     to turn the phone when the game wants the other orientation.
-// On a phone or tablet, starting a game goes straight to fullscreen (enterOnPhone, called from the Play click so
-// the browser still counts it as the player's gesture). The game is told what is going on through the SDK
-// (GCP.display, GCP.onDisplay) and can ask for fullscreen (GCP.fullscreen) or set its preferences (GCP.setDisplay).
+// How each browser is kept in the player:
+//   - Desktop Chrome and Edge: real fullscreen with the Escape key locked (Keyboard Lock API), so a tap of Esc goes to the
+//     game and opens the platform menu when the game does not use it. Only holding Esc leaves, which the browser enforces.
+//   - Desktop Firefox and Safari always leave fullscreen on Esc. The game is then paused behind a card, and one click (or
+//     Enter) puts it back in fullscreen.
+//   - Android and iPad Safari: real fullscreen on the stage element, orientation locked to the game's. Swipes inside the
+//     game cannot pinch, zoom or scroll the page (the SDK guards the game's document too). A system gesture that still
+//     leaves (iPad's swipe from the top edge, Android's back) pauses the game behind the same one-tap card.
+//   - iPhone Safari has no element fullscreen, and a home-screen install is already full screen: there the stage fills
+//     the visible viewport ("immersive"), page scroll and pinch zoom off; the back gesture pauses it.
+// The game is told what is going on through the SDK (GCP.display, GCP.onDisplay), can open the platform menu (GCP.menu),
+// leave fullscreen (GCP.fullscreen(false), which pauses it) or quit (GCP.quit), and can keep Esc for itself (GCP.onEscape).
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
 import { artStyle, t } from './lib';
 import { Button } from './ui';
@@ -21,13 +26,25 @@ export interface StageCtl {
   enter(): void;
   exit(): void;
   toggle(): void;
-  /** enter(), but only on a phone or tablet. Call it from the click that starts the game. */
-  enterOnPhone(): void;
+  /** Close the game and give the page back (what the menu's Quit does). */
+  quit(): void;
 }
 
 const mq = (q: string) => typeof matchMedia === 'function' && matchMedia(q).matches;
 /** A phone or tablet: the main pointer is a finger and nothing hovers. */
 export const isHandheld = () => mq('(pointer: coarse)') && mq('(hover: none)');
+/** Opened from the home screen (an installed web app): the page already has the whole screen and no browser bar. */
+const isInstalled = () => mq('(display-mode: fullscreen)') || mq('(display-mode: standalone)') || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+/** iPhone, iPad (which reports itself as a Mac with a touch screen) and iPod. */
+const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
+// Android Chrome offers to install the site as an app before it shows its own banner: keep the offer for the paused card.
+type InstallPrompt = Event & { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> };
+let installOffer: InstallPrompt | null = null;
+if (typeof window !== 'undefined') {
+  addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installOffer = e as InstallPrompt; });
+  addEventListener('appinstalled', () => { installOffer = null; });
+}
 
 type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitFullscreenEnabled?: boolean; webkitExitFullscreen?: () => void };
 type FsEl = HTMLElement & { webkitRequestFullscreen?: () => void };
@@ -39,10 +56,10 @@ function requestFs(el: FsEl): Promise<void> {
   el.webkitRequestFullscreen?.();   // returns nothing: wait a moment and look
   return new Promise((ok, no) => setTimeout(() => (fsElement() === el ? ok() : no(new Error('refused'))), 350));
 }
-// The Escape rule. A game that registered GCP.onEscape gets Esc first while it is in real fullscreen: it closes its own
-// menu, and only an Esc with nothing open leaves fullscreen (the SDK then asks for that). The Keyboard Lock API makes the
-// browser deliver Esc to the page instead of leaving fullscreen at once; holding Esc still leaves. Browsers without it
-// keep the old behaviour.
+// The Escape rule. In the player, Esc never leaves fullscreen by itself: the Keyboard Lock API makes the browser deliver it
+// to the page instead (holding Esc still leaves, which the browser enforces). A game that registered GCP.onEscape gets it
+// first and closes its own menu; an Esc the game did not use opens the platform menu. Browsers without the API leave
+// fullscreen on Esc, and the game is paused until the player clicks back in.
 type KbNav = Navigator & { keyboard?: { lock?: (keys: string[]) => Promise<void>; unlock?: () => void } };
 function escLock(on: boolean) {
   const kb = (navigator as KbNav).keyboard; if (!kb) return;
@@ -91,27 +108,36 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, orientation = 'any', badge, ctl, blur }: {
+export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orientation = 'any', badge, ctl, blur, launcher }: {
   poster: string | null; seed: string; url: string | null; children?: ReactNode; onTrialOver?: () => void;
+  /** The player quit the game (the platform menu's Quit, or GCP.quit() from the game): stop it, usually by clearing url. */
+  onQuit?: () => void;
+  /** No poster on the page: the stage only shows once the game is launched (the console's preview). */
+  launcher?: boolean;
   /** Blur the poster: an adults-only game before the player has confirmed its warning. */
   blur?: boolean;
   /** The orientation the game declared (requirements.orientation). */
   orientation?: Orientation;
-  /** Shown beside the exit button while the stage fills the screen (the free-trial clock). */
+  /** Shown beside the menu button while the game plays (the free-trial clock). */
   badge?: ReactNode;
   ctl?: Ref<StageCtl>;
 }) {
-  const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null);
-  const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false);
-  const gameEsc = useRef(false);
+  const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null), resumeBtn = useRef<HTMLButtonElement>(null), menuBtn = useRef<HTMLButtonElement>(null);
+  const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false), [menu, setMenu] = useState(false);
+  const gameEsc = useRef(false), menuOpen = useRef(false);
   const [prefs, setPrefs] = useState<{ orientation?: Orientation; exit?: Corner; edge?: boolean }>({});
   const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [turned, setTurned] = useState(false), [portrait, setPortrait] = useState(() => innerHeight > innerWidth);
+  const [canInstall, setCanInstall] = useState(false);
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
+  // The game is running but has been pushed out of fullscreen (hold Esc, a system gesture, Firefox's Esc): it waits behind
+  // the paused card. There is no in-page play.
+  const paused = !!url && !active;
   // A game that keeps its own buttons clear of the notch (setDisplay({ edgeToEdge: true })) gets the whole screen in
   // fullscreen and is told the insets; any other game's frame is kept inside them.
   const edge = active && !!prefs.edge;
   const unlock = useRef<(() => void) | null>(null);
+  menuOpen.current = menu;
 
   const leaveImmersive = useCallback(() => { unlock.current?.(); unlock.current = null; setImmersive(false); }, []);
   const goImmersive = useCallback(() => {
@@ -119,31 +145,35 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
     unlock.current = lockPage(); setImmersive(true);
     try { history.pushState({ ...(history.state || {}), gcpPlay: 1 }, ''); } catch { /* sandboxed */ }
   }, []);
+  // Call it from a click or key press: browsers refuse fullscreen otherwise. On iPhone, and in an installed web app on
+  // iOS (already full screen, where a swipe would only drop an element fullscreen), the stage fills the viewport instead.
   const enter = useCallback(() => {
     const el = box.current as FsEl | null; if (!el || fsElement() === el || unlock.current) return;
-    setTurned(false);
-    if (fsAvailable(el)) requestFs(el).then(() => lockOrientation(want), goImmersive);
+    setTurned(false); setMenu(false);
+    if (fsAvailable(el) && !(isIOS() && isInstalled())) requestFs(el).then(() => lockOrientation(want), goImmersive);
     else goImmersive();
   }, [want, goImmersive]);
   const exit = useCallback(() => {
-    exitFs();
+    setMenu(false); exitFs();
     if (unlock.current) { if (history.state?.gcpPlay) history.back(); else leaveImmersive(); }   // back: the popstate below cleans up
   }, [leaveImmersive]);
   const toggle = useCallback(() => (fsElement() === box.current || unlock.current ? exit() : enter()), [enter, exit]);
-  useImperativeHandle(ctl, () => ({ enter, exit, toggle, enterOnPhone: () => { if (isHandheld()) enter(); } }), [enter, exit, toggle]);
+  const quit = useCallback(() => { setMenu(false); onQuit?.(); exit(); }, [onQuit, exit]);
+  const resume = useCallback(() => { setMenu(false); if (!active) enter(); frame.current?.focus(); }, [active, enter]);
+  useImperativeHandle(ctl, () => ({ enter, exit, toggle, quit }), [enter, exit, toggle, quit]);
 
-  // Real fullscreen ends by itself too (Esc, the back gesture): follow it.
+  // Real fullscreen ends by itself too (holding Esc, the back or swipe gesture): follow it. Esc stays locked while it lasts.
   useEffect(() => {
-    const f = () => { const on = !!box.current && fsElement() === box.current; setFs(on); if (!on) unlockOrientation(); escLock(on && gameEsc.current); };
+    const f = () => { const on = !!box.current && fsElement() === box.current; setFs(on); if (!on) unlockOrientation(); escLock(on); };
     document.addEventListener('fullscreenchange', f); document.addEventListener('webkitfullscreenchange', f);
     return () => { document.removeEventListener('fullscreenchange', f); document.removeEventListener('webkitfullscreenchange', f); };
   }, []);
-  // The back gesture or button closes immersive play instead of leaving the page.
+  // The back gesture or button pauses immersive play instead of leaving the page.
   useEffect(() => {
     const f = () => { if (unlock.current && !history.state?.gcpPlay) leaveImmersive(); };
     addEventListener('popstate', f); return () => removeEventListener('popstate', f);
   }, [leaveImmersive]);
-  useEffect(() => () => { unlock.current?.(); unlock.current = null; exitFs(); }, []);
+  useEffect(() => () => { unlock.current?.(); unlock.current = null; exitFs(); escLock(false); }, []);
   useEffect(() => {
     const f = () => setPortrait(innerHeight > innerWidth);
     addEventListener('resize', f); addEventListener('orientationchange', f);
@@ -159,54 +189,94 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
   }, [active]);
   // The game stopped (trial over, preview closed): give the page back.
   const hadUrl = useRef(false);
-  useEffect(() => { if (hadUrl.current && !url) exit(); hadUrl.current = !!url; }, [url, exit]);
+  useEffect(() => { if (hadUrl.current && !url) { setMenu(false); exit(); } hadUrl.current = !!url; }, [url, exit]);
+  useEffect(() => {
+    if (!paused) return;
+    document.documentElement.classList.add('gcp-paused');
+    setMenu(false); setCanInstall(!!installOffer);
+    const t1 = setTimeout(() => resumeBtn.current?.focus({ preventScroll: true }), 60);
+    return () => { clearTimeout(t1); document.documentElement.classList.remove('gcp-paused'); };
+  }, [paused]);
+  useEffect(() => { if (menu) menuBtn.current?.focus({ preventScroll: true }); else if (active && url) frame.current?.focus(); }, [menu, active, url]);
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets]);
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: paused || menu, menu }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets, paused, menu]);
   useEffect(() => { post(); }, [post]);
   useEffect(() => {
     const f = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow || !e.data) return;
       const d = e.data;
+      // Leaving fullscreen from the game pauses it behind the card; the player can come straight back or quit there.
       if (d.gcp === 'fullscreen') { if (d.on === true) enter(); else if (d.on === false) exit(); else toggle(); }
+      if (d.gcp === 'menu') setMenu((m) => (d.on === true ? true : d.on === false ? false : !m) && active);
+      if (d.gcp === 'quit') quit();
       if (d.gcp === 'display_prefs') setPrefs((p) => ({
         orientation: ['any', 'landscape', 'portrait'].includes(d.orientation) ? d.orientation : p.orientation,
         exit: ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'none'].includes(d.exitButton) ? d.exitButton : p.exit,
         edge: typeof d.edgeToEdge === 'boolean' ? d.edgeToEdge : p.edge,
       }));
       if (d.gcp === 'display_query') post();
-      if (d.gcp === 'escape') { gameEsc.current = d.on === true; escLock(gameEsc.current && fsElement() === box.current); }
+      if (d.gcp === 'escape') gameEsc.current = d.on === true;
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
-  }, [enter, exit, toggle, post, onTrialOver]);
+  }, [enter, exit, toggle, quit, post, active, onTrialOver]);
   useEffect(() => { if (active && want !== 'any') lockOrientation(want); }, [active, want]);
-  useEffect(() => { if (url) frame.current?.focus(); }, [url, active]);
-  useEffect(() => { gameEsc.current = false; escLock(false); }, [url]);
-  // Esc pressed while the page, not the game frame, has the keyboard: hand it to the game, which decides.
+  useEffect(() => { gameEsc.current = false; }, [url]);
+  // Esc pressed while the page, not the game frame, has the keyboard: close the menu if it is open, otherwise hand the key
+  // to a game that takes Esc, or open the menu.
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.repeat || !gameEsc.current || fsElement() !== box.current) return;
-      e.preventDefault(); frame.current?.contentWindow?.postMessage({ gcp: 'escape_key' }, '*'); frame.current?.focus();
+      if (e.key !== 'Escape' || e.repeat || !box.current) return;
+      const inPlayer = fsElement() === box.current || !!unlock.current; if (!inPlayer) return;
+      e.preventDefault();
+      if (menuOpen.current) { setMenu(false); return; }
+      if (gameEsc.current) { frame.current?.contentWindow?.postMessage({ gcp: 'escape_key' }, '*'); frame.current?.focus(); }
+      else setMenu(true);
     };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   }, []);
   useWakeLock(!!url && handheld);
 
+  const install = () => { const o = installOffer; if (!o) return; installOffer = null; setCanInstall(false); void o.prompt().catch(() => {}); };
   const sideways = active && handheld && !turned && want !== 'any' && (want === 'landscape' ? portrait : !portrait);
   const corner = prefs.exit ?? 'top-left';
+  const iosTip = paused && handheld && isIOS() && !isInstalled();
   return (
-    <div>
-      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '')} ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" allowFullScreen /> : (
+    <div className={launcher ? 'stage-host launcher' : undefined}>
+      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (paused ? ' paused' : '') + (launcher ? ' launcher' : '')} ref={box}>
+        {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} inert={paused || menu} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" allowFullScreen /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
-        {active && (corner !== 'none' || badge) && (
+        {active && url && !menu && (corner !== 'none' || badge) && (
           <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner)}>
-            {corner !== 'none' && <button type="button" onClick={exit} aria-label={t('Exit fullscreen', '退出全屏')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg></button>}
+            {corner !== 'none' && <button type="button" onClick={() => setMenu(true)} aria-label={t('Game menu', '游戏菜单')} title={t('Game menu', '游戏菜单')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>}
             {badge && <span className="stage-badge">{badge}</span>}
+          </div>
+        )}
+        {active && url && menu && (
+          <div className="stage-menu" role="dialog" aria-modal="true" aria-label={t('Game menu', '游戏菜单')} onClick={(e) => { if (e.target === e.currentTarget) setMenu(false); }}>
+            <div className="stage-card">
+              <b>{t('Paused', '已暂停')}</b>
+              {badge && <span className="stage-badge">{badge}</span>}
+              <button ref={menuBtn} type="button" className="stage-btn primary" onClick={resume}>{t('Resume', '继续游戏')}</button>
+              <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
+              <span className="stage-hint">{handheld ? t('Tap outside this card to go back to the game.', '点击卡片外即可返回游戏。') : t('Press Esc to go back to the game.', '按 Esc 返回游戏。')}</span>
+            </div>
+          </div>
+        )}
+        {paused && (
+          <div className="stage-menu paused" role="dialog" aria-label={t('Game paused', '游戏已暂停')} onClick={(e) => { if (e.target === e.currentTarget) resume(); }}>
+            <div className="stage-card">
+              <b>{t('Game paused', '游戏已暂停')}</b>
+              <span className="stage-sub">{t('The game left full screen. It is waiting for you.', '游戏已退出全屏，正在等你回来。')}</span>
+              <button ref={resumeBtn} type="button" className="stage-btn primary" onClick={resume}>{t('Back to the game', '返回游戏')}</button>
+              <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
+              {canInstall && <button type="button" className="stage-btn ghost" onClick={install}>{t('Install the app for full screen without interruptions', '安装应用，全屏不再被打断')}</button>}
+              {iosTip && <span className="stage-hint">{t('For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.', '想要不会被滑动打断的全屏，请点“分享”，再点“添加到主屏幕”，然后从主屏幕打开游玩。')}</span>}
+            </div>
           </div>
         )}
         {sideways && (
@@ -218,12 +288,6 @@ export function Stage({ poster, seed, url, children, onTrialOver, orientation = 
           </div>
         )}
       </div>
-      {url && (
-        <div className="row stage-bar">
-          <span className="mute fs-sm">{handheld ? t('Fullscreen gives the game the whole screen.', '全屏可让游戏占满整个屏幕。') : t('Click the game to give it keyboard focus.', '点击游戏画面以获取键盘焦点。')}</span>
-          <Button size="sm" variant={handheld ? 'primary' : undefined} className="right" onClick={toggle}>{t('Fullscreen', '全屏')}</Button>
-        </div>
-      )}
     </div>
   );
 }

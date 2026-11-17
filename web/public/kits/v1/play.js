@@ -601,22 +601,25 @@ export function minimapUI(hud, { size = 132, range = 40, center, color, markers,
   draw(); const id = setInterval(draw, 300); return { el: cv, refresh: draw, remove() { clearInterval(id); cv.remove(); } };
 }
 
-// The platform's Escape rule for everything this kit opens: Esc closes an open window first, and only an Esc with
-// nothing open leaves fullscreen (the pause menu then opens as the game leaves it).
-let escRule = false;
-function escapeRule(hud) { if (escRule || !window.GCP || typeof GCP.onEscape !== 'function') return; escRule = true; GCP.onEscape(() => !!hud.el.querySelector('.gp-win')); }
+// The platform's Escape rule for everything this kit opens: Esc closes an open window first. A game with a pauseMenu keeps
+// Esc for it (the menu offers Quit game in the platform's player); without one, an Esc with nothing open opens the
+// platform's menu.
+let escRule = false, pauseOwnsEsc = false;
+function escapeRule(hud) { if (escRule || !window.GCP || typeof GCP.onEscape !== 'function') return; escRule = true; GCP.onEscape(() => pauseOwnsEsc || !!hud.el.querySelector('.gp-win')); }
+const inPlayer = () => !!(window.GCP && typeof GCP.quit === 'function' && window.parent !== window);
 
 /**
- * A pause menu on Escape (or P): Resume, the controls, your own buttons, Restart. Options: title, controls ([['WASD',
+ * A pause menu on Escape (or P): Resume, the controls, your own buttons, Restart, and Quit game in the platform's player. Options: title, controls ([['WASD',
  * 'Move'], ['E', 'Use']]), buttons ([['Save', fn], ['Sound', fn]]), onPause, onResume, onRestart. Returns { open(), close(), isOpen }.
  */
 export function pauseMenu(hud, { title = 'Paused', controls = [], buttons = [], onPause, onResume, onRestart } = {}) {
-  css(); let win = null; escapeRule(hud);
+  css(); let win = null; escapeRule(hud); pauseOwnsEsc = true;
   const M = { get isOpen() { return !!win; },
     open() { if (win || hud.screenOpen) return M; win = el('div', 'gp-win'); const box = el('div', 'gp-box'), m = el('div', 'gp-menu'); m.appendChild(el('h2', null, title));
       const b = (label, fn, main) => { const x = el('button', main ? 'gh-b' : 'gh-sb', label); x.addEventListener('click', fn); m.appendChild(x); };
       b('Resume', () => M.close(), true); if (controls.length) { const t = el('table'); for (const [k, what] of controls) { const r = el('tr'), a = el('td'); a.appendChild(el('span', 'gh-key', k)); r.appendChild(a); r.appendChild(el('td', null, what)); t.appendChild(r); } m.appendChild(t); }
       for (const [label, fn] of buttons) b(label, fn); if (onRestart) b('Restart', () => { M.close(); onRestart(); });
+      if (inPlayer()) b('Quit game', () => GCP.quit());
       box.appendChild(m); win.appendChild(box); hud.el.appendChild(win); if (onPause) onPause(); return M; },
     close() { if (!win) return M; win.remove(); win = null; if (onResume) onResume(); return M; } };
   addEventListener('keydown', (e) => { if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return; if (e.code === 'Escape' || e.code === 'KeyP') { if (win) M.close(); else if (!hud.el.querySelector('.gp-win')) M.open(); } });

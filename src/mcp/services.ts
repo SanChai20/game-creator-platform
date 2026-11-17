@@ -183,13 +183,13 @@ export function platformServices(s: Settings, origin: string): Service[] {
     },
     {
       id: 'display', name: 'Display, fullscreen and devices', category: 'runtime', status: 'available',
-      what: 'Fullscreen from inside the play frame (also on iPhone), orientation lock, touch detection and the platform\'s exit button on phones.',
-      how_it_works: 'The game page frames the game and tells the SDK how it is shown; the <html> element carries gcp-fullscreen and gcp-touch classes. On phones and tablets Play enters fullscreen at once, inside the safe area, locked to the declared orientation where the browser allows it.',
+      what: 'The platform\'s full-screen player: every game launches into it from Play, with the platform menu (Resume, Quit game), Esc kept in the game, swipe and pinch guards on touch screens, orientation lock and touch detection.',
+      how_it_works: 'There is no in-page play. Play launches the game into fullscreen on every device (on iPhone and in the installed app, the whole visible screen), inside the safe area, locked to the declared orientation where the browser allows it. In Chromium browsers the Escape key is locked to the game; an Esc the game does not use opens the platform menu, and only holding Esc leaves. When the browser or a system gesture still leaves fullscreen, the game is paused behind a card one tap or click from going back in. The SDK is told all of it (GCP.display, with paused and menu); the <html> element carries gcp-fullscreen and gcp-touch classes.',
       use_for: ['On-screen touch controls when display.touch is true', 'Landscape- or portrait-only games', 'A fullscreen button'],
-      sdk: ['GCP.fullscreen(on)', 'GCP.display', 'GCP.onDisplay(fn)', 'GCP.onEscape(fn)', 'GCP.setDisplay({ orientation, exitButton, edgeToEdge })'],
+      sdk: ['GCP.display', 'GCP.onDisplay(fn)', 'GCP.onEscape(fn)', 'GCP.menu(on)', 'GCP.quit()', 'GCP.fullscreen(on)', 'GCP.setDisplay({ orientation, exitButton, edgeToEdge })'],
       mcp_tools: ['compatibility'],
       limits: { allowed_in_frame: 'fullscreen, gamepad, pointer lock, audio after a gesture', not_allowed: 'camera, microphone, geolocation' },
-      guidelines: ['Call GCP.fullscreen() from a tap or key press.', 'Follow the Escape rule: register GCP.onEscape(fn) so Esc closes an open menu first and only an Esc with nothing open leaves fullscreen.', 'Declare orientation with the compatibility tool so phones are handled before launch.'],
+      guidelines: ['Do not add your own fullscreen button: the game always starts in the player.', 'Follow the Escape rule: register GCP.onEscape(fn) so Esc closes your open menu first; an Esc with nothing open opens the platform menu. A game with its own pause menu returns true and gives that menu a Quit button (GCP.quit()).', 'Pause the game\'s clock and sound while GCP.display.paused is true.', 'Declare orientation with the compatibility tool so phones are handled before launch.'],
       guide: 'contract',
     },
     {

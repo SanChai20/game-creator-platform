@@ -320,17 +320,30 @@
   // safe: the screen's notch, rounded corners and home indicator, in CSS px, as the platform page measures them. An iframe
   // never gets safe-area insets of its own (env(safe-area-inset-*) is always 0 in a frame), so they come from the page,
   // also as the CSS variables --gcp-safe-top/right/bottom/left on <html>.
-  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 } }, displayFns = [];
+  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false }, displayFns = [];
   function markDisplay() {
     var h = document.documentElement, c = h && h.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch);
     ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
   }
   markDisplay();
+  // In the platform's player, swipes and pinches must reach the game and never the page: a pinch or an overscroll can
+  // otherwise zoom the game or drop the browser out of fullscreen on phones and tablets. Panning stays allowed, so a game's
+  // own scrolling lists keep working.
+  var guardCss = 'html.gcp-guard,html.gcp-guard body{overscroll-behavior:none;touch-action:pan-x pan-y;-webkit-touch-callout:none;-webkit-text-size-adjust:100%}';
+  function guard() {
+    var on = display.fullscreen && display.touch, h = document.documentElement; if (!h || !h.classList) return;
+    h.classList.toggle('gcp-guard', on);
+    if (on && document.head && !document.getElementById('gcp-guard')) { var st = document.createElement('style'); st.id = 'gcp-guard'; st.textContent = guardCss; document.head.appendChild(st); }
+  }
+  var noPinch = function (e) { if (display.fullscreen && display.touch && e.cancelable) e.preventDefault(); };
+  try { document.addEventListener('gesturestart', noPinch, { passive: false }); document.addEventListener('gesturechange', noPinch, { passive: false }); } catch (e) { /* old browser */ }
+  function toParent(msg) { if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } } }
   var escFn = null;
   function runEscape(e) {
     var used = false; try { used = escFn() === true; } catch (err) { console.error(err); }
-    if (used) { if (e) e.preventDefault(); return; }
-    if (display.fullscreen || document.fullscreenElement) GCP.fullscreen(false);
+    if (e && (used || display.fullscreen)) e.preventDefault();
+    if (used) return;
+    if (display.fullscreen) toParent({ gcp: 'menu', on: true });   // nothing of the game's was open: the platform menu
   }
   var GCP = window.GCP = {
     sdk: 1,
@@ -408,8 +421,13 @@
       twoPlayers: q.get('gcp_two') ? { role: q.get('gcp_two') === 'guest' ? 'guest' : 'host', code: String(q.get('gcp_room') || 'VERIFY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'VERIFY' } : null,
       onTwoPlayers: function (fn) { pairFn = typeof fn === 'function' ? fn : null; S.twoPlayers = !!pairFn; },
     },
-    /** Ask the platform page for fullscreen (works inside the play frame, and on iPhones, where the game is given the
-        whole visible screen instead). No argument toggles; true enters; false leaves. Call it from a tap or key press. */
+    /** Open (true), close (false) or toggle (no argument) the platform's menu in the player: Resume and Quit game. Give your
+        own pause screen a button for it when the game hides the platform's menu button (setDisplay({ exitButton: 'none' })). */
+    menu: function (on) { var msg = { gcp: 'menu' }; if (on === true || on === false) msg.on = on; toParent(msg); },
+    /** Quit: the player closes and the player is back on the game's page. Save first. */
+    quit: function () { toParent({ gcp: 'quit' }); },
+    /** Games always start in the platform's full-screen player. false leaves fullscreen: the game is paused behind a card
+        where the player goes straight back in or quits. true (from a tap or key press) goes back in. */
     fullscreen: function (on) {
       var msg = { gcp: 'fullscreen' }; if (on === true || on === false) msg.on = on;
       if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } return; }
@@ -418,21 +436,24 @@
       else if (on !== false && el.requestFullscreen) el.requestFullscreen().catch(function () { });
     },
     /** How the game is shown right now. Kept up to date by the platform page:
-        { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation: 'any' | 'landscape' | 'portrait', touch, edgeToEdge, safe }.
+        { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation: 'any' | 'landscape' | 'portrait', touch, edgeToEdge, safe,
+        paused, menu }. paused is true while the player cannot play: the platform menu is open (menu is then true too) or the
+        game was pushed out of fullscreen and waits behind the paused card. Pause the game's clock and sound while it lasts.
         touch is true on phones and tablets (a finger is the main pointer): show on-screen controls then. edgeToEdge is true
         while the frame covers the whole screen, notch included (see setDisplay); safe is then { top, right, bottom, left } in
         CSS px: keep buttons and text that far in from each edge (also the CSS variables --gcp-safe-top and so on). */
     display: display,
     /** fn(display) whenever it changes (entering or leaving fullscreen, for example). */
     onDisplay: function (fn) { if (typeof fn === 'function') displayFns.push(fn); },
-    /** The Escape rule: Esc first closes whatever the game has open, and only an Esc with nothing open leaves fullscreen.
-        Register fn(); it is called on every Esc press and returns true when the game used the key (it closed a menu, a
-        dialog, a map…). When it returns anything else, the SDK leaves fullscreen. In fullscreen the platform page asks the
-        browser to send Esc to the game first (the Keyboard Lock API, Chromium browsers; holding Esc still leaves at
-        once). Where the browser does not allow that, Esc leaves fullscreen as it always did and fn is not called. */
+    /** The Escape rule: Esc never drops the player out of the game. It first closes whatever the game has open, and an Esc
+        with nothing open opens the platform menu (Resume, Quit game). Register fn(); it is called on every Esc press and
+        returns true when the game used the key (it closed a menu, a dialog, a map…). A game that registers nothing and
+        calls preventDefault() on its own Esc keydown keeps the key too. In fullscreen the platform asks the browser to send
+        Esc to the game (the Keyboard Lock API, Chromium browsers; holding Esc still leaves). Firefox and Safari leave
+        fullscreen on Esc whatever the page does: the game is then paused behind a card, one click from coming back. */
     onEscape: function (fn) {
       escFn = typeof fn === 'function' ? fn : null;
-      if (window.parent !== window) { try { parent.postMessage({ gcp: 'escape', on: !!escFn }, '*'); } catch (e) { /* not framed */ } }
+      toParent({ gcp: 'escape', on: !!escFn });
     },
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
@@ -444,16 +465,23 @@
     setDisplay: function (prefs) { prefs = prefs || {}; try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ } },
   };
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !e.repeat && escFn) runEscape(e); }, true);
+  // A game without onEscape: an Esc it did not take for itself (preventDefault) opens the platform menu.
+  // Checked once the key has reached every listener of the game, wherever it registered.
+  window.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape' || e.repeat || escFn || !display.fullscreen) return;
+    setTimeout(function () { if (!e.defaultPrevented) toParent({ gcp: 'menu', on: true }); }, 0);
+  });
   window.addEventListener('message', function (e) {
     var d = e.data; if (e.source === window.parent && d && d.gcp === 'escape_key' && escFn) { runEscape(null); return; }
     if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
-    markDisplay();
+    display.paused = !!d.paused; display.menu = !!d.menu;
+    markDisplay(); guard();
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
-  if (window.parent !== window) { try { parent.postMessage({ gcp: 'display_query' }, '*'); } catch (e) { /* not framed */ } }
+  toParent({ gcp: 'display_query' });
   // What the verifier reads. The game runs in the same page, so the verifier's view is a read-only window onto the SDK's own
   // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
   var view = {};

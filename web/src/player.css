@@ -33,3 +33,30 @@ html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none;
 @keyframes turn-phone { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
 @keyframes turn-phone-up { 0%, 25% { transform: rotate(-90deg); } 55%, 100% { transform: rotate(0); } }
 @media (prefers-reduced-motion: reduce) { .turn-ico i { animation: none; } .stage-exit { animation: none; } }
+
+/* In the player, swipes and pinches act on the game, never on the page around it. */
+.stage.filled { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+html:has(.stage.filled), html:has(.stage.filled) body { overscroll-behavior: none; }
+/* Pushed out of fullscreen with the game running: the game waits under the paused card, over the whole page (no in-page play). */
+.stage.paused { position: fixed; inset: 0; z-index: calc(var(--z-toast) - 1); width: 100vw; height: 100vh; height: 100dvh; aspect-ratio: auto; border-radius: 0; }
+html.gcp-paused, html.gcp-paused body { overflow: hidden; }
+
+/* The platform's menu inside the player, and the paused card. */
+.stage-menu { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 24px; background: rgb(8 7 12 / .62); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: stage-fade .16s ease; }
+.stage-menu.paused { background: rgb(8 7 12 / .78); cursor: pointer; }
+.stage-card { display: grid; justify-items: stretch; gap: 10px; width: min(340px, 100%); padding: 22px; border-radius: 18px; text-align: center; color: #fff; background: rgb(22 20 30 / .94); border: 1px solid rgb(255 255 255 / .12); box-shadow: 0 24px 60px rgb(0 0 0 / .45); cursor: default; }
+.stage-card > b { font-size: 20px; }
+.stage-card .stage-badge { justify-self: center; }
+.stage-sub { color: rgb(255 255 255 / .72); font-size: 14px; margin-bottom: 4px; }
+.stage-hint { color: rgb(255 255 255 / .6); font-size: 13px; line-height: 1.45; margin-top: 2px; }
+.stage-btn { min-height: 46px; padding: 10px 16px; border-radius: 12px; border: 1px solid rgb(255 255 255 / .22); background: rgb(255 255 255 / .08); color: #fff; font: 600 15px/1.2 inherit; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.stage-btn:hover { background: rgb(255 255 255 / .14); }
+.stage-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.stage-btn.primary { background: #fff; color: #17151c; border-color: #fff; }
+.stage-btn.primary:hover { background: rgb(255 255 255 / .88); }
+.stage-btn.ghost { border-color: transparent; background: transparent; font-weight: 500; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+@keyframes stage-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (max-height: 420px) { .stage-card { padding: 14px 18px; gap: 7px; } .stage-btn { min-height: 40px; } .stage-card > b { font-size: 17px; } }
+@media (prefers-reduced-motion: reduce) { .stage-menu { animation: none; } }
+/* The console's preview has no poster on the page: the stage waits off screen until the game is launched. */
+.stage.launcher:not(.filled):not(.paused) { position: fixed; top: 0; left: -200vw; width: 320px; pointer-events: none; }
