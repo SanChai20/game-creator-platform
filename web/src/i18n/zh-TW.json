@@ -1290,5 +1290,8 @@
  "The game left full screen. It is waiting for you.": "遊戲已退出全螢幕，正在等你回來。",
  "Back to the game": "返回遊戲",
  "Install the app for full screen without interruptions": "安裝應用程式，全螢幕不再被打斷",
- "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "想要不會被滑動打斷的全螢幕，請點「分享」，再點「加入主畫面」，然後從主畫面開啟遊玩。"
+ "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "想要不會被滑動打斷的全螢幕，請點「分享」，再點「加入主畫面」，然後從主畫面開啟遊玩。",
+ "The game is not responding": "遊戲沒有回應",
+ "It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.": "它可能只是太忙，過一會兒會自己恢復。退出會關閉遊戲，未儲存的進度可能遺失。",
+ "Wait": "等待"
 }
