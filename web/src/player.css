@@ -37,13 +37,9 @@ html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none;
 /* In the player, swipes and pinches act on the game, never on the page around it. */
 .stage.filled { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 html:has(.stage.filled), html:has(.stage.filled) body { overscroll-behavior: none; }
-/* Pushed out of fullscreen with the game running: the game waits under the paused card, over the whole page (no in-page play). */
-.stage.paused { position: fixed; inset: 0; z-index: calc(var(--z-toast) - 1); width: 100vw; height: 100vh; height: 100dvh; aspect-ratio: auto; border-radius: 0; }
-html.gcp-paused, html.gcp-paused body { overflow: hidden; }
 
-/* The platform's menu inside the player, and the paused card. */
+/* The platform's menu in fullscreen, and the not-responding card. */
 .stage-menu { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 24px; background: rgb(8 7 12 / .62); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); animation: stage-fade .16s ease; }
-.stage-menu.paused { background: rgb(8 7 12 / .78); cursor: pointer; }
 .stage-card { display: grid; justify-items: stretch; gap: 10px; width: min(340px, 100%); padding: 22px; border-radius: 18px; text-align: center; color: #fff; background: rgb(22 20 30 / .94); border: 1px solid rgb(255 255 255 / .12); box-shadow: 0 24px 60px rgb(0 0 0 / .45); cursor: default; }
 .stage-card > b { font-size: 20px; }
 .stage-card .stage-badge { justify-self: center; }
@@ -58,5 +54,3 @@ html.gcp-paused, html.gcp-paused body { overflow: hidden; }
 @keyframes stage-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (max-height: 420px) { .stage-card { padding: 14px 18px; gap: 7px; } .stage-btn { min-height: 40px; } .stage-card > b { font-size: 17px; } }
 @media (prefers-reduced-motion: reduce) { .stage-menu { animation: none; } }
-/* The console's preview has no poster on the page: the stage waits off screen until the game is launched. */
-.stage.launcher:not(.filled):not(.paused) { position: fixed; top: 0; left: -200vw; width: 320px; pointer-events: none; }

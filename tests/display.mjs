@@ -20,7 +20,7 @@ function loadSdk() {
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(new URL('../web/public/sdk/gcp.js', import.meta.url), 'utf8'), ctx);
   const send = (d) => (listeners.message || []).forEach((f) => f({ source: parent, data: d }));
-  const key = (k, game) => { const e = { key: k, repeat: false, prevented: false, get defaultPrevented() { return this.prevented; }, preventDefault() { this.prevented = true; } }; (listeners.keydown || []).forEach((f) => f(e)); if (game) game(e); timers.splice(0).forEach((f) => f()); return e; };
+  const key = (k, game, mods = {}) => { const e = { key: k, repeat: false, ...mods, prevented: false, get defaultPrevented() { return this.prevented; }, preventDefault() { this.prevented = true; } }; (listeners.keydown || []).forEach((f) => f(e)); if (game) game(e); timers.splice(0).forEach((f) => f()); return e; };
   const gesture = () => { const e = { cancelable: true, prevented: false, preventDefault() { this.prevented = true; } }; (docListeners.gesturestart || []).forEach((f) => f(e)); return e; };
   return { GCP: win.GCP, posted, props, send, key, classes, styles, gesture };
 }
@@ -115,4 +115,13 @@ test('the watchdog: the SDK answers the player\'s ping with its frame count', ()
   send({ gcp: 'ping', n: 7 });
   const m = posted.find((x) => x.gcp === 'pong');
   assert.equal(m.n, 7); assert.equal(typeof m.frames, 'number');
+});
+
+test('Alt+Enter pressed in the game asks the player to toggle fullscreen', () => {
+  const { posted, key } = loadSdk();
+  const e = key('Enter', null, { altKey: true });
+  assert.equal(e.prevented, true);
+  assert.deepEqual({ ...posted.find((x) => x.gcp === 'fullscreen') }, { gcp: 'fullscreen' });
+  key('Enter');
+  assert.equal(posted.filter((x) => x.gcp === 'fullscreen').length, 1, 'plain Enter is the game\'s');
 });

@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ago, api, bytes, dateTime, Fail, genreName, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
-import type { StageCtl } from '../player';
 import { projectTabs } from './Analytics';
 import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
 import { AgeBadge, ageLabel } from '../meta-ui';
@@ -115,7 +114,7 @@ function FreeTrial({ id, paid, trial, max, reload }: { id: string; paid: boolean
 export function Project({ id }: { id: string }) {
   const { config } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
-  const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), pv = useRef<StageCtl>(null), [priceText, setPriceText] = useState<string | null>(null);
+  const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [priceText, setPriceText] = useState<string | null>(null);
 
   // While a deployment is running, keep the page fresh.
   const working = !!data?.versions.some((v: any) => ['queued', 'deploying', 'verifying'].includes(v.status));
@@ -125,8 +124,7 @@ export function Project({ id }: { id: string }) {
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <ProjectSkeleton />;
   const p = data.project, versions = data.versions as any[];
-  // The preview launches into the same full-screen player as the store (in the click itself, or the browser refuses fullscreen).
-  const playPreview = () => { pv.current?.enter(); void act('pv', async () => { const r = await api<{ url: string }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreview(r.url); }).then((ok) => { if (!ok) pv.current?.exit(); }); };
+  const playPreview = () => act('pv', async () => { const r = await api<{ url: string }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreview(r.url); });
   const offline = () => { if (confirm(t('Take this game offline? Players will not be able to open it until you put it back.', '确定下线这款游戏吗？在重新上线之前，玩家将无法打开它。'))) void act('off', async () => { await api(`/console/projects/${id}/offline`, { method: 'POST' }); await reload(); }, t('The game is offline.', '游戏已下线。')); };
   const online = () => act('on', async () => { await api(`/console/projects/${id}/online`, { method: 'POST' }); await reload(); }, t('Going back online. This takes a moment.', '正在重新上线，请稍候。'));
   const savePrice = () => act('price', async () => {
@@ -237,7 +235,11 @@ export function Project({ id }: { id: string }) {
         </div>
       </div>
 
-      {p.preview_version && <Stage launcher ctl={pv} poster={null} seed={p.slug} url={preview} onQuit={() => { setPreview(null); void reload(); }} />}
+      {preview && <Modal wide onClose={() => { setPreview(null); void reload(); }}><div className="stack">
+        <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
+        <Stage poster={null} seed={p.slug} url={preview} onQuit={() => { setPreview(null); void reload(); }} />
+        <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>
+      </div></Modal>}
     </div>
   );
 }

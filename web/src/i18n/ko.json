@@ -1272,5 +1272,6 @@
  "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "스와이프로 닫히지 않는 전체 화면을 원하면 '공유'에서 '홈 화면에 추가'를 누른 뒤 홈 화면에서 열어 플레이하세요.",
  "The game is not responding": "게임이 응답하지 않습니다",
  "It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.": "잠시 바쁜 것일 수 있으며 곧 스스로 돌아올 수 있습니다. 종료하면 게임이 닫히고 저장하지 않은 진행 상황은 사라질 수 있습니다.",
- "Wait": "기다리기"
+ "Wait": "기다리기",
+ "Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.": "게임 화면을 클릭하면 키보드 입력이 게임으로 갑니다. Alt+Enter로 전체 화면을 전환합니다."
 }
