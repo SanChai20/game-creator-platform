@@ -54,7 +54,7 @@ GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', 
 GCP.onDisplay(fn) // fn(display) when it changes; pause while display.paused is true
 GCP.onEscape(fn)  // the Escape rule: fn() returns true when it closed something; otherwise Esc opens the platform menu (input guide)
 GCP.menu()        // opens the platform menu (Resume, Quit game); GCP.quit() quits straight away
-GCP.fullscreen()  // false leaves fullscreen (the game waits behind a paused card); every game already starts in fullscreen
+GCP.fullscreen()  // toggles fullscreen (true enters, false back to the window); the player also has a button and Alt+Enter
 GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' })   // see "Phones and tablets" in the input guide
 ```
 
