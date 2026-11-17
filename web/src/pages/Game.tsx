@@ -106,7 +106,7 @@ export function Game({ slug }: { slug: string }) {
   const start = (confirmed = adultOk) => {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl());
-    stage.current?.enter();   // the game launches into the full-screen player; in the click itself, or the browser refuses
+    stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
     void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {

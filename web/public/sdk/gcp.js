@@ -157,7 +157,13 @@
     fpsEma = advanced / 15;
     var body = JSON.stringify({ t: cfg.token, frames: S.frames, active: advanced > 0 && document.visibilityState === 'visible', fps: Math.round(fpsEma), errors: pending.splice(0, 5), fatal: S.fatal });
     if (last && navigator.sendBeacon) navigator.sendBeacon(cfg.api + '/api/rt/beat', new Blob([body], { type: 'text/plain' }));
-    else fetch(cfg.api + '/api/rt/beat', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: body, keepalive: true }).then(function (r) { if ((r.status === 401 || r.status === 402) && trial) trialOver(); return r.json(); }).then(onBeat).catch(function () { });
+    else {
+      // A dropped connection (ERR_CONNECTION_CLOSED after a long frame or a network switch) is tried once more, so the
+      // play time it reports is not lost.
+      var send = function () { return fetch(cfg.api + '/api/rt/beat', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: body, keepalive: true }); };
+      send().catch(function () { return new Promise(function (ok) { setTimeout(ok, 2000); }).then(send); })
+        .then(function (r) { if ((r.status === 401 || r.status === 402) && trial) trialOver(); return r.json(); }).then(onBeat).catch(function () { });
+    }
   }
   setInterval(beat, 15000);
   window.addEventListener('pagehide', function () { beat(true); });
@@ -426,8 +432,9 @@
     menu: function (on) { var msg = { gcp: 'menu' }; if (on === true || on === false) msg.on = on; toParent(msg); },
     /** Quit: the player closes and the player is back on the game's page. Save first. */
     quit: function () { toParent({ gcp: 'quit' }); },
-    /** Games always start in the platform's full-screen player. false leaves fullscreen: the game is paused behind a card
-        where the player goes straight back in or quits. true (from a tap or key press) goes back in. */
+    /** Ask the platform page for fullscreen (works inside the play frame, and on iPhones, where the game is given the whole
+        visible screen instead). No argument toggles; true enters; false goes back to the window on the page. Call it from a
+        tap or key press. The player also has a Fullscreen button and Alt+Enter, and phones start in fullscreen. */
     fullscreen: function (on) {
       var msg = { gcp: 'fullscreen' }; if (on === true || on === false) msg.on = on;
       if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } return; }
@@ -438,7 +445,7 @@
     /** How the game is shown right now. Kept up to date by the platform page:
         { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation: 'any' | 'landscape' | 'portrait', touch, edgeToEdge, safe,
         paused, menu }. paused is true while the player cannot play: the platform menu is open (menu is then true too) or the
-        game was pushed out of fullscreen and waits behind the paused card. Pause the game's clock and sound while it lasts.
+        game stopped answering and the not-responding card is up. Pause the game's clock and sound while it lasts.
         touch is true on phones and tablets (a finger is the main pointer): show on-screen controls then. edgeToEdge is true
         while the frame covers the whole screen, notch included (see setDisplay); safe is then { top, right, bottom, left } in
         CSS px: keep buttons and text that far in from each edge (also the CSS variables --gcp-safe-top and so on). */
@@ -450,7 +457,7 @@
         returns true when the game used the key (it closed a menu, a dialog, a map…). A game that registers nothing and
         calls preventDefault() on its own Esc keydown keeps the key too. In fullscreen the platform asks the browser to send
         Esc to the game (the Keyboard Lock API, Chromium browsers; holding Esc still leaves). Firefox and Safari leave
-        fullscreen on Esc whatever the page does: the game is then paused behind a card, one click from coming back. */
+        fullscreen on Esc whatever the page does: the game then carries on in its window on the page. */
     onEscape: function (fn) {
       escFn = typeof fn === 'function' ? fn : null;
       toParent({ gcp: 'escape', on: !!escFn });
@@ -466,6 +473,9 @@
   };
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !e.repeat && escFn) runEscape(e); }, true);
   // A game without onEscape: an Esc it did not take for itself (preventDefault) opens the platform menu.
+  // Alt+Enter toggles the player's fullscreen, the shortcut PC games use (the page around the game cannot hear keys
+  // pressed in it; the key press counts as the player's gesture there too).
+  window.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.altKey && !e.repeat && window.parent !== window) { e.preventDefault(); toParent({ gcp: 'fullscreen' }); } }, true);
   // Checked once the key has reached every listener of the game, wherever it registered.
   window.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape' || e.repeat || escFn || !display.fullscreen) return;
