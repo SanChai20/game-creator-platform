@@ -1268,5 +1268,8 @@
  "The game left full screen. It is waiting for you.": "El juego salió de pantalla completa. Te está esperando.",
  "Back to the game": "Volver al juego",
  "Install the app for full screen without interruptions": "Instala la app para jugar a pantalla completa sin interrupciones",
- "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "Para una pantalla completa que no se cierre al deslizar, toca Compartir, luego Añadir a pantalla de inicio, y juega desde allí."
+ "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "Para una pantalla completa que no se cierre al deslizar, toca Compartir, luego Añadir a pantalla de inicio, y juega desde allí.",
+ "The game is not responding": "El juego no responde",
+ "It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.": "Puede que esté ocupado y se recupere solo. Salir lo cierra; el progreso que no haya guardado puede perderse.",
+ "Wait": "Esperar"
 }

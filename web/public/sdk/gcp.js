@@ -472,7 +472,11 @@
     setTimeout(function () { if (!e.defaultPrevented) toParent({ gcp: 'menu', on: true }); }, 0);
   });
   window.addEventListener('message', function (e) {
-    var d = e.data; if (e.source === window.parent && d && d.gcp === 'escape_key' && escFn) { runEscape(null); return; }
+    var d = e.data;
+    // The player's watchdog: an answer proves the game's main thread is free. A game stuck in a long loop cannot answer,
+    // and the player then offers Wait or Quit game.
+    if (e.source === window.parent && d && d.gcp === 'ping') { toParent({ gcp: 'pong', n: d.n, frames: S.frames }); return; }
+    if (e.source === window.parent && d && d.gcp === 'escape_key' && escFn) { runEscape(null); return; }
     if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };

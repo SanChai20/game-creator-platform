@@ -109,3 +109,10 @@ test('on a touch screen in the player, the game cannot be pinched or overscrolle
   assert.ok(!classes.has('gcp-guard'));
   assert.equal(gesture().prevented, false);
 });
+
+test('the watchdog: the SDK answers the player\'s ping with its frame count', () => {
+  const { posted, send } = loadSdk();
+  send({ gcp: 'ping', n: 7 });
+  const m = posted.find((x) => x.gcp === 'pong');
+  assert.equal(m.n, 7); assert.equal(typeof m.frames, 'number');
+});

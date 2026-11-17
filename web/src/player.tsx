@@ -84,6 +84,8 @@ function lockPage(): () => void {
 }
 
 type Insets = { top: number; right: number; bottom: number; left: number };
+/** The watchdog: how long a game may go without answering before the player offers Wait or Quit game (ms). */
+const HUNG_MS = 4000, HUNG_BOOT_MS = 20000, HUNG_WAIT_MS = 15000;
 const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 /** The screen's safe-area insets (notch, rounded corners, home indicator) in CSS px. A frame cannot see them itself. */
 function safeInsets(): Insets {
@@ -124,11 +126,13 @@ export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orient
 }) {
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null), resumeBtn = useRef<HTMLButtonElement>(null), menuBtn = useRef<HTMLButtonElement>(null);
   const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false), [menu, setMenu] = useState(false);
-  const gameEsc = useRef(false), menuOpen = useRef(false);
+  const gameEsc = useRef(false), menuOpen = useRef(false), hungRef = useRef(false);
   const [prefs, setPrefs] = useState<{ orientation?: Orientation; exit?: Corner; edge?: boolean }>({});
   const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [turned, setTurned] = useState(false), [portrait, setPortrait] = useState(() => innerHeight > innerWidth);
   const [canInstall, setCanInstall] = useState(false);
+  // The watchdog: the game is asked every second whether it is alive (the SDK answers from the game's main thread).
+  const [hung, setHung] = useState(false), waitBtn = useRef<HTMLButtonElement>(null), waitRef = useRef<() => void>(() => {});
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
   // The game is running but has been pushed out of fullscreen (hold Esc, a system gesture, Firefox's Esc): it waits behind
   // the paused card. There is no in-page play.
@@ -137,7 +141,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orient
   // fullscreen and is told the insets; any other game's frame is kept inside them.
   const edge = active && !!prefs.edge;
   const unlock = useRef<(() => void) | null>(null);
-  menuOpen.current = menu;
+  menuOpen.current = menu; hungRef.current = hung;
 
   const leaveImmersive = useCallback(() => { unlock.current?.(); unlock.current = null; setImmersive(false); }, []);
   const goImmersive = useCallback(() => {
@@ -229,7 +233,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orient
   // to a game that takes Esc, or open the menu.
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.repeat || !box.current) return;
+      if (e.key !== 'Escape' || e.repeat || !box.current || hungRef.current) return;
       const inPlayer = fsElement() === box.current || !!unlock.current; if (!inPlayer) return;
       e.preventDefault();
       if (menuOpen.current) { setMenu(false); return; }
@@ -238,6 +242,32 @@ export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orient
     };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   }, []);
+  useEffect(() => {
+    if (!url) { setHung(false); return; }
+    let n = 0, lastPong = 0, loadedAt = 0, quietUntil = 0, dead = false;
+    const onMsg = (e: MessageEvent) => { if (e.source === frame.current?.contentWindow && e.data?.gcp === 'pong') { lastPong = performance.now(); if (dead) { dead = false; setHung(false); } } };
+    const onLoad = () => { loadedAt = performance.now(); };
+    const el = frame.current; el?.addEventListener('load', onLoad); addEventListener('message', onMsg);
+    const tick = () => {
+      frame.current?.contentWindow?.postMessage({ gcp: 'ping', n: ++n }, '*');
+      const now = performance.now();
+      if (document.visibilityState !== 'visible') { lastPong = Math.max(lastPong, now - 1000); return; }   // hidden tabs are throttled
+      // Before its first answer a game may still be loading: give it longer.
+      const late = lastPong ? now - lastPong > HUNG_MS : loadedAt > 0 && now - loadedAt > HUNG_BOOT_MS;
+      if (late && !dead && now > quietUntil) { dead = true; setHung(true); }
+    };
+    const i = setInterval(tick, 1000);
+    waitRef.current = () => { quietUntil = performance.now() + HUNG_WAIT_MS; dead = false; setHung(false); };
+    return () => { clearInterval(i); removeEventListener('message', onMsg); el?.removeEventListener('load', onLoad); };
+  }, [url]);
+  // While the game does not answer, Esc and the keyboard come back to the platform: the browser may leave fullscreen on Esc
+  // again, and the card's buttons take the focus away from the stuck frame.
+  useEffect(() => {
+    if (!hung) { if (fsElement() === box.current) escLock(true); return; }
+    escLock(false); setMenu(false);
+    const t1 = setTimeout(() => waitBtn.current?.focus({ preventScroll: true }), 30);
+    return () => clearTimeout(t1);
+  }, [hung]);
   useWakeLock(!!url && handheld);
 
   const install = () => { const o = installOffer; if (!o) return; installOffer = null; setCanInstall(false); void o.prompt().catch(() => {}); };
@@ -247,10 +277,10 @@ export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orient
   return (
     <div className={launcher ? 'stage-host launcher' : undefined}>
       <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (paused ? ' paused' : '') + (launcher ? ' launcher' : '')} ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} inert={paused || menu} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" allowFullScreen /> : (
+        {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} inert={paused || menu || hung} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" allowFullScreen /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
-        {active && url && !menu && (corner !== 'none' || badge) && (
+        {active && url && !menu && !hung && (corner !== 'none' || badge) && (
           <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner)}>
             {corner !== 'none' && <button type="button" onClick={() => setMenu(true)} aria-label={t('Game menu', '游戏菜单')} title={t('Game menu', '游戏菜单')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>}
             {badge && <span className="stage-badge">{badge}</span>}
@@ -264,6 +294,16 @@ export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orient
               <button ref={menuBtn} type="button" className="stage-btn primary" onClick={resume}>{t('Resume', '继续游戏')}</button>
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
               <span className="stage-hint">{handheld ? t('Tap outside this card to go back to the game.', '点击卡片外即可返回游戏。') : t('Press Esc to go back to the game.', '按 Esc 返回游戏。')}</span>
+            </div>
+          </div>
+        )}
+        {url && hung && !paused && (
+          <div className="stage-menu" role="alertdialog" aria-modal="true" aria-label={t('The game is not responding', '游戏没有响应')}>
+            <div className="stage-card">
+              <b>{t('The game is not responding', '游戏没有响应')}</b>
+              <span className="stage-sub">{t('It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.', '它可能只是太忙，过一会儿会自己恢复。退出会关闭游戏，未保存的进度可能丢失。')}</span>
+              <button ref={waitBtn} type="button" className="stage-btn primary" onClick={() => waitRef.current()}>{t('Wait', '等待')}</button>
+              <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
             </div>
           </div>
         )}

@@ -1269,5 +1269,8 @@
  "The game left full screen. It is waiting for you.": "ゲームが全画面から外れました。続きはそのまま待っています。",
  "Back to the game": "ゲームに戻る",
  "Install the app for full screen without interruptions": "アプリをインストールして、途切れない全画面で遊ぶ",
- "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "スワイプで閉じない全画面にするには、「共有」から「ホーム画面に追加」を選び、ホーム画面から開いて遊んでください。"
+ "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "スワイプで閉じない全画面にするには、「共有」から「ホーム画面に追加」を選び、ホーム画面から開いて遊んでください。",
+ "The game is not responding": "ゲームが応答していません",
+ "It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.": "処理中なだけで、しばらくすると戻るかもしれません。終了するとゲームを閉じ、保存していない進行状況は失われることがあります。",
+ "Wait": "待つ"
 }
