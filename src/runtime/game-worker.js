@@ -130,6 +130,9 @@ export async function handle(request, env, ctx, base = '') {
     const secure = url.protocol === 'https:';
     const headers = new Headers({
       'content-type': TYPES.html, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+      // Its own agent cluster, so Chrome gives the game a process of its own even though the platform page that frames it
+      // is on the same site (both on <account>.workers.dev): a game busy loading no longer freezes the page around it.
+      'origin-agent-cluster': '?1',
       'content-security-policy': `frame-ancestors 'self' ${env.PLATFORM}`,
       'set-cookie': `gcp_t=${token}; Path=${base || '/'}; Max-Age=21600; HttpOnly; ${secure ? 'Secure; SameSite=None; Partitioned' : 'SameSite=Lax'}`,
     });

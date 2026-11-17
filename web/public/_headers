@@ -1,0 +1,5 @@
+# Every page of the web app asks for its own agent cluster, so Chrome puts it in a process of its own. Games are served
+# from sibling subdomains of the same site (<script>.<account>.workers.dev), and without this a game busy loading in the
+# player froze the store page around it. The Worker adds the same header to the pages it renders itself (src/index.ts).
+/*
+  Origin-Agent-Cluster: ?1
