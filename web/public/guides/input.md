@@ -88,32 +88,32 @@ function pad() {
 - Let players rebind or at least offer arrows as well as WASD.
 - Do not depend on hover; touch has none.
 - Start audio from the first key press or tap; see the audio guide.
-- Fullscreen: `GCP.fullscreen()` asks the platform page to toggle it, which works even though the game is framed.
+- Fullscreen: every game starts in the platform's full-screen player, so do not add a fullscreen button. The player leaves it from the platform menu or your own pause menu (`GCP.quit()`).
 
 ## The Escape rule
 
-Esc first closes whatever the game has open (a menu, the inventory, a dialog, the map). Only an Esc with nothing open leaves fullscreen. Every game should follow it, so a player closing a menu is never thrown out of fullscreen.
+Esc never throws the player out of the game. It first closes whatever the game has open (a menu, the inventory, a dialog, the map). An Esc with nothing open opens the platform menu (Resume, Quit game), unless the game keeps Esc for its own pause menu.
 
 ```js
 GCP.onEscape(() => {
   if (dialog.isOpen) { dialog.close(); return true; }   // true: the game used the key
   if (panel.isOpen) { panel.close(); return true; }
-  if (!GCP.display.fullscreen) { pause.open(); return true; }
-  return false;                                          // nothing open: the SDK leaves fullscreen
+  return false;                                          // nothing open: the platform menu opens
 });
-GCP.onDisplay((d) => { if (!d.fullscreen && playing && !pause.isOpen) pause.open(); });   // pause when fullscreen ends
+GCP.onDisplay((d) => { if (d.paused && playing && !pause.isOpen) pause.open(); });   // the platform menu or the paused card is up
 ```
 
-Register one function and route Esc through it instead of listening for the key yourself. In fullscreen the platform asks the browser to send Esc to the game first (Chromium browsers; holding Esc still leaves at once). Other browsers leave fullscreen on Esc as before and do not call the function, so also pause when `GCP.onDisplay` reports that fullscreen ended. Pointer lock is separate: the browser releases it on Esc without a key event, so treat `pointerlockchange` as "open the pause menu" only when nothing else is open. Show the cursor whenever a menu is open and hide it (pointer lock) when play resumes. `pauseMenu` and the windows of `@gcp/play.js` follow the rule already.
+Register one function and route Esc through it instead of listening for the key yourself. A game with its own pause menu on Esc returns `true` every time and puts a Quit button in that menu (`GCP.quit()`); a game that registers nothing and calls `preventDefault()` on its Esc keydown keeps the key too. In fullscreen the platform locks Esc to the game (Chromium browsers; holding Esc still leaves). Firefox and Safari leave fullscreen on Esc whatever the page does and do not call the function: the platform then pauses the game behind a card that puts it back in fullscreen with one click, and `GCP.display.paused` turns true, so pause on it. Pointer lock is separate: the browser releases it on Esc without a key event, so treat `pointerlockchange` as "open the pause menu" only when nothing else is open. Show the cursor whenever a menu is open and hide it (pointer lock) when play resumes. `pauseMenu` and the windows of `@gcp/play.js` follow the rule already.
 
 ## Phones and tablets
 
 What the platform does for every game, with nothing to write:
 
-- **Fullscreen at Play.** On a phone or tablet the game goes fullscreen as soon as the player presses Play. Android and iPad get the real Fullscreen API. iPhone Safari has none for pages, so the game is given the whole visible screen instead (`GCP.display.mode === 'immersive'`): the page under it cannot scroll or zoom, the back gesture closes it, and the address bar may stay visible.
+- **Fullscreen at Play.** The game goes fullscreen as soon as the player presses Play, on every device. Android and iPad get the real Fullscreen API. iPhone Safari has none for pages, and the installed app (Add to Home Screen) has no browser bar to begin with, so there the game is given the whole visible screen instead (`GCP.display.mode === 'immersive'`): the page under it cannot scroll or zoom.
+- **Swipes stay in the game.** In fullscreen on a touch screen the SDK stops pinch zoom, double-tap zoom and overscroll in your page (`touch-action: pan-x pan-y` and `overscroll-behavior: none` on `<html>`), so a swipe cannot zoom the game or pull it out of fullscreen; your own scrolling lists still pan. A system gesture that still leaves (iPad's swipe from the top edge, Android's back) pauses the game behind a card, one tap from going back in, and that card tells iPhone and iPad players how to add the site to the Home Screen for full screen no swipe can close.
 - **Orientation.** Declare it (`"orientation": "landscape"` in the requirements, or `GCP.setDisplay({ orientation: 'landscape' })` at run time). The screen is locked to it in fullscreen where the browser allows (Android); elsewhere the player is asked to turn the phone, and can choose to play as it is. Your game must still lay itself out for either shape: a resize can come at any moment.
 - **Safe areas.** By default the frame sits inside the notch, rounded corners and home indicator in fullscreen, which leaves black bars on those phones. To fill the whole screen, call `GCP.setDisplay({ edgeToEdge: true })` and keep your buttons and text inside `GCP.display.safe` (`{ top, right, bottom, left }` in CSS px, also the CSS variables `--gcp-safe-top`, `--gcp-safe-right`, `--gcp-safe-bottom` and `--gcp-safe-left`). A frame never sees `env(safe-area-inset-*)` itself, so combine the two: `max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px))` is right on the platform and when the game is opened on its own.
-- **An exit button.** A small button in the top-left corner leaves fullscreen on touch screens, since there is no Esc key. It fades after a few seconds. Move it out of your HUD's way with `GCP.setDisplay({ exitButton: 'top-right' })` (or a bottom corner), or hide it with `'none'` if your pause menu offers `GCP.fullscreen(false)`.
+- **A menu button.** A small button in the top-left corner opens the platform menu (Resume, Quit game). It fades after a few seconds. Move it out of your HUD's way with `GCP.setDisplay({ exitButton: 'top-right' })` (or a bottom corner), or hide it with `'none'` if your own pause menu offers Quit (`GCP.quit()`) or opens the platform menu (`GCP.menu()`).
 - **The screen stays on** while the game runs.
 
 What the game should do:

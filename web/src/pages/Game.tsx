@@ -68,6 +68,7 @@ export function Game({ slug }: { slug: string }) {
   const [adultOk, setAdultOk] = useState(false), [adultGate, setAdultGate] = useState(false);
   // A free-trial session: when it ends (by the clock here or by the game's word from the server), the game is closed.
   const [trialEnd, setTrialEnd] = useState<number | null>(null), [tick, setTick] = useState(0), [trialDone, setTrialDone] = useState(false);
+  const quitGame = useCallback(() => { setUrl(null); setTrialEnd(null); void reload(); }, [reload]);
   const endTrial = useCallback(() => { if (document.fullscreenElement) void document.exitFullscreen(); setUrl(null); setTrialEnd(null); setTrialDone(true); void reload(); }, [reload]);
   useEffect(() => {
     if (trialEnd === null) return;
@@ -105,7 +106,7 @@ export function Game({ slug }: { slug: string }) {
   const start = (confirmed = adultOk) => {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl());
-    stage.current?.enterOnPhone();   // in the click itself, or the browser refuses fullscreen
+    stage.current?.enter();   // the game launches into the full-screen player; in the click itself, or the browser refuses
     void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
@@ -154,7 +155,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} onTrialOver={endTrial} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} onTrialOver={endTrial} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>

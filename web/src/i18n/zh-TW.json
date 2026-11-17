@@ -1279,5 +1279,16 @@
  "Check each verified version for content that is never allowed (hate, scams, phishing, sexual content involving minors), adult content it does not declare, and abusive code (miners, password forms, hidden servers)": "檢查每個已驗證版本：是否含有一律禁止的內容（仇恨、詐騙、釣魚、涉及未成年人的性內容）、未聲明的成人內容，以及濫用程式碼（挖礦、密碼表單、隱藏伺服器）",
  "Allow adult (18+) games that declare sexual content or graphic violence (shown blurred, with a warning players confirm)": "允許聲明了性內容或血腥暴力的成人（18+）遊戲（封面模糊顯示，玩家需確認警告）",
  "How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it": "內容審核判定版本有害或含有未聲明成人內容的可能性（百分比）達到多少時拒絕該版本",
- "Most Workers AI content reviews per day (Clef with up to 4 frames of the game in play, about $0.001 each; past the cap a small rule set decides)": "每天最多進行的 Workers AI 內容審核次數（Clef 讀取最多 4 幀遊玩畫面，每次約 $0.001；超出上限後由小型規則集判定）"
+ "Most Workers AI content reviews per day (Clef with up to 4 frames of the game in play, about $0.001 each; past the cap a small rule set decides)": "每天最多進行的 Workers AI 內容審核次數（Clef 讀取最多 4 幀遊玩畫面，每次約 $0.001；超出上限後由小型規則集判定）",
+ "Game menu": "遊戲選單",
+ "Paused": "已暫停",
+ "Resume": "繼續遊戲",
+ "Quit game": "退出遊戲",
+ "Tap outside this card to go back to the game.": "點擊卡片外即可返回遊戲。",
+ "Press Esc to go back to the game.": "按 Esc 返回遊戲。",
+ "Game paused": "遊戲已暫停",
+ "The game left full screen. It is waiting for you.": "遊戲已退出全螢幕，正在等你回來。",
+ "Back to the game": "返回遊戲",
+ "Install the app for full screen without interruptions": "安裝應用程式，全螢幕不再被打斷",
+ "For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.": "想要不會被滑動打斷的全螢幕，請點「分享」，再點「加入主畫面」，然後從主畫面開啟遊玩。"
 }
