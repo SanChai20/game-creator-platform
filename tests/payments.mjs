@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { register } from 'node:module';
 
 register('./ts-hook.mjs', import.meta.url);
-const { recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns } = await import('../src/earnings.ts');
+const { recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns, refundablePurchase, holdMs } = await import('../src/earnings.ts');
 const { verifyWebhook, STRIPE_API_VERSION } = await import('../src/stripe.ts');
 const { hmacHex } = await import('../src/util.ts');
 
@@ -27,7 +27,7 @@ function d1() {
   return { prepare: (q) => stmt(q), batch, sql };
 }
 
-const S = { platform_fee_percent: 10, sale_processing_percent: 0, sale_processing_fixed_cents: 0, earnings_hold_days: 0 };
+const S = { platform_fee_percent: 10, sale_processing_percent: 0, sale_processing_fixed_cents: 0, earnings_hold_days: 0, refund_window_hours: 0 };
 async function setup() {
   const DB = d1();
   DB.sql.prepare("INSERT INTO projects (id, owner_id, slug, title, status, price_cents, created_at, updated_at) VALUES ('g1', 'u_maker', 'g', 'G', 'live', 1000, 0, 0)").run();
@@ -121,6 +121,7 @@ test('daily automatic payouts send each ready creator their available balance on
   const { autoPayouts } = await import('../src/payouts.ts');
   const env = await setup();
   env.STRIPE_SECRET_KEY = 'rk_test_x'; env.STRIPE_API_BASE = 'https://stripe.test';
+  const mails = []; env.EMAIL = { send: async (m) => { mails.push(m); return { messageId: 'm1' }; } };
   const db = env.DB.sql;
   db.prepare("INSERT INTO users (id, email, name, pw_hash, created_at, stripe_account, stripe_payouts_enabled) VALUES ('u_maker', 'm@x.test', 'M', 'x', 0, 'acct_m', 1)").run();
   db.prepare("INSERT INTO users (id, email, name, pw_hash, created_at, stripe_account, stripe_payouts_enabled) VALUES ('u_other', 'o@x.test', 'O', 'x', 0, 'acct_o', 0)").run();
@@ -138,4 +139,41 @@ test('daily automatic payouts send each ready creator their available balance on
   assert.equal(calls[0].version, STRIPE_API_VERSION);
   assert.equal(await total(env), 0);
   assert.equal(db.prepare("SELECT status FROM withdrawals WHERE user_id = 'u_maker'").get().status, 'paid');
+  assert.equal(mails.length, 1);   // the creator is told once
+  assert.equal(mails[0].to, 'm@x.test');
+  assert.match(mails[0].subject, /\$9\.00 is on its way/);
+});
+
+test('a buyer can refund within the window, under the play limit, and once per game', async () => {
+  const env = await setup(), R = { refund_window_hours: 24, refund_max_play_minutes: 30 }, db = env.DB.sql;
+  const x = await refundablePurchase(env, R, 'u_buyer', 'g1');
+  assert.equal(x.payment_intent, 'pi_1');
+  assert.ok(x.until > Date.now() + 23 * 3600000);
+  assert.equal(await refundablePurchase(env, R, 'u_other', 'g1'), null);           // not their purchase
+  assert.equal(await refundablePurchase(env, { ...R, refund_window_hours: 0 }, 'u_buyer', 'g1'), null);   // switched off
+  // 29 minutes of play (a trial before buying counts too) still qualifies; 30 does not
+  const t = Date.now();
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl1', 'g1', 1, 'live', 'u_buyer', ?, ?, 600)").run(t - 3600000, t - 3600000 + 1740000);
+  assert.ok(await refundablePurchase(env, R, 'u_buyer', 'g1'));
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl2', 'g1', 1, 'live', 'u_buyer', ?, ?, 60)").run(t - 60000, t);
+  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  db.exec("DELETE FROM plays");
+  // the platform's own clock: a session whose game sent no heartbeats but stayed open on the store page for 31 minutes
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl3', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 1860000, t - 1860000, t);
+  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  db.exec("DELETE FROM plays");
+  // past the window
+  db.prepare("UPDATE purchases SET created_at = ? WHERE payment_intent = 'pi_1'").run(t - 25 * 3600000);
+  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  db.prepare("UPDATE purchases SET created_at = ? WHERE payment_intent = 'pi_1'").run(t);
+  // refunded once, bought again: the second purchase is final
+  await refundPurchase(env, { paymentIntent: 'pi_1' });
+  await recordPurchase(env, S, { userId: 'u_buyer', projectId: 'g1', ownerId: 'u_maker', title: 'G', priceCents: 1000, provider: 'stripe', providerRef: 'cs_2', paymentIntent: 'pi_2' });
+  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+});
+
+test('a sale is held at least as long as the buyer can refund it', () => {
+  assert.equal(holdMs({ earnings_hold_days: 3, refund_window_hours: 24 }), 3 * 86400000);
+  assert.equal(holdMs({ earnings_hold_days: 0, refund_window_hours: 24 }), 86400000);
+  assert.equal(holdMs({ earnings_hold_days: 0, refund_window_hours: 0 }), 0);
 });

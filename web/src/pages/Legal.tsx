@@ -14,7 +14,7 @@ export const legalTitle = (d: LegalDoc) => ({
 }[d]);
 
 /** The date each text takes effect. Change it whenever that text changes in a meaningful way. */
-const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-18', privacy: '2026-11-18', cookies: '2026-11-18', refunds: '2026-11-18' };
+const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-19', privacy: '2026-11-18', cookies: '2026-11-18', refunds: '2026-11-19' };
 
 const S = ({ h, children }: { h: string; children: ReactNode }) => <section><h2>{h}</h2>{children}</section>;
 
@@ -28,6 +28,8 @@ const P = ({ children }: { children: string }) => <p>{linked(children)}</p>;
 
 export function Legal({ doc }: { doc: LegalDoc }) {
   const { config } = useApp(), s = config.settings, brand = String(s.brand_name || DEFAULT_BRAND);
+  const hours = Number(s.refund_window_hours ?? 24), minutes = Number(s.refund_max_play_minutes ?? 30), cut = Number(s.platform_fee_percent ?? 10);
+  const days = Math.max(Number(s.earnings_hold_days ?? 3), Math.ceil(hours / 24));
   const op = OPERATOR.name, legal = OPERATOR.legalEmail, support = String(s.support_email || OPERATOR.supportEmail), state = OPERATOR.jurisdiction;
   const body: Record<LegalDoc, ReactNode> = {
     terms: <>
@@ -44,6 +46,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
       <S h={t('Your content and creator uploads', '你的内容与创作者上传')}>
         <P>{t('You keep the rights to what you make or upload: games, their files, listings, screenshots, reviews and your display name (“your content”).', '你保留对自己制作或上传的内容的权利，包括游戏及其文件、商店信息、截图、评价和显示名称（“你的内容”）。')}</P>
         <P>{t('You give {op} a worldwide, non-exclusive, royalty-free licence to host, store, copy, run, verify, scan, display, distribute and promote your content, as needed to operate, improve and promote the Service. The licence lasts while your content is on the Service, and afterwards for backups and for players who already bought a game.', '你授予 {op} 一项全球范围、非独占、免版税的许可，可在运营、改进和推广本服务所需的范围内托管、存储、复制、运行、验证、扫描、展示、分发和推广你的内容。该许可在你的内容留存于本服务期间有效，之后在备份范围内及对已购买游戏的玩家继续有效。', { op })}</P>
+        <P>{t('Creators who sell games receive each sale’s price minus the platform’s share ({cut}%). The money becomes available {days} days after the buyer paid, and is paid out through Stripe once the creator has set up a payout account. If a sale is later refunded or disputed with the buyer’s bank, the creator’s share is taken back, from future earnings if it was already paid out.', '出售游戏的创作者可获得每笔销售额扣除平台分成（{cut}%）后的部分。该款项在买家付款 {days} 天后可提取，并在创作者设置收款账户后通过 Stripe 支付。如果某笔销售之后被退款或买家向银行发起争议，创作者的分成将被收回；若已支付，则从其之后的收益中扣回。', { cut, days })}</P>
         <P>{t('Creators confirm they own or have permission for everything in a game, and that it follows these Terms. Only web games are accepted. Games for adults must declare that content. A game may be refused, hidden or taken offline if it breaks these Terms or the law.', '创作者确认自己拥有或已获授权使用游戏中的全部内容，且游戏符合本条款。平台仅接受网页游戏。面向成人的游戏必须声明相关内容。违反本条款或法律的游戏可能会被拒绝、隐藏或下线。')}</P>
       </S>
       <S h={t('Purchases and virtual items', '购买与虚拟物品')}>
@@ -51,6 +54,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         <P>{t('Buying a game gives you a personal, non-transferable licence to play it on the Service, not ownership of the game. The licence ends if the game is refunded or your account is closed for breaking these Terms.', '购买游戏即获得在本服务上游玩该游戏的个人、不可转让的许可，而非游戏的所有权。如果该游戏已退款，或你的账户因违反本条款被关闭，该许可即告终止。')}</P>
         <P>{t('Virtual items, in-game currency, scores and progress have no cash value, cannot be exchanged for money, and are not your property. They are non-refundable unless the law requires otherwise, and they may change or disappear if a game is updated or removed.', '虚拟物品、游戏内货币、分数和进度没有现金价值，不能兑换为金钱，也不属于你的财产。除非法律另有规定，这些内容不予退款；游戏更新或下架时，它们可能发生变化或消失。')}</P>
         <P>{t('Refunds for games follow the Refund policy.', '游戏退款适用《退款政策》。')}</P>
+        <P>{t('A game is digital content you can play as soon as you pay. When you buy one, you ask for that immediate access and agree that you lose any legal right to cancel the purchase within 14 days, such as the one EU and UK law gives. The Refund policy still applies.', '游戏属于付款后即可游玩的数字内容。购买时，你即要求立即获得访问权限，并同意因此放弃任何法定的 14 天内撤销购买的权利（例如欧盟和英国法律赋予的该项权利）。《退款政策》仍然适用。')}</P>
       </S>
       <S h={t('Rules of conduct', '行为规范')}>
         <P>{t('Do not use the Service to:', '不得利用本服务：')}</P>
@@ -135,12 +139,20 @@ export function Legal({ doc }: { doc: LegalDoc }) {
       </S>
     </>,
     refunds: <>
-      <S h={t('Asking for a refund', '申请退款')}>
-        <P>{t('Games on {brand} are sold by {op}. If a game you bought does not work, or is not what its page described, write to {email} for a refund. Tell us which game and what went wrong.', '{brand} 上的游戏由 {op} 销售。如果你购买的游戏无法运行，或与游戏页面描述不符，可发送邮件至 {email} 申请退款，并说明是哪款游戏以及出现了什么问题。', { brand, op, email: support })}</P>
+      <S h={t('When you can get a refund', '可以退款的情形')}>
+        <P>{t('Games on {brand} are sold by {op}. You can refund a game yourself if both of these are true:', '{brand} 上的游戏由 {op} 销售。同时满足以下两个条件时，你可以自行为游戏退款：', { brand, op })}</P>
+        <ul>
+          <li>{t('you bought it less than {hours} hours ago, and', '购买时间不足 {hours} 小时；并且', { hours })}</li>
+          <li>{t('you have played it for less than {minutes} minutes in total, free trial included.', '累计游玩时间（包括免费试玩）不足 {minutes} 分钟。', { minutes })}</li>
+        </ul>
+        <P>{t('Open the game’s page while signed in and press Refund. No reason is needed. The money goes back through Stripe to the card or account you paid with, and the game leaves your library. Each game can be refunded once: if you buy it again, that purchase is final.', '登录后打开该游戏页面并点击“退款”即可，无需说明理由。款项将通过 Stripe 原路退回你付款时使用的银行卡或账户，该游戏会从你的游戏库中移除。每款游戏只能退款一次：如果你再次购买，该次购买不可退款。')}</P>
       </S>
-      <S h={t('What happens next', '之后会怎样')}>
-        <P>{t('A refund goes back to the card or account you paid with, through Stripe, and removes your access to the game.', '退款将通过 Stripe 原路退回你付款时使用的银行卡或账户，退款后你将失去该游戏的访问权限。')}</P>
+      <S h={t('When purchases are final', '不予退款的情形')}>
+        <P>{t('Once {hours} hours have passed or you have played for {minutes} minutes, the purchase is final and is not refunded, except where the law requires a refund, for example if a game you bought does not work and cannot be fixed. If that happens, write to {email} and tell us which game and what went wrong.', '购买超过 {hours} 小时，或游玩已达 {minutes} 分钟后，购买即为最终交易，不予退款，法律要求退款的情形除外（例如你购买的游戏无法运行且无法修复）。如遇此情况，请发送邮件至 {email}，说明是哪款游戏以及出现了什么问题。', { hours, minutes, email: support })}</P>
         <P>{t('Virtual items, in-game currency and progress are not refunded on their own, unless the law requires it.', '除非法律另有规定，虚拟物品、游戏内货币和进度不单独退款。')}</P>
+      </S>
+      <S h={t('The right to cancel (EU and UK)', '撤销权（欧盟和英国）')}>
+        <P>{t('EU and UK law usually gives 14 days to cancel an online purchase. A game is digital content you get as soon as you pay, so at checkout you ask for immediate access and confirm that you lose that 14-day right. The refund described above still applies.', '欧盟和英国法律通常给予网购 14 天的撤销期。游戏属于付款后即可获得的数字内容，因此你在结账时要求立即获得访问权限，并确认放弃这 14 天的撤销权。上述退款规则仍然适用。')}</P>
       </S>
       <S h={t('Your rights', '你的权利')}>
         <p>{t('Nothing here limits the rights consumer law gives you where you live.', '本政策不限制你所在地区消费者保护法赋予你的任何权利。')}</p>

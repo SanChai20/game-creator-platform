@@ -11,6 +11,35 @@ export function splitSale(priceCents: number, s: Settings): { fee: number; net: 
   return { fee, net: priceCents - fee, cut, processing };
 }
 
+/** How long a sale's credit waits before the creator can withdraw it: the hold period, and never less than the window in
+ *  which the buyer can still refund it themselves, so a self-serve refund never has to claw back money already paid out. */
+export function holdMs(s: Pick<Settings, 'earnings_hold_days' | 'refund_window_hours'>): number {
+  return Math.max(s.earnings_hold_days * 86400000, s.refund_window_hours * 3600000);
+}
+
+/** Seconds this player has spent in a game's live sessions, free trial included, as the platform measured them: each
+ *  session counts from the moment the platform started it to the last time the platform heard from it (the game's
+ *  heartbeat, any game service call, or the store page that shows the game), and never less than the play time reported. */
+export async function playedSeconds(env: Env, userId: string, projectId: string): Promise<number> {
+  const r = await env.DB.prepare("SELECT COALESCE(SUM(MAX(seconds, (MAX(last_beat_at, COALESCE(seen_at, 0)) - started_at) / 1000)), 0) AS s FROM plays WHERE user_id = ? AND project_id = ? AND env = 'live'")
+    .bind(userId, projectId).first<{ s: number }>();
+  return Math.round(r?.s || 0);
+}
+
+/** The purchase a buyer can still refund themselves, if any: paid through Stripe within the refund window, played for
+ *  less than the limit, and the first purchase of this game they would refund (a game is refunded once per buyer, so
+ *  buy-play-refund cannot repeat). */
+export async function refundablePurchase(env: Env, s: Pick<Settings, 'refund_window_hours' | 'refund_max_play_minutes'>, userId: string, projectId: string): Promise<{ id: string; payment_intent: string; created_at: number; until: number; played_seconds: number } | null> {
+  if (!(s.refund_window_hours > 0)) return null;
+  const win = s.refund_window_hours * 3600000;
+  const p = await env.DB.prepare("SELECT id, payment_intent, created_at FROM purchases WHERE user_id = ?1 AND project_id = ?2 AND status = 'paid' AND provider = 'stripe' AND payment_intent IS NOT NULL AND created_at > ?3 AND NOT EXISTS (SELECT 1 FROM purchases o WHERE o.user_id = ?1 AND o.project_id = ?2 AND o.status = 'refunded') ORDER BY created_at DESC LIMIT 1")
+    .bind(userId, projectId, now() - win).first<{ id: string; payment_intent: string; created_at: number }>();
+  if (!p) return null;
+  const played = await playedSeconds(env, userId, projectId);
+  if (played >= s.refund_max_play_minutes * 60) return null;
+  return { ...p, until: p.created_at + win, played_seconds: played };
+}
+
 export interface Balance { total: number; available: number; pending: number }
 export async function balanceOf(env: Env, userId: string): Promise<Balance> {
   const r = await env.DB.prepare('SELECT COALESCE(SUM(amount_cents), 0) AS total, COALESCE(SUM(CASE WHEN available_at <= ?1 OR amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS available FROM ledger WHERE user_id = ?2')
@@ -28,7 +57,7 @@ export async function recordPurchase(env: Env, s: Settings, a: { userId: string;
     env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)")
       .bind(id, a.userId, a.projectId, a.ownerId, a.priceCents, fee, net, a.provider, a.providerRef, a.paymentIntent || null, t),
     env.DB.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) VALUES (?, 'sale', ?, ?, ?, ?, ?)")
-      .bind(a.ownerId, net, id, `Sale of ${a.title}`, t + s.earnings_hold_days * 86400000, t),
+      .bind(a.ownerId, net, id, `Sale of ${a.title}`, t + holdMs(s), t),
     env.DB.prepare('UPDATE projects SET sales = sales + 1 WHERE id = ?').bind(a.projectId),
   ]);
   return true;

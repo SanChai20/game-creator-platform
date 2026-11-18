@@ -1344,5 +1344,22 @@
  "Sold by {op}. Payments by Stripe.": "販売元：{op}。決済は Stripe が処理します。",
  "By creating an account you agree to the {terms} and the {privacy}.": "アカウントを作成すると、{terms}と{privacy}に同意したことになります。",
  "Once your payout account is ready, your available balance is sent to it automatically every day when it reaches {min}. You can also withdraw it now.": "受取口座の準備ができると、出金可能残高が {min} に達した日に毎日自動で送金されます。今すぐ出金することもできます。",
- "Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)": "出金可能残高が最低額に達したクリエイターに毎日自動で支払う（Stripe 受取口座のみ）"
+ "Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)": "出金可能残高が最低額に達したクリエイターに毎日自動で支払う（Stripe 受取口座のみ）",
+ "Refund {title}? The money goes back to how you paid, and the game leaves your library. Each game can be refunded once.": "{title} を返金しますか？代金はお支払い方法に返金され、ゲームはライブラリから削除されます。返金は1つのゲームにつき1回までです。",
+ "Refunded. The money is on its way back to you.": "返金しました。代金はお支払い方法に戻ります。",
+ "Not what you hoped? You can refund it until {time}, while you have played less than {minutes} minutes.": "期待と違いましたか？{time} まで、プレイ時間が {minutes} 分未満であれば返金できます。",
+ "Creators who sell games receive each sale’s price minus the platform’s share ({cut}%). The money becomes available {days} days after the buyer paid, and is paid out through Stripe once the creator has set up a payout account. If a sale is later refunded or disputed with the buyer’s bank, the creator’s share is taken back, from future earnings if it was already paid out.": "ゲームを販売するクリエイターは、各販売価格からプラットフォームの取り分（{cut}%）を差し引いた額を受け取ります。この金額は購入者の支払いから {days} 日後に引き出し可能となり、クリエイターが受取口座を設定すると Stripe を通じて支払われます。販売が後に返金された場合や購入者が銀行に異議を申し立てた場合、クリエイターの取り分は回収され、すでに支払い済みの場合は今後の収益から差し引かれます。",
+ "A game is digital content you can play as soon as you pay. When you buy one, you ask for that immediate access and agree that you lose any legal right to cancel the purchase within 14 days, such as the one EU and UK law gives. The Refund policy still applies.": "ゲームは支払い後すぐにプレイできるデジタルコンテンツです。購入時に、あなたはその即時利用を求め、EU や英国の法律が定めるような購入から14日以内の撤回権を失うことに同意します。返金ポリシーは引き続き適用されます。",
+ "When you can get a refund": "返金を受けられる場合",
+ "Games on {brand} are sold by {op}. You can refund a game yourself if both of these are true:": "{brand} のゲームは {op} が販売しています。次の両方に当てはまる場合、ご自身でゲームを返金できます：",
+ "you bought it less than {hours} hours ago, and": "購入から {hours} 時間未満であること、かつ",
+ "you have played it for less than {minutes} minutes in total, free trial included.": "無料体験を含む合計プレイ時間が {minutes} 分未満であること。",
+ "Open the game’s page while signed in and press Refund. No reason is needed. The money goes back through Stripe to the card or account you paid with, and the game leaves your library. Each game can be refunded once: if you buy it again, that purchase is final.": "サインインした状態でゲームのページを開き、「返金」を押してください。理由は不要です。代金は Stripe を通じてお支払いに使ったカードや口座に返金され、ゲームはライブラリから削除されます。返金は1つのゲームにつき1回までです。再度購入した場合、その購入は返金できません。",
+ "When purchases are final": "返金できない場合",
+ "Once {hours} hours have passed or you have played for {minutes} minutes, the purchase is final and is not refunded, except where the law requires a refund, for example if a game you bought does not work and cannot be fixed. If that happens, write to {email} and tell us which game and what went wrong.": "購入から {hours} 時間が経過した場合、またはプレイ時間が {minutes} 分に達した場合、購入は確定となり返金されません。ただし、購入したゲームが動作せず修正もできない場合など、法律で返金が義務付けられている場合を除きます。その場合は {email} まで、どのゲームで何が起きたかをお知らせください。",
+ "The right to cancel (EU and UK)": "撤回権（EU・英国）",
+ "EU and UK law usually gives 14 days to cancel an online purchase. A game is digital content you get as soon as you pay, so at checkout you ask for immediate access and confirm that you lose that 14-day right. The refund described above still applies.": "EU と英国の法律では、通常オンライン購入を14日以内に撤回できます。ゲームは支払い後すぐに受け取れるデジタルコンテンツのため、チェックアウト時に即時利用を求め、この14日間の撤回権を失うことを確認していただきます。上記の返金ルールは引き続き適用されます。",
+ "Days a sale is held before the creator can withdraw it (never shorter than the refund window)": "販売額をクリエイターが引き出せるまで保留する日数（返金期間より短くはなりません）",
+ "Hours after paying that a buyer can refund a game themselves, once per game (0 turns self-serve refunds off)": "購入者が支払い後に自分で返金できる時間数。1つのゲームにつき1回（0 で自己返金を無効化）",
+ "Most minutes a buyer can have played a game (trial included) and still refund it themselves": "購入者が自分で返金できる、ゲームのプレイ時間の上限（分、体験版を含む）"
 }

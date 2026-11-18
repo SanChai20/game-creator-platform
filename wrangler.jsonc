@@ -33,6 +33,9 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }],
   "browser": { "binding": "BROWSER" },
   "ai": { "binding": "AI" },
+  // Cloudflare Email Service: payout emails to creators (src/mail.ts). Sends nothing until the domain is onboarded under
+  // Compute > Email Service > Email Sending; sending to any address needs the Workers Paid plan.
+  "send_email": [{ "name": "EMAIL" }],
   "triggers": { "crons": ["17 3 * * *", "*/10 * * * *", "* * * * *"] },   // daily cleanup; game runtime rollout (src/deploy.ts); catalogue numbers (src/catalog.ts)
   "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
   "observability": { "enabled": true },

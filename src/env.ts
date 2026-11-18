@@ -8,6 +8,8 @@ export interface Env {
   ROOMS: DurableObjectNamespace;
   PIPELINE: DurableObjectNamespace;
   BROWSER?: Fetcher;
+  // Cloudflare Email Service (send_email binding): payout emails to creators (src/mail.ts)
+  EMAIL?: { send(m: { from: { email: string; name: string }; to: string; subject: string; text: string; html: string }): Promise<{ messageId: string }> };
   AI?: Ai;                          // Workers AI: plain-language summaries of open implementations
   OAUTH_PROVIDER: OAuthHelpers;
   DEPLOY_DRIVER: string;            // cloudflare | dispatch | local (src/hosting.ts)
