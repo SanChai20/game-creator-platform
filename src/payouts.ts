@@ -3,6 +3,7 @@ import { AppError, type Env } from './env';
 import { getSettings } from './settings';
 import { stripe, stripeReady } from './stripe';
 import { now, rid } from './util';
+import { payoutSentMail } from './mail';
 
 /**
  * Takes `amount` off a creator's available balance and, for Stripe, sends the Transfer. Used by the Withdraw button and
@@ -56,7 +57,9 @@ export async function autoPayouts(env: Env, max = 200): Promise<void> {
 export async function sendTransfer(env: Env, w: { id: string; user_id: string; amount_cents: number; stripe_account: string }): Promise<'paid' | 'failed' | 'unknown'> {
   try {
     const tr = await stripe<{ id: string }>(env, 'POST', '/transfers', { amount: w.amount_cents, currency: 'usd', destination: w.stripe_account, metadata: { withdrawal: w.id, user_id: w.user_id } }, w.id);
-    await env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ?, error = NULL WHERE id = ? AND status = 'pending'").bind(tr.id, now(), w.id).run();
+    const r = await env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ?, error = NULL WHERE id = ? AND status = 'pending'").bind(tr.id, now(), w.id).run();
+    // Only the call that marked it paid sends the email, so a retry never mails the creator twice.
+    if (r.meta.changes) await payoutSentMail(env, w.user_id, w.amount_cents);
     return 'paid';
   } catch (e) {
     if (e instanceof AppError && e.code === 'stripe_error') { await reverseWithdrawal(env, w.id, w.user_id, w.amount_cents, 'failed', e.message); return 'failed'; }

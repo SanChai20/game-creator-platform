@@ -4,7 +4,7 @@ import { AppError, bad, forbidden, notFound, type Env, type Project, type User }
 import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestIdentity, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
 import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
-import { balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundPurchase, splitSale } from '../earnings';
+import { balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
@@ -251,6 +251,7 @@ api.get('/games/:slug', async (c) => {
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
   }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
+  const refundable = u && p.price_cents > 0 ? await refundablePurchase(c.env, s, u.id, p.id) : null;
   const [v, on] = await Promise.all([
     p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
     c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND last_beat_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
@@ -260,6 +261,9 @@ api.get('/games/:slug', async (c) => {
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // Until when this buyer can still refund the game themselves (null once the window has passed or it was refunded before).
+    refund_until: refundable?.until ?? null,
+    refund_play_left: refundable ? Math.max(0, s.refund_max_play_minutes * 60 - refundable.played_seconds) : null,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
@@ -365,7 +369,7 @@ api.get('/media/*', async (c) => {
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------
-async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string) {
+async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false) {
   const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
   const session = await stripe<{ id: string; url: string }>(c.env, 'POST', '/checkout/sessions', {
     // HearthCade is the seller of record and pays creators through Connect, which Stripe's Managed Payments (Stripe as
@@ -374,7 +378,13 @@ async function checkout(c: Ctx, u: User, name: string, amount: number, metadata:
     mode: 'payment', integration_identifier: 'hearthcade_checkout_kqzvmrtd', client_reference_id: u.id, customer_email: u.email, metadata, payment_intent_data: { metadata },
     line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name, description: `Sold by ${OPERATOR.name} on ${brand}` } } } },
     // The seller of record, next to the Pay button, with the terms the purchase falls under.
-    custom_text: { submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase. Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` } },
+    custom_text: {
+      submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase. Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` },
+      // A game is digital content delivered at once. EU and UK law gives buyers 14 days to cancel unless they ask for it
+      // right away and accept losing that right, so the buyer ticks this before paying; Stripe records the consent.
+      ...(digitalGoods ? { terms_of_service_acceptance: { message: `I agree to the [Terms](${origin}/legal/terms) and want access to this game right away. I understand that I then lose my right to cancel within 14 days; ${brand}'s own [refund policy](${origin}/legal/refunds) still applies.` } } : {}),
+    },
+    ...(digitalGoods ? { consent_collection: { terms_of_service: 'required' } } : {}),
     success_url: `${origin}${back}${back.includes('?') ? '&' : '?'}paid={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}${back}`,
   });
   return c.json({ url: session.url });
@@ -393,7 +403,23 @@ api.post('/games/:slug/buy', async (c) => {
   if (p.price_cents <= 0) throw bad('This game is free.');
   if (u.id === p.owner_id) throw bad('This is your own game.');
   if (await owns(c.env, u.id, p.id)) throw new AppError(409, 'You already own this game.', 'already');
-  return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`);
+  return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`, true);
+});
+
+// A buyer refunds a game themselves within the refund window (refund_window_hours after paying), once per game. The money
+// goes back through Stripe at once, access goes, and the creator's credit (still on hold, see holdMs) is taken back.
+api.post('/games/:slug/refund', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env);
+  await rateLimit(c.env, 'refund:' + u.id, 5, 3600);
+  const p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  const x = await refundablePurchase(c.env, s, u.id, p.id);
+  if (!x) throw new AppError(409, s.refund_window_hours > 0 ? `A game can be refunded within ${s.refund_window_hours} hours of buying it if you have played it for less than ${s.refund_max_play_minutes} minutes, once per game.` : 'Refunds are not available.', 'not_refundable');
+  // Stripe first, keyed on the purchase: a double press or a retry refunds once. The charge.refunded webhook arrives
+  // later and finds the purchase already refunded.
+  await stripe(c.env, 'POST', '/refunds', { payment_intent: x.payment_intent, reason: 'requested_by_customer', metadata: { purchase: x.id, by: 'buyer' } }, 'refund:' + x.id);
+  await refundPurchase(c.env, { id: x.id });
+  return c.json({ ok: true });
 });
 
 export async function grantCreator(env: Env, userId: string, provider: string, ref: string, amount: number) {

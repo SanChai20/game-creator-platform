@@ -5,7 +5,8 @@ HearthCade is a marketplace on Stripe Connect with **separate charges and transf
 1. A player pays HearthCade through Stripe Checkout (`POST /api/games/:slug/buy`). HearthCade (Horylo LLC) is the seller
    of record; the card statement and the Checkout page say so.
 2. The signed webhook records the sale: the platform keeps its cut and credits the rest to the creator's ledger, where it
-   waits out the hold period (`earnings_hold_days`, default 7) so refunds can be taken back first.
+   waits out the hold period (`earnings_hold_days`, default 3, never shorter than the refund window) so refunds can be
+   taken back first.
 3. The creator onboards a payout account: an Accounts v2 connected account with the `recipient` configuration
    (`stripe_balance.stripe_transfers` capability), the Express Dashboard, and HearthCade as fees and losses collector,
    through Stripe-hosted onboarding. Once a
@@ -14,6 +15,19 @@ HearthCade is a marketplace on Stripe Connect with **separate charges and transf
    creator's bank on that account's payout schedule. Creators can also press Withdraw to be paid sooner.
 
 The creator license fee (`POST /api/billing/creator-fee`) is a plain Checkout payment to the platform.
+
+**Refunds.** A buyer refunds a game themselves from its page (`POST /api/games/:slug/refund`) when it was bought less
+than `refund_window_hours` ago (default 24) and played less than `refund_max_play_minutes` (default 30, free trial
+included, counted from the play sessions), once per game. After that a purchase is final; an admin can still refund
+from the console where the law requires it. Game checkouts collect a required consent checkbox (Checkout's
+`consent_collection.terms_of_service`) in which the buyer asks for immediate access and gives up the EU/UK 14-day right
+to cancel. If live mode refuses it, set the terms of service URL (`https://hearthcade.com/legal/terms`) under
+Settings → Business → Public details.
+
+**Payout emails.** When a Transfer to a creator succeeds, the creator gets an email through Cloudflare Email Service (the
+`EMAIL` send_email binding in `wrangler.jsonc`, `src/mail.ts`). Onboard the domain once under Compute → Email Service →
+Email Sending in the Cloudflare dashboard; sending to any address needs the Workers Paid plan. Until then, payouts work
+and the email is skipped.
 
 The pattern fits because the platform decides when creator money moves (after the hold period, pooled across many small
 sales). Destination charges would move every sale to the creator at once, with no hold for refunds.
@@ -89,6 +103,7 @@ The admin console's health panel shows whether each one is set (never its value)
 | Event | Effect |
 | --- | --- |
 | Checkout paid (`checkout.session.completed` with `payment_status: paid`, or `async_payment_succeeded`) | Purchase recorded, creator credited after the hold. Also applied when the buyer lands back on the site, so access does not wait for the webhook; both paths are idempotent. A second payment for a game already owned is refunded at once. |
+| Buyer presses Refund (within the window and play limit) | Stripe refunds at once; access revoked; the creator's credit (still on hold) is taken back. |
 | Full refund | Access revoked; the creator's remaining credit for that sale is taken back. A refunded license fee revokes the license. |
 | Partial refund (from the Dashboard) | The creator gives back the same share of the credit; the buyer keeps the game. |
 | Dispute opened (including an inquiry) | Access revoked; the credit is held back. A disputed license fee suspends the license. |
