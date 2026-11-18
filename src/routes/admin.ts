@@ -7,6 +7,7 @@ import { getProject, logEvent } from '../projects';
 import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
 import { undeployGame } from '../deploy';
+import { enqueue } from '../pipeline';
 import { hostId, hostingProblems } from '../hosting';
 import { decideRequest, setGameStorage, MB } from '../storage';
 import { addDays, dayOf, now, rid } from '../util';
@@ -125,6 +126,33 @@ admin.post('/storage-requests/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// Versions the verification browser could not run (WebGPU, or no browser): a person checks them before they go live.
+admin.get('/reviews', async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT v.project_id, v.n, v.note, v.review, v.review_note, v.reviewed_at, v.created_at, v.screenshot_key, v.report, p.title, p.slug, p.status AS game_status,
+       u.name AS author, u.email AS author_email
+     FROM versions v JOIN projects p ON p.id = v.project_id JOIN users u ON u.id = p.owner_id
+     WHERE v.review = 'pending' OR v.reviewed_at > ? ORDER BY (v.review = 'pending') DESC, v.created_at DESC LIMIT 100`).bind(now() - 30 * 86400000).all<any>();
+  const origin = c.get('origin');
+  return c.json({ reviews: rows.results.map(({ report, screenshot_key, ...r }) => {
+    const rep = JSON.parse(report || '{}');
+    return { ...r, screenshot: screenshot_key ? `${origin}/api/media/${screenshot_key}` : null, why: rep.gpuLimited ? 'webgpu' : rep.browser === 'unavailable' ? 'no_browser' : 'other', summary: rep.summary || '' };
+  }) });
+});
+
+admin.post('/reviews/:pid/:n', async (c) => {
+  const me = requireAdmin(c as any), b = await c.req.json<{ action?: string; note?: string }>().catch(() => ({} as any));
+  if (b.action !== 'approve' && b.action !== 'deny') throw bad('action must be "approve" or "deny".');
+  const pid = c.req.param('pid'), n = Number(c.req.param('n')), note = String(b.note || '').slice(0, 500) || null;
+  const r = await c.env.DB.prepare("UPDATE versions SET review = ?, review_note = ?, reviewed_at = ?, reviewed_by = ? WHERE project_id = ? AND n = ? AND review = 'pending'")
+    .bind(b.action === 'approve' ? 'approved' : 'denied', note, now(), me.id, pid, n).run();
+  if (!r.meta.changes) throw notFound('No pending review for that version.');
+  await logEvent(c.env, pid, b.action === 'approve' ? 'review_approved' : 'review_denied', note || '', n, 'admin:' + me.id);
+  // approved: it goes live now, as the creator asked when they called publish
+  if (b.action === 'approve') await enqueue(c.env, { kind: 'publish', pid, n, origin: c.get('origin'), actor: 'admin:' + me.id });
+  return c.json({ ok: true });
+});
+
 admin.get('/money', async (c) => {
   const db = c.env.DB;
   const [purchases, payments, withdrawals] = await Promise.all([
@@ -140,9 +168,11 @@ admin.post('/withdrawals/:id', async (c) => {
   const w = await c.env.DB.prepare('SELECT * FROM withdrawals WHERE id = ?').bind(c.req.param('id')).first<{ id: string; user_id: string; amount_cents: number; status: string }>();
   if (!w) throw notFound();
   if (w.status !== 'pending') throw bad('Only a pending withdrawal can be settled.');
-  if (b.action === 'paid') await c.env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ? WHERE id = ?").bind(String(b.note || 'manual').slice(0, 120), now(), w.id).run();
-  else if (b.action === 'reject') await reverseWithdrawal(c.env, w.id, w.user_id, w.amount_cents, 'rejected', String(b.note || 'Rejected by admin'));
+  let done: boolean;
+  if (b.action === 'paid') done = !!(await c.env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ? WHERE id = ? AND status = 'pending'").bind(String(b.note || 'manual').slice(0, 120), now(), w.id).run()).meta.changes;
+  else if (b.action === 'reject') done = await reverseWithdrawal(c.env, w.id, w.user_id, w.amount_cents, 'rejected', String(b.note || 'Rejected by admin'));
   else throw bad('action must be "paid" or "reject".');
+  if (!done) throw bad('This withdrawal was settled meanwhile. Reload to see how.');
   return c.json({ ok: true });
 });
 

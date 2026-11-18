@@ -10,9 +10,20 @@
 //   - Game-wide shared data (user_id '') is readable by players and writable only by the game's server code or its creator.
 import { verifyPlayToken } from './runtime/game-worker.js';
 
-export const MAX_VALUE = 256 * 1024;
+export const MAX_VALUE = 256 * 1024;          // bytes (UTF-8) per value
 export const MAX_SAVE_KEYS = 64;
 export const MAX_STATS = 64;
+// All of one player's saves in one game, together. Guests get less: anyone can become a new guest at no cost, so a guest's
+// quota is what one visitor can make the platform store per game they open (and play starts are rate-limited per address).
+export const MAX_PLAYER_BYTES = 2 * 1024 * 1024;
+export const MAX_GUEST_BYTES = 512 * 1024;
+// What game server code may keep in one game and environment (shared data and per-player data it writes for players).
+export const MAX_SERVER_KEYS = 10000;
+export const MAX_SERVER_BYTES = 50 * 1024 * 1024;
+const utf8 = new TextEncoder();
+export const byteLength = (s) => utf8.encode(String(s)).byteLength;
+const isGuest = (id) => String(id || '').startsWith('guest_');
+export const playerQuota = (owner) => (isGuest(owner) ? MAX_GUEST_BYTES : MAX_PLAYER_BYTES);
 
 export class DataError extends Error {
   constructor(status, message, code) { super(message); this.status = status; this.code = code; }
@@ -40,7 +51,7 @@ export async function authToken(token, keyFor) {
 const parse = (v) => { try { return JSON.parse(v); } catch { return null; } };
 const encode = (value) => {
   const v = JSON.stringify(value ?? null);
-  if (v.length > MAX_VALUE) throw bad('Value too large (256 KB max per key).');
+  if (byteLength(v) > MAX_VALUE) throw bad('Value too large (256 KB max per key, counted as UTF-8 bytes of its JSON).');
   return v;
 };
 
@@ -50,6 +61,18 @@ async function getSave(db, scope, owner, key) {
 }
 async function putSave(db, scope, owner, key, v, t) {
   await db.prepare('INSERT INTO saves (project_id, user_id, k, v, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at').bind(scope, owner, key, v, t).run();
+}
+/**
+ * Writes one value only if the owner stays within maxKeys keys and maxBytes bytes in this scope, in ONE statement, so
+ * parallel writes cannot each pass a separate check. Returns true when written.
+ */
+async function putSaveWithin(db, scope, owner, key, v, t, maxKeys, maxBytes) {
+  const r = await db.prepare(`INSERT INTO saves (project_id, user_id, k, v, updated_at)
+      SELECT ?1, ?2, ?3, ?4, ?5
+      WHERE (SELECT COUNT(*) FROM saves WHERE project_id = ?1 AND user_id = ?2 AND k != ?3) < ?6
+        AND (SELECT COALESCE(SUM(LENGTH(CAST(v AS BLOB))), 0) FROM saves WHERE project_id = ?1 AND user_id = ?2 AND k != ?3) + LENGTH(CAST(?4 AS BLOB)) <= ?7
+      ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at`).bind(scope, owner, key, v, t, maxKeys, maxBytes).run();
+  return (r?.meta?.changes || 0) > 0;
 }
 
 /** GCP.save and GCP.shared.get, called from the game page with the player's token. */
@@ -63,13 +86,12 @@ export async function saveOp(db, tok, b, t = Date.now()) {
   if (b.op === 'get') return { value: await getSave(db, scope, owner, b.key) };
   if (b.shared) throw new DataError(403, 'Shared data is written by game server code only.', 'forbidden');
   if (b.op === 'set') {
-    const v = encode(b.value);
-    const exists = await db.prepare('SELECT 1 AS x FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).first();
-    if (!exists) {
-      const n = await db.prepare('SELECT COUNT(*) AS n FROM saves WHERE project_id = ? AND user_id = ?').bind(scope, owner).first();
+    const v = encode(b.value), quota = playerQuota(owner);
+    if (!(await putSaveWithin(db, scope, owner, b.key, v, t, MAX_SAVE_KEYS, quota))) {
+      const n = await db.prepare('SELECT COUNT(*) AS n FROM saves WHERE project_id = ? AND user_id = ? AND k != ?').bind(scope, owner, b.key).first();
       if ((n?.n || 0) >= MAX_SAVE_KEYS) throw bad(`Too many save keys (${MAX_SAVE_KEYS} max per player).`);
+      throw bad(`Saves full: a ${isGuest(owner) ? 'guest' : 'player'} may keep ${Math.round(quota / 1024)} KB in one game, all keys together. Delete keys or keep less.`);
     }
-    await putSave(db, scope, owner, b.key, v, t);
     return { ok: true };
   }
   if (b.op === 'delete') { await db.prepare('DELETE FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).run(); return { ok: true }; }
@@ -92,13 +114,12 @@ export async function statOp(db, tok, b, t = Date.now()) {
   if (!merge) throw bad('op must be add, set, max, min, get or all.');
   const n = b.op === 'add' && b.value === undefined ? 1 : Number(b.value);
   if (!Number.isFinite(n) || Math.abs(n) > 1e15) throw bad('value must be a finite number.');
-  const exists = await db.prepare('SELECT 1 AS x FROM player_stats WHERE project_id = ? AND user_id = ? AND name = ?').bind(scope, owner, b.name).first();
-  if (!exists) {
-    const c = await db.prepare('SELECT COUNT(*) AS n FROM player_stats WHERE project_id = ? AND user_id = ?').bind(scope, owner).first();
-    if ((c?.n || 0) >= MAX_STATS) throw bad(`Too many stats (${MAX_STATS} max per player).`);
-  }
-  const r = await db.prepare(`INSERT INTO player_stats (project_id, user_id, name, value, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, name) DO UPDATE SET value = ${merge}, updated_at = excluded.updated_at RETURNING value`).bind(scope, owner, b.name, n, t).first();
-  return { ok: true, value: r ? r.value : n };
+  // One statement: a new name is only added while the player has fewer than MAX_STATS, so parallel calls cannot overshoot.
+  const r = await db.prepare(`INSERT INTO player_stats (project_id, user_id, name, value, updated_at)
+      SELECT ?1, ?2, ?3, ?4, ?5 WHERE (SELECT COUNT(*) FROM player_stats WHERE project_id = ?1 AND user_id = ?2 AND name != ?3) < ?6
+      ON CONFLICT(project_id, user_id, name) DO UPDATE SET value = ${merge}, updated_at = excluded.updated_at RETURNING value`).bind(scope, owner, b.name, n, t, MAX_STATS).first();
+  if (!r) throw bad(`Too many stats (${MAX_STATS} max per player).`);
+  return { ok: true, value: r.value };
 }
 
 /** The statement /beat adds so every session updates the player's record for this game. Verifier sessions keep none. */
@@ -146,10 +167,30 @@ export async function serverStoreOp(db, game, envName, b, t = Date.now()) {
   }
   if (!keyOk(b.key)) throw bad('key must be a string of 1–120 characters.');
   if (b.op === 'get') return { value: await getSave(db, scope, owner, b.key) };
-  if (b.op === 'set') { await putSave(db, scope, owner, b.key, encode(b.value), t); return { ok: true }; }
+  if (b.op === 'set') {
+    // Server code has its own, larger allowance per game and environment (all owners together), checked in one statement.
+    const v = encode(b.value);
+    const r = await db.prepare(`INSERT INTO saves (project_id, user_id, k, v, updated_at)
+        SELECT ?1, ?2, ?3, ?4, ?5
+        WHERE (SELECT COUNT(*) FROM saves WHERE project_id = ?1) < ?6
+          AND (SELECT COALESCE(SUM(LENGTH(CAST(v AS BLOB))), 0) FROM saves WHERE project_id = ?1) + LENGTH(CAST(?4 AS BLOB)) <= ?7
+        ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at`).bind(scope, owner, b.key, v, t, MAX_SERVER_KEYS, MAX_SERVER_BYTES).run();
+    if (!(r?.meta?.changes)) {
+      // an existing key may still be overwritten when the new value is not larger
+      const old = await db.prepare('SELECT LENGTH(CAST(v AS BLOB)) AS b FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).first();
+      if (old && byteLength(v) <= old.b) { await putSave(db, scope, owner, b.key, v, t); return { ok: true }; }
+      throw bad(`Game data full: this game may keep ${MAX_SERVER_KEYS} keys and ${MAX_SERVER_BYTES / 1024 / 1024} MB per environment. Delete keys you no longer need.`);
+    }
+    return { ok: true };
+  }
   if (b.op === 'delete') { await db.prepare('DELETE FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).run(); return { ok: true }; }
   throw bad('op must be get, set, delete or list.');
 }
+
+/** Daily cleanup: progress of guests who have not played for `before` (ms epoch) and never signed in to keep it. */
+export const idleGuestCleanupStmts = (db, before) => [
+  ...['saves', 'player_stats', 'scores', 'player_games'].map((tb) => db.prepare(`DELETE FROM ${tb} WHERE user_id LIKE 'guest\\_%' ESCAPE '\\' AND user_id IN (SELECT user_id FROM player_games WHERE user_id LIKE 'guest\\_%' ESCAPE '\\' GROUP BY user_id HAVING MAX(last_at) < ?)`).bind(before)),
+];
 
 /** Daily cleanup: verifier sessions' throwaway data. */
 export const verifierCleanupStmts = (db, before) => [

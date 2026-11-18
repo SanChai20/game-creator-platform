@@ -1,4 +1,4 @@
-# Game Creator
+# HearthCade
 
 **Frontier craft, reusable by every agent.**
 
@@ -47,11 +47,15 @@ Games that require WebGPU cannot run in the verification browser. Those versions
 
 ## The contract for games
 
-Three rules, and nothing else is prescribed:
+Five rules (the same list `get_started` gives agents), and nothing else is prescribed:
 
 1. A game is a web page: `index.html` at the bundle root plus whatever it loads by relative path. No build step. Web games only.
 2. Call `GCP.ready()` once, after the first playable frame is drawn.
-3. Keep rendering, throw no uncaught errors, survive input.
+3. Keep rendering, throw no uncaught errors, survive input, and stay on the page (no redirects, downloads or popups).
+4. Declare what the game shows (`game_metadata` content). Mature content is allowed when declared; adults-only games are blurred and labelled 18+.
+5. Fit the game's storage (per-game total, per-file and file-count limits).
+
+A version the verification browser cannot run (it needs WebGPU, or no browser was available) can still qualify through the creator's own clean preview session, but it then waits for an admin's approval in the Reviews queue before it goes live.
 
 Genre, art direction, engine and rendering technique are the creator's, and the platform neither prescribes nor scores them.
 

@@ -3,7 +3,7 @@
 import { Hono } from 'hono';
 import { AppError, bad, type Env } from '../env';
 import { isGuestId } from '../auth';
-import { playKey } from '../deploy';
+import { playKey, runtimeHash, storeKey } from '../deploy';
 import { getSettings } from '../settings';
 import { owns } from '../earnings';
 import { TRIAL_MIN_CHARGE_S, trialCharge } from '../trials';
@@ -63,6 +63,8 @@ rt.use('*', async (c, next) => {
   if (c.res.status !== 101) c.res.headers.set('access-control-allow-origin', '*');   // a WebSocket upgrade response is immutable
 });
 
+const MAX_ERROR_KINDS = 200;
+const MAX_BOARDS = 50, MAX_SCORE = 1e15;
 const body = async (c: { req: { text(): Promise<string> } }) => { try { return JSON.parse(await c.req.text()) as Record<string, any>; } catch { throw bad('Body must be JSON.'); } };
 
 rt.post('/beat', async (c) => {
@@ -70,25 +72,31 @@ rt.post('/beat', async (c) => {
   const play = await env.DB.prepare('SELECT * FROM plays WHERE id = ?').bind(tok.s).first<{ id: string; project_id: string; version: number; env: string; user_id: string; kind: string; last_beat_at: number; seconds: number; counted: number; ready: number; errors: number; trial: number; trial_seconds: number; started_at: number }>();
   if (!play || play.project_id !== tok.g) throw new AppError(401, 'Unknown play session.', 'bad_token');
   const delta = b.active ? Math.round(clamp((t - play.last_beat_at) / 1000, 0, 20)) : 0;
+  // a session starts once: only the first heartbeat of a play (before it was marked ready) counts it, whatever b.first says
+  const first = !!b.first && !play.ready;
   const errs: string[] = Array.isArray(b.errors) ? b.errors.slice(0, 5).map((e: unknown) => String(e).slice(0, 500)) : [];
   const total = play.seconds + delta, nerr = play.errors + errs.length + (b.fatal ? 1 : 0);
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare('UPDATE plays SET last_beat_at = ?, seconds = ?, frames = ?, ready = 1, errors = ?, ua = COALESCE(ua, ?) WHERE id = ?').bind(t, total, Number(b.frames) || 0, nerr, (c.req.header('user-agent') || '').slice(0, 200), play.id),
   ];
   if (play.kind !== 'verify') for (const m of errs) {
-    stmts.push(env.DB.prepare('INSERT INTO client_errors (project_id, version, env, message, first_at, last_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, version, env, message) DO UPDATE SET count = count + 1, last_at = excluded.last_at').bind(play.project_id, play.version, play.env, m, t, t));
+    // at most MAX_ERROR_KINDS different messages per version: a game (or a script) cannot fill the table with unique strings
+    stmts.push(env.DB.prepare(`INSERT INTO client_errors (project_id, version, env, message, first_at, last_at) SELECT ?1, ?2, ?3, ?4, ?5, ?5
+      WHERE (SELECT COUNT(*) FROM client_errors WHERE project_id = ?1 AND version = ?2 AND env = ?3) < ?6
+         OR EXISTS (SELECT 1 FROM client_errors WHERE project_id = ?1 AND version = ?2 AND env = ?3 AND message = ?4)
+      ON CONFLICT(project_id, version, env, message) DO UPDATE SET count = count + 1, last_at = excluded.last_at`).bind(play.project_id, play.version, play.env, m, t, MAX_ERROR_KINDS));
   }
   if (play.kind === 'player' && play.env === 'live') {
     const day = dayOf(t);
     const becameCounted = !play.counted && total >= s.play_min_seconds;
     stmts.push(
       env.DB.prepare('INSERT INTO game_daily (project_id, day, sessions, plays, seconds) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, day) DO UPDATE SET sessions = sessions + excluded.sessions, plays = plays + excluded.plays, seconds = seconds + excluded.seconds')
-        .bind(play.project_id, day, b.first ? 1 : 0, becameCounted ? 1 : 0, delta),
+        .bind(play.project_id, day, first ? 1 : 0, becameCounted ? 1 : 0, delta),
       env.DB.prepare('UPDATE projects SET seconds = seconds + ?, plays = plays + ? WHERE id = ?').bind(delta, becameCounted ? 1 : 0, play.project_id),
     );
     if (becameCounted) stmts.push(env.DB.prepare('UPDATE plays SET counted = 1 WHERE id = ?').bind(play.id));
   }
-  const rec = playRecordStmt(env.DB, play, delta, !!b.first, t);   // the player's own record for this game (none for the verifier)
+  const rec = playRecordStmt(env.DB, play, delta, first, t);   // the player's own record for this game (none for the verifier)
   if (rec) stmts.push(rec);
   // A creator playing their own preview cleanly, in a real browser, qualifies the version when the automated browser cannot.
   if (play.kind === 'owner' && play.env === 'preview' && total >= s.verify_human_min_seconds && nerr === 0) {
@@ -157,10 +165,21 @@ rt.post('/record', async (c) => {
 
 rt.post('/score', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
-  const board = String(b.board || 'default').slice(0, 40), asc = b.order === 'asc', scope = scopeOf(tok.g, tok.e), me = playerOf(tok);
+  const board = String(b.board || 'default').slice(0, 40), scope = scopeOf(tok.g, tok.e), me = playerOf(tok), db = c.env.DB;
+  // A board's order is fixed by the first submit to it (boards table), so a later call cannot flip lowest-wins and
+  // highest-wins; a game has at most MAX_BOARDS boards per environment.
+  const fixed = await db.prepare('SELECT asc FROM boards WHERE project_id = ? AND board = ?').bind(scope, board).first<{ asc: number }>();
+  let asc = fixed ? !!fixed.asc : b.order === 'asc';
   if (b.op === 'submit') {
     const score = Number(b.score);
-    if (!Number.isFinite(score)) throw bad('score must be a number.');
+    if (!Number.isFinite(score) || Math.abs(score) > MAX_SCORE) throw bad(`score must be a number between -${MAX_SCORE} and ${MAX_SCORE}.`);
+    if (!fixed && tok.k !== 'verify') {
+      await db.prepare('INSERT INTO boards (project_id, board, asc, created_at) SELECT ?1, ?2, ?3, ?4 WHERE (SELECT COUNT(*) FROM boards WHERE project_id = ?1) < ?5 ON CONFLICT DO NOTHING')
+        .bind(scope, board, asc ? 1 : 0, now(), MAX_BOARDS).run();
+      const row = await db.prepare('SELECT asc FROM boards WHERE project_id = ? AND board = ?').bind(scope, board).first<{ asc: number }>();
+      if (!row) throw bad(`This game already has ${MAX_BOARDS} leaderboards. Reuse one of them.`);
+      asc = !!row.asc;
+    }
     if (tok.k !== 'verify') await c.env.DB.prepare(`INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, board, user_id) DO UPDATE SET score = ${asc ? 'MIN' : 'MAX'}(score, excluded.score), name = excluded.name, updated_at = excluded.updated_at`).bind(scope, board, me, tok.n, score, now()).run();
     const mine = await c.env.DB.prepare('SELECT score FROM scores WHERE project_id = ? AND board = ? AND user_id = ?').bind(scope, board, me).first<{ score: number }>();
     return c.json({ ok: true, best: mine?.score ?? score });
@@ -171,8 +190,15 @@ rt.post('/score', async (c) => {
 
 // Game server code (running in the game's own Worker) reads and writes game data with the game's key.
 rt.post('/server-store', async (c) => {
-  const g = c.req.header('x-gcp-game') || '', e = c.req.header('x-gcp-env') || 'live';
-  if (!/^[a-z0-9]{6,16}$/.test(g) || !safeEqual(c.req.header('x-gcp-key') || '', await playKey(c.env, g))) throw new AppError(401, 'Bad game key.');
+  const g = c.req.header('x-gcp-game') || '', e = c.req.header('x-gcp-env') || 'live', key = c.req.header('x-gcp-key') || '';
+  if (!/^[a-z0-9]{6,16}$/.test(g) || (e !== 'live' && e !== 'preview')) throw new AppError(401, 'Bad game key.');
+  // The store key names one game AND environment, so a preview's server code cannot reach live data.
+  if (!safeEqual(key, await storeKey(c.env, g, e))) {
+    // Game Workers deployed before store keys existed still send the play key until the runtime rollout redeploys them.
+    const row = await c.env.DB.prepare('SELECT runtime FROM game_workers WHERE project_id = ? AND env = ?').bind(g, e).first<{ runtime: string | null }>().catch(() => null);
+    const legacy = !!row && !String(row.runtime || '').startsWith(await runtimeHash());
+    if (!legacy || !safeEqual(key, await playKey(c.env, g))) throw new AppError(401, 'Bad game key.');
+  }
   const b = await body(c);
   return c.json(await guard(() => serverStoreOp(c.env.DB, g, e, b, now())));
 });
@@ -183,6 +209,7 @@ rt.get('/room', async (c) => {
   const want = Number(c.req.query('max')) || s.room_max_peers;
   const id = c.env.ROOMS.idFromName(`${tok.g}:${tok.e}:${code}`);
   const u = new URL(c.req.url);
-  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${Math.min(want, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}`;
+  // The room keeps who this socket belongs to (session, kind, token end, trial), and checks it again while it is open.
+  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${clamp(Math.round(want), 2, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}&s=${encodeURIComponent(tok.s)}&k=${tok.k}&x=${tok.x}${tok.tr ? '&tr=1' : ''}`;
   return c.env.ROOMS.get(id).fetch(new Request(u, c.req.raw));
 });

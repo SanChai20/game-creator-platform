@@ -78,7 +78,24 @@ test('older sessions without a recorded sign-in and the verifier keep working un
   const db = d1();
   play(db, 'ps_old', 'u_alice');
   assert.equal(await bindingProblem(db, tok('u_alice', 'ps_old'), T), null);
+  play(db, 'ps_v', 'u_owner', { kind: 'verify' });
   assert.equal(await bindingProblem(db, tok('verify:ps_v', 'ps_v', 'verify'), T), null);
+});
+
+test('a token cannot claim to be the verifier, or name another game\'s session, to skip the binding', async () => {
+  const db = d1();
+  login(db, 'login_a', 'u_alice'); play(db, 'ps_1', 'u_alice', { loginId: 'login_a' });
+  db.sql.prepare("DELETE FROM sessions WHERE id = 'login_a'").run();
+  // a token signed with a leaked play key that says "verify" for a player's session, or for a session that does not exist
+  assert.equal((await bindingProblem(db, tok('u_alice', 'ps_1', 'verify'), T))?.code, 'session_ended');
+  assert.equal((await bindingProblem(db, tok('verify:ps_1', 'ps_1', 'verify'), T))?.code, 'session_ended');
+  assert.equal((await bindingProblem(db, tok('verify:nope', 'nope', 'verify'), T))?.code, 'session_ended');
+  // a verifier session used with a player token
+  play(db, 'ps_v', 'u_owner', { kind: 'verify' });
+  assert.equal((await bindingProblem(db, tok('u_owner', 'ps_v'), T))?.code, 'session_ended');
+  // another game's session
+  play(db, 'ps_b', 'u_bob', { game: 'gameb2' });
+  assert.equal((await bindingProblem(db, tok('u_bob', 'ps_b'), T))?.code, 'session_ended');
 });
 
 // ---- guests ---------------------------------------------------------------------------------------
@@ -173,9 +190,10 @@ const KEY = 'k', env = { PREFIX: 'v/', GAME_ID: 'gamea1', SLUG: 'alpha', TITLE: 
 const now = () => Math.floor(Date.now() / 1000);
 const sign = (u, s, x = now() + 3600) => signPlayToken({ g: 'gamea1', e: 'live', u, n: u, k: 'player', s, x }, KEY);
 async function withPlatform(answer, fn) {
-  const real = globalThis.fetch, calls = [];
-  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), body: init?.body }); return answer(); };
-  try { return await fn(calls); } finally { globalThis.fetch = real; }
+  // the runtime calls the platform with the fetch it captured at start-up, not globalThis.fetch; tests hand theirs in through env
+  const calls = [];
+  env.__testFetch = async (url, init) => { calls.push({ url: String(url), body: init?.body }); return answer(); };
+  try { return await fn(calls); } finally { delete env.__testFetch; }
 }
 
 test('a launch token from the address bar opens the game without asking the platform', async () => {

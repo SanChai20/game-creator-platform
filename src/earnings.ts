@@ -39,12 +39,14 @@ export async function refundPurchase(env: Env, where: { paymentIntent?: string; 
   const p = await env.DB.prepare(`SELECT * FROM purchases WHERE ${where.id ? 'id = ?' : 'payment_intent = ?'} AND status = 'paid'`).bind(where.id || where.paymentIntent).first<{ id: string; owner_id: string; project_id: string; net_cents: number }>();
   if (!p) return false;
   const t = now();
-  await env.DB.batch([
-    env.DB.prepare("UPDATE purchases SET status = 'refunded', refunded_at = ? WHERE id = ?").bind(t, p.id),
-    env.DB.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) VALUES (?, 'refund', ?, ?, 'Refunded sale', ?, ?)").bind(p.owner_id, -p.net_cents, p.id, t, t),
-    env.DB.prepare('UPDATE projects SET sales = MAX(0, sales - 1) WHERE id = ?').bind(p.project_id),
+  // One transaction, guarded on the purchase still being paid: a webhook and an admin refunding at once take the
+  // creator's credit back once.
+  const [upd] = await env.DB.batch([
+    env.DB.prepare("UPDATE purchases SET status = 'refunded', refunded_at = ? WHERE id = ? AND status = 'paid'").bind(t, p.id),
+    env.DB.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, 'refund', ?2, ?3, 'Refunded sale', ?4, ?4 WHERE EXISTS (SELECT 1 FROM purchases WHERE id = ?3 AND refunded_at = ?4) AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = 'refund')").bind(p.owner_id, -p.net_cents, p.id, t),
+    env.DB.prepare('UPDATE projects SET sales = MAX(0, sales - 1) WHERE id = ? AND EXISTS (SELECT 1 FROM purchases WHERE id = ? AND refunded_at = ?)').bind(p.project_id, p.id, t),
   ]);
-  return true;
+  return !!upd.meta.changes;
 }
 
 export async function owns(env: Env, userId: string, projectId: string): Promise<boolean> {

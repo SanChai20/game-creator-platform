@@ -50,6 +50,7 @@ export interface Version {
   project_id: string; n: number; note: string; manifest: string; file_count: number; bytes: number; files: string;
   status: 'queued' | 'deploying' | 'verifying' | 'verified' | 'failed'; stage: string; report: string | null;
   screenshot_key: string | null; human_ok: number; created_at: number; verified_at: number | null; published_at: number | null;
+  review?: 'pending' | 'approved' | 'denied' | null; review_note?: string | null; reviewed_at?: number | null; reviewed_by?: string | null;
 }
 
 /** Thrown anywhere in a request; turned into a JSON error (HTTP) or a tool error (MCP). */

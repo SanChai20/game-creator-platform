@@ -1,4 +1,4 @@
-/* Game Creator SDK. The platform injects this script at the top of every game document, before any
+/* HearthCade SDK. The platform injects this script at the top of every game document, before any
    game code runs, so `GCP` is always defined. Nothing here draws or decides how a game looks or plays.
 
    The contract (the only hard rules):

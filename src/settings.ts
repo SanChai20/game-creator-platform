@@ -1,10 +1,11 @@
-import type { Env } from './env';
+import { bad, type Env } from './env';
 import { now } from './util';
 
 // Every product parameter the admin can change. `public` ones are sent to the web app.
 export const SETTING_DEFS = {
-  brand_name: { v: 'Game Creator', type: 'text', group: 'Brand', label: 'Product name', public: true },
+  brand_name: { v: 'HearthCade', type: 'text', group: 'Brand', label: 'Product name', public: true },
   tagline: { v: 'Frontier craft, reusable by every agent.', type: 'text', group: 'Brand', label: 'Slogan', public: true },
+  support_email: { v: 'support@hearthcade.com', type: 'text', group: 'Brand', label: 'Support email address', public: true },
   signups_open: { v: true, type: 'bool', group: 'Access', label: 'Allow new sign-ups', public: true },
   require_login_to_play: { v: false, type: 'bool', group: 'Access', label: 'Require login to play', public: true },
 
@@ -89,14 +90,16 @@ export async function getSettings(env: Env, fresh = false): Promise<Settings> {
 export async function putSettings(env: Env, patch: Record<string, unknown>): Promise<Settings> {
   const stmts = [];
   for (const [k, v] of Object.entries(patch)) {
-    const def = (SETTING_DEFS as Record<string, { v: unknown; type: string; options?: readonly string[] }>)[k];
-    if (!def) continue;
+    const def = (SETTING_DEFS as Record<string, { v: unknown; type: string; options?: readonly string[]; label: string }>)[k];
+    if (!def) throw bad(`Unknown setting: ${k}.`);
+    // Every value is checked strictly and refused with the setting's name, never coerced: "false" is not true.
     let val: unknown = v;
-    if (def.type === 'bool') val = !!v;
-    else if (def.type === 'int' || def.type === 'cents' || def.type === 'bytes') { val = Math.round(Number(v)); if (!Number.isFinite(val as number) || (val as number) < 0) continue; }
-    else if (def.type === 'number') { val = Number(v); if (!Number.isFinite(val as number) || (val as number) < 0) continue; }
-    else if (def.type === 'select') { if (!def.options!.includes(String(v))) continue; val = String(v); }
-    else val = String(v).slice(0, 300);
+    const max = k.endsWith('_percent') ? 100 : def.type === 'bytes' ? 1e12 : 1e9;
+    if (def.type === 'bool') { if (v === true || v === 'true' || v === 1 || v === '1') val = true; else if (v === false || v === 'false' || v === 0 || v === '0') val = false; else throw bad(`${def.label}: must be on or off.`); }
+    else if (def.type === 'int' || def.type === 'cents' || def.type === 'bytes') { val = Math.round(Number(v)); if (v === '' || v === null || !Number.isFinite(val as number) || (val as number) < 0 || (val as number) > max) throw bad(`${def.label}: must be a whole number from 0 to ${max}.`); }
+    else if (def.type === 'number') { val = Number(v); if (v === '' || v === null || !Number.isFinite(val as number) || (val as number) < 0 || (val as number) > max) throw bad(`${def.label}: must be a number from 0 to ${max}.`); }
+    else if (def.type === 'select') { if (!def.options!.includes(String(v))) throw bad(`${def.label}: must be one of ${def.options!.join(', ')}.`); val = String(v); }
+    else val = String(v ?? '').slice(0, 300);
     stmts.push(env.DB.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at').bind(k, JSON.stringify(val), now()));
   }
   if (stmts.length) await env.DB.batch(stmts);
