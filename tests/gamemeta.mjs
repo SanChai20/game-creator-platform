@@ -172,3 +172,10 @@ test('a clean zip upload keeps the declared build metadata its gcp.json leaves o
   assert.equal(mergeManifest(workspace, new TextEncoder().encode('{ not json')), null);
   assert.equal(mergeManifest(new TextEncoder().encode('[]'), enc({})), null);
 });
+
+test('services are found through helpers that return the SDK', () => {
+  // const G = () => window.GCP; const g = G(); g.save.get(...)
+  for (const code of ['const sdkOf = () => window.GCP;\nasync function load() { const g = sdkOf(); if (g) await g.save.get("meta"); }', 'function api() { return window.GCP || null; }\napi()?.save.set("a", 1);', 'const H = () => (window.GCP);\nconst h = H(); h.leaderboard.submit("s", 1); h.playerStats.add("runs");'])
+    assert.equal(buildMeta({}, { 'g.js': code }, ['g.js']).record.detected.progress.cloud_saves, true, code);
+  assert.equal(buildMeta({}, { 'g.js': 'const sdkOf = () => window.GCP.version; const g = sdkOf(); g.save.get(1);' }, ['g.js']).record.detected.progress.cloud_saves, false);
+});
