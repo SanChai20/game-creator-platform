@@ -4,13 +4,13 @@
 // Workers for Platforms dispatch namespace later) is decided by src/hosting.ts from the configuration; this file only
 // talks to "a host". See docs/workers-for-platforms.md.
 import { AppError, type Env, type Project, type Version } from './env';
-import { GAME_INTRINSICS_SOURCE, GAME_WORKER_SOURCE } from './generated/runtime-source';
+import { GAME_INTRINSICS_SOURCE, GAME_MATCH_CORE_SOURCE, GAME_WORKER_SOURCE } from './generated/runtime-source';
 import { getSettings, getState, setState } from './settings';
 import { hmacHex, now, parseJson, sha256 } from './util';
 import { getVersion, verKey } from './projects';
 import {
-  GAME_COMPAT_DATE, GAME_COMPAT_FLAGS, GAME_MAIN_MODULE, RETIRE_AFTER_MS, gameLimits, gameUrlFor, hostId, hostKind,
-  matchGameRequest, metadataLimits, parseHostId, scriptBindings, scriptMetadata, scriptName, scriptsPath, scriptTags, type GameEnv, type HostRef,
+  GAME_COMPAT_DATE, GAME_COMPAT_FLAGS, GAME_MAIN_MODULE, MATCH_MIGRATION_TAG, RETIRE_AFTER_MS, gameLimits, gameUrlFor, hostId, hostKind,
+  matchGameRequest, matchSetup, metadataLimits, parseHostId, scriptBindings, scriptMetadata, scriptName, scriptsPath, scriptTags, type GameEnv, type HostRef,
 } from './hosting';
 import { gameFetch } from './dispatch';
 
@@ -39,7 +39,7 @@ async function subdomain(env: Env): Promise<string> {
 }
 
 // ----- hosts -------------------------------------------------------------------------------------------------------
-interface Host extends HostRef { id: string; put(script: string, form: FormData): Promise<void>; remove(script: string): Promise<void>; settings(script: string): Promise<any | null> }
+interface Host extends HostRef { id: string; put(script: string, form: FormData): Promise<void>; remove(script: string): Promise<void>; settings(script: string): Promise<any | null>; migrationTag(script: string): Promise<string | null> }
 
 /** Standard Workers on per-script routes (<script>.<GAME_HOST>/*) instead of workers.dev, so the game addresses are
     already the ones the dispatch Worker will answer on after the move: players keep the same origin (and its storage). */
@@ -55,7 +55,7 @@ async function removeRoute(env: Env, routeHost: string, script: string): Promise
 
 function host(env: Env, id = hostId(env)): Host {
   const h = parseHostId(id);
-  if (h.kind === 'local') return { ...h, id, put: async () => {}, remove: async () => {}, settings: async () => null };
+  if (h.kind === 'local') return { ...h, id, put: async () => {}, remove: async () => {}, settings: async () => null, migrationTag: async () => null };
   const base = scriptsPath(h);
   return {
     ...h, id,
@@ -72,6 +72,13 @@ function host(env: Env, id = hostId(env)): Host {
     },
     async settings(script) {
       try { return await cf(env, 'GET', `${base}/${script}/settings`); } catch (err) { if (is404(err)) return null; throw err; }
+    },
+    /** The script's Durable Object migration tag (null for a new script or one without migrations), as wrangler reads it. */
+    async migrationTag(script) {
+      try {
+        if (h.kind === 'dispatch') return (await cf(env, 'GET', `${base}/${script}`))?.script?.migration_tag || null;
+        return (await cf(env, 'GET', `/workers/services/${script}`))?.default_environment?.script?.migration_tag || null;
+      } catch (err) { if (is404(err)) return null; throw err; }
     },
   };
 }
@@ -108,7 +115,7 @@ export async function gameBindings(env: Env, origin: string, p: Project, v: Vers
 let runtimeSum: string | null = null;
 /** Identifies the runtime this platform build deploys game Workers with: the source, compatibility date and flags. */
 export async function runtimeHash(): Promise<string> {
-  return (runtimeSum ??= (await sha256(JSON.stringify([GAME_WORKER_SOURCE, GAME_INTRINSICS_SOURCE, GAME_COMPAT_DATE, GAME_COMPAT_FLAGS]))).slice(0, 16));
+  return (runtimeSum ??= (await sha256(JSON.stringify([GAME_WORKER_SOURCE, GAME_INTRINSICS_SOURCE, GAME_MATCH_CORE_SOURCE, GAME_COMPAT_DATE, GAME_COMPAT_FLAGS]))).slice(0, 16));
 }
 /** What game_workers.runtime records: the runtime, plus the limits when they are baked into the script (standard
     Workers). Changing a limit in the admin settings then makes the rollout redeploy every game with it. */
@@ -123,22 +130,40 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
   const script = scriptName(p.id, e), kind = hostKind(env);
   if (kind === 'local') return urlIn(env, 'local', script, origin);
   const h = host(env);
-  const files = parseJson<{ path: string }[]>(v.files, []).filter((f) => f.path.startsWith('server/') && /\.m?js$/.test(f.path));
-  const form = new FormData();
-  form.set('metadata', new Blob([JSON.stringify(scriptMetadata(kind, {
-    bindings: scriptBindings(await gameBindings(env, origin, p, v, e), env.GAMES_BUCKET),
-    tags: scriptTags({ pid: p.id, owner: p.owner_id, env: e, server: files.length > 0 }),
-    limits: gameLimits(await getSettings(env)),
-  }))], { type: 'application/json' }));
-  const mod = (name: string, src: string | ArrayBuffer) => form.set(name, new File([src], name, { type: 'application/javascript+module' }));
-  mod(GAME_MAIN_MODULE, GAME_WORKER_SOURCE);
-  mod('gcp-intrinsics.js', GAME_INTRINSICS_SOURCE);
-  if (!files.some((f) => f.path === 'server/index.js')) mod('server/index.js', 'export default null;\n');
-  for (const f of files) {
-    const obj = await env.FILES.get(verKey(p.id, v.n, f.path));
-    if (obj) mod(f.path, await obj.arrayBuffer());
+  // server/ modules run only here; shared/ modules are also served to the page, so the client and server/match.js can
+  // use the same rules (movement, hit rules) for prediction
+  const files = parseJson<{ path: string }[]>(v.files, []).filter((f) => (f.path.startsWith('server/') || f.path.startsWith('shared/')) && /\.m?js$/.test(f.path));
+  const hasMatch = files.some((f) => f.path === 'server/match.js');
+  let tag: string | null = null;
+  try { tag = await h.migrationTag(script); }
+  catch (err) { if (hasMatch) console.error('reading the migration tag failed; trying with the migration', script, err); }
+  const build = async (setup: ReturnType<typeof matchSetup>) => {
+    const form = new FormData();
+    form.set('metadata', new Blob([JSON.stringify(scriptMetadata(kind, {
+      bindings: scriptBindings(await gameBindings(env, origin, p, v, e), env.GAMES_BUCKET, setup.binding),
+      tags: scriptTags({ pid: p.id, owner: p.owner_id, env: e, server: files.some((f) => f.path.startsWith('server/')) }),
+      limits: gameLimits(await getSettings(env)),
+      migrations: setup.migrations,
+    }))], { type: 'application/json' }));
+    const mod = (name: string, src: string | ArrayBuffer) => form.set(name, new File([src], name, { type: 'application/javascript+module' }));
+    mod(GAME_MAIN_MODULE, GAME_WORKER_SOURCE);
+    mod('gcp-intrinsics.js', GAME_INTRINSICS_SOURCE);
+    mod('match-core.js', GAME_MATCH_CORE_SOURCE);
+    if (!files.some((f) => f.path === 'server/index.js')) mod('server/index.js', 'export default null;\n');
+    if (!hasMatch) mod('server/match.js', 'export default null;\n');
+    for (const f of files) {
+      const obj = await env.FILES.get(verKey(p.id, v.n, f.path));
+      if (obj) mod(f.path, await obj.arrayBuffer());
+    }
+    return form;
+  };
+  const setup = matchSetup(tag, hasMatch);
+  try { await h.put(script, await build(setup)); }
+  catch (err) {
+    // the tag could not be read, or changed under us: a migration that is already applied is refused, so retry as applied
+    if (!setup.migrations || !(err instanceof AppError) || !/migration|tag/i.test(err.message)) throw err;
+    await h.put(script, await build(matchSetup(MATCH_MIGRATION_TAG, true)));
   }
-  await h.put(script, form);
   const url = await urlIn(env, h.id, script, origin);
 
   // Moved from another host (the Workers for Platforms migration): retire the old copy. If the address is the same

@@ -17,7 +17,7 @@ It is **not** a fit for ranked or high-intensity competitive real-time play (sho
 - there is no lag compensation (rewinding hitboxes to what the shooter saw);
 - WebSockets run over TCP, so a lost packet on Wi-Fi or mobile briefly holds back every later message.
 
-If the developer wants a competitive game, tell them this before you build, and build it so the host's decisions are easy to move to a server later (keep the rules in one module that takes inputs and returns state).
+For those, use **[server-run matches](matches.md)** (`server/match.js` with `GCP.match.find`): the platform runs your rules at a fixed tick near the players, with matchmaking, client prediction and lag-compensated hit checks. `get_started {topic: "matches"}` has the whole guide.
 
 ## Rooms
 

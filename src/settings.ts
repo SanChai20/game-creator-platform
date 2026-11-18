@@ -52,6 +52,8 @@ export const SETTING_DEFS = {
   projects_per_user: { v: 50, type: 'int', group: 'Limits', label: 'Projects per creator' },
   allow_server_code: { v: true, type: 'bool', group: 'Limits', label: 'Allow games to ship server code (server/index.js)' },
   room_max_peers: { v: 16, type: 'int', group: 'Limits', label: 'Players per multiplayer room' },
+  allow_matches: { v: true, type: 'bool', group: 'Limits', label: 'Allow server-run matches (server/match.js) and the matchmaker' },
+  match_max_players: { v: 16, type: 'int', group: 'Limits', label: 'Players per server-run match (2 to 64)' },
   room_msgs_per_second: { v: 60, type: 'int', group: 'Limits', label: 'Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)' },
 
   dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },

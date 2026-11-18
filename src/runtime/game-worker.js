@@ -1,15 +1,18 @@
 // Entry module of every game Worker. The platform uploads this file unchanged for each game and
 // binds: FILES (R2 bucket), PREFIX (where this version's files live), PLATFORM (platform origin),
-// GAME_ID, SLUG, TITLE, VERSION, ENV ("preview" | "live"), MANIFEST (JSON), PLAY_KEY (secret).
+// GAME_ID, SLUG, TITLE, VERSION, ENV ("preview" | "live"), MANIFEST (JSON), PLAY_KEY (secret), STORE_KEY (secret),
+// and MATCH (the GameMatch Durable Object namespace of this script).
 // It gates the game document behind a platform play token, injects the SDK, serves the bundle,
-// and forwards /api/* to the game's optional server module.
+// forwards /api/* to the game's optional server module, and runs server-run matches (server/match.js) in GameMatch.
 // The same script runs as a standard Worker or as a user Worker in a Workers for Platforms dispatch namespace (src/hosting.ts):
 // it reads nothing host-specific (no request.cf, no Cache API), and it is deployed with disallow_importable_env so the
 // game's server modules only ever see the narrow env handed to them below, never these bindings.
 // gcp-intrinsics.js must stay the FIRST import: modules are evaluated in import order, so it captures the built-ins
 // before the game's server modules (imported next) can replace them.
 import { I } from './gcp-intrinsics.js';
+import { MatchCore, normalizeDef } from './match-core.js';
 import userServer from './server/index.js';
+import userMatch from './server/match.js';
 
 const TYPES = {
   html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
@@ -161,6 +164,7 @@ export async function handle(request, env, ctx, base = '') {
     if (!ok || !cur || ok.u !== cur.u || ok.s !== cur.s) return Response.json({ ok: false }, { status: 400, headers: { 'cache-control': 'no-store' } });
     return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store', 'set-cookie': tokenCookie(next, base, url.protocol === 'https:', Math.max(60, Math.floor(ok.x - Date.now() / 1000))) } });
   }
+  if (path === '/__gcp/match') return matchRoute(request, env, url);
   if (path.startsWith('/api/')) {
     if (!userServer || typeof userServer.fetch !== 'function') return Response.json({ error: 'This game has no server code.' }, { status: 404 });
     const auth = await verifyPlayToken(request.headers.get('x-gcp-token') || token, env.PLAY_KEY, env.GAME_ID, env.ENV);
@@ -222,6 +226,134 @@ export async function handle(request, env, ctx, base = '') {
     return new Response(obj.body, { status: 206, headers });
   }
   return new Response(request.method === 'HEAD' ? null : obj.body, { headers });
+}
+
+// ----- server-run matches -------------------------------------------------------------------------------------------
+// The platform's matchmaker (src/matchmaker.ts) groups players and signs one ticket per player with a key derived from
+// this game's play key. A ticket names the match, the player, the roster and the region; it cannot be used as a play
+// token (different key) and a play token cannot be used as a ticket. Each match is one GameMatch Durable Object, named
+// by the match id and created in the players' region, running the creator's server/match.js through MatchCore.
+const REGIONS = new Set(['wnam', 'enam', 'sam', 'weur', 'eeur', 'apac', 'oc', 'afr', 'me']);
+const hexOf = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+/** The key match tickets are signed with: HMAC(play key, "match-ticket"), the same derivation as the platform's. */
+export async function matchKey(playKey) {
+  const k = await I.importKey('raw', I.encode(playKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return hexOf(await I.sign('HMAC', k, I.encode('match-ticket')));
+}
+export async function verifyTicket(ticket, env) {
+  const p = await verifyPlayToken(ticket, await matchKey(env.PLAY_KEY), env.GAME_ID, env.ENV);
+  if (!p || p.typ !== 'match' || typeof p.m !== 'string' || !/^[a-f0-9]{16,40}$/.test(p.m) || !Array.isArray(p.r) || !p.r.some((r) => r && r.id === p.u)) return null;
+  return p;
+}
+
+async function matchRoute(request, env, url) {
+  const json = (status, error, code) => Response.json({ error, code }, { status, headers: { 'cache-control': 'no-store' } });
+  if (request.headers.get('upgrade') !== 'websocket') return json(426, 'Expected a WebSocket.', 'upgrade_required');
+  if (!userMatch) return json(404, 'This game has no server/match.js.', 'no_match_code');
+  if (!env.MATCH) return json(501, 'Server-run matches are not available for this deployment. Deploy the game again (deploy_preview) on a platform with matches enabled.', 'matches_unavailable');
+  const p = await verifyTicket(url.searchParams.get('t'), env);
+  if (!p) return json(401, 'The match ticket is not valid or has expired. Find a match again.', 'bad_ticket');
+  const hint = REGIONS.has(p.h) ? { locationHint: p.h } : undefined;
+  return env.MATCH.get(env.MATCH.idFromName(p.m), hint).fetch(request);
+}
+
+/** One server-run match. Plain Durable Object class (no imports), so the runtime stays loadable in Node for tests. */
+export class GameMatch {
+  constructor(state, env) {
+    this.state = state; this.env = env; this.core = null; this.sockets = new Map(); this.timer = 0; this.checkTimer = 0;
+    this.banned = new Set(); this.ended = false;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const p = await verifyTicket(url.searchParams.get('t'), this.env);
+    if (!p) return new Response('Bad ticket', { status: 401 });
+    if (this.ended || (await this.state.storage.get('ended'))) return this.refuse(4004, 'This match is over.');
+    if (this.banned.has(p.u)) return this.refuse(4001, 'Your play session ended.');
+    if (!this.core) {
+      let def;
+      try { def = normalizeDef(userMatch); } catch (e) { return this.refuse(4500, String(e.message || e)); }
+      this.core = new MatchCore(def, { id: p.m, roster: p.r, seed: p.seed, queue: p.q, options: p.o, minPlayers: p.min }, {
+        now: () => Date.now(),
+        send: (id, text) => { const ws = this.sockets.get(id); if (ws) try { ws.send(text); } catch { /* closing */ } },
+        close: (id, code, reason) => { const ws = this.sockets.get(id); if (ws) try { ws.close(code, reason); } catch { /* closed */ } },
+        report: (result) => this.report(result),
+        log: (msg) => console.log(JSON.stringify({ match: p.m, log: msg })),
+      });
+      this.sessions = new Map();
+    } else if (this.core.id !== p.m) return this.refuse(4004, 'This match is over.');
+    const pair = new WebSocketPair(), ws = pair[1];
+    ws.accept();
+    const old = this.sockets.get(p.u);
+    this.sockets.set(p.u, ws);
+    if (old) try { old.close(4002, 'Opened in another tab'); } catch { /* closed */ }
+    this.sessions.set(p.u, { u: p.u, s: p.s, k: p.k, px: p.px, tr: p.tr });
+    if (!this.core.connect(p.u)) { this.sockets.delete(p.u); try { ws.close(4003, 'You are not in this match.'); } catch { /* closed */ } return new Response(null, { status: 101, webSocket: pair[0] }); }
+    ws.addEventListener('message', (ev) => { if (this.sockets.get(p.u) === ws && this.core) this.core.message(p.u, typeof ev.data === 'string' ? ev.data : null); });
+    const gone = () => { if (this.sockets.get(p.u) === ws) { this.sockets.delete(p.u); if (this.core) this.core.disconnect(p.u); } };
+    ws.addEventListener('close', gone); ws.addEventListener('error', gone);
+    this.loop();
+    if (!this.checkTimer) this.checkTimer = setInterval(() => this.checkSessions(), 30_000);
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  refuse(code, reason) {
+    const pair = new WebSocketPair();
+    pair[1].accept(); pair[1].close(code, reason.slice(0, 120));
+    return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  /** Runs the match's steps on a timer. Called again on each connection, so a match that just started (the last player
+      arrived) ticks at once instead of after the slower waiting-room timer. */
+  loop() {
+    if (!this.core) return;
+    if (this.timer) { clearTimeout(this.timer); this.timer = 0; }
+    const run = () => {
+      this.timer = 0;
+      if (!this.core) return;
+      const wait = this.core.step();
+      if (wait === Infinity) return this.wrapUp();
+      this.timer = setTimeout(run, Math.max(1, Math.min(wait, 250)));
+    };
+    run();
+  }
+
+  wrapUp() {
+    if (this.ended) return;
+    this.ended = true;
+    clearInterval(this.checkTimer); this.checkTimer = 0;
+    this.state.storage.put('ended', Date.now()).catch(() => {});
+    // the end message went out with the last tick; close whatever is still open a moment later
+    setTimeout(() => { for (const ws of this.sockets.values()) try { ws.close(1000, 'Match over'); } catch { /* closed */ } this.sockets.clear(); this.core = null; }, 2000);
+  }
+
+  /** Players whose play session ended since they joined (signed out, suspended, trial over) are disconnected for good. */
+  async checkSessions() {
+    if (!this.core || !this.sessions.size) return;
+    try {
+      const r = await platformFetch(this.env)(`${this.env.PLATFORM}/api/rt/match-check`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-gcp-game': this.env.GAME_ID, 'x-gcp-env': this.env.ENV, 'x-gcp-key': this.env.STORE_KEY || '' },
+        body: I.stringify({ match: this.core.id, players: [...this.sessions.values()] }), signal: AbortSignal.timeout(5000),
+      });
+      if (!r.ok) return;
+      const j = await r.json();
+      for (const u of Array.isArray(j.ended) ? j.ended : []) {
+        this.banned.add(u);
+        const ws = this.sockets.get(u);
+        if (ws) { try { ws.send(I.stringify({ t: 'error', code: 'session_ended', message: 'Your play session ended.' })); ws.close(4001, 'Session ended'); } catch { /* closed */ } }
+        this.sockets.delete(u); if (this.core) this.core.disconnect(u);
+      }
+    } catch { /* the platform is unreachable: try again next time */ }
+  }
+
+  async report(result) {
+    try {
+      await platformFetch(this.env)(`${this.env.PLATFORM}/api/rt/match-result`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-gcp-game': this.env.GAME_ID, 'x-gcp-env': this.env.ENV, 'x-gcp-key': this.env.STORE_KEY || '' },
+        body: I.stringify({ match: this.core ? this.core.id : '', result }), signal: AbortSignal.timeout(10_000),
+      });
+    } catch (e) { console.log(JSON.stringify({ match: this.core && this.core.id, log: 'result report failed: ' + (e && e.message) })); }
+  }
 }
 
 export default { fetch: (request, env, ctx) => handle(request, env, ctx, '') };

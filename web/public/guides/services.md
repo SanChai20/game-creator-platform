@@ -42,6 +42,8 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Shared game data | available | `GCP.shared.get` | `game_data` (set, get, list, delete) | saves |
 | Leaderboards | available | `GCP.leaderboard` | `game_data` (leaderboard, clear_leaderboard) | saves |
 | Realtime multiplayer rooms | available | `GCP.room` | `game_room`, `get_stats` | multiplayer |
+| Server-run matches | available unless switched off | `GCP.match.find` | `upload_files`, `deploy_preview`, `get_stats` | matches |
+| Matchmaking and ratings | available unless switched off | `GCP.match.find` | `get_stats` | matches |
 | Network smoothing | available | `GCP.smooth` | none | multiplayer |
 | Game server code | available unless switched off | `GCP.server` | `upload_files`, `deploy_preview` | saves |
 | Display, fullscreen and devices | available | `GCP.fullscreen`, `GCP.display`, `GCP.setDisplay` | `compatibility` | contract |
@@ -156,7 +158,7 @@ if (room.isHost) room.setState(world);       // snapshot that late joiners recei
 room.rtt;                                    // round trip to the room in ms
 ```
 
-**What rooms are for.** Rooms are host-authoritative: one player's browser runs the game for everyone. That suits co-op, party games, casual versus among friends and turn-based games. It does not suit ranked or high-intensity competitive play (shooters, fighting games, competitive sports): the host decides hits and can cheat, every guest's lag depends on the host's connection, and there is no lag compensation. Tell the developer this before building such a game on rooms.
+**What rooms are for.** Rooms are host-authoritative: one player's browser runs the game for everyone. That suits co-op, party games, casual versus among friends and turn-based games. It does not suit ranked or high-intensity competitive play (shooters, fighting games, competitive sports): the host decides hits and can cheat, every guest's lag depends on the host's connection, and there is no lag compensation. Use server-run matches for those.
 
 - One Cloudflare Durable Object per game, environment and room code, created when the first player joins. The first player in is the host; when the host leaves, the longest-connected player takes over and everyone gets a `host` event.
 - Rooms relay messages and keep one snapshot. They do not run game logic: the host is the authority (host-authoritative model). For turn-based games the host checks each move and stores the state.
@@ -168,6 +170,26 @@ room.rtt;                                    // round trip to the room in ms
 Limits: 16 players per room by default (at most 64), 64 KB per message, 60 messages a second per player by default (bursts of twice that) and 256 KB a second, 256 KB of state, room codes up to 40 characters. Messages are JSON, or binary when you send an ArrayBuffer or typed array.
 
 Smooth remote movement with `GCP.smooth()`: push each sample with `meta.at`, read `value()` every frame. Verification can prove two browsers share one world if you register `GCP.test.onTwoPlayers`. Details: `get_started {topic: "multiplayer"}`.
+
+## Server-run matches and matchmaking
+
+```js
+// server/match.js runs on the platform; the page only sends inputs and draws
+const match = GCP.match.find({ queue: 'duel', players: 2, predict: (me, input, dt) => move(me, input, dt) });
+match.on('start', () => {}); match.on('end', (result) => {});
+match.input({ mx, my, a });                  // held input, sent every tick
+match.press('fire');                         // one-off action
+const { me, others, state } = match.view();  // every frame: me predicted, others smoothed
+```
+
+**What matches are for.** Competitive real-time games: shooters, fighting games, sports, racing. The game's `server/match.js` (`export default { tickRate, init, input, tick, hitboxes, view }`) runs in a Durable Object of the game's own Worker, at a fixed tick (10 to 60 a second), in the region most of the players are in. No player is the authority.
+
+- The matchmaker groups players by region and rating (widening with the wait), splits teams evenly, and opens private lobbies by code. Ratings (Elo, per queue) move when a match ends with a ranking.
+- The SDK predicts the player's own movement with `predict()` and reconciles it with the server's acknowledged inputs; everyone else is played back between snapshots.
+- `ctx.hitscan()` checks shots against hitboxes rewound to what the shooter saw (up to `maxRewindMs`, at most 400 ms).
+- Snapshots are deltas against the previous one; `view(state, player)` sends each player only what they may see.
+
+Limits: 16 players per match by default (at most 64), 2 KB per input, 64 KB per snapshot per player, 1 hour per match, 20 s to reconnect. Details: `get_started {topic: "matches"}`.
 
 ## Game server code
 
@@ -243,7 +265,7 @@ The MCP server is at `{{ORIGIN}}/mcp` (Streamable HTTP, stateless). Sign-in is O
 How to discover services:
 
 - `platform_services`: the catalog with this platform's live limits; `platform_services {service: "multiplayer"}` for one entry.
-- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `metadata`, `versions`, `storage`, `saves`, `multiplayer`, `services`).
+- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `metadata`, `versions`, `storage`, `saves`, `multiplayer`, `matches`, `services`).
 - MCP resources: `gcp://services` (the catalog as JSON) and `gcp://guides/<topic>`.
 - On the web: `{{ORIGIN}}/guides/services.md` and the Docs page, `{{ORIGIN}}/docs#services`.
 
@@ -258,8 +280,9 @@ Plan around these instead of looking for them.
 | Checking from game code whether the player bought the game | Not needed: only owners and trial players can open a paid game. |
 | Achievements and badges | Track milestones with `GCP.playerStats` and show them in the game. |
 | Friends, chat, invites, player profiles | Share a room code; relay chat over `room.send` and moderate what players type. |
-| Matchmaking and a list of open rooms | Fixed or shared room codes; for a lobby list, players join a `lobby` room and advertise their codes there. |
-| Server-authoritative simulation inside rooms | The host is the authority; validate results that matter in server code. Ranked or high-intensity competitive games need a neutral server that rooms do not provide: tell the developer before building one. |
+| A list of open rooms | Fixed or shared room codes; for a lobby list, players join a `lobby` room and advertise their codes there. Competitive games use `GCP.match.find()`, which matches players by itself. |
+| Server-authoritative simulation inside rooms | Rooms stay host-authoritative. For a neutral server use server-run matches (`server/match.js` with `GCP.match.find`). |
+| Dedicated game servers (UDP, native engines, 128-tick) | Server-run matches run JavaScript at up to 60 ticks a second over WebSockets, which suits browser shooters and fighting games. Native or UDP servers are not offered. |
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |
 | Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store` for data. A key can live in `server/` (never served), but there is no secrets store or rotation: prefer keys you can revoke. |
 | Asset hosting beyond the game's storage (a CDN or bucket for large downloads) | Generate content from code, or load it at run time from a host the developer controls (any HTTPS host with CORS). `game_storage` explains both and asks for more storage when a game truly needs it. |

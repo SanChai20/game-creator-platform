@@ -27,10 +27,11 @@
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "GameRoom" },
-      { "name": "PIPELINE", "class_name": "Pipeline" }
+      { "name": "PIPELINE", "class_name": "Pipeline" },
+      { "name": "MATCHMAKER", "class_name": "Matchmaker" }   // server-run matches (src/matchmaker.ts)
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }, { "tag": "v2", "new_sqlite_classes": ["Matchmaker"] }],
   "browser": { "binding": "BROWSER" },
   "ai": { "binding": "AI" },
   // Cloudflare Email Service: payout emails to creators (src/mail.ts). Sends nothing until the domain is onboarded under

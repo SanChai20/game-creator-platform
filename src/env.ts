@@ -6,6 +6,7 @@ export interface Env {
   OAUTH_KV: KVNamespace;
   ASSETS: Fetcher;
   ROOMS: DurableObjectNamespace;
+  MATCHMAKER: DurableObjectNamespace;
   PIPELINE: DurableObjectNamespace;
   BROWSER?: Fetcher;
   // Cloudflare Email Service (send_email binding): payout emails to creators (src/mail.ts)

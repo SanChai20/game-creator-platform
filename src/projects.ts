@@ -185,6 +185,7 @@ export interface Manifest {
   orientation?: string;
   usesWebGPU?: boolean;
   hasServer?: boolean;
+  hasMatch?: boolean;            // server/match.js: server-run matches
   /** What this version needs from the player's browser: declared in gcp.json "requirements", merged with what the code shows. */
   compat?: Compat;
   /** The build layer of the game metadata: languages, players, session, progress, accessibility, content and the age rating. */
@@ -355,12 +356,30 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const server = files.filter((f) => f.path.startsWith('server/'));
   if (server.length) {
     if (!s.allow_server_code) err({ message: 'Server code is disabled on this platform.', hint: 'Remove the server/ folder. Use GCP.save, GCP.leaderboard and GCP.room for data and multiplayer.' });
-    else if (!paths.has('server/index.js')) err({ message: 'server/ exists but server/index.js is missing.', hint: 'server/index.js must `export default { async fetch(request, env, ctx) { … } }`.' });
+    else if (!paths.has('server/index.js') && !paths.has('server/match.js')) err({ message: 'server/ exists but has neither server/index.js nor server/match.js.', hint: 'server/index.js must `export default { async fetch(request, env, ctx) { … } }` (server code); server/match.js must `export default { init, input, tick }` (server-run matches).' });
     else {
-      const src = texts.get('server/index.js') || '';
-      try { parse(src, { ecmaVersion: 'latest', sourceType: 'module' }); if (!/export\s+default/.test(src)) err({ file: 'server/index.js', message: 'server/index.js must have a default export with a fetch(request, env, ctx) method.' }); }
-      catch (e) { err({ file: 'server/index.js', message: `JavaScript syntax error: ${(e as Error).message}` }); }
+      for (const [entry, needs] of [['server/index.js', 'a fetch(request, env, ctx) method'], ['server/match.js', 'init(ctx), tick(state, ctx) and usually input(state, player, input, ctx) (get_started {topic: "matches"})']] as const) {
+        if (!paths.has(entry)) continue;
+        const src = texts.get(entry) || '';
+        try { parse(src, { ecmaVersion: 'latest', sourceType: 'module' }); if (!/export\s+default/.test(src)) err({ file: entry, message: `${entry} must have a default export with ${needs}.` }); }
+        catch (e) { err({ file: entry, message: `JavaScript syntax error: ${(e as Error).message}` }); }
+      }
+      if (paths.has('server/match.js') && !s.allow_matches) err({ file: 'server/match.js', message: 'Server-run matches are switched off on this platform.', hint: 'Remove server/match.js and use GCP.room (host-authoritative rooms) instead.' });
+      // Server modules run in the game's Worker, where only server/ and shared/ modules are uploaded and there is no import map.
+      for (const f of files) {
+        if (!/^(server|shared)\//.test(f.path) || !/\.m?js$/.test(f.path) || f.path.startsWith('shared/') && !server.length) continue;
+        const src = texts.get(f.path); if (src == null) continue;
+        let ast; try { ast = parse(src, { ecmaVersion: 'latest', sourceType: 'module', locations: true }); } catch (e) { if (f.path.startsWith('server/')) err({ file: f.path, message: `JavaScript syntax error: ${(e as Error).message}` }); continue; }
+        const imps: { spec: string; line: number }[] = [];
+        collectImports(ast, imps);
+        for (const im of imps) {
+          if (im.spec.startsWith('cloudflare:')) continue;
+          const target = im.spec.startsWith('.') ? resolveRel(f.path, im.spec) : null;
+          if (!target || !/^(server|shared)\/.+\.m?js$/.test(target) || !paths.has(target)) err({ file: f.path, line: im.line, message: `Server modules can only import other .js files under server/ or shared/ by relative path ("${im.spec}").`, hint: 'Put the rules the client and the server share (movement, hit rules) in shared/ and import them as "../shared/rules.js". Bundle any library you need into those folders.' });
+        }
+      }
       manifest.hasServer = true;
+      if (paths.has('server/match.js')) manifest.hasMatch = true;
     }
   }
   // Compatibility: the creator's declared requirements, merged with what the code shows it uses.
