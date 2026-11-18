@@ -76,7 +76,11 @@ async function stillBound(env, token) {
 }
 
 function tokenCookie(token, base, secure, maxAge) {
-  return `gcp_t=${token}; Path=${base || '/'}; Max-Age=${maxAge}; HttpOnly; ${secure ? 'Secure; SameSite=None; Partitioned' : 'SameSite=Lax'}`;
+  // Over HTTPS the cookie is __Host- prefixed: games on one games domain are same-site with each other, and the prefix
+  // stops one game from planting or shadowing another game's token cookie with Domain=<games domain>.
+  return secure
+    ? `__Host-gcp_t=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=None; Partitioned`
+    : `gcp_t=${token}; Path=${base || '/'}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`;
 }
 
 function inject(html, env, auth, token, base) {
@@ -130,7 +134,7 @@ export async function handle(request, env, ctx, base = '') {
   if (path.includes('..') || path.includes('\0')) return new Response('Bad path', { status: 400 });
   if (path === '/__gcp/health') return Response.json({ ok: true, game: env.GAME_ID, version: Number(env.VERSION), env: env.ENV });
 
-  const fromUrl = url.searchParams.get('gcp_t'), token = fromUrl || cookie(request, 'gcp_t');
+  const fromUrl = url.searchParams.get('gcp_t'), token = fromUrl || cookie(request, url.protocol === 'https:' ? '__Host-gcp_t' : 'gcp_t');
   // The SDK hands over a renewed token so a reload later in a long session still opens (POST, same origin, signed token only).
   if (path === '/__gcp/token' && request.method === 'POST') {
     const next = String(await request.text().catch(() => '')).trim(), ok = await verifyPlayToken(next, env.PLAY_KEY, env.GAME_ID, env.ENV);

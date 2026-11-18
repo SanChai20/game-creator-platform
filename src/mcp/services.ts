@@ -271,7 +271,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
       sdk: [], mcp_tools: ['get_started', 'platform_services'],
       http: [`${origin}/mcp`, `${origin}/oauth/device`, `${origin}/oauth/token`, `${origin}/.well-known/oauth-authorization-server`, `${origin}/guides/<guide>.md`],
       limits: { access_token_minutes: Math.round(s.oauth_access_ttl_s / 60), grant_days: Math.round(s.oauth_grant_ttl_s / 86400) },
-      guidelines: ['On 401, refresh the token instead of signing in again.', 'On workers.dev, send a descriptive User-Agent header.'],
+      guidelines: ['On 401, refresh the token instead of signing in again.', 'Send a descriptive User-Agent header.'],
       guide: 'versions',
     },
   ];

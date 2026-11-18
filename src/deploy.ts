@@ -62,8 +62,9 @@ function host(env: Env, id = hostId(env)): Host {
     async put(script, form) {
       await cf(env, 'PUT', `${base}/${script}`, form);
       if (h.kind !== 'workers') return;   // a user Worker has no hostname of its own: the dispatch Worker reaches it
+      // On GAME_HOST routes the game has no workers.dev address at all; otherwise workers.dev is its address.
       if (h.routeHost) await ensureRoute(env, h.routeHost, script);
-      else await cf(env, 'POST', `${base}/${script}/subdomain`, JSON.stringify({ enabled: true, previews_enabled: false }), JSON_HEADERS);
+      await cf(env, 'POST', `${base}/${script}/subdomain`, JSON.stringify({ enabled: !h.routeHost, previews_enabled: false }), JSON_HEADERS);
     },
     async remove(script) {
       if (h.kind === 'workers' && h.routeHost) await removeRoute(env, h.routeHost, script).catch((e) => console.error('route removal failed', script, e));

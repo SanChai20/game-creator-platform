@@ -29,7 +29,7 @@ A platform where people publish web games made with their own AI agent (Claude, 
 
 ## How a game goes live
 
-1. The creator connects their agent to `https://<site>/mcp`. Sign-in is OAuth 2.1 with PKCE and dynamic client registration; no API keys exist. Access tokens last one hour and the grant thirty days by default (both adjustable), and a creator can revoke an agent from the console at any time. An agent that cannot open a browser (a sandbox, a server, CI) uses device sign-in instead: it posts to `/oauth/device`, shows its user the link it gets back, and polls `/oauth/token` until the user has approved at `/device`. It receives the same expiring tokens. (On a `workers.dev` address Cloudflare refuses some default client signatures, Python `urllib` among them, with `403 error code: 1010`; any descriptive `User-Agent` header avoids it, and a custom domain lets you switch that check off.) A request to `/mcp` without a token is answered with these steps, so an agent can work out how to connect by itself.
+1. The creator connects their agent to `https://<site>/mcp`. Sign-in is OAuth 2.1 with PKCE and dynamic client registration; no API keys exist. Access tokens last one hour and the grant thirty days by default (both adjustable), and a creator can revoke an agent from the console at any time. An agent that cannot open a browser (a sandbox, a server, CI) uses device sign-in instead: it posts to `/oauth/device`, shows its user the link it gets back, and polls `/oauth/token` until the user has approved at `/device`. It receives the same expiring tokens. Send a descriptive `User-Agent` header. A request to `/mcp` without a token is answered with these steps, so an agent can work out how to connect by itself.
 2. The agent calls `get_started`, creates a project with `create_project` and uploads the game with `upload_files` or, for big files and whole folders, `create_upload_url` and curl.
 3. `deploy_preview` runs static checks first (JavaScript syntax, imports that resolve, files that exist, the platform contract, web-only content); `dry_run: true` stops there.
 4. It then freezes the files as a numbered version, deploys that version as its own Cloudflare Worker, and opens it in a real browser (Cloudflare Browser Rendering). The version is verified only if the game boots (`GCP.ready()`), keeps rendering frames, draws a non-blank picture, survives keyboard, mouse and touch input, serves every file it asks for, throws no uncaught errors, and (when it calls its own server code) does not make that code crash. The report and a screenshot are stored with the version. A game can also register a play-through (`GCP.test.onPlaythrough`): a short script that plays its own rules to the end. The browser runs it, lists each step in the report, and refuses the version if it fails. Without one, the report says that only start-up, rendering and input were checked.
@@ -93,14 +93,16 @@ Stripe's own processing fee is charged to the platform account, so by default it
 
 Declared in `wrangler.jsonc`: D1 (`gcp-db`), R2 (`gcp-games`), KV (OAuth state), two Durable Object classes (`GameRoom` for realtime rooms, `Pipeline` for deploy jobs), Browser Rendering, static assets, and a daily cron for cleanup.
 
-Each game is deployed as a standalone Worker named `gcp-<project>-preview` or `gcp-<project>-live` through the Cloudflare API, bound to the R2 bucket that holds its files. (Workers for Platforms dispatch namespaces would be a drop-in improvement if the account has them.)
+Each game is deployed as a standalone Worker named `gcp-<project>-preview` or `gcp-<project>-live` through the Cloudflare API, bound to the R2 bucket that holds its files.
+
+Addresses: the platform is `https://hearthcade.com` (`PUBLIC_ORIGIN`; `www` redirects to it). Games are served from their own domain, `https://gcp-<project>-<env>.hearthcade.app` (`GAME_HOST` and `GAME_ZONE_ID`; a proxied wildcard DNS record plus one Worker route per game, which the platform creates). The games domain is a different site from the platform, so a game page can never read or plant the platform's cookies, and each game's token cookie is `__Host-` prefixed so games cannot interfere with one another. No Worker answers on `workers.dev`.
 
 ## Secrets
 
 | Name | Needed for |
 | --- | --- |
 | `SESSION_SECRET` | Signing play tokens. Any long random string |
-| `CF_API_TOKEN`, `CF_ACCOUNT_ID` | Deploying game Workers. The token needs Workers Scripts: Edit |
+| `CF_API_TOKEN`, `CF_ACCOUNT_ID` | Deploying game Workers. The token needs Workers Scripts: Edit, and Workers Routes: Edit on the `GAME_HOST` zone |
 | `ADMIN_CLAIM_TOKEN` | Claiming the first admin account at `/claim-admin?token=…`. Works once |
 | `STRIPE_SECRET_KEY` | The creator fee, game sales and Stripe payouts |
 | `STRIPE_WEBHOOK_SECRET` | Verifying webhooks sent to `/api/stripe/webhook` |
