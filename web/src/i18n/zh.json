@@ -41,6 +41,7 @@
  "Platform cut of each game sale (percent)": "每笔游戏销售的平台分成（百分比）",
  "Play counting": "游玩计数",
  "Players per multiplayer room": "每个多人房间的玩家数",
+ "Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)": "每位玩家每秒可向多人房间发送的消息数（允许两倍的瞬时突发；5 到 240）",
  "Product name": "产品名称",
  "Projects per creator": "每位创作者的项目数",
  "Require complete game metadata to publish (genre, requirements, languages, players, content descriptors)": "发布时要求完整的游戏元数据（类型、运行要求、语言、玩家人数、内容描述）",

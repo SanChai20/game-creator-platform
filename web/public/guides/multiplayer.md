@@ -1,6 +1,23 @@
 # Multiplayer
 
-The platform runs realtime rooms for every game: a WebSocket relay on Cloudflare Durable Objects, one object per room, close to the players. You do not deploy or pay for a server. How you use a room is up to the game.
+The platform runs realtime rooms for every game: a WebSocket relay on Cloudflare Durable Objects, one object per room, created in the region of the player who opens it. You do not deploy or pay for a server. How you use a room is up to the game.
+
+## What rooms are for, and what not
+
+Rooms are **host-authoritative**: one player's browser (the host) runs the game, and the room relays messages between players. This is the model most co-op and party games use, and it is what rooms do well:
+
+- co-op games (2 to 8 players), party games and casual versus among friends
+- turn-based and slow games
+- shared building and farming worlds while players are connected
+
+It is **not** a fit for ranked or high-intensity competitive real-time play (shooters, fighting games, competitive sports and racing):
+
+- the host decides hits and can change its own copy of the game, so the host can cheat;
+- every guest's result travels guest → room → host → room → guest, so the host's connection sets everyone's lag;
+- there is no lag compensation (rewinding hitboxes to what the shooter saw);
+- WebSockets run over TCP, so a lost packet on Wi-Fi or mobile briefly holds back every later message.
+
+If the developer wants a competitive game, tell them this before you build, and build it so the host's decisions are easy to move to a server later (keep the rules in one module that takes inputs and returns state).
 
 ## Rooms
 
@@ -20,7 +37,10 @@ room.setState({ round: 2 });                     // host only: sent to everyone 
 room.isHost; room.id; room.peers; room.leave();
 ```
 
-- Messages are JSON, at most 64 KB each. The room size limit is set by the platform and can be lowered per room with `GCP.room(code, { max: 4 })`.
+- Messages are JSON, at most 64 KB each, or binary: `room.send(new Float32Array([x, y, z]))` arrives as an `ArrayBuffer` in the `message` handler (wrap it: `new Float32Array(data)`). Binary is several times smaller than JSON for positions.
+- Each player may send 60 messages a second by default, with bursts of twice that, and 256 KB a second. Past it, messages are dropped and the sender gets an `error` event whose `code` is `'rate_limited'`; a player who stays over the budget for 10 seconds is disconnected with close code 4008 (and the SDK does not reconnect). Send on a timer at 10 to 30 a second, never once per frame per object.
+- `room.rtt` is the measured round trip to the room in milliseconds (updated every 5 seconds).
+- The room size limit is set by the platform and can be lowered per room with `GCP.room(code, { max: 4 })`.
 - The first player in is the host. When the host leaves, the player who has been in the room longest becomes host.
 - Players in a room are signed-in players of this game. Preview and live rooms are separate.
 - For private matches, generate a short code, show it, and let friends type it in. For public play, use a fixed code such as `'world'`, or several (`'world-1'`, `'world-2'`).
@@ -58,7 +78,7 @@ What makes this hold up:
 - **Interpolate, do not snap.** Draw every remote thing a little in the past, between two snapshots, using `GCP.smooth` (below). That goes for the host too: the host draws each guest from that guest's own position messages through a buffer, never by jumping to the newest one.
 - **Send on a steady clock.** Keep the timer's remainder (`t += 1 / hz`, not `t = 1 / hz`), otherwise frame rounding turns 12 Hz into an uneven mix of 10 and 12.
 - **Let players see each other directly.** A guest's position message sent to everyone (no `to`) reaches the other guests in one hop; drawing them from the host's snapshot instead adds a second hop and the host's sampling on top.
-- **Make your own player feel instant.** Move the local player immediately from local input and gently pull towards the host's position when they disagree by more than a small threshold.
+- **Make your own player feel instant.** Move the local player immediately from local input. `joinSession` numbers every input (`sendInput` returns the number) and the host's snapshots say which one it applied last (`meta.ack` in `apply`). To reconcile, take your player's position from the snapshot, re-apply `session.pending` (the inputs the host had not applied yet) on top, and ease the drawn position towards the result instead of snapping.
 - **The host must keep running.** Browsers stop `requestAnimationFrame` in hidden tabs. `backgroundTicker(fn)` from `@gcp/core.js` keeps the host's simulation stepping while hidden.
 - **Host migration.** The kit stores a snapshot in the room every few seconds. When the host leaves, the new host receives the `host` event and continues from the last snapshot it applied. Keep everything the simulation needs inside the snapshot, or derivable from the seed.
 - **Never trust a guest for anything that matters.** The host decides hits, pickups and scores from inputs. In this model the host player can cheat, which is fine among friends. For ranked play, validate results in server code (see the saves guide).

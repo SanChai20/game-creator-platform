@@ -680,6 +680,7 @@
  "Players online, sessions, play time, devices, browsers, sales and the errors real players hit.": "線上玩家、遊玩次數、時長、裝置、瀏覽器、銷量以及真實玩家遇到的錯誤。",
  "Players per day": "每日玩家",
  "Players per multiplayer room": "每個多人房間的玩家數",
+ "Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)": "每位玩家每秒可向多人房間傳送的訊息數（允許兩倍的瞬間突發；5 到 240）",
  "Players say": "玩家評分",
  "Players say|玩家评价": "玩家評價",
  "Players see their own progress on the game page and can reset it. Creators see totals and averages, never one player's data.": "玩家可在遊戲頁面查看並重置自己的進度。創作者只能看到總數與平均值，看不到任何單個玩家的資料。",

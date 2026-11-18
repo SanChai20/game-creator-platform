@@ -280,27 +280,62 @@
     function emit(type, a, b, c) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b, c); } catch (e) { console.error(e); } }); }
     this.on = function (type, fn) { (handlers[type] = handlers[type] || []).push(fn); return self; };
     this.off = function (type, fn) { handlers[type] = (handlers[type] || []).filter(function (f) { return f !== fn; }); return self; };
-    /** Send to everyone else, or to one peer id, or to 'host'. Each message carries its send time, which receivers get as meta.at. */
-    this.send = function (data, to) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(to ? { t: 'msg', to: to, d: data, at: clock() } : { t: 'msg', d: data, at: clock() })); };
+    /** Send to everyone else, or to one peer id, or to 'host'. Each message carries its send time, which receivers get as meta.at.
+        data is JSON, or an ArrayBuffer / typed array for packed binary data (receivers get an ArrayBuffer). */
+    this.send = function (data, to) {
+      if (!ws || ws.readyState !== 1) return false;
+      if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) { ws.send(binFrame(data, to)); return true; }
+      ws.send(JSON.stringify(to ? { t: 'msg', to: to, d: data, at: clock() } : { t: 'msg', d: data, at: clock() }));
+      return true;
+    };
+    /** Round-trip time to the room in ms (measured every few seconds while connected), or null before the first answer. */
+    this.rtt = null;
+    var pingN = 0, pingAt = {}, pingTimer = 0;
+    function ping() { if (ws && ws.readyState === 1) { pingAt[++pingN] = performance.now(); ws.send(JSON.stringify({ t: 'ping', n: pingN })); } }
+    // [1][target 0 all | 1 host | 2 peer][len][peer id][at float64 LE][payload] (src/room-wire.ts)
+    function binFrame(data, to) {
+      var payload = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      var id = to && to !== 'host' ? new TextEncoder().encode(String(to)).subarray(0, 255) : new Uint8Array(0);
+      var head = id.length ? 3 + id.length : 2, out = new Uint8Array(head + 8 + payload.length);
+      out[0] = 1; out[1] = to === 'host' ? 1 : id.length ? 2 : 0;
+      if (id.length) { out[2] = id.length; out.set(id, 3); }
+      new DataView(out.buffer, head, 8).setFloat64(0, clock(), true);
+      out.set(payload, head + 8);
+      return out.buffer;
+    }
+    function onBinary(buf) {
+      var u = new Uint8Array(buf);
+      if (u.length < 2 || u[0] !== 1 || u.length < 2 + u[1] + 8) return;
+      var from = new TextDecoder().decode(u.subarray(2, 2 + u[1])), at = new DataView(buf, 2 + u[1], 8).getFloat64(0, true);
+      seen.messages++;
+      emit('message', buf.slice(2 + u[1] + 8), from, { at: isFinite(at) ? at : undefined, received: performance.now() });
+    }
     /** Host only: store a snapshot that late joiners receive in their 'open' event (max 256 KB). */
     this.setState = function (data) { self.state = data; if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'state', d: data })); };
-    this.leave = function () { closed = true; if (ws) ws.close(1000); };
+    this.leave = function () { closed = true; clearInterval(pingTimer); if (ws) ws.close(1000); };
     function connect() {
       if (standalone) { setTimeout(function () { self.id = 'local'; self.hostId = 'local'; self.connected = true; emit('open', { id: 'local', host: true, peers: [], state: null }); }, 0); return; }
       var u = cfg.api.replace(/^http/, 'ws') + '/api/rt/room?room=' + encodeURIComponent(code) + '&t=' + encodeURIComponent(cfg.token) + (opts && opts.max ? '&max=' + opts.max : '');
       ws = new WebSocket(u);
+      ws.binaryType = 'arraybuffer';
       ws.onmessage = function (ev) {
+        if (typeof ev.data !== 'string') return onBinary(ev.data);
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-        if (m.t === 'welcome') { tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true; emit('open', { id: m.id, host: self.isHost, peers: m.peers, state: m.state }); }
+        if (m.t === 'welcome') {
+          tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true;
+          clearInterval(pingTimer); ping(); pingTimer = setInterval(ping, 5000);
+          emit('open', { id: m.id, host: self.isHost, peers: m.peers, state: m.state });
+        }
+        else if (m.t === 'pong') { if (m.n && pingAt[m.n]) { var r = performance.now() - pingAt[m.n]; self.rtt = self.rtt == null ? r : self.rtt * 0.7 + r * 0.3; delete pingAt[m.n]; } }
         else if (m.t === 'join') { self.peers.push(m.peer); emit('join', m.peer); }
         else if (m.t === 'leave') { self.peers = self.peers.filter(function (p) { return p.id !== m.id; }); var was = self.hostId; self.hostId = m.host; emit('leave', m.id); if (was !== m.host) emit('host', m.host); }
         else if (m.t === 'msg') { seen.messages++; if (m.d && m.d.gcpWorld === 'op') seen.worldOps++; emit('message', m.d, m.from, { at: typeof m.at === 'number' ? m.at : undefined, received: performance.now() }); }
         else if (m.t === 'state') { seen.states++; self.state = m.d; emit('state', m.d); }
-        else if (m.t === 'error') emit('error', new Error(m.message));
+        else if (m.t === 'error') { var err = new Error(m.message); if (m.code) err.code = m.code; emit('error', err); }
       };
       ws.onclose = function (ev) {
-        self.connected = false; seen.closes++; emit('close', ev.code);
-        if (!closed && ev.code !== 4001 && ev.code !== 4003 && tries < 6) setTimeout(connect, Math.min(8000, 500 * Math.pow(2, tries++)));
+        self.connected = false; seen.closes++; clearInterval(pingTimer); pingAt = {}; emit('close', ev.code);
+        if (!closed && ev.code !== 4001 && ev.code !== 4003 && ev.code !== 4008 && tries < 6) setTimeout(connect, Math.min(8000, 500 * Math.pow(2, tries++)));
       };
     }
     connect();
