@@ -15,7 +15,9 @@
     "directory": "dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/mcp", "/mcp/*", "/authorize", "/oauth/*", "/.well-known/*", "/sdk/*", "/kits/*", "/vendor/*", "/guides/*", "/templates/*", "/__game/*"]
+    // Pages go through the Worker too, so the other hosts of this Worker (workers.dev, www) redirect them to
+    // PUBLIC_ORIGIN; only fingerprinted build files, fonts and icons are served straight from the asset store.
+    "run_worker_first": ["/*", "!/assets/*", "!/fonts/*", "!/icons/*", "!/favicon.svg"]
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "gcp-db", "database_id": "111e0b7d-ed5f-4e81-97bd-8ba0444e54bf", "migrations_dir": "migrations" }
