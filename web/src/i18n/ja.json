@@ -670,6 +670,7 @@
  "Players online, sessions, play time, devices, browsers, sales and the errors real players hit.": "オンラインのプレイヤー、セッション、プレイ時間、デバイス、ブラウザー、売上、実際のプレイヤーが出会ったエラー。",
  "Players per day": "1日あたりのプレイヤー",
  "Players per multiplayer room": "マルチプレイルームあたりのプレイヤー数",
+ "Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)": "プレイヤーが1秒間にマルチプレイルームへ送れるメッセージ数（その2倍までの一時的な集中は可。5〜240）",
  "Players say": "プレイヤーの評価",
  "Players see their own progress on the game page and can reset it. Creators see totals and averages, never one player's data.": "プレイヤーはゲームページで自分の進行状況を確認し、リセットできます。クリエイターに見えるのは合計と平均だけで、個々のプレイヤーのデータは見えません。",
  "Players who have not bought the game can play this long in total, then are asked to buy. The time is counted on our servers for their account, so reloading or switching devices does not reset it. Up to {max} minutes.": "まだ購入していないプレイヤーは合計でこの時間だけ遊べ、その後購入を案内されます。時間はアカウントごとにサーバーで数えるため、再読み込みやデバイスの切り替えではリセットされません。最大{max}分。",

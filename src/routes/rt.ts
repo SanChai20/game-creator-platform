@@ -8,6 +8,7 @@ import { getSettings } from '../settings';
 import { owns } from '../earnings';
 import { TRIAL_MIN_CHARGE_S, trialCharge } from '../trials';
 import { clamp, dayOf, now, safeEqual } from '../util';
+import { regionHint } from '../placement';
 // @ts-ignore plain JS module
 import { DataError, authToken, playRecordStmt, playerOf, playerSummary, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
@@ -208,8 +209,11 @@ rt.get('/room', async (c) => {
   const code = String(c.req.query('room') || 'lobby').slice(0, 40);
   const want = Number(c.req.query('max')) || s.room_max_peers;
   const id = c.env.ROOMS.idFromName(`${tok.g}:${tok.e}:${code}`);
+  // Only the first get() of a room uses the hint, so the room is created in the region of the player who opens it
+  // rather than wherever that player's request happened to land.
+  const hint = regionHint((c.req.raw as any).cf);
   const u = new URL(c.req.url);
   // The room keeps who this socket belongs to (session, kind, token end, trial), and checks it again while it is open.
-  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${clamp(Math.round(want), 2, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}&s=${encodeURIComponent(tok.s)}&k=${tok.k}&x=${tok.x}${tok.tr ? '&tr=1' : ''}`;
-  return c.env.ROOMS.get(id).fetch(new Request(u, c.req.raw));
+  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${clamp(Math.round(want), 2, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}&s=${encodeURIComponent(tok.s)}&k=${tok.k}&x=${tok.x}${tok.tr ? '&tr=1' : ''}&mr=${clamp(Math.round(Number(s.room_msgs_per_second) || 60), 5, 240)}`;
+  return c.env.ROOMS.get(id, hint ? { locationHint: hint as DurableObjectLocationHint } : undefined).fetch(new Request(u, c.req.raw));
 });
