@@ -186,6 +186,12 @@ The platform also scans the code at every deploy. With no declaration, the store
 
 Requirements are one part of the metadata every game declares: also its genre, languages, players, content descriptors (for the age rating), session length, progress, accessibility and translated store listings. Genre, requirements, languages, players and content are required to publish. `game_metadata` `action: "check"` lists what is missing with the allowed values and a pre-filled call for each; the whole specification is the `metadata` guide (`get_started` `{"topic": "metadata"}`, or {{ORIGIN}}/guides/game-metadata.md).
 
+## Who runs the platform
+
+The platform is developed and operated by **Horylo LLC**, a Wyoming limited liability company ([horylo.com](https://horylo.com)). Horylo LLC is the party to the Terms of Service ({{ORIGIN}}/legal/terms), the data controller under the Privacy Policy ({{ORIGIN}}/legal/privacy), and the seller of every paid game: players buy from Horylo LLC through Stripe Checkout. By publishing, a creator agrees to the Terms with Horylo LLC and gives it a licence to host, verify, show and distribute the game. Legal and privacy questions go to legal@horylo.com. `get_started` returns the same facts under `operator`.
+
+When a game's own pages name who made it (a credits screen, an about box), they name the creator. They must not present the game as made or endorsed by Horylo LLC or the platform.
+
 ## Serving details that matter
 
 - Paths are case sensitive. `Assets/Hero.png` and `assets/hero.png` are different files.

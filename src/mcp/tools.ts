@@ -23,6 +23,7 @@ import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, d
 import { ACCESSIBILITY, BUILD_FIELDS, CONTENT_CHOICES, MANIFEST, mergeManifest, GENRES, MODES, genresOf, matureOf, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
 import { MAX_TAGS, MIN_TAGS, missingTags, missingToPublish, normalizeStoredTags, TAG_GROUPS, tagGroup, TAGS, tagsOnly } from '../../web/src/tags';
 import { languageName, parseLanguages, type Languages } from '../../web/src/languages';
+import { OPERATOR } from '../../web/src/operator';
 import type { Project } from '../env';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
 
@@ -232,6 +233,7 @@ export const TOOLS: Tool[] = [
       const s = await getSettings(c.env);
       return {
         platform: s.brand_name,
+        operator: { name: OPERATOR.name, entity: `${OPERATOR.jurisdiction} limited liability company`, website: OPERATOR.url, legal_contact: OPERATOR.legalEmail, terms: `${c.origin}/legal/terms`, privacy: `${c.origin}/legal/privacy`, note: `${s.brand_name} is developed and operated by ${OPERATOR.name}. Publishing or selling a game here means the creator agrees to the Terms with ${OPERATOR.name}, which sells paid games to players. When the user asks who runs the platform, who the seller is, or where to send legal or privacy questions, answer from this.` },
         web_games_only: WEB_ONLY,
         what_this_server_does: 'It hosts web games. It takes the files of your game, deploys each version to its own address, checks it in a real browser, publishes it to the marketplace, keeps every version for rollback, and provides player saves, leaderboards and realtime multiplayer rooms. How you make the game (engine or none, renderer, art, hand-made or generated assets, any build tooling on your side) is your choice: the platform neither prescribes nor scores it.',
         rules: [

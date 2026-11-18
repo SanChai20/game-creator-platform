@@ -8,6 +8,11 @@ import { CompatGate, CompatPill, CompatSection, useCompat } from '../compat-ui';
 import { Stage, type StageCtl } from '../player';
 import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
 import type { Lang } from '../lib';
+import { legalTitle } from './Legal';
+import { OPERATOR } from '../operator';
+
+/** Under the Buy button: who the seller is, and the terms a purchase falls under. */
+const SoldBy = () => <p className="dim fs-xs sold-by">{t('Sold by {op}. Payments by Stripe.', '由 {op} 销售，付款由 Stripe 处理。', { op: OPERATOR.name })} <Link to="/legal/terms">{legalTitle('terms')}</Link> · <Link to="/legal/refunds">{legalTitle('refunds')}</Link></p>;
 
 export { Stage } from '../player';
 
@@ -149,7 +154,7 @@ export function Game({ slug }: { slug: string }) {
   const tryLabel = fresh || !user ? t('Try free · {minutes} min', '免费试玩 · {minutes} 分钟', { minutes: trial?.minutes ?? 0 }) : t('Continue trial · {left} min left', '继续试玩 · 剩 {left} 分钟', { left: leftMin });
   const toStage = () => { play(); document.querySelector('.stage')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
   const cta = !live ? null : locked
-    ? <><Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>{canTry && !url && <Button size="lg" block onClick={toStage} disabled={busy === 'play'}>{tryLabel}</Button>}</>
+    ? <><Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>{canTry && !url && <Button size="lg" block onClick={toStage} disabled={busy === 'play'}>{tryLabel}</Button>}{config.payments && <SoldBy />}</>
     : <Button variant="primary" size="lg" block onClick={toStage} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : <><i className="play-tri" aria-hidden="true" />{t('Play now', '立即游玩')}</>}</Button>;
 
   return (

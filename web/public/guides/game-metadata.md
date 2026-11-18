@@ -291,7 +291,7 @@ and on the project:
 ## What the store page shows
 
 - **Header**: the age rating badge.
-- **Buy box**: whether the game works on this device and whether it is playable in the viewer's language.
+- **Buy box**: whether the game works on this device and whether it is playable in the viewer's language. For a paid game, a line under the Buy button names the seller, Horylo LLC (the platform's operator), with links to the Terms and Refund policy. The game's own creator is shown as its maker; never put the operator's name in `title`, `tagline` or `description`.
 - **At a glance**: genre and tags, age rating with its reasons, players and modes, session length, progress, accessibility, the photosensitivity warning and the player-chat note.
 - **Compatibility**: every requirement, checked against this browser.
 - **Languages**: one row per language with interface, voice, subtitles and store page, the viewer's own language marked, and whether the creator listed the languages or the platform detected them.

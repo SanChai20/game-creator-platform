@@ -33,6 +33,7 @@ import { Browse } from './pages/Browse';
 import { Categories, Category } from './pages/Categories';
 import { Queue } from './pages/Queue';
 import { Legal, LEGAL_DOCS, legalTitle, type LegalDoc } from './pages/Legal';
+import { OPERATOR } from './operator';
 import { SearchBox, StoreBar } from './store';
 import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 
@@ -172,6 +173,12 @@ function Routes({ user }: { user: Me | null }) {
   return <NotFound />;
 }
 
+/** Links the operator's name inside a translated footer line to its site, so the platform and the company point at each other. */
+function linkOperator(text: string) {
+  const [before, ...rest] = text.split(OPERATOR.name);
+  return rest.length ? <>{before}<a href={OPERATOR.url} target="_blank" rel="noreferrer">{OPERATOR.name}</a>{rest.join(OPERATOR.name)}</> : text;
+}
+
 function App() {
   const lang = useLang();
   const [state, setState] = useState<{ user: Me | null; config: Config } | null>(null), [failed, setFailed] = useState(false);
@@ -204,7 +211,13 @@ function App() {
           <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
           <nav className="foot-col" aria-label={t('Legal', '法律信息')}><b>{t('Legal', '法律信息')}</b>{LEGAL_DOCS.map((d) => <Link key={d} to={`/legal/${d}`}>{legalTitle(d)}</Link>)}</nav>
         </div>
-        <div className="foot-note"><span>© {new Date().getFullYear()} {brand}</span><span className="foot-tools"><ThemeSwitch label /><FxToggle /><LangPicker /></span></div>
+        <div className="foot-note">
+          <div className="foot-legal">
+            <span>{linkOperator(t('© {year} {op}. All rights reserved.', '© {year} {op}。保留所有权利。', { year: new Date().getFullYear(), op: OPERATOR.name }))}</span>
+            <span>{linkOperator(t('{brand} is developed and operated by {op}.', '{brand} 由 {op} 开发和运营。', { brand, op: OPERATOR.name }))}</span>
+            <span className="foot-links"><Link to="/legal/terms">{legalTitle('terms')}</Link><Link to="/legal/privacy">{legalTitle('privacy')}</Link><a href={`mailto:${OPERATOR.contactEmail}`}>{t('Contact ({email})', '联系我们（{email}）', { email: OPERATOR.contactEmail })}</a></span>
+          </div>
+          <span className="foot-tools"><ThemeSwitch label /><FxToggle /><LangPicker /></span></div>
       </div></footer>
       <GuestProgressPrompt user={state.user} toast={toast} />
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}

@@ -9,6 +9,7 @@ import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
 import { missingToPublish, normalizeStoredTags, tagGroup } from '../../web/src/tags';
+import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -330,10 +331,12 @@ api.get('/media/*', async (c) => {
 
 // ----- purchases + billing ---------------------------------------------------------------------
 async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string) {
-  const origin = c.get('origin');
+  const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
   const session = await stripe<{ id: string; url: string }>(c.env, 'POST', '/checkout/sessions', {
     mode: 'payment', client_reference_id: u.id, customer_email: u.email, metadata, payment_intent_data: { metadata },
-    line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name } } } },
+    line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name, description: `Sold by ${OPERATOR.name} on ${brand}` } } } },
+    // The seller of record, next to the Pay button, with the terms the purchase falls under.
+    custom_text: { submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase. Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` } },
     success_url: `${origin}${back}${back.includes('?') ? '&' : '?'}paid={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}${back}`,
   });
   return c.json({ url: session.url });
