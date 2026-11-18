@@ -107,6 +107,7 @@ import { move } from './shared/rules.js';
 
 const match = GCP.match.find({
   queue: 'duel', players: 2,                  // or players: 8, min: 4 (free-for-all), or teams: 2
+                                              // or min: 1 to start alone after 30 s and fill the seats with bots
   // code: 'ABC123',                          // a private lobby among friends instead of the public queue
   predict: (me, input, dt) => move(me, input, dt),   // your own movement runs at once, the server corrects it
 });
@@ -163,8 +164,9 @@ frame();
 ## Matchmaking and ratings
 
 - One queue per `queue` name, number of `players`, `min`, `teams` and `mode`. The player who has waited longest is matched first, with the closest ratings in the same region. The search widens with the wait: neighbouring regions after 5 s, further after 10 s, anywhere after 20 s; the allowed rating gap grows by 25 points a second. After 30 s a match starts with at least `min` players.
+- `min` is 1 to `players` (the default is `players`). With `min: 1`, a player who is still alone after 30 s starts a match by themselves: `ctx.players` in `init()` holds only them, and your `server/match.js` fills the other seats, with bots for example. Bots in `ctx.end({ ranking })` are ignored, so a match with one person in it does not move ratings.
 - `teams: 2` splits the players into two teams of even strength by rating; each player's `team` (0, 1, ...) is in `ctx.players` and `match.players`.
-- `code: 'ABC123'` opens a private lobby: the `lobby` event lists who is in; it starts when full, or when the player who opened it calls `match.start()` with at least `min` players.
+- `code: 'ABC123'` opens a private lobby: the `lobby` event lists who is in; it starts when full, or when the player who opened it calls `match.start()` with at least `min` players (alone, with `min: 1`).
 - Ratings start at 1000 per player, game, environment (preview or live) and queue, and change after every match that ends with a ranking. Verification runs do not count.
 
 ## Testing

@@ -78,6 +78,33 @@ test('a private lobby lists its players; only its owner starts it early; it star
   assert.ok(await until(() => x.got.some((m) => m.t === 'found') && y.got.some((m) => m.t === 'found')));
 });
 
+test('min 1: a private lobby starts with only its owner; a lone player in a public queue starts after 30 s', { timeout: 60_000 }, async () => {
+  await seed('play_solo:solo', 'play_lone:lone');
+  const o = queue(seat('solo', { code: 'SOLO01', size: 4, min: 1, q: 'q5' }));
+  assert.ok(await until(() => o.got.some((m) => m.t === 'lobby')));
+  o.ws.send(JSON.stringify({ t: 'start' }));
+  assert.ok(await until(() => o.got.some((m) => m.t === 'found')));
+  const f = o.got.find((m) => m.t === 'found');
+  assert.deepEqual(f.players.map((p) => p.id), ['solo']);
+  const t = await verifyTicket(f.ticket, env);
+  assert.equal(t.min, 1); assert.deepEqual(t.r.map((r) => r.id), ['solo']);
+  // public queue: alone, it waits out the short-start wait, then starts by itself
+  const l = queue(seat('lone', { q: 'q6', size: 4, min: 1 }));
+  await l.open; await sleep(3000);
+  assert.ok(!l.got.some((m) => m.t === 'found'), 'not at once');
+  assert.ok(await until(() => l.got.some((m) => m.t === 'found'), 40_000));
+  assert.deepEqual(l.got.find((m) => m.t === 'found').players.map((p) => p.id), ['lone']);
+});
+
+test('min 2: a lone player in a public queue keeps waiting', { timeout: 60_000 }, async () => {
+  await seed('play_wait:wait');
+  const c = queue(seat('wait', { q: 'q7', size: 4, min: 2 }));
+  await c.open; await sleep(33_000);
+  assert.ok(!c.got.some((m) => m.t === 'found'));
+  assert.ok(c.got.some((m) => m.t === 'queued' && m.waited >= 30));
+  c.ws.send(JSON.stringify({ t: 'cancel' }));
+});
+
 test('a second tab takes the place in the queue; cancel leaves it', async () => {
   await seed('play_t:t');
   const one = queue(seat('t', { q: 'q3' })); await one.open; await sleep(100);
