@@ -38,12 +38,43 @@ export async function stripe<T = any>(env: Env, method: 'GET' | 'POST', path: st
 }
 
 /**
- * Verifies a Stripe webhook signature (t=…,v1=…) and returns the parsed event. Stripe sends events about the platform
- * account and events about connected accounts from two separate endpoints, each with its own signing secret, both
- * pointed at /api/stripe/webhook: a signature from either secret is accepted.
+ * Stripe's v2 API (Accounts v2 for creators' payout accounts): JSON bodies, the same key, version and error handling.
+ * GET parameters go in the query string, with `include` repeated once per value.
+ */
+export async function stripeV2<T = any>(env: Env, method: 'GET' | 'POST', path: string, body?: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
+  if (!env.STRIPE_SECRET_KEY) throw new AppError(503, 'Payments are not configured yet.', 'payments_unavailable');
+  let url = `${env.STRIPE_API_BASE}/v2${path}`;
+  if (method === 'GET' && body) {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(body)) for (const x of Array.isArray(v) ? v : [v]) q.append(k, String(x));
+    url += '?' + q.toString();
+  }
+  let r: Response;
+  try {
+    r = await fetch(url, {
+      method,
+      headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'stripe-version': STRIPE_API_VERSION, ...(method === 'POST' ? { 'content-type': 'application/json' } : {}), ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}) },
+      body: method === 'POST' ? JSON.stringify(body || {}) : undefined,
+    });
+  } catch (e) { throw new AppError(502, `Stripe could not be reached: ${(e as Error).message}`, 'stripe_unknown'); }
+  const j = await r.json<any>().catch(() => ({}));
+  if (!r.ok) throw new AppError(502, `Stripe: ${j?.error?.message || `HTTP ${r.status}`}`, r.status >= 500 || r.status === 409 || r.status === 429 ? 'stripe_unknown' : 'stripe_error');
+  return j as T;
+}
+
+/** Whether a creator's Accounts v2 payout account can receive Transfers from the platform. */
+export async function payoutReady(env: Env, account: string): Promise<boolean> {
+  const a = await stripeV2<any>(env, 'GET', `/core/accounts/${encodeURIComponent(account)}`, { include: ['configuration.recipient'] });
+  return a?.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status === 'active';
+}
+
+/**
+ * Verifies a Stripe webhook signature (t=…,v1=…) and returns the parsed event. Two Stripe endpoints point at
+ * /api/stripe/webhook, each with its own signing secret: the payments one (snapshot events) and the creator-accounts one
+ * (Accounts v2 thin events). A signature from either secret is accepted.
  */
 export async function verifyWebhook(env: Env, payload: string, header: string | null): Promise<any> {
-  const secrets = [env.STRIPE_WEBHOOK_SECRET, env.STRIPE_CONNECT_WEBHOOK_SECRET].filter((x): x is string => !!x);
+  const secrets = [env.STRIPE_WEBHOOK_SECRET, env.STRIPE_ACCOUNTS_WEBHOOK_SECRET].filter((x): x is string => !!x);
   if (!secrets.length) throw new AppError(503, 'Webhook secret is not configured.');
   const parts = Object.fromEntries((header || '').split(',').map((p) => p.split('=') as [string, string]).filter((p) => p.length === 2).map(([k, v]) => [k.trim(), v.trim()]));
   const t = Number(parts.t);

@@ -6,7 +6,9 @@ HearthCade is a marketplace on Stripe Connect with **separate charges and transf
    of record; the card statement and the Checkout page say so.
 2. The signed webhook records the sale: the platform keeps its cut and credits the rest to the creator's ledger, where it
    waits out the hold period (`earnings_hold_days`, default 7) so refunds can be taken back first.
-3. The creator onboards a Connect account (Stripe-hosted onboarding, Express dashboard, `transfers` capability). Once a
+3. The creator onboards a payout account: an Accounts v2 connected account with the `recipient` configuration
+   (`stripe_balance.stripe_transfers` capability), the Express Dashboard, and HearthCade as fees and losses collector,
+   through Stripe-hosted onboarding. Once a
    day, every creator whose available balance reached the minimum is paid automatically (`auto_payouts`, on by
    default): the platform sends a Transfer from its balance to the creator's account, and Stripe pays it out to the
    creator's bank on that account's payout schedule. Creators can also press Withdraw to be paid sooner.
@@ -22,12 +24,14 @@ Do everything in a Stripe **sandbox** first, then repeat it in live mode with li
 
 ### 1. Connect settings (Dashboard → Connect → Settings)
 
-- Platform profile: marketplace, platform is the merchant of record, the platform is responsible for losses
-  (negative balances) of connected accounts.
+- **Platform profile** (Settings → Connect → Platform profile): marketplace, platform is the merchant of record, and
+  complete the **loss liability** acknowledgement (the platform is responsible for negative balances). Until this is
+  done Stripe refuses to create creator accounts with `account_creation_losses_collector_unavailable`.
+- **Managed Payments** (Stripe as merchant of record) is on by default for new accounts and cannot be used by Connect
+  platforms. The Worker turns it off on each Checkout Session; you can also turn off the default in Settings.
 - Onboarding: Express, with HearthCade branding (name, icon, colour).
-- If creators live outside the platform's country: enable cross-border payouts. Their accounts are created with the
-  `recipient` service agreement automatically.
-- Admin console → Settings → "Country of the platform Stripe account" must match the Stripe account's country.
+- If creators live outside the platform's country: enable cross-border payouts. Recipient-only accounts onboard under
+  the recipient service agreement.
 
 ### 2. API key: a restricted key, not the secret key
 
@@ -38,8 +42,7 @@ Create a restricted key (`rk_…`) named "HearthCade Worker" with only these per
 | Checkout Sessions | Create sessions; retrieve and list them (Read is not enough) |
 | Refunds | Admin refunds; automatic refund of a duplicate purchase |
 | Transfers | Creator withdrawals |
-| Connect → Accounts | Create a creator's payout account; read its status |
-| Connect → Account Links | Onboarding links |
+| Accounts v2 (`v2_account_storer_write` and account links) | Create a creator's payout account, read its status, onboarding links |
 
 If a call fails with a 403 in the sandbox, `stripe logs tail` names the missing permission. Add an IP access policy to
 the key if Stripe offers it for your account (Cloudflare Workers use Cloudflare's egress ranges, so this is optional).
@@ -52,10 +55,11 @@ Worker pins on every request (`STRIPE_API_VERSION` in `src/stripe.ts`). Upgrade 
 | Endpoint | Listens to | Events |
 | --- | --- | --- |
 | Platform | Your account | `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` |
-| Connect | Connected accounts | `account.updated` |
+| Creator accounts | Your account, **thin** payload (an event destination) | `v2.core.account[configuration.recipient].capability_status_updated`, `v2.core.account[requirements].updated` |
 
-Each endpoint has its own signing secret (`whsec_…`). A signature from either is accepted; events from connected
-accounts are only used for `account.updated`.
+Each has its own signing secret (`whsec_…`) and a signature from either is accepted. The creator-accounts destination
+uses the thin payload, which Stripe sends for Accounts v2 events; the Worker reads the account back from Stripe instead
+of trusting the event body. Snapshot events that come from a connected account are ignored.
 
 ### 4. Worker secrets
 
@@ -65,7 +69,7 @@ Run these yourself, from the repository, and paste each value only into the prom
 ```sh
 npx wrangler secret put STRIPE_SECRET_KEY              # the rk_… restricted key
 npx wrangler secret put STRIPE_WEBHOOK_SECRET          # whsec_… of the Platform endpoint
-npx wrangler secret put STRIPE_CONNECT_WEBHOOK_SECRET  # whsec_… of the Connect endpoint
+npx wrangler secret put STRIPE_ACCOUNTS_WEBHOOK_SECRET # whsec_… of the creator-accounts destination
 ```
 
 The admin console's health panel shows whether each one is set (never its value).
@@ -90,7 +94,7 @@ The admin console's health panel shows whether each one is set (never its value)
 | Dispute opened (including an inquiry) | Access revoked; the credit is held back. A disputed license fee suspends the license. |
 | Dispute won, or inquiry closed | Access and credit come back (once). |
 | Dispute lost | Nothing more: the credit stays taken back. |
-| `account.updated` | The creator's "payouts enabled" flag follows the account's `transfers` capability and `payouts_enabled`. |
+| A creator account's capability or requirements change | The account is read back from Stripe (the thin event carries only its id); "payouts enabled" follows `configuration.recipient.capabilities.stripe_balance.stripe_transfers.status == active`. |
 | Withdrawal (button, or the daily automatic payout at 03:17 UTC) | The ledger debit and the withdrawal record are one transaction; the Transfer uses the withdrawal id as its idempotency key. A clear refusal restores the balance; an unknown outcome is retried every 10 minutes with the same key, so a creator is never paid twice. |
 
 If money already left for the creator when a refund or chargeback arrives, the creator's balance goes negative and

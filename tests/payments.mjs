@@ -105,7 +105,7 @@ test('webhook signatures: only a fresh, correct signature is accepted', async ()
 });
 
 test('webhook signatures: the Connect endpoint has its own secret, and either is accepted', async () => {
-  const env = { STRIPE_WEBHOOK_SECRET: 'whsec_platform', STRIPE_CONNECT_WEBHOOK_SECRET: 'whsec_connect' };
+  const env = { STRIPE_WEBHOOK_SECRET: 'whsec_platform', STRIPE_ACCOUNTS_WEBHOOK_SECRET: 'whsec_connect' };
   const body = JSON.stringify({ id: 'evt_2', type: 'account.updated', account: 'acct_1' });
   const t = Math.floor(Date.now() / 1000);
   for (const k of ['whsec_platform', 'whsec_connect']) assert.equal((await verifyWebhook(env, body, `t=${t},v1=${await hmacHex(k, `${t}.${body}`)}`)).id, 'evt_2');

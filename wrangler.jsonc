@@ -61,6 +61,6 @@
   //   CF_ACCOUNT_ID           the account games are deployed into (required)
   //   ADMIN_CLAIM_TOKEN       one-time token for claiming the first admin account
   //   STRIPE_SECRET_KEY       Stripe restricted key (rk_…; docs/stripe.md lists its permissions): payments + Connect payouts
-  //   STRIPE_WEBHOOK_SECRET   signing secret of the webhook endpoint for the platform account's own events
-  //   STRIPE_CONNECT_WEBHOOK_SECRET  signing secret of the webhook endpoint for connected accounts' events
+  //   STRIPE_WEBHOOK_SECRET   signing secret of the payments webhook endpoint (snapshot events)
+  //   STRIPE_ACCOUNTS_WEBHOOK_SECRET  signing secret of the creator-accounts event destination (Accounts v2 thin events)
 }

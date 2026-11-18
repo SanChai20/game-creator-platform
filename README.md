@@ -85,7 +85,7 @@ Games have no login of their own: every player signs in to the platform and play
 - **Payouts.** Once the available balance reaches the minimum (default $50), it is sent to the creator's Stripe Connect account automatically each day, and Stripe pays it out to their bank. Creators can also withdraw it sooner. Manual payouts settled by an administrator are off by default and can be turned on in the admin console.
 - **Refunds and chargebacks** revoke access and take back the creator's credit (a partial refund, its share). A chargeback the platform wins gives both back.
 
-Stripe is used for everything: Checkout for payments, Connect Express accounts and Transfers for payouts, signed webhooks for reconciliation. Every number above is a setting in the admin console.
+Stripe is used for everything: Checkout for payments, Connect (Accounts v2 recipient accounts with the Express Dashboard) and Transfers for payouts, signed webhooks for reconciliation. Every number above is a setting in the admin console.
 
 Stripe's own processing fee is charged to the platform account, so by default it comes out of the platform's cut. The settings "Payment processing cost passed on to the creator" let you pass it through instead.
 
@@ -106,7 +106,7 @@ Addresses: the platform is `https://hearthcade.com` (`PUBLIC_ORIGIN`; `www` redi
 | `ADMIN_CLAIM_TOKEN` | Claiming the first admin account at `/claim-admin?token=…`. Works once |
 | `STRIPE_SECRET_KEY` | The creator fee, game sales and Stripe payouts. A restricted key; [docs/stripe.md](docs/stripe.md) lists its permissions |
 | `STRIPE_WEBHOOK_SECRET` | Verifying the platform account's webhooks sent to `/api/stripe/webhook` |
-| `STRIPE_CONNECT_WEBHOOK_SECRET` | Verifying connected accounts' webhooks (`account.updated`) sent to the same address |
+| `STRIPE_ACCOUNTS_WEBHOOK_SECRET` | Verifying the creator-accounts event destination (Accounts v2 thin events) sent to the same address |
 
 Without the Stripe secrets the platform runs with payments switched off: free games work, and the admin can grant creator licenses by hand.
 
@@ -119,9 +119,9 @@ list) is in [docs/stripe.md](docs/stripe.md). In short:
 2. `wrangler secret put STRIPE_SECRET_KEY` with a restricted key (`rk_…`).
 3. Two webhook endpoints at `https://<site>/api/stripe/webhook`, API version `2026-10-28.endive`: one for your account's
    events (`checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`,
-   `charge.dispute.created`, `charge.dispute.closed`) and one for connected accounts (`account.updated`). Their signing
-   secrets go in `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET`.
-4. In the admin console, set "Country of the platform Stripe account".
+   `charge.dispute.created`, `charge.dispute.closed`) and a thin-event destination for creators' accounts
+   (`v2.core.account[configuration.recipient].capability_status_updated`, `v2.core.account[requirements].updated`). Their
+   signing secrets go in `STRIPE_WEBHOOK_SECRET` and `STRIPE_ACCOUNTS_WEBHOOK_SECRET`.
 
 ## Develop
 
