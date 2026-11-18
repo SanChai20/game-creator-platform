@@ -5,8 +5,8 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
-  // The platform's own address. Games stay on workers.dev (or GAME_HOST), a different site, so a game page can never set
-  // or read the platform's cookies. Other hosts of this Worker redirect pages to PUBLIC_ORIGIN (src/index.ts).
+  // The platform's own address. Games live on GAME_HOST (hearthcade.app), a different site, so a game page can never set
+  // or read the platform's cookies. www redirects pages to PUBLIC_ORIGIN (src/index.ts).
   "routes": [
     { "pattern": "hearthcade.com", "custom_domain": true },
     { "pattern": "www.hearthcade.com", "custom_domain": true }
@@ -49,8 +49,8 @@
     // "DISPATCH_NAMESPACE": "gcp-games",
     // Games are served at <script>.<GAME_HOST>. Needed for "dispatch". With "cloudflare" plus GAME_ZONE_ID, standard
     // game Workers get per-script routes on that host instead of workers.dev, so addresses do not change at the move.
-    // "GAME_HOST": "play.example.com",
-    // "GAME_ZONE_ID": "<zone id of GAME_HOST>",
+    "GAME_HOST": "hearthcade.app",
+    "GAME_ZONE_ID": "696f63e1c098bfd778b39bf941ae69c4",
     "GAMES_BUCKET": "gcp-games",
     "STRIPE_API_BASE": "https://api.stripe.com"
   }
