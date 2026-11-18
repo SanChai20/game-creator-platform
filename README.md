@@ -66,6 +66,7 @@ Every game gets per-player progress from the platform: cloud saves (`GCP.save`),
 - The game, environment and player always come from the signed play token, checked against that game's own key. A request body cannot name another player or game.
 - Preview and live data are separate. The verifier plays under a throwaway identity (`verify:<session>`), cleaned up daily, so it never touches a creator's own saves.
 - Players see and reset their own progress on the game page (`/api/games/:slug/progress`). Creators get totals and averages through `game_data`, never one player's data.
+- **Continue playing.** Signed-in players get a Continue row on the store front and a library (`/library`, `/api/me/continue`, `/api/me/library`): every live game they played, most recent first, with play time, last played and last saved, built from the play record with no game code. A game may add where the player is with `GCP.resume.set({ label, detail, progress })` (cleared with `GCP.resume.clear()`, and by a progress reset), and Continue opens it with `GCP.launch.continue` true so it can skip its title screen and load the saved run. A player can take a game off the row; it comes back when they play it again. Rules in `src/player-data.js`, tests in `tests/continue.mjs`.
 - The SDK's offline copy in `localStorage` is keyed by game, environment and player, so people sharing a browser stay apart.
 
 ## Game sessions and accounts

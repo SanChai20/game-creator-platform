@@ -23,7 +23,7 @@ import { addDays, dayOf, now, parseJson, rid, safeEqual, sha256 } from '../util'
 // @ts-ignore plain JS module
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
-import { playerSummary, resetPlayer, scopeOf } from '../player-data.js';
+import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
 
@@ -244,11 +244,14 @@ api.get('/games/:slug', async (c) => {
   const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
   const reviews = await c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 50').bind(p.id).all<Record<string, any>>();
   const dist = await c.env.DB.prepare('SELECT rating, COUNT(*) AS n FROM reviews WHERE project_id = ? AND hidden = 0 GROUP BY rating').bind(p.id).all<{ rating: number; n: number }>();
-  let mine = null, played = false, owned = p.price_cents === 0;
+  let mine = null, played = false, owned = p.price_cents === 0, resume: { last_played: number; saved_at: number | null; resume: unknown } | null = null;
   if (u) {
     mine = await c.env.DB.prepare('SELECT rating, body FROM reviews WHERE project_id = ? AND user_id = ?').bind(p.id, u.id).first();
     played = !!(await c.env.DB.prepare("SELECT 1 FROM plays WHERE project_id = ? AND user_id = ? AND env = 'live' AND counted = 1 LIMIT 1").bind(p.id, u.id).first());
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
+    // Played before: the page offers Continue (with where the game says the player is) instead of Play.
+    const pg = await c.env.DB.prepare('SELECT last_at, resume, (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = ?1 AND s.user_id = ?2) AS saved_at FROM player_games WHERE project_id = ?1 AND user_id = ?2').bind(p.id, u.id).first<{ last_at: number; resume: string | null; saved_at: number | null }>();
+    if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
   }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
   const refundable = u && p.price_cents > 0 ? await refundablePurchase(c.env, s, u.id, p.id) : null;
@@ -261,6 +264,8 @@ api.get('/games/:slug', async (c) => {
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // where this player left off (null when they have nothing saved here): the page's Continue button
+    continue: resume,
     // Until when this buyer can still refund the game themselves (null once the window has passed or it was refunded before).
     refund_until: refundable?.until ?? null,
     refund_play_left: refundable ? Math.max(0, s.refund_max_play_minutes * 60 - refundable.played_seconds) : null,
@@ -330,6 +335,41 @@ api.delete('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   await rateLimit(c.env, 'reset:' + u.id, 20, 3600);
   return c.json(await resetPlayer(c.env.DB, scopeOf(p.id, 'live'), u.id));
+});
+
+// ---- continue playing ---------------------------------------------------------------------------
+// The signed-in player's own games, most recently played first: the store's Continue row and the library. Only their own.
+async function continueCards(c: Ctx, userId: string, limit: number, offset = 0) {
+  const { list, more } = await continueList(c.env.DB, userId, { limit, offset });
+  if (!list.length) return { games: [], more: false };
+  const ids = list.map((x: { game_id: string }) => x.game_id), origin = c.get('origin');
+  const rows = await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>();
+  const byId = new Map(rows.results.map((r) => [r.id, r]));
+  const games = list.filter((x: { game_id: string }) => byId.has(x.game_id)).map(({ game_id, ...x }: Record<string, any>) => ({ ...card(origin, byId.get(game_id)!), progress: x }));
+  return { games, more };
+}
+api.get('/me/continue', async (c) => {
+  const u = requireUser(c);
+  c.header('cache-control', 'private, no-store');
+  return c.json(await continueCards(c, u.id, num(c.req.query('limit')) || 12, num(c.req.query('offset')) || 0));
+});
+// Takes a game off the Continue row until it is played again. Progress stays.
+api.delete('/me/continue/:slug', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('No such game.');
+  return c.json(await hideContinue(c.env.DB, scopeOf(p.id, 'live'), u.id, now()));
+});
+// The library: games played (as on the Continue row, paged) and games bought but never opened.
+api.get('/me/library', async (c) => {
+  const u = requireUser(c), origin = c.get('origin'), offset = num(c.req.query('offset')) || 0;
+  c.header('cache-control', 'private, no-store');
+  const [played, bought] = await Promise.all([
+    continueCards(c, u.id, 24, offset),
+    offset ? null : c.env.DB.prepare(`SELECT p.*, u.name AS author, b.created_at AS bought_at FROM purchases b JOIN projects p ON p.id = b.project_id JOIN users u ON u.id = p.owner_id
+        WHERE b.user_id = ?1 AND b.status = 'paid' AND p.status = 'live' AND NOT EXISTS (SELECT 1 FROM player_games pg WHERE pg.project_id = p.id AND pg.user_id = ?1)
+        ORDER BY b.created_at DESC LIMIT 60`).bind(u.id).all<Record<string, any>>(),
+  ]);
+  return c.json({ ...played, unplayed: bought ? bought.results.map((r) => ({ ...card(origin, r), bought_at: r.bought_at })) : null });
 });
 
 api.post('/games/:slug/reviews', async (c) => {

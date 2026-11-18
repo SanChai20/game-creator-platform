@@ -5,12 +5,13 @@ import { useEffect, useState } from 'react';
 import { api, Fail, t, useApp, useData, type GameCard } from '../lib';
 import { Button, CelScene, Eyebrow } from '../ui';
 import { HomeSkeleton } from '../skeletons';
+import { ContinueRow } from '../continue';
 import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, type Genre, type StoreStats } from '../store';
 
 interface HomeData { stats: StoreStats; shelves: { trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: Genre[] }
 
 export function Home() {
-  const { config } = useApp();
+  const { config, user } = useApp();
   const { data, error, loading, reload } = useData<HomeData>('/home');
   const [since] = useState(() => lastVisit()), [newCount, setNewCount] = useState(0);
   useEffect(() => { if (since) api<{ total: number }>(`/games?since=${since}&limit=1&facets=0`).then((r) => setNewCount(r.total), () => {}); }, [since]);
@@ -45,7 +46,9 @@ export function Home() {
           <Stats s={d.stats} />
         </header>
         <Spotlight games={spot} />
-        <Since newCount={newCount} since={since} />
+        {/* signed in: the account's own Continue row (every device); signed out, or nothing played yet: this browser's */}
+        {user && <ContinueRow />}
+        <Since newCount={newCount} since={since} recent={!user} />
         <Cartridges list={d.genres} />
         <TabbedLists title={t('New and noteworthy', '新鲜热门')} tabs={[
           { key: 'trending', label: t('Trending', '热门'), to: '/browse', games: more.length >= 5 ? more : sh.trending },

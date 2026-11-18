@@ -534,3 +534,42 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .mgate li { padding: 2px 8px; border-radius: 999px; border: 1px solid rgb(255 255 255 / .35); font-size: 12px; }
 .mgate p { margin: 0; font-size: 13px; color: rgb(255 255 255 / .82); }
 @media (prefers-reduced-motion: reduce) { img.mature-blur, .stage .poster.mature-blur { transform: none; } }
+
+/* ---- continue playing: the player's own games, on the store front and in the library --------------- */
+.cont-shelf .sh { margin-top: clamp(40px, 5vw, 64px); }
+.cont-row { display: grid; grid-auto-flow: column; grid-auto-columns: max(268px, calc((100% - 54px) / 4)); gap: 18px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; padding: 4px 4px 10px; margin: -4px -4px -10px; }
+.cont-row::-webkit-scrollbar { display: none; }
+.cont-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 18px; }
+.cont { position: relative; display: grid; grid-template-rows: auto 1fr; min-width: 0; scroll-snap-align: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; transition: border-color var(--dur-fast), transform var(--dur) var(--ease); }
+.cont:hover { border-color: var(--line-3); transform: translateY(-2px); }
+.cont-art { position: relative; display: block; aspect-ratio: 16 / 8; background: var(--sunk); overflow: hidden; }
+.cont-art img { width: 100%; height: 100%; object-fit: cover; transition: transform var(--dur-slow) var(--ease); }
+.cont:hover .cont-art img { transform: scale(1.04); }
+.cont-art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0, 0, 0, .55), transparent 55%); pointer-events: none; }
+.cont-art .mono-title { font-size: 20px; }
+.cont-go { position: absolute; z-index: 1; right: 12px; bottom: 12px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, .35); transition: transform var(--dur) var(--ease); }
+.cont-go .play-tri { margin-left: 3px; }
+.cont:hover .cont-go, .cont-art:focus-visible .cont-go { transform: scale(1.1); }
+.cont-bar { display: block; height: 4px; border-radius: 2px; background: rgba(var(--text-rgb), .14); overflow: hidden; }
+.cont-bar b { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.cont-bar.on-art { position: absolute; z-index: 1; left: 12px; right: 68px; bottom: 18px; background: rgba(255, 255, 255, .28); }
+.cont-b { display: grid; align-content: start; gap: 3px; padding: 12px 14px 0; min-width: 0; }
+.cont-t { font: 700 17px/1.2 var(--font-display); letter-spacing: -.01em; }
+.cont-t:hover { color: var(--accent-text); }
+.cont-where { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text); min-width: 0; }
+.cont-pin { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.cont-pct { color: var(--text-3); font-weight: 500; }
+.cont-detail { font-size: 13px; color: var(--text-2); }
+.cont-meta { font-size: 12.5px; color: var(--text-3); }
+.cont-act { display: flex; align-items: center; gap: 8px; padding: 12px 14px 14px; }
+.cont-act .btn { flex: 1; }
+.cont-x { flex: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 3px; border: 1.5px solid var(--line-2); color: var(--text-3); font-size: 18px; line-height: 1; padding-bottom: 2px; transition: border-color var(--dur-fast), color var(--dur-fast); }
+.cont-x:hover { border-color: var(--text); color: var(--text); }
+@media (max-width: 620px) { .cont-row { grid-auto-columns: 82%; gap: 12px; } .cont-art { aspect-ratio: 16 / 7; } }
+/* the game page: where the player left off, under Continue */
+.gp-resume { display: grid; gap: 6px; font-size: 13px; color: var(--text-2); }
+.gp-resume .cont-bar { height: 3px; }
+.linkish { justify-self: start; padding: 0; font: inherit; font-size: 12.5px; color: var(--text-3); text-decoration: underline; text-underline-offset: 3px; }
+.linkish:hover { color: var(--text); }
+.stage-resume { max-width: 46ch; text-align: center; }
+.library > section:first-child .sh { margin-top: 8px; }

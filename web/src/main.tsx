@@ -32,6 +32,7 @@ import { Docs } from './pages/Docs';
 import { Browse } from './pages/Browse';
 import { Categories, Category } from './pages/Categories';
 import { Queue } from './pages/Queue';
+import { Library } from './pages/Library';
 import { Legal, LEGAL_DOCS, legalTitle, type LegalDoc } from './pages/Legal';
 import { OPERATOR } from './operator';
 import { SearchBox, StoreBar } from './store';
@@ -75,6 +76,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
           <Link to="/" className="brand" aria-label={brand}><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
           <nav className="nav-links" aria-label={t('Main', '主导航')}>
             <Link to="/" className={'nl' + (isStore(path) ? ' on' : '')}>{t('Store', '商店')}</Link>
+            {user && <Link to="/library" className={on('/library')}>{t('Library', '游戏库')}</Link>}
             <Link to="/create" className={on('/create')}>{t('For creators', '创作者')}</Link>
             <Link to="/docs" className={on('/docs')}>{t('Docs', '文档')}</Link>
             {user && <Link to="/console" className={on('/console')}>{t('Console', '控制台')}</Link>}
@@ -90,6 +92,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                 {open && (
                   <div className="pop" role="menu">
                     <div className="who"><b className="clip">{user.name}</b><div className="mute clip fs-sm">{user.email}</div></div>
+                    <Link to="/library">{t('Your games', '我的游戏')}</Link>
                     <Link to="/console">{t('Console', '控制台')}</Link>
                     <Link to="/console/earnings">{t('Earnings', '收益')}</Link>
                     <Link to="/docs">{t('Docs', '文档')}</Link>
@@ -111,6 +114,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
       <nav className="tabbar" aria-label={t('Main', '主导航')}>
         <Link to="/" className={path === '/' || path.startsWith('/g/') ? 'on' : ''}><Icon kind="store" /><span>{t('Store', '商店')}</span></Link>
         <Link to="/categories" className={path === '/categories' || path === '/browse' || path.startsWith('/c/') ? 'on' : ''}><Icon kind="grid" /><span>{t('Categories', '分类')}</span></Link>
+        {user && <Link to="/library" className={path === '/library' ? 'on' : ''}><Icon kind="shelf" /><span>{t('Library', '游戏库')}</span></Link>}
         <Link to="/create" className={path.startsWith('/create') || path.startsWith('/docs') ? 'on' : ''}><Icon kind="spark" /><span>{t('Creators', '创作者')}</span></Link>
         {user ? <Link to="/console" className={path.startsWith('/console') || path.startsWith('/admin') ? 'on' : ''}><Icon kind="desk" /><span>{t('Console', '控制台')}</span></Link>
           : <Link to={onAuth ? '/login' + keep : loginUrl()} className={onAuth ? 'on' : ''}><Icon kind="user" /><span>{t('Sign in', '登录')}</span></Link>}
@@ -150,7 +154,7 @@ function NotFound() {
 
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
-  const needUser = path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device';
+  const needUser = path === '/library' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device';
   useEffect(() => { if (needUser && !user) navigate(loginUrl(), true); }, [needUser, user, loc]);
   if (needUser && !user) return <RouteSkeleton path={path} />;
   let m: RegExpMatchArray | null;
@@ -161,6 +165,7 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
+  if (path === '/library') return <Library />;
   if (path === '/create') return <Creators />;
   if (path === '/docs') return <Docs />;
   if (path === '/console') return <Console />;

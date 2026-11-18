@@ -13,7 +13,7 @@ import { eloChanges, matchRequest } from '../match-making';
 import { getProject, getVersion } from '../projects';
 import type { Seat } from '../matchmaker';
 // @ts-ignore plain JS module
-import { DataError, authToken, playRecordStmt, playerOf, playerSummary, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
+import { DataError, authToken, playRecordStmt, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
 import { bindingProblem } from '../session-binding.js';
 // @ts-ignore plain JS module
@@ -173,6 +173,12 @@ rt.post('/stats', async (c) => {
 rt.post('/record', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
   return c.json(await playerSummary(c.env.DB, scopeOf(tok.g, tok.e), playerOf(tok)));
+});
+
+// GCP.resume: where the player left off, shown on their Continue row ("Act 2, Floor 14").
+rt.post('/resume', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  return c.json(await guard(() => resumeOp(c.env.DB, tok, b, now())));
 });
 
 rt.post('/score', async (c) => {

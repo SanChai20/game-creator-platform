@@ -60,7 +60,12 @@ function MatureGate({ cats, onConfirm, onCancel }: { cats: string[]; onConfirm: 
 }
 
 /** The play URL with the viewer's platform language, read by the SDK as GCP.lang. */
-const withLang = (u: string) => { try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); return x.toString(); } catch { return u; } };
+const withLang = (u: string, cont = false) => { try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); if (cont) x.searchParams.set('gcp_continue', '1'); return x.toString(); } catch { return u; } };
+
+/** Where the player left off, from the game's GCP.resume or else from the platform's own record: one line under Continue. */
+export function resumeLine(c: { last_played: number; saved_at: number | null; resume: { label: string; detail?: string } | null }) {
+  return c.resume ? [c.resume.label, c.resume.detail].filter(Boolean).join(' · ') : t('Saved {time}', '{time}存档', { time: ago(c.saved_at || c.last_played) });
+}
 
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
@@ -116,6 +121,9 @@ export function Game({ slug }: { slug: string }) {
   // Opened from a game's own address (?play=1): start at once for whoever is signed in here (a visitor signs in first, unless guests may play). Only where
   // nothing has to be asked first (an adults-only warning, buying); otherwise the page shows what is needed.
   const auto = useRef(query().get('play') === '1');
+  // Continue (the default once the player has progress here) opens the game with GCP.launch.continue, so it can load the
+  // saved run; "Start from the title screen" opens it without. Kept in a ref so the adult and compatibility gates keep it.
+  const wantCont = useRef(query().get('continue') !== '0');
   useEffect(() => {
     if (!auto.current || !data) return; auto.current = false;
     navigate(`/g/${slug}`, true);
@@ -149,7 +157,7 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; session: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; session: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url, wantCont.current && !!data.continue)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -167,10 +175,12 @@ export function Game({ slug }: { slug: string }) {
   const title = local(g, 'title'), tagline = blurb({ title, tagline: local(g, 'tagline') }), description = local(g, 'description'), controls = local(g, 'controls');
   const genre = g.tags?.[0] as string | undefined, R = RARITY[rarity(g)], h = genre ? genreHue(genre) : 350;
   const tryLabel = fresh || !user ? t('Try free · {minutes} min', '免费试玩 · {minutes} 分钟', { minutes: trial?.minutes ?? 0 }) : t('Continue trial · {left} min left', '继续试玩 · 剩 {left} 分钟', { left: leftMin });
-  const toStage = () => { play(); document.querySelector('.stage')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+  const cont = !locked && live && user ? data.continue as { last_played: number; saved_at: number | null; resume: { label: string; detail?: string; progress?: number } | null } | null : null;
+  const toStage = (c = true) => { wantCont.current = c; play(); document.querySelector('.stage')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
   const cta = !live ? null : locked
-    ? <><Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>{canTry && !url && <Button size="lg" block onClick={toStage} disabled={busy === 'play'}>{tryLabel}</Button>}{config.payments && <SoldBy />}</>
-    : <Button variant="primary" size="lg" block onClick={toStage} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : <><i className="play-tri" aria-hidden="true" />{t('Play now', '立即游玩')}</>}</Button>;
+    ? <><Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>{canTry && !url && <Button size="lg" block onClick={() => toStage()} disabled={busy === 'play'}>{tryLabel}</Button>}{config.payments && <SoldBy />}</>
+    : <><Button variant="primary" size="lg" block onClick={() => toStage()} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : <><i className="play-tri" aria-hidden="true" />{cont ? t('Continue', '继续游戏') : t('Play now', '立即游玩')}</>}</Button>
+      {cont && !url && <p className="gp-resume"><span className="clip">{resumeLine(cont)}</span>{cont.resume?.progress != null && <span className="cont-bar" aria-hidden="true"><b style={{ width: `${Math.round(cont.resume.progress * 100)}%` }} /></span>}<button type="button" className="linkish" onClick={() => toStage(false)}>{t('Start from the title screen', '从标题画面开始')}</button></p>}</>;
 
   return (
     <div className="gpage" style={{ '--h': h, '--rc': R.color } as CSSProperties}>
@@ -217,7 +227,7 @@ export function Game({ slug }: { slug: string }) {
                   <Button size="sm" variant="ghost" onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Or buy now', '或直接购买')} · {price(g.price_cents)}</Button>
                 </>
                 : locked ? <>{trial?.over && <b>{trialDone ? t('Your free trial has ended', '免费试玩已结束') : t('You have used your {minutes}-minute free trial', '你已用完 {minutes} 分钟免费试玩', { minutes: trial.minutes })}</b>}<PlayButton buy onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</PlayButton><span className="mute fs-sm">{config.payments ? trial?.over ? t('Buy it to keep playing. Your saves are kept.', '购买后即可继续游玩，存档会保留。') : t('One payment. Play as much as you like.', '一次购买，畅玩无限。') : t('Purchases are not open yet on this platform.', '平台暂未开放购买。')}</span></>
-                : <><PlayButton onClick={() => play()} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : t('Play', '开始游戏')}</PlayButton>{!user && <span className="mute fs-sm">{guestOk ? t('Playing as a guest. Sign in to keep your progress on every device.', '正在以访客身份游玩。登录后进度可在所有设备上保留。') : t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
+                : <><PlayButton onClick={() => { wantCont.current = true; play(); }} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : cont ? t('Continue', '继续游戏') : t('Play', '开始游戏')}</PlayButton>{cont && <span className="mute fs-sm stage-resume">{resumeLine(cont)}</span>}{!user && <span className="mute fs-sm">{guestOk ? t('Playing as a guest. Sign in to keep your progress on every device.', '正在以访客身份游玩。登录后进度可在所有设备上保留。') : t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
             </div>
           </Stage>
           <aside className="gp-cap">

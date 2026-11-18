@@ -39,6 +39,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Cloud saves | available | `GCP.save` | `game_data` (summary) | saves |
 | Player stats | available | `GCP.playerStats` | `game_data` (summary) | saves |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
+| Continue playing | automatic | `GCP.launch.continue`, `GCP.resume` | none | saves |
 | Shared game data | available | `GCP.shared.get` | `game_data` (set, get, list, delete) | saves |
 | Leaderboards | available | `GCP.leaderboard` | `game_data` (leaderboard, clear_leaderboard) | saves |
 | Realtime multiplayer rooms | available | `GCP.room` | `game_room`, `get_stats` | multiplayer |
@@ -131,6 +132,18 @@ const record = await GCP.playRecord();   // sessions, seconds, first and last pl
 - Offline, saves fall back to a per-player copy in `localStorage` and `set` resolves to `false`; stats resolve to `null`.
 
 Limits: 64 save keys and 64 stat names per player; 256 KB per value; save keys up to 120 characters, stat names up to 60. Details and save-format advice: `get_started {topic: "saves"}`.
+
+## Continue playing
+
+Every signed-in player has a Continue row on the store front and in their library (`/library`): the games they played, most recent first, with play time, last played and last saved. It needs no game code. Pressing Continue opens the game straight away with `GCP.launch.continue` set to `true`. Two optional calls make it better:
+
+```js
+if (GCP.launch.continue && save) loadRun(save); else showTitle();          // skip the title screen for a returning player
+GCP.resume.set({ label: 'Act 2, Floor 14', detail: 'Ember Knight, 3 relics', progress: 0.4 });   // at each checkpoint
+GCP.resume.clear();                                                         // the run ended: nothing to resume
+```
+
+The label (up to 60 characters) and detail (up to 80) appear on the row as they are, so write them in the player's language (`GCP.lang`). The SDK sends at most one `set` every 5 seconds. Resetting progress on the game page clears it. Details: `get_started {topic: "saves"}`.
 
 ## Shared game data
 

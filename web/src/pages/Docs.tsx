@@ -69,7 +69,11 @@ await GCP.playerStats.add('levels_cleared');
 await GCP.playerStats.max('best_combo', 17);
 
 // what the platform recorded by itself: sessions, play time, first and last played
-const record = await GCP.playRecord();`} />
+const record = await GCP.playRecord();
+
+// optional, for the player's Continue row: where they are, and landing them in the saved run
+GCP.resume.set({ label: 'Act 2, Floor 14', progress: 0.4 });
+if (GCP.launch.continue && save.run) startRun(save.run);`} />
             <Ticks items={[
               t('Recorded for every game without any code: sessions, time played, first and last played, best leaderboard scores.', '无需任何代码即可为每款游戏记录：游玩次数、游玩时长、首次与最近游玩时间、排行榜最佳成绩。'),
               t('Preview and live keep separate data, and the browser check plays under a throwaway identity, so testing never touches real progress.', '预览与正式版的数据互相独立，浏览器验证使用一次性身份，测试永远不会影响真实进度。'),
