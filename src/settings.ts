@@ -14,7 +14,7 @@ export const SETTING_DEFS = {
   creator_fee_for_projects: { v: false, type: 'bool', group: 'Creator fee', label: 'Require the fee before creating projects at all', public: true },
 
   withdraw_min_cents: { v: 5000, type: 'cents', group: 'Withdrawals', label: 'Minimum balance to withdraw', public: true },
-  allow_manual_withdrawals: { v: true, type: 'bool', group: 'Withdrawals', label: 'Allow manual withdrawals (paid by an admin outside Stripe)', public: true },
+  allow_manual_withdrawals: { v: false, type: 'bool', group: 'Withdrawals', label: 'Allow manual withdrawals (paid by an admin outside Stripe)', public: true },
   stripe_platform_country: { v: 'US', type: 'text', group: 'Withdrawals', label: 'Country of the platform Stripe account (2 letters)' },
 
   platform_fee_percent: { v: 10, type: 'number', group: 'Paid games', label: 'Platform cut of each game sale (percent)', public: true },

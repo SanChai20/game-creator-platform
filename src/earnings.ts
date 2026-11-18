@@ -34,19 +34,62 @@ export async function recordPurchase(env: Env, s: Settings, a: { userId: string;
   return true;
 }
 
-/** Reverses a purchase after a refund: access is revoked and the creator's credit is taken back. */
+/** Sum of the partial-refund debits already taken for a purchase (zero or negative). */
+const PARTIAL = "COALESCE((SELECT SUM(amount_cents) FROM ledger WHERE ref = ?3 AND kind = 'partial_refund'), 0)";
+
+/** Reverses a purchase after a full refund: access is revoked and what is left of the creator's credit is taken back. */
 export async function refundPurchase(env: Env, where: { paymentIntent?: string; id?: string }): Promise<boolean> {
+  return reversePurchase(env, where, 'refunded', 'refund', 'Refunded sale');
+}
+
+/** A buyer disputed the charge: access is revoked and the creator's credit is held back until the dispute is decided. */
+export async function disputePurchase(env: Env, paymentIntent: string): Promise<boolean> {
+  return reversePurchase(env, { paymentIntent }, 'disputed', 'dispute', 'Disputed sale (chargeback)');
+}
+
+async function reversePurchase(env: Env, where: { paymentIntent?: string; id?: string }, status: 'refunded' | 'disputed', kind: 'refund' | 'dispute', note: string): Promise<boolean> {
   const p = await env.DB.prepare(`SELECT * FROM purchases WHERE ${where.id ? 'id = ?' : 'payment_intent = ?'} AND status = 'paid'`).bind(where.id || where.paymentIntent).first<{ id: string; owner_id: string; project_id: string; net_cents: number }>();
   if (!p) return false;
   const t = now();
   // One transaction, guarded on the purchase still being paid: a webhook and an admin refunding at once take the
-  // creator's credit back once.
+  // creator's credit back once. Partial refunds already taken back are not taken twice.
   const [upd] = await env.DB.batch([
-    env.DB.prepare("UPDATE purchases SET status = 'refunded', refunded_at = ? WHERE id = ? AND status = 'paid'").bind(t, p.id),
-    env.DB.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, 'refund', ?2, ?3, 'Refunded sale', ?4, ?4 WHERE EXISTS (SELECT 1 FROM purchases WHERE id = ?3 AND refunded_at = ?4) AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = 'refund')").bind(p.owner_id, -p.net_cents, p.id, t),
+    env.DB.prepare("UPDATE purchases SET status = ?, refunded_at = ? WHERE id = ? AND status = 'paid'").bind(status, t, p.id),
+    env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, ?5, -?2 - ${PARTIAL}, ?3, ?6, ?4, ?4 WHERE EXISTS (SELECT 1 FROM purchases WHERE id = ?3 AND refunded_at = ?4) AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = ?5)`).bind(p.owner_id, p.net_cents, p.id, t, kind, note),
     env.DB.prepare('UPDATE projects SET sales = MAX(0, sales - 1) WHERE id = ? AND EXISTS (SELECT 1 FROM purchases WHERE id = ? AND refunded_at = ?)').bind(p.project_id, p.id, t),
   ]);
   return !!upd.meta.changes;
+}
+
+/**
+ * A dispute was decided in the platform's favour: the creator's credit comes back, and so does the buyer's access unless
+ * they bought the game again meanwhile. Idempotent: the credit is returned once.
+ */
+export async function disputeWon(env: Env, paymentIntent: string): Promise<boolean> {
+  const p = await env.DB.prepare("SELECT * FROM purchases WHERE payment_intent = ? AND status = 'disputed'").bind(paymentIntent).first<{ id: string; user_id: string; owner_id: string; project_id: string }>();
+  if (!p) return false;
+  const t = now();
+  const [credit] = await env.DB.batch([
+    env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, 'dispute_won', -amount_cents, ?2, 'Dispute won, sale restored', ?3, ?3 FROM ledger WHERE ref = ?2 AND kind = 'dispute' AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?2 AND kind = 'dispute_won') LIMIT 1`).bind(p.owner_id, p.id, t),
+    env.DB.prepare("UPDATE purchases SET status = CASE WHEN EXISTS (SELECT 1 FROM purchases o WHERE o.user_id = ?1 AND o.project_id = ?2 AND o.status = 'paid') THEN 'dispute_won' ELSE 'paid' END, refunded_at = NULL WHERE id = ?3 AND status = 'disputed'").bind(p.user_id, p.project_id, p.id),
+    env.DB.prepare("UPDATE projects SET sales = sales + 1 WHERE id = ? AND EXISTS (SELECT 1 FROM purchases WHERE id = ? AND status = 'paid')").bind(p.project_id, p.id),
+  ]);
+  return !!credit.meta.changes;
+}
+
+/**
+ * A charge was partly refunded (from the Stripe Dashboard): the creator gives back the same share of their credit and the
+ * buyer keeps the game. `refundedCents` is the charge's running total, so replays and later partial refunds add only the
+ * difference.
+ */
+export async function partialRefund(env: Env, paymentIntent: string, refundedCents: number): Promise<boolean> {
+  const p = await env.DB.prepare("SELECT * FROM purchases WHERE payment_intent = ? AND status = 'paid'").bind(paymentIntent).first<{ id: string; owner_id: string; price_cents: number; net_cents: number }>();
+  if (!p || p.price_cents <= 0) return false;
+  const target = -Math.min(p.net_cents, Math.round(p.net_cents * Math.min(refundedCents, p.price_cents) / p.price_cents));
+  const t = now();
+  const r = await env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, 'partial_refund', ?2 - ${PARTIAL}, ?3, 'Partly refunded sale', ?4, ?4 WHERE ?2 - ${PARTIAL} < 0`)
+    .bind(p.owner_id, target, p.id, t).run();
+  return !!r.meta.changes;
 }
 
 export async function owns(env: Env, userId: string, projectId: string): Promise<boolean> {

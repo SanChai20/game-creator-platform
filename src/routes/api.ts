@@ -4,7 +4,7 @@ import { AppError, bad, forbidden, notFound, type Env, type Project, type User }
 import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestIdentity, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
 import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
-import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
+import { balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
@@ -366,7 +366,7 @@ api.get('/media/*', async (c) => {
 async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string) {
   const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
   const session = await stripe<{ id: string; url: string }>(c.env, 'POST', '/checkout/sessions', {
-    mode: 'payment', client_reference_id: u.id, customer_email: u.email, metadata, payment_intent_data: { metadata },
+    mode: 'payment', integration_identifier: 'hearthcade_checkout_kqzvmrtd', client_reference_id: u.id, customer_email: u.email, metadata, payment_intent_data: { metadata },
     line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name, description: `Sold by ${OPERATOR.name} on ${brand}` } } } },
     // The seller of record, next to the Pay button, with the terms the purchase falls under.
     custom_text: { submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase. Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` } },
@@ -399,16 +399,34 @@ export async function grantCreator(env: Env, userId: string, provider: string, r
   ]);
 }
 
-async function revokeCreatorFee(env: Env, paymentIntent: string): Promise<void> {
-  const list = await stripe<{ data: { id: string }[] }>(env, 'GET', '/checkout/sessions', { payment_intent: paymentIntent, limit: 1 }).catch(() => ({ data: [] }));
-  const sid = list.data[0]?.id;
+async function creatorFeeSession(env: Env, paymentIntent: string): Promise<string | null> {
+  // A Stripe failure here must reach the webhook's caller, so Stripe retries the event instead of it being dropped.
+  const list = await stripe<{ data: { id: string }[] }>(env, 'GET', '/checkout/sessions', { payment_intent: paymentIntent, limit: 1 });
+  return list.data[0]?.id || null;
+}
+
+/** Takes back a creator license whose payment was refunded or disputed. */
+async function revokeCreatorFee(env: Env, paymentIntent: string, status: 'refunded' | 'disputed' = 'refunded'): Promise<void> {
+  const sid = await creatorFeeSession(env, paymentIntent);
   if (!sid) return;
   const pay = await env.DB.prepare("SELECT id, user_id FROM payments WHERE provider_ref = ? AND kind = 'creator_fee' AND status = 'paid'").bind(sid).first<{ id: string; user_id: string }>();
   if (!pay) return;
   await env.DB.batch([
-    env.DB.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").bind(pay.id),
+    env.DB.prepare("UPDATE payments SET status = ? WHERE id = ? AND status = 'paid'").bind(status, pay.id),
     // only when no other paid license remains (an admin grant, a second payment)
     env.DB.prepare("UPDATE users SET creator = 0 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM payments WHERE user_id = ? AND kind = 'creator_fee' AND status = 'paid')").bind(pay.user_id, pay.user_id),
+  ]);
+}
+
+/** A disputed creator license payment that the platform won: the license comes back. */
+async function restoreCreatorFee(env: Env, paymentIntent: string): Promise<void> {
+  const sid = await creatorFeeSession(env, paymentIntent);
+  if (!sid) return;
+  const pay = await env.DB.prepare("SELECT id, user_id FROM payments WHERE provider_ref = ? AND kind = 'creator_fee' AND status = 'disputed'").bind(sid).first<{ id: string; user_id: string }>();
+  if (!pay) return;
+  await env.DB.batch([
+    env.DB.prepare("UPDATE payments SET status = 'paid' WHERE id = ? AND status = 'disputed'").bind(pay.id),
+    env.DB.prepare('UPDATE users SET creator = 1, creator_since = COALESCE(creator_since, ?) WHERE id = ?').bind(now(), pay.user_id),
   ]);
 }
 
@@ -449,11 +467,23 @@ api.post('/billing/confirm', async (c) => {
 
 api.post('/stripe/webhook', async (c) => {
   const event = await verifyWebhook(c.env, await c.req.text(), c.req.header('stripe-signature') || null), o = event.data?.object;
+  // An event that happened on a connected account (it names the account) only ever reports that account's status: sales,
+  // refunds and disputes are the platform's own, so the same event types from a connected account are not money here.
+  if (event.account && event.type !== 'account.updated') return c.json({ received: true, ignored: true });
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') await applySession(c.env, o);
-  else if (event.type === 'charge.refunded' && o?.refunded && o.payment_intent) {
-    // a refunded game sale takes back access and the creator's credit; a refunded creator fee takes back the license
-    if (!(await refundPurchase(c.env, { paymentIntent: o.payment_intent }))) await revokeCreatorFee(c.env, o.payment_intent);
-  } else if (event.type === 'account.updated' && o?.id) {
+  else if (event.type === 'charge.refunded' && o?.payment_intent) {
+    const pi = typeof o.payment_intent === 'string' ? o.payment_intent : o.payment_intent.id;
+    // a refunded game sale takes back access and the creator's credit; a refunded creator fee takes back the license;
+    // a partial refund (Dashboard) takes back the same share of the creator's credit and leaves the game with the buyer
+    if (o.refunded) { if (!(await refundPurchase(c.env, { paymentIntent: pi }))) await revokeCreatorFee(c.env, pi); }
+    else if (Number(o.amount_refunded) > 0) await partialRefund(c.env, pi, Number(o.amount_refunded));
+  } else if ((event.type === 'charge.dispute.created' || event.type === 'charge.dispute.closed') && o?.payment_intent) {
+    // The platform is the seller of record, so a chargeback is debited from the platform's Stripe balance. The buyer loses
+    // access and the creator's credit is held back while it is open; winning (or an inquiry closing) gives both back.
+    const pi = typeof o.payment_intent === 'string' ? o.payment_intent : o.payment_intent.id;
+    if (event.type === 'charge.dispute.created') { if (!(await disputePurchase(c.env, pi))) await revokeCreatorFee(c.env, pi, 'disputed'); }
+    else if (o.status === 'won' || o.status === 'warning_closed') { if (!(await disputeWon(c.env, pi))) await restoreCreatorFee(c.env, pi); }
+  } else if (event.type === 'account.updated' && o?.id && event.account === o.id) {
     await c.env.DB.prepare('UPDATE users SET stripe_payouts_enabled = ? WHERE stripe_account = ?').bind(o.payouts_enabled && o.capabilities?.transfers === 'active' ? 1 : 0, o.id).run();
   }
   return c.json({ received: true });
@@ -498,12 +528,17 @@ api.post('/billing/withdraw', async (c) => {
   if (await env.DB.prepare("SELECT 1 FROM withdrawals WHERE user_id = ? AND status = 'pending'").bind(u.id).first()) throw new AppError(409, 'You already have a withdrawal in progress.', 'pending');
   const id = 'wd_' + rid(16), t = now();
   // One statement debits the ledger only if the available balance still covers it, so two requests cannot both succeed.
-  const debit = await env.DB.prepare(
-    `INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
-     SELECT ?1, 'withdrawal', -?2, ?3, 'Withdrawal', ?4, ?4
-     WHERE (SELECT COALESCE(SUM(CASE WHEN available_at <= ?4 OR amount_cents < 0 THEN amount_cents ELSE 0 END), 0) FROM ledger WHERE user_id = ?1) >= ?2`).bind(u.id, amount, id, t).run();
+  // The debit and the withdrawal record are one transaction, so a failure between them cannot take money off the balance
+  // without a withdrawal to show for it (or the reverse).
+  const [debit] = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
+       SELECT ?1, 'withdrawal', -?2, ?3, 'Withdrawal', ?4, ?4
+       WHERE (SELECT COALESCE(SUM(CASE WHEN available_at <= ?4 OR amount_cents < 0 THEN amount_cents ELSE 0 END), 0) FROM ledger WHERE user_id = ?1) >= ?2`).bind(u.id, amount, id, t),
+    env.DB.prepare("INSERT INTO withdrawals (id, user_id, amount_cents, method, details, status, created_at) SELECT ?1, ?2, ?3, ?4, ?5, 'pending', ?6 WHERE EXISTS (SELECT 1 FROM ledger WHERE ref = ?1 AND kind = 'withdrawal')")
+      .bind(id, u.id, amount, method, String(b.details || '').slice(0, 500), t),
+  ]);
   if (!debit.meta.changes) throw new AppError(409, 'Your balance changed. Try again.', 'conflict');
-  await env.DB.prepare("INSERT INTO withdrawals (id, user_id, amount_cents, method, details, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)").bind(id, u.id, amount, method, String(b.details || '').slice(0, 500), t).run();
   if (method === 'stripe') {
     const r = await sendTransfer(env, { id, user_id: u.id, amount_cents: amount, stripe_account: u.stripe_account! });
     if (r === 'failed') throw new AppError(502, 'The transfer did not go through and your balance was restored.', 'transfer_failed');

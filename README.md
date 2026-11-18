@@ -82,8 +82,8 @@ Games have no login of their own: every player signs in to the platform and play
 - **Creator license.** A one-time fee (default $30) to publish any number of games. Building and previewing are free.
 - **Free or paid games.** A creator sets a price or leaves the game free. Players pay the platform; the platform keeps its cut (default 10%) and credits the rest to the creator's balance after a holding period (default 7 days).
 - **Free trials.** A creator can let players try a paid game for a set number of minutes (console or `update_project trial_minutes`). The time is kept per player account on the server, counted by wall clock while the game is open, with at least 30 seconds charged per session, so reloading or switching devices does not reset it. A trial play token expires with the trial, after which saves, leaderboards, rooms and new sessions are refused and the game page asks the player to buy. Admins can switch trials off or cap their length.
-- **Withdrawals.** Once the available balance reaches the minimum (default $50), the creator withdraws to a bank account through Stripe Connect, or requests a manual payout that an administrator settles.
-- **Refunds** revoke access and reverse the creator's credit.
+- **Withdrawals.** Once the available balance reaches the minimum (default $50), the creator withdraws to a bank account through Stripe Connect. Manual payouts settled by an administrator are off by default and can be turned on in the admin console.
+- **Refunds and chargebacks** revoke access and take back the creator's credit (a partial refund, its share). A chargeback the platform wins gives both back.
 
 Stripe is used for everything: Checkout for payments, Connect Express accounts and Transfers for payouts, signed webhooks for reconciliation. Every number above is a setting in the admin console.
 
@@ -104,16 +104,23 @@ Addresses: the platform is `https://hearthcade.com` (`PUBLIC_ORIGIN`; `www` redi
 | `SESSION_SECRET` | Signing play tokens. Any long random string |
 | `CF_API_TOKEN`, `CF_ACCOUNT_ID` | Deploying game Workers. The token needs Workers Scripts: Edit, and Workers Routes: Edit on the `GAME_HOST` zone |
 | `ADMIN_CLAIM_TOKEN` | Claiming the first admin account at `/claim-admin?token=…`. Works once |
-| `STRIPE_SECRET_KEY` | The creator fee, game sales and Stripe payouts |
-| `STRIPE_WEBHOOK_SECRET` | Verifying webhooks sent to `/api/stripe/webhook` |
+| `STRIPE_SECRET_KEY` | The creator fee, game sales and Stripe payouts. A restricted key; [docs/stripe.md](docs/stripe.md) lists its permissions |
+| `STRIPE_WEBHOOK_SECRET` | Verifying the platform account's webhooks sent to `/api/stripe/webhook` |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | Verifying connected accounts' webhooks (`account.updated`) sent to the same address |
 
 Without the Stripe secrets the platform runs with payments switched off: free games work, and the admin can grant creator licenses by hand.
 
 ### Stripe setup
 
-1. Create a Stripe account and enable Connect (Express accounts, Transfers).
-2. Set `STRIPE_SECRET_KEY` with `wrangler secret put STRIPE_SECRET_KEY`.
-3. Add a webhook endpoint at `https://<site>/api/stripe/webhook` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded` and `account.updated` (including events on connected accounts), and set its signing secret as `STRIPE_WEBHOOK_SECRET`.
+The full setup (Connect settings, the restricted key's permissions, both webhook endpoints, sandbox tests and the go-live
+list) is in [docs/stripe.md](docs/stripe.md). In short:
+
+1. Create a Stripe account with Connect (marketplace, Express onboarding, Transfers), in a sandbox first.
+2. `wrangler secret put STRIPE_SECRET_KEY` with a restricted key (`rk_…`).
+3. Two webhook endpoints at `https://<site>/api/stripe/webhook`, API version `2026-10-28.endive`: one for your account's
+   events (`checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded`,
+   `charge.dispute.created`, `charge.dispute.closed`) and one for connected accounts (`account.updated`). Their signing
+   secrets go in `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET`.
 4. In the admin console, set "Country of the platform Stripe account".
 
 ## Develop

@@ -34,7 +34,7 @@ admin.get('/overview', async (c) => {
   ]);
   return c.json({
     users, games, plays, sales, creator_fees: fees, owed_cents: owed?.c || 0, pending_withdrawals: pendingW, daily: daily.results, signups: signups.results, sales_daily: salesDaily.results, flags: flags.results, ai_calls_30d: ai.results,
-    health: { payments: stripeReady(c.env), webhook: !!c.env.STRIPE_WEBHOOK_SECRET, deploy: (!!(c.env.CF_API_TOKEN && c.env.CF_ACCOUNT_ID) && !hostingProblems(c.env).length) || c.env.DEPLOY_DRIVER === 'local', hosting: hostId(c.env), hosting_problems: hostingProblems(c.env), browser: !!c.env.BROWSER || !!(c.env as any).VERIFIER_URL, driver: c.env.DEPLOY_DRIVER },
+    health: { payments: stripeReady(c.env), webhook: !!c.env.STRIPE_WEBHOOK_SECRET, connect_webhook: !!c.env.STRIPE_CONNECT_WEBHOOK_SECRET, deploy: (!!(c.env.CF_API_TOKEN && c.env.CF_ACCOUNT_ID) && !hostingProblems(c.env).length) || c.env.DEPLOY_DRIVER === 'local', hosting: hostId(c.env), hosting_problems: hostingProblems(c.env), browser: !!c.env.BROWSER || !!(c.env as any).VERIFIER_URL, driver: c.env.DEPLOY_DRIVER },
   });
 });
 
