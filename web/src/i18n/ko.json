@@ -1342,5 +1342,7 @@
  "Effective date: {date}": "시행일: {date}",
  "{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).": "{brand}은(는) {state}주 유한책임회사인 {op}(horylo.com)이(가) 개발하고 운영합니다.",
  "Sold by {op}. Payments by Stripe.": "판매자: {op}. 결제는 Stripe가 처리합니다.",
- "By creating an account you agree to the {terms} and the {privacy}.": "계정을 만들면 {terms} 및 {privacy}에 동의하게 됩니다."
+ "By creating an account you agree to the {terms} and the {privacy}.": "계정을 만들면 {terms} 및 {privacy}에 동의하게 됩니다.",
+ "Once your payout account is ready, your available balance is sent to it automatically every day when it reaches {min}. You can also withdraw it now.": "정산 계좌가 준비되면 출금 가능 잔액이 {min}에 도달할 때 매일 자동으로 이 계좌로 송금됩니다. 지금 바로 출금할 수도 있습니다.",
+ "Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)": "출금 가능 잔액이 최소 금액에 도달한 크리에이터에게 매일 자동 지급(Stripe 정산 계좌만)"
 }

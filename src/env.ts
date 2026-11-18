@@ -24,6 +24,7 @@ export interface Env {
   ADMIN_CLAIM_TOKEN?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_ACCOUNTS_WEBHOOK_SECRET?: string;  // signing secret of the event destination for creators' Accounts v2 events (thin)
   PUBLIC_ORIGIN?: string;           // set to pin the public origin (custom domain); otherwise taken from the request
   VERIFY_ORIGIN?: string;           // dev only: origin the local verifier can reach
 }
