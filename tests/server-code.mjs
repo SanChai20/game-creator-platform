@@ -37,7 +37,9 @@ test('a game with server code: /api/* runs it (with its imports and the player),
   const dir = mkdtempSync(join(tmpdir(), 'gcp-srv-'));
   copyFileSync(new URL('../src/runtime/game-worker.js', import.meta.url), join(dir, 'game-worker.js'));
   copyFileSync(new URL('../src/runtime/gcp-intrinsics.js', import.meta.url), join(dir, 'gcp-intrinsics.js'));
+  copyFileSync(new URL('../src/runtime/match-core.js', import.meta.url), join(dir, 'match-core.js'));
   mkdirSync(join(dir, 'server'));
+  writeFileSync(join(dir, 'server/match.js'), 'export default null;\n');
   writeFileSync(join(dir, 'server/secret.js'), "export const KEY = 'sk_live_test_0123456789';\n");
   writeFileSync(join(dir, 'server/index.js'), "import { KEY } from './secret.js';\nexport default { async fetch(request, env) { return Response.json({ n: KEY.length, player: env.player, game: env.GAME.id }); } };\n");
   const mod = await import(join(dir, 'game-worker.js'));
@@ -56,7 +58,9 @@ test('a crash in server code answers 500 marked as the server code\'s, with wher
   const dir = mkdtempSync(join(tmpdir(), 'gcp-srv-'));
   copyFileSync(new URL('../src/runtime/game-worker.js', import.meta.url), join(dir, 'game-worker.js'));
   copyFileSync(new URL('../src/runtime/gcp-intrinsics.js', import.meta.url), join(dir, 'gcp-intrinsics.js'));
+  copyFileSync(new URL('../src/runtime/match-core.js', import.meta.url), join(dir, 'match-core.js'));
   mkdirSync(join(dir, 'server'));
+  writeFileSync(join(dir, 'server/match.js'), 'export default null;\n');
   writeFileSync(join(dir, 'server/index.js'), "export default { async fetch() { const world = null; return Response.json(world.cells); } };\n");
   const mod = await import(join(dir, 'game-worker.js'));
   const env = (ENV) => ({ PREFIX: 'v/', GAME_ID: 'abc123', SLUG: 's', VERSION: '1', ENV, PLAY_KEY: 'k', PLATFORM: 'https://p', FILES: { get: async () => null } });

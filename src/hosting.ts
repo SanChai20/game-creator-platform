@@ -94,20 +94,37 @@ export function metadataLimits(l: GameLimits): { cpu_ms?: number; subrequests?: 
   return { ...(l.cpuMs ? { cpu_ms: l.cpuMs } : {}), ...(l.subRequests ? { subrequests: l.subRequests } : {}) };
 }
 
-export type Binding = { type: 'plain_text' | 'secret_text'; name: string; text: string } | { type: 'r2_bucket'; name: string; bucket_name: string };
-/** The bindings of a game script. Plain text, secret text and one R2 bucket: all supported unchanged on user Workers. */
-export function scriptBindings(vars: Record<string, string>, bucket: string): Binding[] {
+export type Binding = { type: 'plain_text' | 'secret_text'; name: string; text: string } | { type: 'r2_bucket'; name: string; bucket_name: string }
+  | { type: 'durable_object_namespace'; name: string; class_name: string };
+/** The bindings of a game script. Plain text, secret text, one R2 bucket, and (for games with server-run matches) the
+    script's own GameMatch Durable Object class: all supported on user Workers too. */
+export function scriptBindings(vars: Record<string, string>, bucket: string, matches = false): Binding[] {
   const out: Binding[] = [{ type: 'r2_bucket', name: 'FILES', bucket_name: bucket }];
   for (const [name, text] of Object.entries(vars)) out.push({ type: name === 'PLAY_KEY' || name === 'STORE_KEY' ? 'secret_text' : 'plain_text', name, text });
+  if (matches) out.push({ type: 'durable_object_namespace', name: 'MATCH', class_name: MATCH_CLASS });
   return out;
 }
 
+// ----- server-run matches ------------------------------------------------------------------------------------------
+// A game whose bundle has server/match.js gets a Durable Object class in its own script (GameMatch, exported by the
+// runtime), one object per match. Durable Object classes are created by a migration in the upload metadata, and a
+// migration may only be sent once per script: the platform reads the script's current migration tag and sends the
+// migration only when the script does not have it yet. Once a script has the class it keeps the binding, even if a
+// later version drops server/match.js (the runtime then answers that the game has no match code).
+export const MATCH_CLASS = 'GameMatch';
+export const MATCH_MIGRATION_TAG = 'gcp-match-v1';
+export function matchSetup(currentTag: string | null | undefined, hasMatchCode: boolean): { binding: boolean; migrations?: Record<string, unknown> } {
+  if (currentTag === MATCH_MIGRATION_TAG) return { binding: true };
+  if (!hasMatchCode) return { binding: false };
+  return { binding: true, migrations: currentTag ? { old_tag: currentTag, new_tag: MATCH_MIGRATION_TAG, new_sqlite_classes: [MATCH_CLASS] } : { new_tag: MATCH_MIGRATION_TAG, new_sqlite_classes: [MATCH_CLASS] } };
+}
+
 /** The upload metadata of a game script, for either host. */
-export function scriptMetadata(kind: HostKind, o: { bindings: Binding[]; tags: string[]; limits: GameLimits }): Record<string, unknown> {
+export function scriptMetadata(kind: HostKind, o: { bindings: Binding[]; tags: string[]; limits: GameLimits; migrations?: Record<string, unknown> }): Record<string, unknown> {
   const limits = kind === 'workers' ? metadataLimits(o.limits) : undefined;   // a dispatch namespace takes them per request
   return {
     main_module: GAME_MAIN_MODULE, compatibility_date: GAME_COMPAT_DATE, compatibility_flags: GAME_COMPAT_FLAGS,
-    bindings: o.bindings, tags: o.tags, observability: { enabled: true }, ...(limits ? { limits } : {}),
+    bindings: o.bindings, tags: o.tags, observability: { enabled: true }, ...(limits ? { limits } : {}), ...(o.migrations ? { migrations: o.migrations } : {}),
   };
 }
 

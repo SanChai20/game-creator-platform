@@ -670,6 +670,8 @@
  "Players online, sessions, play time, devices, browsers, sales and the errors real players hit.": "Jugadores en línea, sesiones, tiempo de juego, dispositivos, navegadores, ventas y los errores que encuentran los jugadores reales.",
  "Players per day": "Jugadores por día",
  "Players per multiplayer room": "Jugadores por sala multijugador",
+ "Allow server-run matches (server/match.js) and the matchmaker": "Permitir partidas ejecutadas en el servidor (server/match.js) y el emparejamiento",
+ "Players per server-run match (2 to 64)": "Jugadores por partida en el servidor (de 2 a 64)",
  "Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)": "Mensajes por segundo que un jugador puede enviar a una sala multijugador (se permiten ráfagas del doble; de 5 a 240)",
  "Players say": "Opinión de los jugadores",
  "Players see their own progress on the game page and can reset it. Creators see totals and averages, never one player's data.": "Los jugadores ven su propio progreso en la página del juego y pueden reiniciarlo. Los creadores ven totales y medias, nunca los datos de un jugador.",

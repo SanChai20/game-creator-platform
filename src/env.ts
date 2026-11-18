@@ -6,6 +6,7 @@ export interface Env {
   OAUTH_KV: KVNamespace;
   ASSETS: Fetcher;
   ROOMS: DurableObjectNamespace;
+  MATCHMAKER: DurableObjectNamespace;
   PIPELINE: DurableObjectNamespace;
   BROWSER?: Fetcher;
   AI?: Ai;                          // Workers AI: plain-language summaries of open implementations

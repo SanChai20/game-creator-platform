@@ -9,6 +9,9 @@ import { owns } from '../earnings';
 import { TRIAL_MIN_CHARGE_S, trialCharge } from '../trials';
 import { clamp, dayOf, now, safeEqual } from '../util';
 import { regionHint } from '../placement';
+import { eloChanges, matchRequest } from '../match-making';
+import { getProject, getVersion } from '../projects';
+import type { Seat } from '../matchmaker';
 // @ts-ignore plain JS module
 import { DataError, authToken, playRecordStmt, playerOf, playerSummary, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
@@ -190,16 +193,23 @@ rt.post('/score', async (c) => {
 });
 
 // Game server code (running in the game's own Worker) reads and writes game data with the game's key.
-rt.post('/server-store', async (c) => {
+/** A call from a game's own Worker (its server code or a running match), authenticated with the game's store key. */
+async function gameWorker(c: { env: Env; req: { header(n: string): string | undefined } }, legacyPlayKey = false): Promise<{ g: string; e: 'live' | 'preview' }> {
   const g = c.req.header('x-gcp-game') || '', e = c.req.header('x-gcp-env') || 'live', key = c.req.header('x-gcp-key') || '';
   if (!/^[a-z0-9]{6,16}$/.test(g) || (e !== 'live' && e !== 'preview')) throw new AppError(401, 'Bad game key.');
   // The store key names one game AND environment, so a preview's server code cannot reach live data.
   if (!safeEqual(key, await storeKey(c.env, g, e))) {
+    if (!legacyPlayKey) throw new AppError(401, 'Bad game key.');
     // Game Workers deployed before store keys existed still send the play key until the runtime rollout redeploys them.
     const row = await c.env.DB.prepare('SELECT runtime FROM game_workers WHERE project_id = ? AND env = ?').bind(g, e).first<{ runtime: string | null }>().catch(() => null);
     const legacy = !!row && !String(row.runtime || '').startsWith(await runtimeHash());
     if (!legacy || !safeEqual(key, await playKey(c.env, g))) throw new AppError(401, 'Bad game key.');
   }
+  return { g, e };
+}
+
+rt.post('/server-store', async (c) => {
+  const { g, e } = await gameWorker(c, true);
   const b = await body(c);
   return c.json(await guard(() => serverStoreOp(c.env.DB, g, e, b, now())));
 });
@@ -216,4 +226,67 @@ rt.get('/room', async (c) => {
   // The room keeps who this socket belongs to (session, kind, token end, trial), and checks it again while it is open.
   u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${clamp(Math.round(want), 2, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}&s=${encodeURIComponent(tok.s)}&k=${tok.k}&x=${tok.x}${tok.tr ? '&tr=1' : ''}&mr=${clamp(Math.round(Number(s.room_msgs_per_second) || 60), 5, 240)}`;
   return c.env.ROOMS.get(id, hint ? { locationHint: hint as DurableObjectLocationHint } : undefined).fetch(new Request(u, c.req.raw));
+});
+
+// ----- server-run matches (GCP.match) ------------------------------------------------------------------------------
+// Matchmaking: a WebSocket to the Matchmaker Durable Object for this game, environment and queue shape (or private code).
+rt.get('/match', async (c) => {
+  const tok = await authPlay(c.env, c.req.query('t')), s = await getSettings(c.env);
+  if (!s.allow_matches) throw new AppError(403, 'Server-run matches are switched off on this platform.', 'matches_off');
+  const q = matchRequest({ queue: c.req.query('queue'), size: c.req.query('players'), min: c.req.query('min'), teams: c.req.query('teams'), code: c.req.query('code'), mode: c.req.query('mode') }, s.match_max_players);
+  if (!q.ok) throw bad(q.error);
+  // only a version that ships server/match.js can run the match the tickets lead to
+  const p = await getProject(c.env, tok.g);
+  const n = p && (tok.e === 'live' ? p.live_version : p.preview_version);
+  const v = p && n ? await getVersion(c.env, p.id, n) : null;
+  let hasMatch = false; try { hasMatch = !!JSON.parse(v?.manifest || '{}').hasMatch; } catch { /* old manifest */ }
+  if (!hasMatch) throw new AppError(409, 'This version of the game has no server/match.js, so it cannot run matches.', 'no_match_code');
+  const row = await c.env.DB.prepare('SELECT rating FROM match_ratings WHERE project_id = ? AND env = ? AND queue = ? AND user_id = ?').bind(tok.g, tok.e, q.queue, tok.u).first<{ rating: number }>().catch(() => null);
+  const seat: Seat = { u: tok.u, n: tok.n, s: tok.s, k: tok.k, px: tok.x, tr: !!tok.tr, g: tok.g, e: tok.e, q: q.queue, size: q.size, min: q.min, teams: q.teams, mode: q.mode, code: q.code,
+    region: regionHint((c.req.raw as any).cf), rating: row?.rating ?? 1000, at: 0 };
+  const name = q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
+  const u = new URL(c.req.url);
+  u.search = `?seat=${encodeURIComponent(JSON.stringify(seat))}`;
+  return c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(name)).fetch(new Request(u, c.req.raw));
+});
+
+// A running match asks which of its players' play sessions have ended (signed out, suspended, trial over).
+rt.post('/match-check', async (c) => {
+  const { g, e } = await gameWorker(c), b = await body(c), t = now();
+  const players = Array.isArray(b.players) ? b.players.slice(0, 64) : [];
+  const ended: string[] = [];
+  for (const p of players) {
+    if (!p || typeof p.u !== 'string') continue;
+    if (p.tr && Number(p.px) && t / 1000 > Number(p.px)) { ended.push(p.u); continue; }
+    const problem = await bindingProblem(c.env.DB, { g, e, u: p.u, k: String(p.k || 'player'), s: String(p.s || '') }, t).catch(() => null);
+    if (problem) ended.push(p.u);
+  }
+  return c.json({ ended });
+});
+
+// A match reports its result once; ratings move for ranked players (never for the verifier's throwaway sessions).
+rt.post('/match-result', async (c) => {
+  const { g, e } = await gameWorker(c), b = await body(c), t = now();
+  const id = String(b.match || '');
+  if (!/^[a-f0-9]{16,40}$/.test(id)) throw bad('Unknown match.');
+  const m = await c.env.DB.prepare('SELECT queue, roster, ended_at FROM matches WHERE id = ? AND project_id = ? AND env = ?').bind(id, g, e).first<{ queue: string; roster: string; ended_at: number | null }>();
+  if (!m) throw new AppError(404, 'Unknown match.', 'not_found');
+  if (m.ended_at) return c.json({ ok: true, already: true });
+  const roster = JSON.parse(m.roster || '[]') as { id: string; k?: string }[];
+  const ranked = new Set(roster.filter((r) => r.k !== 'verify').map((r) => r.id));
+  const result = b.result && typeof b.result === 'object' ? b.result : {};
+  const ranking = Array.isArray(result.ranking) ? (result.ranking as unknown[]).map((pl) => (Array.isArray(pl) ? pl : [pl]).map(String).filter((u) => ranked.has(u))).filter((pl) => pl.length) : [];
+  const done = await c.env.DB.prepare('UPDATE matches SET ended_at = ?, result = ? WHERE id = ? AND ended_at IS NULL').bind(t, JSON.stringify(result).slice(0, 16_000), id).run();
+  if (!done.meta.changes) return c.json({ ok: true, already: true });
+  if (result.aborted || ranking.length < 2) return c.json({ ok: true, rated: 0 });
+  const ids = ranking.flat();
+  const rows = await c.env.DB.prepare(`SELECT user_id, rating FROM match_ratings WHERE project_id = ? AND env = ? AND queue = ? AND user_id IN (${ids.map(() => '?').join(',')})`).bind(g, e, m.queue, ...ids).all<{ user_id: string; rating: number }>();
+  const ratings = new Map(rows.results.map((r) => [r.user_id, r.rating]));
+  const delta = eloChanges(ranking, ratings);
+  // the change is added to the stored rating, so two matches of the same player ending at once both count
+  const stmts = ids.map((u) => c.env.DB.prepare(`INSERT INTO match_ratings (project_id, env, queue, user_id, rating, games, wins, updated_at) VALUES (?1, ?2, ?3, ?4, 1000 + ?5, 1, ?6, ?7)
+      ON CONFLICT(project_id, env, queue, user_id) DO UPDATE SET rating = ROUND(rating + ?5, 1), games = games + 1, wins = wins + ?6, updated_at = ?7`)
+    .bind(g, e, m.queue, u, Math.round((delta.get(u) || 0) * 10) / 10, ranking[0].includes(u) ? 1 : 0, t));
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true, rated: ids.length });
 });

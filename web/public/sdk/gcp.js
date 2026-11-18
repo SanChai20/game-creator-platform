@@ -341,6 +341,160 @@
     connect();
   }
 
+  // ----- server-run matches (GCP.match) ----------------------------------------------------------------------------
+  // find() waits in the platform's matchmaker, then connects to the match the game's own server/match.js runs at a fixed
+  // tick. Inputs go up numbered at the tick rate; snapshots come down (full or as a delta) with the number of your last
+  // input the server applied. The SDK replays your newer inputs through predict() (your own entity moves at once and is
+  // corrected smoothly), plays everyone else back a little in the past between snapshots, and tells the server which
+  // moment you were looking at with each input, so hit checks (ctx.hitscan) judge shots on what you saw.
+  function mpatch(a, n) {
+    if (n === undefined || n === null) return a;
+    if (Object.prototype.hasOwnProperty.call(n, 'v')) return n.v;
+    var out = a && typeof a === 'object' && !Array.isArray(a) ? Object.assign({}, a) : {}, k;
+    if (n.x) for (k = 0; k < n.x.length; k++) delete out[n.x[k]];
+    if (n.o) for (k in n.o) out[k] = mpatch(out[k], n.o[k]);
+    return out;
+  }
+  var ANGLES = { a: 1, angle: 1, yaw: 1, pitch: 1, rot: 1, heading: 1 };
+  function blendEnt(p, q, k, angles) {
+    if (!p || !q || typeof q !== 'object') return q;
+    var o = Array.isArray(q) ? q.slice() : Object.assign({}, q);
+    for (var f in q) {
+      if (typeof q[f] !== 'number' || typeof p[f] !== 'number') continue;
+      if (angles[f]) { var d = q[f] - p[f]; d = ((d + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI; o[f] = p[f] + d * Math.min(k, 1); }
+      else o[f] = p[f] + (q[f] - p[f]) * k;
+    }
+    return o;
+  }
+  function Match(opts) {
+    var self = this, handlers = {}, mm = null, ws = null, ticket = null, tries = 0, closed = false, timer = 0, pingTimer = 0, started = false;
+    opts = opts || {};
+    var entitiesOf = typeof opts.entities === 'function' ? opts.entities : function (v) { return v && (v.players || v.entities) || {}; };
+    var angles = Object.assign({}, ANGLES); (opts.angles || []).forEach(function (a) { angles[a] = 1; });
+    this.phase = 'searching'; this.id = null; this.you = cfg.player && cfg.player.id; this.players = []; this.tickRate = 0; this.tick = 0;
+    this.state = null; this.ack = 0; this.rtt = null; this.result = null; this.renderTick = null;
+    var buf = new Smooth({ minDelay: opts.delay != null ? opts.delay : 50, maxDelay: 250, extrapolate: 100 });
+    var n = 0, pending = [], current = {}, pressed = {}, tickMs = 33, predicted = null, prevPredicted = null, predictedAt = 0, offset = {}, pings = {};
+    function emit(type, a, b) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b); } catch (e) { console.error(e); } }); }
+    this.on = function (type, fn) { (handlers[type] = handlers[type] || []).push(fn); return self; };
+    this.off = function (type, fn) { handlers[type] = (handlers[type] || []).filter(function (f) { return f !== fn; }); return self; };
+    /** The input held right now (sent every tick until changed): what is pressed, where you aim. Keep it small. */
+    this.input = function (data) { current = data || {}; return self; };
+    /** A one-off action (a shot, a jump) that goes out with the next input only, even if pressed between two ticks. */
+    this.press = function (name) { pressed[String(name)] = true; return self; };
+    /** Private lobby: the player who opened it starts with whoever is there (at least min). */
+    this.start = function () { if (mm && mm.readyState === 1) mm.send(JSON.stringify({ t: 'start' })); };
+    /** Stop searching, or leave the match. */
+    this.cancel = this.leave = function () {
+      closed = true; clearInterval(timer); clearInterval(pingTimer);
+      if (mm) try { mm.send(JSON.stringify({ t: 'cancel' })); mm.close(1000); } catch (e) { /* closed */ }
+      if (ws) try { ws.close(1000); } catch (e) { /* closed */ }
+    };
+    function selfOf(v) { var e = entitiesOf(v); return e && e[self.you] || null; }
+    function clone(x) { return x == null ? x : JSON.parse(JSON.stringify(x)); }
+    function repredict() {
+      if (typeof opts.predict !== 'function' || !self.state) return;
+      var base = selfOf(self.state); if (!base) { predicted = null; return; }
+      var p = clone(base), dt = 1 / (self.tickRate || 30);
+      for (var i = 0; i < pending.length; i++) { try { p = opts.predict(p, pending[i].d, dt, self.state) || p; } catch (e) { console.error(e); break; } }
+      // the correction (where the server says we are vs where we had predicted) fades out instead of snapping
+      if (predicted) for (var f in p) if (typeof p[f] === 'number' && typeof predicted[f] === 'number' && !angles[f]) {
+        var err = predicted[f] + (offset[f] || 0) - p[f];
+        offset[f] = Math.abs(err) > (opts.snapDistance || 5) ? 0 : err;
+      }
+      predicted = p;
+    }
+    function sendInput() {
+      if (!ws || ws.readyState !== 1 || self.phase !== 'running') return;
+      var d = Object.assign({}, current, pressed); pressed = {};
+      n++; pending.push({ n: n, d: d }); if (pending.length > 120) pending.shift();
+      // the moment the player is looking at (others are drawn this far in the past), for the server's hit checks;
+      // kept current here too, so it is right even in a game that never calls view()
+      if (buf.sample() && buf.play != null) self.renderTick = buf.play / tickMs;
+      ws.send(JSON.stringify({ t: 'i', n: n, v: self.renderTick, d: d }));
+      if (typeof opts.predict === 'function' && predicted) {
+        prevPredicted = predicted;
+        try { predicted = opts.predict(clone(predicted), d, 1 / (self.tickRate || 30), self.state) || predicted; } catch (e) { console.error(e); }
+        predictedAt = performance.now();
+      }
+    }
+    /** What to draw now: me (your entity, predicted when you passed predict), others (everyone else, interpolated), state (the newest snapshot). */
+    this.view = function () {
+      var s = buf.sample(), others = {}, me = null;
+      if (s) {
+        var A = entitiesOf(s.a), B = entitiesOf(s.b);
+        for (var id in B) if (id !== self.you) others[id] = blendEnt(A && A[id], B[id], Math.min(s.k, 1.25), angles);
+        self.renderTick = buf.play != null ? buf.play / tickMs : null;
+      }
+      if (predicted) {
+        var k = Math.min(1, (performance.now() - predictedAt) / tickMs);
+        me = prevPredicted ? blendEnt(prevPredicted, predicted, k, angles) : predicted;
+        me = Object.assign({}, me);
+        var decay = Math.exp(-(performance.now() - (self._lastView || performance.now())) / 100);
+        for (var f in offset) { offset[f] *= decay; if (typeof me[f] === 'number') me[f] += offset[f]; }
+        self._lastView = performance.now();
+      } else me = selfOf(self.state);
+      return { me: me, others: others, state: self.state, tick: self.tick, renderTick: self.renderTick };
+    };
+    function connectMatch() {
+      ws = new WebSocket(location.origin.replace(/^http/, 'ws') + (cfg.base || '') + '/__gcp/match?t=' + encodeURIComponent(ticket));
+      ws.onmessage = function (ev) {
+        var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.t === 's') {
+          self.tick = m.k; self.state = m.f ? m.d : mpatch(self.state, m.d);
+          if (m.a > self.ack) { self.ack = m.a; while (pending.length && pending[0].n <= self.ack) pending.shift(); }
+          buf.push(self.state, m.k * tickMs);
+          repredict(); emit('snapshot', self.state, m.k);
+        }
+        else if (m.t === 'e') emit('event', m.d, m.k);
+        else if (m.t === 'hello') {
+          tries = 0; self.id = m.match; self.you = m.you; self.tickRate = m.tickRate; tickMs = 1000 / m.tickRate; self.players = m.players; self.maxRewindMs = m.maxRewindMs;
+          if (m.ack > self.ack) self.ack = m.ack;
+          pending = pending.filter(function (p) { return p.n > self.ack; });
+          if (m.phase === 'running') start();
+          clearInterval(pingTimer); pingTimer = setInterval(function () { if (ws && ws.readyState === 1) { var k = Math.random(); pings[k] = performance.now(); ws.send(JSON.stringify({ t: 'p', n: k })); } }, 2000);
+        }
+        else if (m.t === 'start') { self.players = m.players; start(); }
+        else if (m.t === 'wait' || m.t === 'players') { self.players = m.players; emit('players', m.players); }
+        else if (m.t === 'po') { if (pings[m.n]) { var r = performance.now() - pings[m.n]; self.rtt = self.rtt == null ? r : self.rtt * 0.7 + r * 0.3; delete pings[m.n]; } }
+        else if (m.t === 'end') { self.phase = 'ended'; self.result = m.result; clearInterval(timer); emit('end', m.result); }
+        else if (m.t === 'error') { var e = new Error(m.message); e.code = m.code; emit('error', e); }
+      };
+      ws.onclose = function (ev) {
+        clearInterval(timer); clearInterval(pingTimer);
+        var final = closed || self.phase === 'ended' || ev.code === 1000 || ev.code === 4001 || ev.code === 4002 || ev.code === 4003 || ev.code === 4004 || ev.code === 4009 || ev.code === 4500;   // 4009: removed from the match
+        if (!final && tries < 5) { self.phase = self.phase === 'running' ? 'reconnecting' : self.phase; emit('reconnecting', tries + 1); setTimeout(connectMatch, Math.min(4000, 300 * Math.pow(2, tries++))); return; }
+        if (self.phase !== 'ended') { self.phase = 'closed'; emit('close', ev.code, ev.reason); }
+      };
+    }
+    function start() {
+      if (self.phase === 'running') return;
+      self.phase = 'running'; clearInterval(timer);
+      // inputs on a steady clock at the tick rate; the timer keeps its remainder so 30 Hz stays 30 Hz
+      var next = performance.now();
+      timer = setInterval(function () { var t = performance.now(), sent = 0; while (next <= t && sent < 4) { sendInput(); next += tickMs; sent++; } if (t - next > 500) next = t; }, Math.max(4, tickMs / 4));
+      if (started) { emit('reconnected'); return; }
+      started = true;
+      emit('start', { you: self.you, players: self.players, tickRate: self.tickRate, state: self.state });
+    }
+    if (standalone) { setTimeout(function () { var e = new Error('Server-run matches need the platform: open the game from its page.'); e.code = 'standalone'; self.phase = 'closed'; emit('error', e); emit('close', 0); }, 0); return; }
+    var q = '/api/rt/match?t=' + encodeURIComponent(cfg.token);
+    ['queue', 'players', 'min', 'teams', 'code', 'mode'].forEach(function (k) { if (opts[k] != null) q += '&' + k + '=' + encodeURIComponent(opts[k]); });
+    mm = new WebSocket(cfg.api.replace(/^http/, 'ws') + q);
+    mm.onmessage = function (ev) {
+      var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.t === 'queued') emit('queued', { waiting: m.waiting, waited: m.waited || 0 });
+      else if (m.t === 'lobby') emit('lobby', { code: m.code, players: m.players, owner: m.owner, need: m.need });
+      else if (m.t === 'found') { ticket = m.ticket; self.id = m.match; self.players = m.players; self.phase = 'connecting'; emit('found', { match: m.match, players: m.players, region: m.region }); connectMatch(); }
+      else if (m.t === 'error') {
+        var e = new Error(m.message); e.code = m.code; emit('error', e);
+        // the search moved to another tab, or the session ended: this one is over (close it ourselves, whatever the server does)
+        if (m.code === 'replaced' || m.code === 'session_ended') { closed = true; self.phase = 'closed'; try { mm.close(1000); } catch (x) { /* closed */ } emit('close', m.code === 'replaced' ? 4002 : 4001, m.message); }
+      }
+    };
+    mm.onclose = function (ev) { if (!ticket && !closed) { self.phase = 'closed'; emit('close', ev.code, ev.reason); } };
+  }
+
   var autostartFns = [], playFn = null, pairFn = null;
   // The play-through a game may register: the verifier runs it and reports each step, so "playable" can mean
   // "the whole loop was played to the end" instead of only "it booted". Limits: 60 steps, one run at a time.
@@ -575,6 +729,11 @@
     },
     /** Realtime room on the platform (Durable Object WebSocket relay). First player in is the host. */
     room: function (code, opts) { return new Room(String(code || 'lobby').slice(0, 40), opts); },
+    /** Server-run matches: the game's server/match.js runs the match at a fixed tick on the platform, near the players. */
+    match: {
+      /** Finds a match: { queue, players, min, teams, mode, code, predict(me, input, dt, state), entities(view), angles, delay }. */
+      find: function (opts) { return new Match(opts); },
+    },
     /** A playback buffer for one remote stream (a host's snapshots, one player's position): push(value, meta.at) when a message
         arrives, value() or sample() every frame. Movement comes out smooth on a jittery connection. Options: delay (fixed ms;
         adaptive when left out), minDelay, maxDelay, extrapolate (ms to keep moving past the newest sample). */
