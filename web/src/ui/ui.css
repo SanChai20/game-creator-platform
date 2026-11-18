@@ -18,8 +18,8 @@ img, svg, canvas, iframe { display: block; max-width: 100%; }
 em { font-style: normal; }
 ::selection { background: var(--accent); color: var(--on-accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-:root { --tag-l: 30%; --tag-a: .13; --dots: radial-gradient(circle at center, currentColor 1.1px, transparent 1.4px); accent-color: var(--accent); }
-:root[data-theme="night"], .ink { --tag-l: 80%; --tag-a: .2; }
+:root { --tag-l: 30%; --tag-a: .13; --tint: .07; --tint-edge: .26; --dots: radial-gradient(circle at center, currentColor 1.1px, transparent 1.4px); accent-color: var(--accent); }
+:root[data-theme="night"], .ink { --tag-l: 80%; --tag-a: .2; --tint: .11; --tint-edge: .32; }
 /* CJK titles: no tightening, a little more air */
 :lang(zh) :is(h1, h2, h3, h4), :lang(ja) :is(h1, h2, h3, h4), :lang(ko) :is(h1, h2, h3, h4) { letter-spacing: 0 !important; line-height: 1.22 !important; font-stretch: 100% !important; }
 /* Korean breaks lines between words, not between syllables: otherwise a word is split across two lines. */
@@ -128,36 +128,43 @@ mark, .hl { background: none; color: var(--accent-text); }
 .eyebrow { display: inline-flex; align-items: center; gap: 10px; font: 700 12.5px/1.2 var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
 .eyebrow.sig { color: var(--accent-text); }
 .eyebrow.sig::before { content: ""; width: 26px; height: 9px; flex: none; background: linear-gradient(90deg, currentColor 0 9px, transparent 9px 12px, currentColor 12px 18px, transparent 18px 21px, currentColor 21px); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-.badge { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 12px 0 10px; background: rgb(var(--text-rgb) / .08); color: var(--text-2); font: 700 11.5px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; flex: none; clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-.badge::before { content: ""; width: 6px; height: 6px; background: currentColor; transform: rotate(45deg); }
+/* Labels share one shape: a 22px plate, 4px corners, a hairline edge and a faint tint; never a slant or a loud fill.
+   Status labels (.badge) are capitals in the display face with a round dot in their tone; descriptive labels (.gtag)
+   are sentence case in the text face and stay neutral; labels laid over a picture (.ovl) are dark glass. Colour means
+   state (good, bad, warn, info, accent), never decoration. */
+.badge { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; background: rgb(var(--text-rgb) / .045); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text-2); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; flex: none; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
 .badge.plain::before { display: none; }
-.badge.good { background: rgb(var(--good-rgb) / .15); color: var(--good); }
-.badge.bad { background: rgb(var(--bad-rgb) / .13); color: var(--bad); }
-.badge.sig { background: var(--accent-wash); color: var(--accent-text); }
-.badge.info { background: rgb(var(--info-rgb) / .14); color: var(--info); }
-/* a slanted sticker: the one label allowed to shout */
-.stick { display: inline-block; padding: 5px 15px 5px 13px; background: var(--accent); color: var(--on-accent); font: 800 12px/1.1 var(--font-display); letter-spacing: .07em; text-transform: uppercase; clip-path: var(--cut); white-space: nowrap; }
-.stick.alt { background: var(--c-cream); color: #17151c; }
+.badge.good { background: rgb(var(--good-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--good-rgb) / var(--tint-edge)); color: var(--good); }
+.badge.bad { background: rgb(var(--bad-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--bad-rgb) / var(--tint-edge)); color: var(--bad); }
+.badge.warn { background: rgb(var(--warn-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / var(--tint-edge)); color: var(--warn); }
+.badge.sig { background: rgb(var(--accent-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / var(--tint-edge)); color: var(--accent-text); }
+.badge.info { background: rgb(var(--info-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--info-rgb) / var(--tint-edge)); color: var(--info); }
+/* the sticker on a cover ("Featured"): the one label allowed a solid fill */
+.stick { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 4px; background: var(--accent); color: var(--on-accent); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; box-shadow: 0 1px 2px rgb(0 0 0 / .25); }
+.stick.alt { background: rgb(255 255 255 / .94); color: #17151c; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 16px; font: 700 12.5px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); transition: color var(--dur-fast); }
 .chip::before { background: transparent; }
 .chip:hover { color: var(--text); }
 .chip:hover::before { border-color: var(--edge); }
 .chip.on { color: var(--paper); }
 .chip.on::before { background: var(--text); border-color: var(--text); }
-.gtag { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; background: hsl(var(--h, 350) 80% 50% / var(--tag-a)); color: hsl(var(--h, 350) 72% var(--tag-l)); font: 600 12.5px/1.2 var(--font-sans); font-style: normal; white-space: nowrap; clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); transition: background-color var(--dur-fast); }
-a.gtag:hover { background: hsl(var(--h, 350) 80% 50% / calc(var(--tag-a) * 2)); }
-.gtag small { opacity: .7; font-size: 11.5px; }
+/* a descriptive label (genre, tag, feature): neutral, sentence case; a link lights its edge on hover */
+.gtag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 4px; background: rgb(var(--text-rgb) / .035); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text-2); font: 550 12.5px/1 var(--font-sans); font-style: normal; white-space: nowrap; transition: box-shadow var(--dur-fast), color var(--dur-fast), background-color var(--dur-fast); }
+a.gtag:hover { color: var(--text); background: rgb(var(--text-rgb) / .06); box-shadow: inset 0 0 0 1px var(--line-3); }
+.gtag small { color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 /* rarity, the way loot shows it: a diamond pip and a tier name in the tier's colour */
 .rar { display: inline-flex; align-items: center; gap: 6px; color: var(--rc, var(--text-3)); font: 800 11.5px/1 var(--font-display); letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; }
 .rar::before { content: ""; width: 7px; height: 7px; background: currentColor; transform: rotate(45deg); }
-.rar-pill { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 14px 0 12px; background: color-mix(in srgb, var(--rc, var(--text-3)) 16%, transparent); color: var(--rc, var(--text-2)); font: 800 12px/1 var(--font-display); letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
-.rar-pill::before { content: ""; width: 7px; height: 7px; background: currentColor; transform: rotate(45deg); }
-.rar-pill.sm { height: 21px; padding: 0 11px 0 9px; font-size: 10.5px; }
-.trial-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 12px; background: rgb(var(--good-rgb) / .15); color: var(--good); font: 700 11.5px/1 var(--font-display); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
+.rar-pill { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px; border-radius: 4px; background: color-mix(in srgb, var(--rc, var(--text-3)) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rc, var(--text-3)) 34%, transparent); color: var(--rc, var(--text-2)); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.rar-pill::before { content: ""; width: 6px; height: 6px; background: currentColor; transform: rotate(45deg); }
+.rar-pill.sm { height: 20px; padding: 0 7px; font-size: 10px; }
+.trial-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 4px; background: rgb(var(--good-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--good-rgb) / var(--tint-edge)); color: var(--good); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: ping 1.8s var(--ease) infinite; flex: none; }
 .live { color: var(--accent-text); font-weight: 600; }
-.live-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 3px; background: rgb(23 21 28 / .8); color: #fff; font: 700 11.5px/1 var(--font-display); letter-spacing: .05em; text-transform: uppercase; backdrop-filter: blur(6px); white-space: nowrap; }
-.live-pill.big { height: 26px; background: var(--accent-wash); color: var(--accent-text); backdrop-filter: none; }
+/* a label laid over a picture: dark glass on the same plate */
+.ovl, .live-pill, .art-trial { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; background: rgb(14 12 18 / .74); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .14); color: #fff; font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.live-pill.big { background: rgb(var(--accent-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / var(--tint-edge)); color: var(--accent-text); -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* what players think, with signal bars: three lit for good, two for mixed, one for poor */
 .verdict { display: inline-flex; align-items: baseline; gap: 6px; font-weight: 600; white-space: nowrap; --b2: currentColor; --b3: currentColor; }
 .verdict::before { content: ""; width: 13px; height: 11px; flex: none; align-self: center; background: linear-gradient(currentColor, currentColor) 0 100% / 3px 5px no-repeat, linear-gradient(var(--b2), var(--b2)) 5px 100% / 3px 8px no-repeat, linear-gradient(var(--b3), var(--b3)) 10px 100% / 3px 11px no-repeat; }
@@ -277,18 +284,20 @@ a.gtag:hover { background: hsl(var(--h, 350) 80% 50% / calc(var(--tag-a) * 2)); 
 .chart-block { display: grid; gap: 14px; }
 .chart-v { font: 800 24px/1 var(--font-display); font-stretch: 82%; }
 .check { display: flex; gap: 12px; padding: 9px 0; }
-.check > i { width: 24px; height: 22px; flex: none; display: grid; place-items: center; font: 700 12px/1 var(--font-sans); font-style: normal; margin-top: 1px; clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-.check > i.ok { background: rgb(var(--good-rgb) / .17); color: var(--good); }
-.check > i.no { background: rgb(var(--bad-rgb) / .15); color: var(--bad); }
+.check > i { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 50%; font: 800 11px/1 var(--font-sans); font-style: normal; margin-top: 1px; }
+.check > i.ok { background: rgb(var(--good-rgb) / .14); color: var(--good); }
+.check > i.no { background: rgb(var(--bad-rgb) / .13); color: var(--bad); }
 .log { font: 12.5px/1.6 var(--font-mono); color: var(--bad); background: rgb(var(--bad-rgb) / .07); border-radius: var(--r-sm); padding: 12px 14px; white-space: pre-wrap; word-break: break-word; max-height: 190px; overflow: auto; }
 
 /* ---- feedback ----------------------------------------------------------------------------------- */
-.notice { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; padding: 16px 20px; border-radius: var(--r-sm); background: var(--accent-wash); border-left: 4px solid var(--accent); min-width: 0; }
+.notice { --nt: var(--accent-rgb); display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; padding: 14px 18px; border-radius: var(--r-md); background: rgb(var(--nt) / calc(var(--tint) * .8)); box-shadow: inset 0 0 0 1px rgb(var(--nt) / calc(var(--tint-edge) * .8)); min-width: 0; }
 .notice > .grow { flex-basis: 240px; }
-.notice-t { display: block; font-weight: 650; margin-bottom: 2px; }
-.notice.good { background: rgb(var(--good-rgb) / .1); border-color: var(--good); }
-.notice.bad { background: rgb(var(--bad-rgb) / .08); border-color: var(--bad); }
-.notice.info { background: rgb(var(--info-rgb) / .1); border-color: var(--info); }
+.notice-t { display: flex; align-items: center; gap: 8px; font-weight: 650; margin-bottom: 2px; color: var(--text); }
+.notice-t::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--nt)); flex: none; }
+.notice.good { --nt: var(--good-rgb); }
+.notice.bad { --nt: var(--bad-rgb); }
+.notice.info { --nt: var(--info-rgb); }
+.notice.warn { --nt: var(--warn-rgb); }
 .empty { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 64px 24px; }
 .empty.compact { padding: 30px 20px; }
 .empty h3 { font: 800 var(--fs-xl)/1.2 var(--font-display); font-stretch: 88%; text-transform: uppercase; letter-spacing: .02em; }

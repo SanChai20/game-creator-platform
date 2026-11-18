@@ -1342,5 +1342,6 @@
  "{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).": "{brand} は {state} 州の有限責任会社 {op}（horylo.com）が開発・運営しています。",
  "Draft pending legal review": "法務レビュー前の草案",
  "This text has not yet been reviewed by a lawyer and may change before launch.": "この文章はまだ弁護士の確認を受けておらず、公開前に変更される可能性があります。",
- "Sold by {op}. Payments by Stripe.": "販売元：{op}。決済は Stripe が処理します。"
+ "Sold by {op}. Payments by Stripe.": "販売元：{op}。決済は Stripe が処理します。",
+ "By creating an account you agree to the {terms} and the {privacy}.": "アカウントを作成すると、{terms}と{privacy}に同意したことになります。"
 }

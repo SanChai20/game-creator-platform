@@ -1,15 +1,16 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { announceAuth } from '../account-sync';
 import { api, artStyle, Link, navigate, num, query, t, useApp, useData, type GameCard } from '../lib';
 import { Button, CelScene, Eyebrow, Field, Input, Notice } from '../ui';
 import { PageSkeleton } from '../skeletons';
+import { legalTitle } from './Legal';
 
 /** Only same-site paths are allowed as a return target. */
 const safeNext = (n: string | null) => (n && n.startsWith('/') && !n.startsWith('//') ? n : '/');
 /** Server routes (the agent consent screen) need a full page load; app routes do not. */
 const go = (to: string) => { if (to.startsWith('/authorize') || to.startsWith('/oauth')) location.href = to; else navigate(to, true); };
 
-export function Auth({ mode }: { mode: 'login' | 'signup' }) {
+export function Auth({ mode, tools }: { mode: 'login' | 'signup'; tools?: ReactNode }) {
   const { user, refresh, config } = useApp(), next = safeNext(query().get('next'));
   const [email, setEmail] = useState(''), [name, setName] = useState(''), [password, setPassword] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false);
   useEffect(() => { if (user) go(next); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -21,8 +22,13 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
   };
   const other = `${mode === 'login' ? '/signup' : '/login'}?next=${encodeURIComponent(next)}`;
   return (
-    <div className="auth split">
+    <div className={'auth split' + (forAgent ? ' solo' : '')}>
       {!forAgent && <Showcase />}
+      <div className="auth-side">
+      <div className="auth-top">
+        <Link to="/" className="brand" aria-label={config.settings.brand_name}><i className="logo" aria-hidden="true" /><span>{config.settings.brand_name}</span></Link>
+        <span className="auth-tools">{tools}</span>
+      </div>
       <form onSubmit={submit} className="auth-card">
         <div className="stack">
           <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
@@ -35,8 +41,11 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
         <Field label={t('Password', '密码')} hint={mode === 'signup' ? t('At least 8 characters.', '至少 8 个字符。') : undefined}><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'signup' ? 8 : 1} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></Field>
         {err && <Notice tone="bad" role="alert">{err}</Notice>}
         <Button type="submit" variant="primary" size="lg" block disabled={busy}>{busy ? t('One moment…', '请稍候…') : mode === 'login' ? t('Sign in', '登录') : t('Create account', '创建账户')}</Button>
+        {mode === 'signup' && <p className="auth-terms">{t('By creating an account you agree to the {terms} and the {privacy}.', '创建账户即表示你同意{terms}和{privacy}。').split(/(\{terms\}|\{privacy\})/).map((part, i) => part === '{terms}' ? <a key={i} href="/legal/terms" target="_blank" rel="noopener">{legalTitle('terms')}</a> : part === '{privacy}' ? <a key={i} href="/legal/privacy" target="_blank" rel="noopener">{legalTitle('privacy')}</a> : part)}</p>}
         <p className="mute switch-line">{mode === 'login' ? t('New here?', '还没有账户？') : t('Already have an account?', '已有账户？')} <Link to={other} className="sig">{mode === 'login' ? t('Create an account', '立即注册') : t('Sign in', '登录')}</Link></p>
       </form>
+      <Link to="/" className="auth-home"><span aria-hidden="true">←</span> {t('Back to the store', '返回商店')}</Link>
+      </div>
     </div>
   );
 }

@@ -20,7 +20,7 @@ html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none;
 .stage-exit.bottom-right { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); flex-direction: row-reverse; }
 .stage-exit button { pointer-events: auto; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid rgb(255 255 255 / .28); border-radius: 50%; background: rgb(12 10 18 / .55); color: #fff; cursor: pointer; backdrop-filter: blur(6px); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .stage-exit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.stage-badge { padding: 6px 10px; border-radius: 999px; background: rgb(12 10 18 / .6); color: #fff; font: 700 13px/1 var(--font-mono, ui-monospace, monospace); backdrop-filter: blur(6px); }
+.stage-badge { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 4px; background: rgb(14 12 18 / .74); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .14); color: #fff; font: 600 12.5px/1 var(--font-mono, ui-monospace, monospace); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 @keyframes stage-exit-dim { 0%, 70% { opacity: 1; } 100% { opacity: .45; } }
 
 .stage-turn { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; text-align: center; color: #fff; background: rgb(12 10 18 / .92); }

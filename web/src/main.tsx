@@ -38,6 +38,8 @@ import { SearchBox, StoreBar } from './store';
 import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
+/** Sign in and Create account stand alone: no top bar, store bar or footer, only the panel and a way home. */
+const isBare = (path: string) => /^\/(login|signup)\/?$/.test(path);
 const isStore = (path: string) => path === '/' || path === '/browse' || path === '/categories' || path === '/queue' || path.startsWith('/c/') || path.startsWith('/g/');
 
 /** The language menu: a native select (keyboard, screen readers and phones get their own picker), showing a short code in the top bar. */
@@ -158,7 +160,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/queue') return <Queue />;
   if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
-  if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} />;
+  if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
   if (path === '/create') return <Creators />;
   if (path === '/docs') return <Docs />;
   if (path === '/console') return <Console />;
@@ -180,7 +182,7 @@ function linkOperator(text: string) {
 }
 
 function App() {
-  const lang = useLang();
+  const lang = useLang(), bare = isBare(useLocation().split('?')[0]);
   const [state, setState] = useState<{ user: Me | null; config: Config } | null>(null), [failed, setFailed] = useState(false);
   const [toastMsg, setToast] = useState<{ msg: string; bad: boolean } | null>(null), timer = useRef(0);
   const refresh = useCallback(async () => {
@@ -192,15 +194,15 @@ function App() {
   const toast = useCallback((msg: string, bad = false) => { setToast({ msg, bad }); clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), bad ? 5200 : 2600); }, []);
   useEffect(() => { if (state) document.title = `${state.config.settings.brand_name} — ${state.config.settings.tagline}`; }, [state]);
   if (failed) return <div className="wrap page"><EmptyState title={t('The site did not respond', '站点暂时无法响应')} action={<Button onClick={() => location.reload()}>{t('Reload', '刷新')}</Button>} /></div>;
-  if (!state) return <AppSkeleton path={location.pathname.replace(/\/+$/, '') || '/'} />;
+  if (!state) return bare ? <main><RouteSkeleton path={location.pathname.replace(/\/+$/, '')} /></main> : <AppSkeleton path={location.pathname.replace(/\/+$/, '') || '/'} />;
   const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); announceAuth(); await refresh(); navigate('/'); };
   const brand = state.config.settings.brand_name as string;
   return (
     <AppCtx.Provider value={{ ...state, refresh, toast }} key={lang}>
-      <Nav user={state.user} brand={brand} onLogout={logout} />
-      <StoreBarSlot />
+      {!bare && <><Nav user={state.user} brand={brand} onLogout={logout} />
+      <StoreBarSlot /></>}
       <main><RouteFrame><Routes user={state.user} /></RouteFrame></main>
-      <footer className="foot ink"><div className="wrap">
+      {!bare && <footer className="foot ink"><div className="wrap">
         <div className="foot-top">
           <div className="foot-brand">
             <Link to="/" className="brand"><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
@@ -218,7 +220,7 @@ function App() {
             <span className="foot-links"><Link to="/legal/terms">{legalTitle('terms')}</Link><Link to="/legal/privacy">{legalTitle('privacy')}</Link><a href={`mailto:${OPERATOR.contactEmail}`}>{t('Contact ({email})', '联系我们（{email}）', { email: OPERATOR.contactEmail })}</a></span>
           </div>
           <span className="foot-tools"><ThemeSwitch label /><FxToggle /><LangPicker /></span></div>
-      </div></footer>
+      </div></footer>}
       <GuestProgressPrompt user={state.user} toast={toast} />
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
     </AppCtx.Provider>

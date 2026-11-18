@@ -228,7 +228,7 @@ export function Project({ id }: { id: string }) {
             </Card>
             <Card title={t('Activity', '动态')} pad>
               {data.events.length ? <div>{data.events.slice(0, 14).map((e: any, i: number) => (
-                <div key={i} className="activity"><Badge dot={false}>{e.kind}</Badge><span className="mute" style={{ wordBreak: 'break-word' }}>{e.version ? `v${e.version} ` : ''}{e.detail}</span><span className="dim" style={{ whiteSpace: 'nowrap' }}>{ago(e.created_at)}</span></div>
+                <div key={i} className="activity"><Badge dot={false}>{String(e.kind).replace(/_/g, ' ')}</Badge><span className="mute" style={{ wordBreak: 'break-word' }}>{e.version ? `v${e.version} ` : ''}{e.detail}</span><span className="dim" style={{ whiteSpace: 'nowrap' }}>{ago(e.created_at)}</span></div>
               ))}</div> : <span className="mute">{t('Nothing yet.', '暂无动态。')}</span>}
             </Card>
           </div>
