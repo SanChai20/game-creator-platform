@@ -1361,8 +1361,6 @@
  "Virtual items, in-game currency and progress are not refunded on their own, unless the law requires it.": "除非法律另有規定，虛擬物品、遊戲內貨幣和進度不單獨退款。",
  "Effective date: {date}": "生效日期：{date}",
  "{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).": "{brand} 由 {op}（一家 {state} 州有限責任公司，horylo.com）開發和營運。",
- "Draft pending legal review": "待法律審閱的草稿",
- "This text has not yet been reviewed by a lawyer and may change before launch.": "本文本尚未經過律師審閱，上線前可能會有修改。",
  "Sold by {op}. Payments by Stripe.": "由 {op} 銷售，付款由 Stripe 處理。",
  "By creating an account you agree to the {terms} and the {privacy}.": "建立帳戶即表示你同意{terms}和{privacy}。"
 }

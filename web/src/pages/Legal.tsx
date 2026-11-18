@@ -4,7 +4,7 @@
 // Every string goes through t() for translation; names, addresses and dates are filled in, never translated.
 import { Fragment, type ReactNode } from 'react';
 import { t, useApp } from '../lib';
-import { PageHeader, Tabs, Notice } from '../ui';
+import { PageHeader, Tabs } from '../ui';
 import { OPERATOR, DEFAULT_BRAND } from '../operator';
 
 export type LegalDoc = 'terms' | 'privacy' | 'cookies' | 'refunds';
@@ -15,9 +15,6 @@ export const legalTitle = (d: LegalDoc) => ({
 
 /** The date each text takes effect. Change it whenever that text changes in a meaningful way. */
 const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-18', privacy: '2026-11-18', cookies: '2026-11-18', refunds: '2026-11-18' };
-
-/** Set to true once a lawyer has reviewed these texts; until then every legal page says they are a draft. */
-const LAWYER_REVIEWED = false;
 
 const S = ({ h, children }: { h: string; children: ReactNode }) => <section><h2>{h}</h2>{children}</section>;
 
@@ -154,7 +151,6 @@ export function Legal({ doc }: { doc: LegalDoc }) {
     <div className="wrap page legal">
       <PageHeader eyebrow={t('Legal', '法律信息')} title={legalTitle(doc)} sub={t('Effective date: {date}', '生效日期：{date}', { date: EFFECTIVE[doc] })} />
       <p className="legal-op mute">{linked(t('{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).', '{brand} 由 {op}（一家 {state} 州有限责任公司，horylo.com）开发和运营。', { brand, op, state }))}</p>
-      {!LAWYER_REVIEWED && <Notice tone="info" role="note" title={t('Draft pending legal review', '待法律审核的草稿')}>{t('This text has not yet been reviewed by a lawyer and may change before launch.', '本文本尚未经过律师审核，上线前可能会有修改。')}</Notice>}
       <Tabs active={doc} items={LEGAL_DOCS.map((d) => ({ key: d, to: `/legal/${d}`, label: legalTitle(d) }))} />
       <article className="legal-body">{body[doc]}</article>
     </div>

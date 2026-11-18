@@ -1339,8 +1339,6 @@
  "Virtual items, in-game currency and progress are not refunded on their own, unless the law requires it.": "Los objetos virtuales, la moneda del juego y el progreso no se reembolsan por separado, salvo que la ley lo exija.",
  "Effective date: {date}": "Fecha de entrada en vigor: {date}",
  "{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).": "{brand} está desarrollado y operado por {op}, una sociedad de responsabilidad limitada de {state} (horylo.com).",
- "Draft pending legal review": "Borrador pendiente de revisión legal",
- "This text has not yet been reviewed by a lawyer and may change before launch.": "Este texto aún no ha sido revisado por un abogado y puede cambiar antes del lanzamiento.",
  "Sold by {op}. Payments by Stripe.": "Vendido por {op}. Pagos con Stripe.",
  "By creating an account you agree to the {terms} and the {privacy}.": "Al crear una cuenta aceptas los {terms} y la {privacy}."
 }
