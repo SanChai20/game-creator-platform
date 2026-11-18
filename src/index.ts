@@ -232,6 +232,16 @@ function accessHelp(origin: string, hadToken: boolean, accessTtl: number) {
   };
 }
 
+// Pages ask for their own agent cluster (Origin-Agent-Cluster). Games are served from sibling subdomains of the same site
+// (<script>.<account>.workers.dev), and Chrome keeps same-site frames in one process, so a game that is busy loading
+// froze the platform page around it. An origin-keyed page gets a process of its own, and so does the game frame inside
+// it. web/public/_headers does the same for the web app's static pages, and the game runtime for game pages.
+function isolated(res: Response): Response {
+  if (res.headers.has('origin-agent-cluster') || !(res.headers.get('content-type') || '').includes('text/html') || res.status === 101) return res;
+  const h = new Headers(res.headers); h.set('origin-agent-cluster', '?1');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (!env.SESSION_SECRET) return new Response('Server is missing the SESSION_SECRET secret.', { status: 500 });
@@ -259,7 +269,7 @@ export default {
         return new Response(JSON.stringify({ ...meta, device_authorization_endpoint: `${origin}/oauth/device`, grant_types_supported: [...new Set([...grants, DEVICE_GRANT])] }), { status: 200, headers: h });
       }
     }
-    return res;
+    return isolated(res);
   },
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // every few minutes: bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
