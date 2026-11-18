@@ -16,6 +16,8 @@ import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { stripe, stripeReady, verifyWebhook } from '../stripe';
+import { startWithdrawal } from '../payouts';
+export { autoPayouts, retryTransfers, reverseWithdrawal, sendTransfer } from '../payouts';
 import { beginTrial, trialMinutes, trialState } from '../trials';
 import { addDays, dayOf, now, parseJson, rid, safeEqual, sha256 } from '../util';
 // @ts-ignore plain JS module
@@ -525,62 +527,11 @@ api.post('/billing/withdraw', async (c) => {
   if (amount < s.withdraw_min_cents) throw bad(`You can withdraw once your available balance reaches $${(s.withdraw_min_cents / 100).toFixed(2)}.`);
   if (method === 'stripe' && !(u.stripe_account && u.stripe_payouts_enabled)) throw bad('Finish setting up your payout account first.');
   if (method === 'manual') { if (!s.allow_manual_withdrawals) throw forbidden('Manual withdrawals are turned off.'); if (String(b.details || '').trim().length < 8) throw bad('Describe where the money should be sent.'); }
-  if (await env.DB.prepare("SELECT 1 FROM withdrawals WHERE user_id = ? AND status = 'pending'").bind(u.id).first()) throw new AppError(409, 'You already have a withdrawal in progress.', 'pending');
-  const id = 'wd_' + rid(16), t = now();
-  // One statement debits the ledger only if the available balance still covers it, so two requests cannot both succeed.
-  // The debit and the withdrawal record are one transaction, so a failure between them cannot take money off the balance
-  // without a withdrawal to show for it (or the reverse).
-  const [debit] = await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
-       SELECT ?1, 'withdrawal', -?2, ?3, 'Withdrawal', ?4, ?4
-       WHERE (SELECT COALESCE(SUM(CASE WHEN available_at <= ?4 OR amount_cents < 0 THEN amount_cents ELSE 0 END), 0) FROM ledger WHERE user_id = ?1) >= ?2`).bind(u.id, amount, id, t),
-    env.DB.prepare("INSERT INTO withdrawals (id, user_id, amount_cents, method, details, status, created_at) SELECT ?1, ?2, ?3, ?4, ?5, 'pending', ?6 WHERE EXISTS (SELECT 1 FROM ledger WHERE ref = ?1 AND kind = 'withdrawal')")
-      .bind(id, u.id, amount, method, String(b.details || '').slice(0, 500), t),
-  ]);
-  if (!debit.meta.changes) throw new AppError(409, 'Your balance changed. Try again.', 'conflict');
-  if (method === 'stripe') {
-    const r = await sendTransfer(env, { id, user_id: u.id, amount_cents: amount, stripe_account: u.stripe_account! });
-    if (r === 'failed') throw new AppError(502, 'The transfer did not go through and your balance was restored.', 'transfer_failed');
-    if (r === 'unknown') return c.json({ ok: true, id, amount_cents: amount, method, pending: true, note: 'Stripe did not confirm the transfer yet. It is checked again in a few minutes; your balance stays reserved meanwhile.' });
-  }
-  return c.json({ ok: true, id, amount_cents: amount, method });
+  const w = await startWithdrawal(env, u.id, amount, method, String(b.details || ''));
+  if (w.result === 'failed') throw new AppError(502, 'The transfer did not go through and your balance was restored.', 'transfer_failed');
+  if (w.result === 'unknown') return c.json({ ok: true, id: w.id, amount_cents: amount, method, pending: true, note: 'Stripe did not confirm the transfer yet. It is checked again in a few minutes; your balance stays reserved meanwhile.' });
+  return c.json({ ok: true, id: w.id, amount_cents: amount, method });
 });
-
-/**
- * Sends (or re-sends, with the same idempotency key, so Stripe never pays twice) a withdrawal's transfer. Only a clear
- * refusal returns the money to the balance; when the outcome is unknown the withdrawal stays pending for the next try.
- */
-export async function sendTransfer(env: Env, w: { id: string; user_id: string; amount_cents: number; stripe_account: string }): Promise<'paid' | 'failed' | 'unknown'> {
-  try {
-    const tr = await stripe<{ id: string }>(env, 'POST', '/transfers', { amount: w.amount_cents, currency: 'usd', destination: w.stripe_account, metadata: { withdrawal: w.id, user_id: w.user_id } }, w.id);
-    await env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ?, error = NULL WHERE id = ? AND status = 'pending'").bind(tr.id, now(), w.id).run();
-    return 'paid';
-  } catch (e) {
-    if (e instanceof AppError && e.code === 'stripe_error') { await reverseWithdrawal(env, w.id, w.user_id, w.amount_cents, 'failed', e.message); return 'failed'; }
-    await env.DB.prepare("UPDATE withdrawals SET error = ? WHERE id = ? AND status = 'pending'").bind(('Unconfirmed: ' + String((e as Error).message)).slice(0, 300), w.id).run();
-    return 'unknown';
-  }
-}
-
-/** Stripe withdrawals whose transfer was never confirmed, tried again (cron, every 10 minutes). */
-export async function retryTransfers(env: Env, max = 20): Promise<void> {
-  const rows = await env.DB.prepare("SELECT w.id, w.user_id, w.amount_cents, u.stripe_account FROM withdrawals w JOIN users u ON u.id = w.user_id WHERE w.status = 'pending' AND w.method = 'stripe' AND w.created_at < ? AND u.stripe_account IS NOT NULL LIMIT ?")
-    .bind(now() - 120000, max).all<{ id: string; user_id: string; amount_cents: number; stripe_account: string }>();
-  for (const w of rows.results) await sendTransfer(env, w);
-}
-
-/** Returns a pending withdrawal's money to the balance, once: a withdrawal that was settled meanwhile is left alone. */
-export async function reverseWithdrawal(env: Env, id: string, userId: string, amount: number, status: 'failed' | 'rejected', error: string): Promise<boolean> {
-  const t = now();
-  const [upd] = await env.DB.batch([
-    env.DB.prepare("UPDATE withdrawals SET status = ?, error = ?, settled_at = ? WHERE id = ? AND status = 'pending'").bind(status, error.slice(0, 300), t, id),
-    env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
-      SELECT ?1, 'withdrawal_reversal', ?2, ?3, ?4, ?5, ?5 WHERE EXISTS (SELECT 1 FROM withdrawals WHERE id = ?3 AND status = ?6 AND settled_at = ?5)
-        AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = 'withdrawal_reversal')`).bind(userId, amount, id, status === 'failed' ? 'Withdrawal failed, returned' : 'Withdrawal rejected, returned', t, status),
-  ]);
-  return !!upd.meta.changes;
-}
 
 // ----- creator console -------------------------------------------------------------------------
 api.get('/console/overview', async (c) => {
@@ -688,7 +639,7 @@ api.get('/console/earnings', async (c) => {
   ]);
   return c.json({
     balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: s.earnings_hold_days, fee_percent: s.platform_fee_percent,
-    payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
+    payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, auto: !!s.auto_payouts, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
   });
 });
 

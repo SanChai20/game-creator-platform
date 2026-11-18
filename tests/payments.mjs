@@ -116,3 +116,26 @@ test('every Stripe request names one pinned API version', () => {
   assert.match(STRIPE_API_VERSION, /^\d{4}-\d{2}-\d{2}\.[a-z]+$/);
   assert.match(readFileSync(new URL('../src/stripe.ts', import.meta.url), 'utf8'), /'stripe-version': STRIPE_API_VERSION/);
 });
+
+test('daily automatic payouts send each ready creator their available balance once', async () => {
+  const { autoPayouts } = await import('../src/payouts.ts');
+  const env = await setup();
+  env.STRIPE_SECRET_KEY = 'rk_test_x'; env.STRIPE_API_BASE = 'https://stripe.test';
+  const db = env.DB.sql;
+  db.prepare("INSERT INTO users (id, email, name, pw_hash, created_at, stripe_account, stripe_payouts_enabled) VALUES ('u_maker', 'm@x.test', 'M', 'x', 0, 'acct_m', 1)").run();
+  db.prepare("INSERT INTO users (id, email, name, pw_hash, created_at, stripe_account, stripe_payouts_enabled) VALUES ('u_other', 'o@x.test', 'O', 'x', 0, 'acct_o', 0)").run();
+  db.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, available_at, created_at) VALUES ('u_other', 'sale', 9000, 'x', 0, 0)").run();
+  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('withdraw_min_cents', '500', 0)").run();
+  const calls = [], real = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), body: String(init.body), key: init.headers['idempotency-key'], version: init.headers['stripe-version'] }); return new Response(JSON.stringify({ id: 'tr_1' })); };
+  try {
+    await autoPayouts(env);
+    await autoPayouts(env);   // nothing left the second time
+  } finally { globalThis.fetch = real; }
+  assert.equal(calls.length, 1);   // u_other's account is not ready
+  assert.match(calls[0].url, /\/v1\/transfers$/);
+  assert.match(calls[0].body, /amount=900&currency=usd&destination=acct_m/);
+  assert.equal(calls[0].version, STRIPE_API_VERSION);
+  assert.equal(await total(env), 0);
+  assert.equal(db.prepare("SELECT status FROM withdrawals WHERE user_id = 'u_maker'").get().status, 'paid');
+});

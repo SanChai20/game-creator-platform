@@ -13,6 +13,7 @@ export const SETTING_DEFS = {
   creator_fee_required: { v: true, type: 'bool', group: 'Creator fee', label: 'Require the fee before publishing (preview stays free)', public: true },
   creator_fee_for_projects: { v: false, type: 'bool', group: 'Creator fee', label: 'Require the fee before creating projects at all', public: true },
 
+  auto_payouts: { v: true, type: 'bool', group: 'Withdrawals', label: 'Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)', public: true },
   withdraw_min_cents: { v: 5000, type: 'cents', group: 'Withdrawals', label: 'Minimum balance to withdraw', public: true },
   allow_manual_withdrawals: { v: false, type: 'bool', group: 'Withdrawals', label: 'Allow manual withdrawals (paid by an admin outside Stripe)', public: true },
   stripe_platform_country: { v: 'US', type: 'text', group: 'Withdrawals', label: 'Country of the platform Stripe account (2 letters)' },

@@ -1340,5 +1340,7 @@
  "Effective date: {date}": "Fecha de entrada en vigor: {date}",
  "{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).": "{brand} está desarrollado y operado por {op}, una sociedad de responsabilidad limitada de {state} (horylo.com).",
  "Sold by {op}. Payments by Stripe.": "Vendido por {op}. Pagos con Stripe.",
- "By creating an account you agree to the {terms} and the {privacy}.": "Al crear una cuenta aceptas los {terms} y la {privacy}."
+ "By creating an account you agree to the {terms} and the {privacy}.": "Al crear una cuenta aceptas los {terms} y la {privacy}.",
+ "Once your payout account is ready, your available balance is sent to it automatically every day when it reaches {min}. You can also withdraw it now.": "Cuando tu cuenta de cobro esté lista, tu saldo disponible se envía a ella automáticamente cada día en que llegue a {min}. También puedes retirarlo ahora.",
+ "Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)": "Pagar a los creadores automáticamente cada día cuando su saldo disponible llegue al mínimo (solo cuentas de cobro de Stripe)"
 }

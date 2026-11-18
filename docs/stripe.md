@@ -6,9 +6,10 @@ HearthCade is a marketplace on Stripe Connect with **separate charges and transf
    of record; the card statement and the Checkout page say so.
 2. The signed webhook records the sale: the platform keeps its cut and credits the rest to the creator's ledger, where it
    waits out the hold period (`earnings_hold_days`, default 7) so refunds can be taken back first.
-3. The creator onboards a Connect account (Stripe-hosted onboarding, Express dashboard, `transfers` capability) and
-   withdraws: the platform sends a Transfer from its balance to the creator's account, and Stripe pays it out to the
-   creator's bank on that account's payout schedule.
+3. The creator onboards a Connect account (Stripe-hosted onboarding, Express dashboard, `transfers` capability). Once a
+   day, every creator whose available balance reached the minimum is paid automatically (`auto_payouts`, on by
+   default): the platform sends a Transfer from its balance to the creator's account, and Stripe pays it out to the
+   creator's bank on that account's payout schedule. Creators can also press Withdraw to be paid sooner.
 
 The creator license fee (`POST /api/billing/creator-fee`) is a plain Checkout payment to the platform.
 
@@ -90,7 +91,7 @@ The admin console's health panel shows whether each one is set (never its value)
 | Dispute won, or inquiry closed | Access and credit come back (once). |
 | Dispute lost | Nothing more: the credit stays taken back. |
 | `account.updated` | The creator's "payouts enabled" flag follows the account's `transfers` capability and `payouts_enabled`. |
-| Withdrawal | The ledger debit and the withdrawal record are one transaction; the Transfer uses the withdrawal id as its idempotency key. A clear refusal restores the balance; an unknown outcome is retried every 10 minutes with the same key, so a creator is never paid twice. |
+| Withdrawal (button, or the daily automatic payout at 03:17 UTC) | The ledger debit and the withdrawal record are one transaction; the Transfer uses the withdrawal id as its idempotency key. A clear refusal restores the balance; an unknown outcome is retried every 10 minutes with the same key, so a creator is never paid twice. |
 
 If money already left for the creator when a refund or chargeback arrives, the creator's balance goes negative and
 their next sales pay it back first. The platform carries that loss if they never sell again; a longer hold period lowers

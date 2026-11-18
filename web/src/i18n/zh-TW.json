@@ -1362,5 +1362,7 @@
  "Effective date: {date}": "生效日期：{date}",
  "{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).": "{brand} 由 {op}（一家 {state} 州有限責任公司，horylo.com）開發和營運。",
  "Sold by {op}. Payments by Stripe.": "由 {op} 銷售，付款由 Stripe 處理。",
- "By creating an account you agree to the {terms} and the {privacy}.": "建立帳戶即表示你同意{terms}和{privacy}。"
+ "By creating an account you agree to the {terms} and the {privacy}.": "建立帳戶即表示你同意{terms}和{privacy}。",
+ "Once your payout account is ready, your available balance is sent to it automatically every day when it reaches {min}. You can also withdraw it now.": "收款帳戶就緒後，可提領餘額達到 {min} 時每天會自動轉入該帳戶。你也可以現在提領。",
+ "Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)": "每天自動向創作者付款：可提領餘額達到最低額時（僅限 Stripe 收款帳戶）"
 }
