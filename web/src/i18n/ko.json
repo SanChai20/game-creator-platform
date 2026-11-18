@@ -671,6 +671,7 @@
  "Players online, sessions, play time, devices, browsers, sales and the errors real players hit.": "접속 중인 플레이어, 세션, 플레이 시간, 기기, 브라우저, 판매량, 실제 플레이어가 겪은 오류.",
  "Players per day": "일별 플레이어",
  "Players per multiplayer room": "멀티플레이 방당 플레이어 수",
+ "Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)": "플레이어가 멀티플레이 방에 초당 보낼 수 있는 메시지 수(그 두 배까지의 순간 폭주 허용, 5~240)",
  "Players say": "플레이어 평가",
  "Players see their own progress on the game page and can reset it. Creators see totals and averages, never one player's data.": "플레이어는 게임 페이지에서 자신의 진행 상황을 보고 초기화할 수 있습니다. 크리에이터는 합계와 평균만 볼 수 있고, 개별 플레이어의 데이터는 볼 수 없습니다.",
  "Players who have not bought the game can play this long in total, then are asked to buy. The time is counted on our servers for their account, so reloading or switching devices does not reset it. Up to {max} minutes.": "아직 구매하지 않은 플레이어는 총 이만큼 플레이한 뒤 구매 안내를 받습니다. 시간은 계정별로 서버에서 계산되므로 새로고침하거나 기기를 바꿔도 초기화되지 않습니다. 최대 {max}분.",

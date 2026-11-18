@@ -6,7 +6,8 @@
 /**
  * joinSession(code, handlers) -> session
  *   handlers.snapshot()            host: return the whole shared state as plain JSON (keep it small)
- *   handlers.apply(state, isFirst, meta) everyone else: receive the host's state (meta.at: when the host sent it)
+ *   handlers.apply(state, isFirst, meta) everyone else: receive the host's state (meta.at: when the host sent it; meta.ack:
+ *                                  the number of the last of your inputs the host had applied, see session.pending)
  *   handlers.input(peerId, data)   host: a guest's input arrived
  *   handlers.event(data, from)     everyone: a one-off message sent with session.emit()
  *   handlers.open(session)         connected; session.isHost tells you which side you are
@@ -19,19 +20,32 @@ export function joinSession(code, handlers = {}, { hz = 10, max } = {}) {
   const room = window.GCP.room(code, { max });
   const s = {
     room, id: null, get isHost() { return room.isHost; }, get players() { return [{ id: room.id, name: window.GCP.player.name, me: true }, ...room.peers]; },
-    /** Guest → host. On the host it is delivered locally, so game code does not need two paths. */
-    sendInput(data) { if (room.isHost) handlers.input && handlers.input(room.id, data); else room.send({ k: 'i', d: data }, 'host'); },
+    /** Guest → host. On the host it is delivered locally, so game code does not need two paths. Each input is numbered;
+        the host's snapshots say which one it applied last, so a guest can redo the newer ones on top (reconciliation). */
+    sendInput(data) {
+      if (room.isHost) { handlers.input && handlers.input(room.id, data, ++seq); return seq; }
+      pending.push({ n: ++seq, d: data }); if (pending.length > 240) pending.shift();
+      room.send({ k: 'i', d: data, n: seq }, 'host');
+      return seq;
+    },
+    /** Guest: inputs sent that the newest snapshot had not applied yet, oldest first ({ n, d }). Re-apply them to the
+        snapshot's position of your own player to predict where you are now. Empty on the host. */
+    get pending() { return room.isHost ? [] : pending.filter((p) => p.n > acked); },
+    /** Guest: the number of the last input the host had applied in the newest snapshot (0 before any). */
+    get acked() { return acked; },
     /** Reliable one-off message to everyone else (chat, effects). */
     emit(data) { room.send({ k: 'e', d: data }); },
     leave() { clearInterval(timer); room.leave(); },
   };
-  let timer = 0, n = 0;
+  let timer = 0, n = 0, seq = 0, acked = 0;
+  const pending = [];
+  const acks = {};   // host: peer id -> number of the last input applied from that peer
   const startHost = () => {
     clearInterval(timer);
     timer = setInterval(() => {
       if (!room.isHost || !handlers.snapshot) return;
       const snap = handlers.snapshot();
-      room.send({ k: 's', d: snap });
+      room.send({ k: 's', d: snap, a: acks });
       if (++n % (hz * 5) === 0) room.setState(snap); // every ~5 s keep a copy for late joiners and host migration
     }, 1000 / hz);
   };
@@ -43,12 +57,22 @@ export function joinSession(code, handlers = {}, { hz = 10, max } = {}) {
   });
   room.on('message', (m, from, meta) => {
     if (!m) return;
-    if (m.k === 's' && !room.isHost) { sentAt = meta && meta.at; try { handlers.apply && handlers.apply(m.d, false, meta); } finally { sentAt = undefined; } }
-    else if (m.k === 'i' && room.isHost) handlers.input && handlers.input(from, m.d);
+    if (m.k === 's' && !room.isHost) {
+      const a = m.a && typeof m.a === 'object' ? Number(m.a[room.id]) : NaN;
+      if (Number.isFinite(a) && a > acked) { acked = a; while (pending.length && pending[0].n <= acked) pending.shift(); }
+      sentAt = meta && meta.at;
+      try { handlers.apply && handlers.apply(m.d, false, { ...meta, ack: acked }); } finally { sentAt = undefined; }
+    }
+    else if (m.k === 'i' && room.isHost) {
+      // numbers only ever go up per peer; an old or repeated input is still delivered (games decide), but never lowers the ack
+      const k = Number(m.n);
+      if (Number.isFinite(k) && k > (acks[from] || 0)) acks[from] = k;
+      handlers.input && handlers.input(from, m.d, Number.isFinite(k) ? k : undefined);
+    }
     else if (m.k === 'e') handlers.event && handlers.event(m.d, from);
   });
   room.on('join', () => handlers.players && handlers.players(s.players));
-  room.on('leave', () => handlers.players && handlers.players(s.players));
+  room.on('leave', (id) => { delete acks[id]; handlers.players && handlers.players(s.players); });
   room.on('host', () => { if (room.isHost) startHost(); handlers.host && handlers.host(room.isHost); });
   return s;
 }

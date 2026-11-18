@@ -151,15 +151,21 @@ room.on('open', ({ id, host, peers, state }) => { /* joined; state is the host's
 room.on('message', (data, from, meta) => { /* meta.at is the sender's clock, for GCP.smooth */ });
 room.on('join', (peer) => {}); room.on('leave', (id) => {}); room.on('host', (newHostId) => {});
 room.send({ type: 'input', x, y });          // to everyone else; room.send(d, peerId) or room.send(d, 'host')
+room.send(new Float32Array([x, y]));         // binary: arrives as an ArrayBuffer
 if (room.isHost) room.setState(world);       // snapshot that late joiners receive
+room.rtt;                                    // round trip to the room in ms
 ```
+
+**What rooms are for.** Rooms are host-authoritative: one player's browser runs the game for everyone. That suits co-op, party games, casual versus among friends and turn-based games. It does not suit ranked or high-intensity competitive play (shooters, fighting games, competitive sports): the host decides hits and can cheat, every guest's lag depends on the host's connection, and there is no lag compensation. Tell the developer this before building such a game on rooms.
 
 - One Cloudflare Durable Object per game, environment and room code, created when the first player joins. The first player in is the host; when the host leaves, the longest-connected player takes over and everyone gets a `host` event.
 - Rooms relay messages and keep one snapshot. They do not run game logic: the host is the authority (host-authoritative model). For turn-based games the host checks each move and stores the state.
+- A room is created in the region of the player who opens it, so friends in one region get a nearby room.
 - The SDK reconnects by itself (up to six tries with backoff). An empty room forgets everything, including the snapshot: keep anything that spans sessions in server code or saves.
+- Each player has a message budget per second. Past it, messages are dropped and the sender gets an `error` with `code: 'rate_limited'`; a player who keeps flooding for 10 seconds is disconnected (close code 4008).
 - `game_room` shows who is in a room, who hosts and the stored snapshot, and resets a stuck room. `get_stats` shows room occupancy.
 
-Limits: 16 players per room by default (at most 64), 64 KB per message, 256 KB of state, room codes up to 40 characters, JSON text messages only (binary frames are dropped).
+Limits: 16 players per room by default (at most 64), 64 KB per message, 60 messages a second per player by default (bursts of twice that) and 256 KB a second, 256 KB of state, room codes up to 40 characters. Messages are JSON, or binary when you send an ArrayBuffer or typed array.
 
 Smooth remote movement with `GCP.smooth()`: push each sample with `meta.at`, read `value()` every frame. Verification can prove two browsers share one world if you register `GCP.test.onTwoPlayers`. Details: `get_started {topic: "multiplayer"}`.
 
@@ -253,7 +259,7 @@ Plan around these instead of looking for them.
 | Achievements and badges | Track milestones with `GCP.playerStats` and show them in the game. |
 | Friends, chat, invites, player profiles | Share a room code; relay chat over `room.send` and moderate what players type. |
 | Matchmaking and a list of open rooms | Fixed or shared room codes; for a lobby list, players join a `lobby` room and advertise their codes there. |
-| Server-authoritative simulation inside rooms | The host is the authority; validate results that matter in server code. |
+| Server-authoritative simulation inside rooms | The host is the authority; validate results that matter in server code. Ranked or high-intensity competitive games need a neutral server that rooms do not provide: tell the developer before building one. |
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |
 | Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store` for data. A key can live in `server/` (never served), but there is no secrets store or rotation: prefer keys you can revoke. |
 | Asset hosting beyond the game's storage (a CDN or bucket for large downloads) | Generate content from code, or load it at run time from a host the developer controls (any HTTPS host with CORS). `game_storage` explains both and asks for more storage when a game truly needs it. |

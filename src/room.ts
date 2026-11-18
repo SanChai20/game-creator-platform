@@ -1,16 +1,28 @@
 // Realtime rooms for multiplayer games: a WebSocket relay with presence, a host, and a small shared
 // snapshot. One Durable Object per (game, environment, room code). Uses WebSocket hibernation, so an
 // idle room costs nothing. The first player in is the host; if the host leaves, the oldest peer takes over.
+// Messages are JSON text frames, or binary frames in a small envelope (src/room-wire.ts) for games that pack their own
+// data. Every socket has a message and byte budget, so one player (or one buggy loop) cannot flood the others.
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './env';
 // @ts-ignore plain JS module
 import { bindingProblem } from './session-binding.js';
+import { RateBudget, decodeClientFrame, encodeRelayFrame } from './room-wire';
 
-interface Peer { id: string; name: string; at: number; g?: string; e?: string; r?: string; uid?: string; s?: string; k?: string; x?: number; tr?: boolean }
+interface Peer { id: string; name: string; at: number; g?: string; e?: string; r?: string; uid?: string; s?: string; k?: string; x?: number; tr?: boolean; mr?: number }
 const RECHECK_MS = 10_000;   // how often open sockets are checked against their play session (sign-out, trial end)
 const MAX_MSG = 64 * 1024, MAX_STATE = 256 * 1024;
+const DEFAULT_RATE = 60;          // messages per second per socket, sustained; bursts of twice that are allowed
+const BYTES_PER_SECOND = 256 * 1024;
 
 export class GameRoom extends DurableObject<Env> {
+  // Per-socket budgets. In memory only: a room that hibernates has been idle, so a fresh budget on wake is right.
+  private budgets = new Map<WebSocket, RateBudget>();
+  private budget(ws: WebSocket, p: Peer): RateBudget {
+    let b = this.budgets.get(ws);
+    if (!b) this.budgets.set(ws, (b = new RateBudget(p.mr || DEFAULT_RATE, BYTES_PER_SECOND)));
+    return b;
+  }
   private peers(): { ws: WebSocket; p: Peer }[] {
     return this.ctx.getWebSockets().map((ws) => ({ ws, p: ws.deserializeAttachment() as Peer })).filter((x) => x.p).sort((a, b) => a.p.at - b.p.at);
   }
@@ -42,7 +54,8 @@ export class GameRoom extends DurableObject<Env> {
     while (existing.some((e) => e.p.id === id)) id = `${base}#${i++}`;
     const q = url.searchParams;
     const peer: Peer = { id, name: (q.get('name') || 'Player').slice(0, 40), at: Date.now() + existing.length / 1000, g: q.get('g') || undefined, e: q.get('e') || undefined, r: q.get('r') || undefined,
-      uid: q.get('uid') || undefined, s: q.get('s') || undefined, k: q.get('k') || undefined, x: Number(q.get('x')) || undefined, tr: q.get('tr') === '1' };
+      uid: q.get('uid') || undefined, s: q.get('s') || undefined, k: q.get('k') || undefined, x: Number(q.get('x')) || undefined, tr: q.get('tr') === '1',
+      mr: Math.max(5, Math.min(Number(q.get('mr')) || DEFAULT_RATE, 240)) };
     pair[1].serializeAttachment(peer);
     for (const e of existing) this.send(e.ws, { t: 'join', peer: { id: peer.id, name: peer.name } });
     const state = await this.ctx.storage.get<string>('state');
@@ -70,15 +83,25 @@ export class GameRoom extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
-    if (typeof raw !== 'string' || raw.length > MAX_STATE + 64) return;
     const me = ws.deserializeAttachment() as Peer;
-    let m: { t?: string; to?: string; d?: unknown; at?: unknown };
+    if (!me) return;
+    const size = typeof raw === 'string' ? raw.length : raw.byteLength;
+    const verdict = this.budget(ws, me).take(size, Date.now());
+    if (verdict !== 'ok') {
+      if (verdict === 'close') { this.send(ws, { t: 'error', code: 'rate_limited', message: 'Too many messages: the room closed this connection.' }); try { ws.close(4008, 'Too many messages'); } catch { /* closing */ } await this.left(ws); }
+      else if (verdict === 'warn') this.send(ws, { t: 'error', code: 'rate_limited', message: `Too many messages: at most ${me.mr || DEFAULT_RATE} a second (and ${BYTES_PER_SECOND / 1024} KB a second) per player. Extra messages are dropped.` });
+      return;
+    }
+    if (typeof raw !== 'string') return this.relayBinary(ws, me, raw);
+    if (raw.length > MAX_STATE + 64) return;
+    let m: { t?: string; to?: string; d?: unknown; at?: unknown; n?: unknown };
     try { m = JSON.parse(raw); } catch { return; }
+    if (!m || typeof m !== 'object') return;
     if (m.t === 'msg') {
       if (raw.length > MAX_MSG) return this.send(ws, { t: 'error', message: 'Message too large (64 KB max).' });
       // `at` is the sender's clock when it sent the message; receivers use it to play movement back smoothly (GCP.smooth)
       const out = JSON.stringify(typeof m.at === 'number' && Number.isFinite(m.at) ? { t: 'msg', from: me.id, d: m.d, at: m.at } : { t: 'msg', from: me.id, d: m.d });
-      const to = m.to === 'host' ? this.host() : m.to;
+      const to = m.to === 'host' ? this.host() : typeof m.to === 'string' ? m.to : null;
       for (const e of this.peers()) { if (e.ws !== ws && (!to || e.p.id === to)) { try { e.ws.send(out); } catch { /* closing */ } } }
     } else if (m.t === 'state') {
       if (this.host() !== me.id) return this.send(ws, { t: 'error', message: 'Only the host can set room state.' });
@@ -89,7 +112,17 @@ export class GameRoom extends DurableObject<Env> {
       // The snapshot is only for late joiners; losing the last one in a crash is harmless.
       await this.ctx.storage.put('state', s, { allowUnconfirmed: true });
       for (const e of this.peers()) if (e.ws !== ws) this.send(e.ws, { t: 'state', d: m.d });
-    } else if (m.t === 'ping') this.send(ws, { t: 'pong', now: Date.now() });
+    } else if (m.t === 'ping') this.send(ws, typeof m.n === 'number' && Number.isFinite(m.n) ? { t: 'pong', now: Date.now(), n: m.n } : { t: 'pong', now: Date.now() });
+  }
+
+  /** A binary frame: the envelope names the target and the send time; receivers get the sender's id in front of the payload. */
+  private relayBinary(ws: WebSocket, me: Peer, raw: ArrayBuffer): void {
+    if (raw.byteLength > MAX_MSG) return this.send(ws, { t: 'error', message: 'Message too large (64 KB max).' });
+    const f = decodeClientFrame(raw);
+    if (!f) return this.send(ws, { t: 'error', message: 'Malformed binary message: send binary data with room.send(arrayBuffer).' });
+    const to = f.to === 'host' ? this.host() : f.to;
+    const out = encodeRelayFrame(me.id, f.at, f.payload);
+    for (const e of this.peers()) { if (e.ws !== ws && (!to || e.p.id === to)) { try { e.ws.send(out); } catch { /* closing */ } } }
   }
 
   /** For the game's creator (MCP game_room): who is here, who hosts, and the stored snapshot. Called over RPC only, never from a player's request. */
@@ -111,10 +144,15 @@ export class GameRoom extends DurableObject<Env> {
   async webSocketError(ws: WebSocket): Promise<void> { await this.left(ws); }
 
   private async left(ws: WebSocket): Promise<void> {
+    this.budgets.delete(ws);
     const me = ws.deserializeAttachment() as Peer | null;
+    // Once only per socket: a socket the room closed itself (session ended, flooding) also gets webSocketClose later,
+    // and announcing the same leave twice would make clients see a second, wrong host change.
+    if (!me) return;
+    try { ws.serializeAttachment(null); } catch { /* closed */ }
     try { ws.close(1000); } catch { /* already closed */ }
     const rest = this.peers().filter((e) => e.ws !== ws);
-    if (me) for (const e of rest) this.send(e.ws, { t: 'leave', id: me.id, host: rest[0]?.p.id ?? null });
+    for (const e of rest) this.send(e.ws, { t: 'leave', id: me.id, host: rest[0]?.p.id ?? null });
     await this.presence(me, rest.length);
     if (!rest.length) { await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); } // empty rooms keep nothing
   }
