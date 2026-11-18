@@ -83,8 +83,26 @@ function tokenCookie(token, base, secure, maxAge) {
     : `gcp_t=${token}; Path=${base || '/'}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax`;
 }
 
+// Import maps are frozen with the platform origin of the day they were built. When the platform moved (its old
+// workers.dev address is switched off), platform-hosted modules (/vendor/, /kits/) must follow it or the game never loads.
+const PLATFORM_PATH = /^\/(vendor|kits)\//;
+function rehome(imports, platform) {
+  let p;
+  try { p = new URL(platform); } catch { return imports; }
+  const out = {};
+  for (const [k, v] of Object.entries(imports || {})) {
+    let u = null;
+    try { u = typeof v === 'string' ? new URL(v) : null; } catch { /* relative or bare: leave it */ }
+    const old = u && u.origin !== p.origin && PLATFORM_PATH.test(u.pathname)
+      && (/^game-creator-platform\.[a-z0-9-]+\.workers\.dev$/i.test(u.hostname) || u.hostname === 'www.' + p.hostname);
+    out[k] = old ? p.origin + u.pathname + u.search : v;
+  }
+  return out;
+}
+
 function inject(html, env, auth, token, base) {
   const manifest = JSON.parse(env.MANIFEST || '{}');
+  if (manifest.imports) manifest.imports = rehome(manifest.imports, env.PLATFORM);
   const cfg = {
     api: env.PLATFORM, token, gameId: env.GAME_ID, slug: env.SLUG, title: env.TITLE, version: Number(env.VERSION), env: env.ENV, base,
     player: { id: auth.u, name: auth.n, guest: String(auth.u).startsWith('guest_') }, kind: auth.k, session: auth.s,
