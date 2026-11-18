@@ -103,8 +103,10 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orientation = 'any', badge, ctl, blur }: {
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur }: {
   poster: string | null; seed: string; url: string | null; children?: ReactNode; onTrialOver?: () => void;
+  /** The platform refused the game's session (signed out, switched accounts, signed in after guest play, token ran out). */
+  onSessionEnded?: (reason: string) => void;
   /** The player quit the game (the platform menu's Quit, or GCP.quit() from the game): stop it, usually by clearing url. */
   onQuit?: () => void;
   /** Blur the poster: an adults-only game before the player has confirmed its warning. */
@@ -212,9 +214,10 @@ export function Stage({ poster, seed, url, children, onTrialOver, onQuit, orient
       if (d.gcp === 'display_query') post();
       if (d.gcp === 'escape') gameEsc.current = d.on === true;
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
+      if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
-  }, [enter, exit, toggle, quit, post, active, onTrialOver]);
+  }, [enter, exit, toggle, quit, post, active, onTrialOver, onSessionEnded]);
   useEffect(() => { if (active && want !== 'any') lockOrientation(want); }, [active, want]);
   useEffect(() => { gameEsc.current = false; }, [url]);
   // Esc pressed while the page, not the game frame, has the keyboard: close the menu if it is open, otherwise hand the key

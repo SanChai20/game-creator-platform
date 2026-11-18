@@ -295,8 +295,8 @@ async function main() {
   assert.equal((await rpc('tools/call', { name: 'game_metadata', arguments: { project: pid, action: 'declare', listing_translations: { fr: { title: 'x' } } } })).isError, true);
   ok('published; visible in the marketplace with a cover, its declared requirements, metadata (age 3+, players, languages, genre) and a Japanese listing');
 
-  // play: login required, session token, document gated, play time counted, review gated on play
-  assert.equal((await client().post(`/api/games/${slug}/play`)).status, 401);
+  // play: playable at once (a visitor without an account plays a free game as a guest), session token, document gated, play time counted, review gated on play
+  assert.equal(must(await client().get('/api/config')).settings.require_login_to_play, false, 'guest play is on by default (checked below)');
   const play = must(await B.post(`/api/games/${slug}/play`));
   const doc = await fetch(play.url);
   assert.equal(doc.status, 200); const html = await doc.text(); assert.ok(html.includes('/sdk/gcp.js') && html.includes('importmap'));
@@ -313,7 +313,7 @@ async function main() {
   const detail = must(await B.get(`/api/games/${slug}`));
   assert.equal(detail.game.plays, 1); assert.equal(detail.game.rating, 5); assert.equal(detail.game.rating_count, 1); assert.equal(detail.played, true);
   assert.equal((await A.post(`/api/games/${slug}/reviews`, { rating: 5 })).status, 403);
-  ok('play session: login required, document gated by token, play counted after the minimum, review updates rating, own-game review refused');
+  ok('play session: guests play at once, document gated by token, play counted after the minimum, review updates rating, own-game review refused');
 
   // game services: saves, leaderboard, room
   const svc = (path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t, ...body }) }).then((r) => r.json());
@@ -375,9 +375,11 @@ async function main() {
   // "Require login to play": on (the default) a visitor without an account gets no play session; off, free games open to
   // guests with their own id, paid games still need an account, and switching it back on ends guest access to every service
   const G = client();
+  must(await ADM.put('/api/admin/settings', { require_login_to_play: true }));
+  await sleep(16000);   // settings are cached for 15 s per isolate
   assert.equal((await G.post(`/api/games/${slug}/play`)).status, 401);
   must(await ADM.put('/api/admin/settings', { require_login_to_play: false }));
-  await sleep(16000);   // settings are cached for 15 s per isolate
+  await sleep(16000);
   const gpl = must(await G.post(`/api/games/${slug}/play`)), gt = new URL(gpl.url).searchParams.get('gcp_t');
   const gdoc = await (await fetch(gpl.url)).text();
   assert.ok(/"guest":true/.test(gdoc) && /"id":"guest_[a-z0-9]{20}"/.test(gdoc), 'the game is told it has a guest');
@@ -392,6 +394,58 @@ async function main() {
   assert.equal((await G.post(`/api/games/${slug}/reviews`, { rating: 5 })).status, 401);   // reviews need an account
   assert.equal((await G.get(`/api/games/${slug}/progress`)).status, 401);
   assert.equal((await fetch(`${BASE}/api/games/${slug}/play`, { method: 'POST', headers: { origin: BASE } })).status, 200);   // a brand-new visitor too
+
+  // Binding: every session belongs to the identity that started it. An account's session ends with its sign-in.
+  const BC = client(), cmail = `binder-${run}@example.com`;
+  must(await BC.post('/api/auth/signup', { email: cmail, name: 'Binder ' + run, password: 'correct horse' }));
+  const cpl = must(await BC.post(`/api/games/${slug}/play`)), ct = new URL(cpl.url).searchParams.get('gcp_t');
+  assert.equal(cpl.player.guest, false); assert.equal(cpl.player.name, 'Binder ' + run);
+  const rtc = (tk, path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: tk, ...body }) });
+  assert.equal((await rtc(ct, 'save', { op: 'set', key: 'slot1', value: { mine: 'binder' } })).status, 200);
+  assert.equal((await rtc(ct, 'check', {})).status, 200);
+  const rn = await (await rtc(ct, 'renew', {})).json();
+  assert.equal(rn.token, null, 'a fresh token is not renewed early');
+  // the same browser signs in as someone else: the first account's game stops at its next call, in every tab
+  must(await BC.post('/api/auth/login', { email: `creator-${run}@example.com`, password: 'correct horse' }));
+  const ended = await rtc(ct, 'save', { op: 'set', key: 'slot1', value: { mine: 'creator?' } });
+  assert.equal(ended.status, 401); const ej = await ended.json(); assert.equal(ej.code, 'session_ended'); assert.equal(ej.hint, 'signed_out');
+  for (const path of ['beat', 'stats', 'score', 'record', 'renew']) assert.equal((await rtc(ct, path, { op: 'all', board: 'b' })).status, 401, `${path} still open after switching accounts`);
+  // ...and reopening the game page from the token its origin kept shows the gate instead of the previous player
+  const stale = await fetch(cpl.url.split('?')[0], { headers: { cookie: `gcp_t=${ct}` } });
+  assert.equal(stale.status, 401); assert.ok(!(await stale.text()).includes('Binder'));
+  // sign out ends the new sign-in's games too
+  const cpl2 = must(await BC.post(`/api/games/${slug}/play`)), ct2 = new URL(cpl2.url).searchParams.get('gcp_t');
+  assert.equal((await rtc(ct2, 'save', { op: 'get', key: 'slot1' })).status, 200);
+  must(await BC.post('/api/auth/logout'));
+  assert.equal((await rtc(ct2, 'save', { op: 'get', key: 'slot1' })).status, 401);
+  // the binder's save never moved anywhere: signing back in finds it
+  must(await BC.post('/api/auth/login', { email: cmail, password: 'correct horse' }));
+  const ct3 = new URL(must(await BC.post(`/api/games/${slug}/play`)).url).searchParams.get('gcp_t');
+  assert.deepEqual((await (await rtc(ct3, 'save', { op: 'get', key: 'slot1' })).json()).value, { mine: 'binder' });
+  ok('binding: an account session ends when the browser signs out or switches accounts (every service and a reopened page); progress stays with its own account');
+
+  // Guest to account: offered, moved only on a yes, once; the guest session then ends and the browser gets a new guest id.
+  const H = client();
+  const hpl = must(await H.post(`/api/games/${slug}/play`)), ht = new URL(hpl.url).searchParams.get('gcp_t'), hid = hpl.player.id;
+  assert.equal((await rtc(ht, 'save', { op: 'set', key: 'slot9', value: { guestRun: 7 } })).status, 200);
+  assert.equal((await rtc(ht, 'beat', { frames: 5, active: false, first: true })).status, 200);
+  must(await H.post('/api/auth/signup', { email: `guest-${run}@example.com`, name: 'Was Guest ' + run, password: 'correct horse' }));
+  assert.equal((await rtc(ht, 'save', { op: 'get', key: 'slot9' })).status, 200, 'nothing moves before the player says so');
+  const offer = must(await H.get('/api/guest-progress'));
+  assert.ok(offer.games.length === 1 && offer.games[0].slug === slug && offer.games[0].kept === false, JSON.stringify(offer));
+  const gmv = must(await H.post('/api/guest-progress', { move: true }));
+  assert.equal(gmv.moved, 1);
+  const hend = await rtc(ht, 'save', { op: 'get', key: 'slot9' });
+  assert.equal(hend.status, 401); assert.equal((await hend.json()).hint, 'signed_in');
+  const ht2 = new URL(must(await H.post(`/api/games/${slug}/play`)).url).searchParams.get('gcp_t');
+  assert.deepEqual((await (await rtc(ht2, 'save', { op: 'get', key: 'slot9' })).json()).value, { guestRun: 7 }, 'the guest save is on the account');
+  assert.deepEqual(must(await H.get('/api/guest-progress')).games, [], 'offered once');
+  must(await H.post('/api/auth/logout'));
+  const hpl3 = must(await H.post(`/api/games/${slug}/play`));
+  assert.ok(hpl3.player.guest && hpl3.player.id !== hid, 'after signing out the browser plays under a new guest id');
+  const ht3 = new URL(hpl3.url).searchParams.get('gcp_t');
+  assert.equal((await (await rtc(ht3, 'save', { op: 'get', key: 'slot9' })).json()).value, null, 'the next guest on this computer starts clean');
+  ok('guest progress: offered after sign-up, moved only when asked, once; the old guest session ends and the next guest on the computer starts clean');
   must(await ADM.put('/api/admin/settings', { require_login_to_play: true }));
   await sleep(16000);
   assert.equal((await G.post(`/api/games/${slug}/play`)).status, 401);

@@ -1294,5 +1294,22 @@
  "The game is not responding": "遊戲沒有回應",
  "It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.": "它可能只是太忙，過一會兒會自己恢復。退出會關閉遊戲，未儲存的進度可能遺失。",
  "Wait": "等待",
- "Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.": "點擊遊戲畫面以取得鍵盤焦點。Alt+Enter 切換全螢幕。"
+ "Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.": "點擊遊戲畫面以取得鍵盤焦點。Alt+Enter 切換全螢幕。",
+ "Your guest progress is now on your account.": "訪客進度已轉入你的帳號。",
+ "Your account already had progress in these games, so it was kept.": "你的帳號在這些遊戲中已有進度，已保留帳號進度。",
+ "The guest progress was left out of your account.": "訪客進度未轉入你的帳號。",
+ "Move guest progress to {name}?": "把訪客進度轉入 {name}？",
+ "This browser has progress from playing as a guest. Move it only if it is yours: on a shared computer it may belong to someone else.": "這個瀏覽器裡有以訪客身分遊玩的進度。只有確認是你自己的才轉入：在共用電腦上，它可能屬於別人。",
+ "Your account already has progress in {games}. That progress stays as it is and the guest progress is not mixed into it.": "你的帳號在 {games} 中已有進度，將保持不變，不會與訪客進度混在一起。",
+ "Move to my account": "轉入我的帳號",
+ "OK": "好的",
+ "It is not mine": "這不是我的",
+ "Decide later": "稍後決定",
+ "The game was closed": "遊戲已關閉",
+ "Play again": "重新開始",
+ "You signed in, so the guest session ended. Play again to continue on your account.": "你已登入，訪客工作階段已結束。重新開始即可在你的帳號上繼續。",
+ "This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.": "此瀏覽器已登出或切換了帳號，遊戲已關閉。進度保留在遊玩時使用的帳號中。",
+ "The play session ended. Play again to start a new one.": "遊玩工作階段已結束。重新開始即可開啟新的工作階段。",
+ "Playing as a guest on this browser.": "正在以訪客身分在此瀏覽器遊玩。",
+ "Playing as {name}. Progress saves to this account.": "正在以 {name} 的身分遊玩，進度儲存到該帳號。"
 }

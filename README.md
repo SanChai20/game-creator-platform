@@ -64,6 +64,15 @@ Every game gets per-player progress from the platform: cloud saves (`GCP.save`),
 - Players see and reset their own progress on the game page (`/api/games/:slug/progress`). Creators get totals and averages through `game_data`, never one player's data.
 - The SDK's offline copy in `localStorage` is keyed by game, environment and player, so people sharing a browser stay apart.
 
+## Game sessions and accounts
+
+Games open straight away with no login of their own: a signed-in player plays as their platform account, and a visitor plays a free game as a guest (admin setting "Require login to play", off by default; paid games, purchases and trials always need an account). Each session is bound to the identity that started it. The rules live in `src/session-binding.js` and are tested in `tests/session-binding.mjs`:
+
+- An account's session belongs to the sign-in it started from. Signing out, signing in again (as anyone) in the same browser, the sign-in expiring or the account being suspended ends it, and every service call from a game still open on it (another tab, a reload, the token kept on the game's own origin) is refused with `session_ended`. The SDK stops the game and the game page closes it and says why; other tabs notice through a `BroadcastChannel` and when they come back into view.
+- A game page reopened from the token its origin kept in a cookie is served only after the platform confirms the token is still bound (`/api/rt/check`); opened by itself it goes to the game's page, which starts it for whoever is signed in there (`?play=1`).
+- Long sessions renew their token shortly before it runs out (`/api/rt/renew`) while the session is still bound, so saves never start failing mid-play. Free-trial tokens are not renewed, and a paid game is renewed only while the player still owns it.
+- Progress made as a guest is offered to the account after sign-in or sign-up and moves only when the player says yes (on a shared computer it may be someone else's). It moves once: the guest id is then retired, its sessions end, and the browser gets a new guest id. In a game where the account already has progress, the account's progress stays as it is and the guest's is never mixed into it.
+
 ## Money
 
 - **Creator license.** A one-time fee (default $30) to publish any number of games. Building and previewing are free.

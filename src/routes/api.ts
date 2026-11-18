@@ -1,7 +1,8 @@
 // The web app's API: accounts, marketplace, play sessions, purchases, the creator console and billing.
 import { Hono } from 'hono';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from '../env';
-import { checkPassword, COOKIE, createSession, guestIdentity, hashPassword, newUserId, rateLimit, readCookie, requireUser, sessionCookie, type Ctx } from '../auth';
+import { checkPassword, clearGuestCookie, COOKIE, createSession, endPreviousLogin, existingGuestId, guestIdentity, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, readCookie, requireUser, sessionCookie, type Ctx } from '../auth';
+import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
@@ -20,6 +21,8 @@ import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
 import { playerSummary, resetPlayer, scopeOf } from '../player-data.js';
+// @ts-ignore plain JS module
+import { claimGuest, guestProgress } from '../session-binding.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
@@ -60,6 +63,7 @@ api.post('/auth/signup', async (c) => {
   if (await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) throw new AppError(409, 'An account with that email already exists. Sign in instead.', 'exists');
   const id = newUserId();
   await c.env.DB.prepare('INSERT INTO users (id, email, name, pw_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)').bind(id, email, name, await hashPassword(pw), now(), now()).run();
+  await endPreviousLogin(c.env, c.req.raw);   // games still open on the browser's earlier sign-in stop (see session-binding.js)
   c.header('set-cookie', await createSession(c.env, c.req.raw, id));
   return c.json({ ok: true });
 });
@@ -72,8 +76,28 @@ api.post('/auth/login', async (c) => {
   if (!u || !(await checkPassword(String(b.password || ''), u.pw_hash))) throw new AppError(401, 'Wrong email or password.', 'bad_login');
   if (u.status !== 'active') throw forbidden('This account is suspended.');
   await c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now(), u.id).run();
+  // Signing in replaces this browser's earlier sign-in, whoever it was: games still open on it (another tab, a reload)
+  // stop at their next call instead of carrying on as the previous account.
+  await endPreviousLogin(c.env, c.req.raw);
   c.header('set-cookie', await createSession(c.env, c.req.raw, u.id));
   return c.json({ ok: true });
+});
+
+// Progress this browser made as a guest, offered to the signed-in account. Nothing moves until the player says so
+// (POST below): on a shared computer the guest progress may be someone else's. A game where the account already has
+// progress is listed as kept: the account's own progress stays and the guest's is not mixed into it.
+api.get('/guest-progress', async (c) => {
+  const u = requireUser(c), g = await existingGuestId(c.env, c.req.raw);
+  return c.json({ games: g ? await guestProgress(c.env.DB, g, u.id) : [] });
+});
+api.post('/guest-progress', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ move?: boolean }>().catch(() => ({} as { move?: boolean }));
+  const g = await existingGuestId(c.env, c.req.raw);
+  // Either way the guest id is claimed once and its cookie removed, so it can never reach a second account.
+  c.header('set-cookie', clearGuestCookie(c.req.raw), { append: true });
+  if (!g) return c.json({ ok: true, moved: 0, kept: 0, games: [] });
+  const r = await claimGuest(c.env.DB, g, u.id, u.name, { move: b.move === true, t: now() });
+  return c.json({ ok: true, ...(r || { moved: 0, kept: 0, games: [] }) });
 });
 
 api.post('/auth/logout', async (c) => {
@@ -228,14 +252,15 @@ api.get('/games/:slug', async (c) => {
   });
 });
 
-const GUEST_SESSION_S = 3600;   // a guest's play session is short, so switching "Require login to play" on ends guest play within the hour even where the game's own Worker serves it
-async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User, trialSeconds?: number, lifeS = 6 * 3600) {
+async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', version: number, u: User, trialSeconds?: number, lifeS = PLAY_SESSION_S) {
   const kind = u.id === p.owner_id || u.role === 'admin' ? 'owner' : 'player', sid = 'ps_' + rid(16), t = now(), trial = trialSeconds !== undefined;
-  await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at, trial) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t, trial ? 1 : 0).run();
+  // An account's session is bound to the sign-in that started it (session-binding.js): it ends when that sign-in does.
+  const login = isGuestId(u.id) ? null : await loginIdOf(c.req.raw);
+  await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at, trial, login_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t, trial ? 1 : 0, login).run();
   // A trial token lasts only as long as the trial time left (plus a little slack for the last heartbeat); a full one six hours.
   const life = trial ? trialSeconds + 20 : lifeS;
   const token = await signPlayToken({ g: p.id, e: envName, u: u.id, n: u.name, k: kind, s: sid, x: Math.floor(t / 1000) + life, ...(trial ? { tr: 1 } : {}) }, await playKey(c.env, p.id));
-  return { url: `${await gameUrl(c.env, c.get('origin'), p.id, envName)}?gcp_t=${token}`, session: sid, version, ...(trial ? { trial: { remaining_seconds: trialSeconds } } : {}) };
+  return { url: `${await gameUrl(c.env, c.get('origin'), p.id, envName)}?gcp_t=${token}`, session: sid, version, player: { id: u.id, name: u.name, guest: isGuestId(u.id) }, ...(trial ? { trial: { remaining_seconds: trialSeconds } } : {}) };
 }
 
 api.post('/games/:slug/play', async (c) => {

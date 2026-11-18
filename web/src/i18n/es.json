@@ -1272,5 +1272,22 @@
  "The game is not responding": "El juego no responde",
  "It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.": "Puede que esté ocupado y se recupere solo. Salir lo cierra; el progreso que no haya guardado puede perderse.",
  "Wait": "Esperar",
- "Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.": "Haz clic en el juego para darle el teclado. Alt+Enter alterna la pantalla completa."
+ "Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.": "Haz clic en el juego para darle el teclado. Alt+Enter alterna la pantalla completa.",
+ "Your guest progress is now on your account.": "Tu progreso como invitado ya está en tu cuenta.",
+ "Your account already had progress in these games, so it was kept.": "Tu cuenta ya tenía progreso en estos juegos, así que se ha conservado.",
+ "The guest progress was left out of your account.": "El progreso de invitado no se ha añadido a tu cuenta.",
+ "Move guest progress to {name}?": "¿Pasar el progreso de invitado a {name}?",
+ "This browser has progress from playing as a guest. Move it only if it is yours: on a shared computer it may belong to someone else.": "Este navegador tiene progreso de partidas como invitado. Pásalo solo si es tuyo: en un ordenador compartido puede ser de otra persona.",
+ "Your account already has progress in {games}. That progress stays as it is and the guest progress is not mixed into it.": "Tu cuenta ya tiene progreso en {games}. Ese progreso se queda como está y no se mezcla con el de invitado.",
+ "Move to my account": "Pasar a mi cuenta",
+ "OK": "Aceptar",
+ "It is not mine": "No es mío",
+ "Decide later": "Decidir más tarde",
+ "The game was closed": "Se ha cerrado el juego",
+ "Play again": "Jugar de nuevo",
+ "You signed in, so the guest session ended. Play again to continue on your account.": "Has iniciado sesión, así que la sesión de invitado ha terminado. Juega de nuevo para seguir con tu cuenta.",
+ "This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.": "Este navegador ha cerrado sesión o cambiado de cuenta, así que se ha cerrado el juego. Su progreso se queda en la cuenta con la que se jugó.",
+ "The play session ended. Play again to start a new one.": "La sesión de juego ha terminado. Juega de nuevo para empezar otra.",
+ "Playing as a guest on this browser.": "Jugando como invitado en este navegador.",
+ "Playing as {name}. Progress saves to this account.": "Jugando como {name}. El progreso se guarda en esta cuenta."
 }
