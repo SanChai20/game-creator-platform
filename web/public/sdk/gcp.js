@@ -382,6 +382,117 @@
     if (used) return;
     if (display.fullscreen) toParent({ gcp: 'menu', on: true });   // nothing of the game's was open: the platform menu
   }
+  // ---- GPU warm-up. Every page in the browser shares one GPU process, so a game that builds all its shaders and uploads
+  // all its textures in one go stalls the GPU for everything else, the platform page around it included, until it is done.
+  // Done here for every game, so no game has to know about it:
+  //   - every WebGL context asks for KHR_parallel_shader_compile, so the browser builds shaders on worker threads;
+  //   - three.js renderers are found as they are made (three announces them to __THREE_DEVTOOLS__). While the game is
+  //     loading (before GCP.ready(), or while GCP.progress() is below 1 after it), a draw to the screen whose scene holds
+  //     materials not built yet is held back: those are compiled a few at a time with compileAsync, with a pause between
+  //     batches, and their textures are uploaded a few at a time; then the frame is drawn. Draws into render targets are
+  //     never held back, because a game may read them back at once.
+  // GCP.gpu.auto = false (set before the renderer is made) turns the automatic part off; GCP.gpu.warmup() and
+  // GCP.gpu.upload() do the same work on request, for a level loaded later or for an engine the platform does not know.
+  var GPU = { auto: true, stats: { held: 0, compiled: 0, uploaded: 0, batches: 0, ms: 0, skipped: '' } };
+  S.gpu = GPU.stats;
+  var BATCH = 4, REST_MS = 16, BIG_TEXELS = 512 * 512, WARM_CAP_MS = 12000;
+  var pause = function (ms) { return new Promise(function (r) { setTimeout(r, ms == null ? REST_MS : ms); }); };
+  function parallel(ctx) { try { if (ctx && typeof ctx.getExtension === 'function') ctx.getExtension('KHR_parallel_shader_compile'); } catch (e) { /* not WebGL */ } }
+  [window.HTMLCanvasElement, window.OffscreenCanvas].forEach(function (C) {
+    if (!C || !C.prototype.getContext) return;
+    var get = C.prototype.getContext;
+    C.prototype.getContext = function (type) { var ctx = get.apply(this, arguments); if (ctx && /^(webgl|experimental-webgl)/.test(String(type))) parallel(ctx); return ctx; };
+  });
+
+  function texturesOf(m, out) {
+    var add = function (v) { if (v && v.isTexture && !v.isRenderTargetTexture && out.indexOf(v) < 0) out.push(v); };
+    for (var k in m) { if (k !== 'uniforms' && Object.prototype.hasOwnProperty.call(m, k)) add(m[k]); }
+    if (m.uniforms) for (var u in m.uniforms) { var v = m.uniforms[u] && m.uniforms[u].value; if (Array.isArray(v)) v.forEach(add); else add(v); }
+  }
+  function texels(t) { var i = t.image; if (!i) return 0; if (Array.isArray(i)) i = i[0] || {}; return (i.width || 0) * (i.height || 0) * (i.depth || 1); }
+  /** Upload textures a few at a time (one at a time when large), with a pause between, instead of all on the first frame. */
+  function upload(renderer, list) {
+    if (!renderer || typeof renderer.initTexture !== 'function') return Promise.resolve();
+    var seen = renderer.__gcpTex || (renderer.__gcpTex = new WeakSet());
+    var todo = list.filter(function (t) { return t && t.isTexture && !seen.has(t) && t.image; });
+    return todo.reduce(function (p, t, i) {
+      return p.then(function () {
+        seen.add(t); try { renderer.initTexture(t); GPU.stats.uploaded++; } catch (e) { /* uploaded on first use instead */ }
+        return texels(t) >= BIG_TEXELS || i % BATCH === BATCH - 1 ? pause() : null;
+      });
+    }, Promise.resolve());
+  }
+  /** Take any link wait still outstanding now, in small pieces (only matters without KHR_parallel_shader_compile). */
+  function settle(renderer) {
+    try {
+      var gl = renderer.getContext(), done = renderer.__gcpSettled || (renderer.__gcpSettled = new WeakSet());
+      (renderer.info && renderer.info.programs || []).forEach(function (pr) { if (pr && pr.program && !done.has(pr)) { done.add(pr); gl.getProgramParameter(pr.program, gl.LINK_STATUS); } });
+    } catch (e) { /* context lost */ }
+  }
+  /** The meshes in a scene whose material this renderer has not warmed yet. */
+  function fresh(renderer, scene) {
+    var warm = renderer.__gcpWarm || (renderer.__gcpWarm = new WeakSet()), out = [];
+    scene.traverseVisible(function (o) {
+      if (!o.material) return;
+      var ms = Array.isArray(o.material) ? o.material : [o.material];
+      for (var i = 0; i < ms.length; i++) if (ms[i] && !warm.has(ms[i])) { out.push(o); return; }
+    });
+    return out;
+  }
+  /** Compile what a scene needs and upload its textures, a few objects at a time, without blocking the GPU process. */
+  function warmup(renderer, scene, camera) {
+    if (!renderer || !scene || typeof renderer.compileAsync !== 'function') return Promise.resolve();
+    var t0 = performance.now(), objs = fresh(renderer, scene), warm = renderer.__gcpWarm, target = renderer.getRenderTarget ? renderer.getRenderTarget() : null;
+    if (!objs.length) return Promise.resolve();
+    var batches = [], cur = [];
+    objs.forEach(function (o) { cur.push(o); if (cur.length >= BATCH) { batches.push(cur); cur = []; } });
+    if (cur.length) batches.push(cur);
+    return batches.reduce(function (p, b) {
+      return p.then(function () {
+        if (performance.now() - t0 > WARM_CAP_MS) { GPU.stats.skipped = 'time cap'; return; }
+        // compile into the same target the game was drawing to, so the programs built are the ones it will use
+        var prev = renderer.getRenderTarget ? renderer.getRenderTarget() : null;
+        if (renderer.setRenderTarget && prev !== target) renderer.setRenderTarget(target);
+        var jobs = b.map(function (o) { return renderer.compileAsync(o, camera, scene).catch(function () { }); });
+        if (renderer.setRenderTarget && prev !== target) renderer.setRenderTarget(prev);
+        return Promise.all(jobs).then(function () {
+          settle(renderer); GPU.stats.batches++;
+          var tex = [];
+          b.forEach(function (o) { (Array.isArray(o.material) ? o.material : [o.material]).forEach(function (m) { if (m) { if (!warm.has(m)) GPU.stats.compiled++; warm.add(m); texturesOf(m, tex); } }); });
+          return upload(renderer, tex);
+        }).then(function () { return pause(); });
+      });
+    }, Promise.resolve()).then(function () { GPU.stats.ms += Math.round(performance.now() - t0); });
+  }
+  function gate(renderer) {
+    if (!renderer || renderer.__gcpGate || typeof renderer.render !== 'function' || typeof renderer.compileAsync !== 'function' || !renderer.isWebGLRenderer) return;
+    var render = renderer.render, job = null, last = null, drew = 0;
+    renderer.__gcpGate = true;
+    renderer.render = function (scene, camera) {
+      var loading = !S.ready || S.busy;
+      if (!GPU.auto || !loading || !scene || !scene.isObject3D || (renderer.xr && renderer.xr.isPresenting) || (renderer.getRenderTarget && renderer.getRenderTarget() !== null)) { drew++; return render.apply(this, arguments); }
+      if (!job && fresh(renderer, scene).length) {
+        job = warmup(renderer, scene, camera).catch(function () { }).then(function () {
+          job = null;
+          // a game that draws only when something changes gets the frame it asked for
+          var n = drew; requestAnimationFrame(function () { if (drew === n && last) { var prev = renderer.getRenderTarget(); renderer.setRenderTarget(null); renderer.render(last[0], last[1]); renderer.setRenderTarget(prev); } });
+        });
+      }
+      if (job) { GPU.stats.held++; last = [scene, camera]; return; }
+      drew++; return render.apply(this, arguments);
+    };
+  }
+  try {
+    var dt = window.__THREE_DEVTOOLS__;
+    if (!dt) { dt = new EventTarget(); Object.defineProperty(window, '__THREE_DEVTOOLS__', { value: dt, writable: true, configurable: true }); }
+    dt.addEventListener('observe', function (e) { var o = e.detail; if (o && o.isWebGLRenderer) gate(o); });
+  } catch (e) { /* no EventTarget: the helpers below still work */ }
+  GPU.warmup = function (renderer, scenes, camera) {
+    var list = Array.isArray(scenes) ? scenes : [scenes];
+    return list.reduce(function (p, sc) { return p.then(function () { return warmup(renderer, sc, camera); }); }, Promise.resolve());
+  };
+  GPU.upload = upload;
+
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
@@ -397,6 +508,8 @@
       if (GCP.test.autostart) setTimeout(function () { autostartFns.forEach(function (fn) { try { fn(); } catch (e) { note(S.errors, 'autostart hook threw: ' + (e && e.message || e)); } }); }, 0);
       if (!standalone) { api('beat', { frames: S.frames, active: false, first: true, loadMs: Math.round(S.readyAt - S.boot) }).then(onBeat).catch(function () { }); }
     },
+    /** GPU warm-up (see above): automatic for three.js while loading; warmup(renderer, scene|scenes, camera) and upload(renderer, textures) on request. */
+    gpu: GPU,
     /** Call when the game cannot start. Shows up as the failure reason in verification. */
     fatal: function (err) { S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },
     /** Optional numbers for reports and the console (draw calls, triangles, quality, …). */

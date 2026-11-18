@@ -74,12 +74,12 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'lifecycle', name: 'SDK and game lifecycle', category: 'runtime', status: 'available',
       what: 'window.GCP, injected at the top of every game page before any game code runs.',
-      how_it_works: 'The SDK reports loading progress, readiness and fatal errors; records uncaught errors, failed file loads and console.error; sends a heartbeat every 15 seconds that measures active play time (tab visible, frames advancing); and gives the game the signed-in player. Outside the platform (a local file or dev server) it runs standalone with a local player and offline fallbacks, so the same code runs everywhere.',
+      how_it_works: 'The SDK reports loading progress, readiness and fatal errors; records uncaught errors, failed file loads and console.error; sends a heartbeat every 15 seconds that measures active play time (tab visible, frames advancing); and gives the game the signed-in player. It also warms the GPU while the game loads: every WebGL context gets KHR_parallel_shader_compile, and three.js draws to the screen wait until their new materials are compiled in small batches and textures uploaded, so a cold start does not freeze the browser and the platform page (all tabs share one GPU process). Outside the platform (a local file or dev server) it runs standalone with a local player and offline fallbacks, so the same code runs everywhere.',
       use_for: ['Telling the platform when the game is playable', 'A loading bar the verification report can show', 'Reporting why a game could not start'],
-      sdk: ['GCP.ready(info)', 'GCP.progress(f, label)', 'GCP.fatal(err)', 'GCP.stats(obj)', 'GCP.standalone', 'GCP.sdk', 'GCP.portrait'],
+      sdk: ['GCP.ready(info)', 'GCP.progress(f, label)', 'GCP.fatal(err)', 'GCP.stats(obj)', 'GCP.standalone', 'GCP.sdk', 'GCP.portrait', 'GCP.gpu.warmup(renderer, scenes, camera)', 'GCP.gpu.upload(renderer, textures)', 'GCP.gpu.auto'],
       mcp_tools: ['get_started'],
       limits: { ready_timeout_seconds: s.verify_ready_timeout_s, heartbeat_seconds: 15 },
-      guidelines: ['Call GCP.ready() exactly once, right after the first playable frame is drawn.', 'Never import or bundle the SDK; guard with `if (window.GCP)` only for tests outside the platform.', 'Every SDK call that reaches the network resolves instead of throwing.'],
+      guidelines: ['Call GCP.ready() exactly once, right after the first playable frame is drawn.', 'Never import or bundle the SDK; guard with `if (window.GCP)` only for tests outside the platform.', 'Every SDK call that reaches the network resolves instead of throwing.', 'Report GCP.progress() below 1 while a later level loads, so the SDK warms that load too; warm content drawn into render targets with GCP.gpu.warmup behind the loading screen.'],
       guide: 'contract',
     },
     {
