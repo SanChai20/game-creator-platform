@@ -130,10 +130,73 @@ export function playRecordStmt(db, play, delta, first, t = Date.now()) {
     .bind(scopeOf(play.project_id, play.env), play.user_id, t, t, first ? 1 : 0, delta, play.version);
 }
 
+// ---- where the player left off (GCP.resume), for "Continue playing" -------------------------------
+export const RESUME_LABEL_MAX = 60;
+export const RESUME_DETAIL_MAX = 80;
+const oneLine = (v, max) => String(v ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+/** Checks what a game sent with GCP.resume.set: a short label ("Act 2, Floor 14"), an optional detail line and progress 0..1. */
+export function cleanResume(b, t = Date.now()) {
+  const label = oneLine(b?.label, RESUME_LABEL_MAX);
+  if (!label) throw bad('resume needs a label: a few words saying where the player is ("Act 2, Floor 14").');
+  const out = { label, at: t };
+  const detail = oneLine(b?.detail, RESUME_DETAIL_MAX);
+  if (detail) out.detail = detail;
+  if (b?.progress != null) {
+    const p = Number(b.progress);
+    if (!Number.isFinite(p)) throw bad('progress must be a number from 0 to 1.');
+    out.progress = Math.round(Math.max(0, Math.min(1, p)) * 1000) / 1000;
+  }
+  return out;
+}
+/** GCP.resume: set (where the player is now), clear (nothing to resume: the run ended) and get. The verifier keeps none. */
+export async function resumeOp(db, tok, b, t = Date.now()) {
+  const scope = scopeOf(tok.g, tok.e), owner = playerOf(tok);
+  if (b.op === 'get') {
+    const r = tok.k === 'verify' ? null : await db.prepare('SELECT resume FROM player_games WHERE project_id = ? AND user_id = ?').bind(scope, owner).first();
+    return { resume: r?.resume ? parse(r.resume) : null };
+  }
+  if (b.op === 'clear') {
+    if (tok.k !== 'verify') await db.prepare('UPDATE player_games SET resume = NULL WHERE project_id = ? AND user_id = ?').bind(scope, owner).run();
+    return { ok: true };
+  }
+  if (b.op !== 'set') throw bad('op must be set, clear or get.');
+  const r = cleanResume(b, t);
+  if (tok.k === 'verify') return { ok: true, resume: r };
+  // usually the heartbeat has made the row already; if not, start it without counting a session
+  await db.prepare(`INSERT INTO player_games (project_id, user_id, first_at, last_at, sessions, seconds, resume) VALUES (?1, ?2, ?3, ?3, 0, 0, ?4)
+    ON CONFLICT(project_id, user_id) DO UPDATE SET resume = excluded.resume`).bind(scope, owner, t, JSON.stringify(r)).run();
+  return { ok: true, resume: r };
+}
+
+/**
+ * The signed-in player's live games, most recently played first, for "Continue playing": play record, last save, what the
+ * game said with GCP.resume, and whether the player may still open it in full (a paid game they bought, or their own).
+ * Games taken off the row stay off until played again. Only live games, never preview data.
+ */
+export async function continueList(db, owner, { limit = 12, offset = 0 } = {}) {
+  const lim = Math.max(1, Math.min(50, limit | 0 || 12)), off = Math.max(0, Math.min(5000, offset | 0));
+  const rows = await db.prepare(`SELECT pg.project_id, pg.first_at, pg.last_at, pg.sessions, pg.seconds, pg.resume,
+      (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = pg.project_id AND s.user_id = pg.user_id) AS saved_at,
+      (p.price_cents = 0 OR p.owner_id = pg.user_id OR EXISTS (SELECT 1 FROM purchases b WHERE b.user_id = pg.user_id AND b.project_id = p.id AND b.status = 'paid')) AS owned
+    FROM player_games pg JOIN projects p ON p.id = pg.project_id
+    WHERE pg.user_id = ? AND p.status = 'live' AND (pg.continue_hidden_at IS NULL OR pg.last_at > pg.continue_hidden_at)
+    ORDER BY pg.last_at DESC LIMIT ? OFFSET ?`).bind(owner, lim + 1, off).all();
+  const list = rows.results.slice(0, lim).map((r) => ({
+    game_id: r.project_id, first_played: r.first_at, last_played: r.last_at, sessions: r.sessions || 0, seconds: r.seconds || 0,
+    saved_at: r.saved_at || null, resume: r.resume ? parse(r.resume) : null, owned: !!r.owned,
+  }));
+  return { list, more: rows.results.length > lim };
+}
+/** Takes one game off the player's Continue row until they play it again. Their progress is untouched. */
+export async function hideContinue(db, scope, owner, t = Date.now()) {
+  const r = await db.prepare('UPDATE player_games SET continue_hidden_at = ? WHERE project_id = ? AND user_id = ?').bind(t, scope, owner).run();
+  return { ok: (r?.meta?.changes || 0) > 0 };
+}
+
 /** GCP.playRecord() and the player's own "your progress" panel. */
 export async function playerSummary(db, scope, owner) {
   const [rec, stats, saves, best] = await Promise.all([
-    db.prepare('SELECT first_at, last_at, sessions, seconds, last_version FROM player_games WHERE project_id = ? AND user_id = ?').bind(scope, owner).first(),
+    db.prepare('SELECT first_at, last_at, sessions, seconds, last_version, resume FROM player_games WHERE project_id = ? AND user_id = ?').bind(scope, owner).first(),
     db.prepare('SELECT name, value FROM player_stats WHERE project_id = ? AND user_id = ? ORDER BY name').bind(scope, owner).all(),
     db.prepare('SELECT COUNT(*) AS keys, COALESCE(SUM(LENGTH(v)), 0) AS bytes, MAX(updated_at) AS last_at FROM saves WHERE project_id = ? AND user_id = ?').bind(scope, owner).first(),
     db.prepare('SELECT board, score FROM scores WHERE project_id = ? AND user_id = ? ORDER BY board').bind(scope, owner).all(),
@@ -141,19 +204,21 @@ export async function playerSummary(db, scope, owner) {
   return {
     sessions: rec?.sessions || 0, seconds: rec?.seconds || 0,
     first_played: rec?.first_at || null, last_played: rec?.last_at || null, last_version: rec?.last_version || null,
+    resume: rec?.resume ? parse(rec.resume) : null,
     stats: Object.fromEntries(stats.results.map((r) => [r.name, r.value])),
     best: Object.fromEntries(best.results.map((r) => [r.board, r.score])),
     saves: { keys: saves?.keys || 0, bytes: saves?.bytes || 0, last_saved: saves?.last_at || null },
   };
 }
 
-/** A player wiping their own progress in one game: saves, stats and leaderboard entries. The play record stays (it is play time, not progress). */
+/** A player wiping their own progress in one game: saves, stats, leaderboard entries and where they left off. The play record stays (it is play time, not progress). */
 export async function resetPlayer(db, scope, owner) {
   if (!owner) throw bad('No player.');
   const r = await db.batch([
     db.prepare('DELETE FROM saves WHERE project_id = ? AND user_id = ?').bind(scope, owner),
     db.prepare('DELETE FROM player_stats WHERE project_id = ? AND user_id = ?').bind(scope, owner),
     db.prepare('DELETE FROM scores WHERE project_id = ? AND user_id = ?').bind(scope, owner),
+    db.prepare('UPDATE player_games SET resume = NULL WHERE project_id = ? AND user_id = ?').bind(scope, owner),
   ]);
   return { ok: true, removed: r.reduce((s, x) => s + (x.meta?.changes || 0), 0) };
 }

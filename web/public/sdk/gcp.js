@@ -688,6 +688,17 @@
   };
   GPU.upload = upload;
 
+  // GCP.resume.set may be called every frame by mistake: at most one call reaches the platform every 5 seconds (the
+  // latest value wins), and a waiting value is sent at once when the tab is hidden.
+  var resumeNext = null, resumeTimer = 0, resumeLast = 0;
+  function resumeFlush() {
+    clearTimeout(resumeTimer); resumeTimer = 0;
+    if (!resumeNext) return Promise.resolve(true);
+    var b = resumeNext; resumeNext = null; resumeLast = Date.now();
+    return api('resume', b).then(function () { return true; }).catch(function () { return false; });
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && resumeNext) resumeFlush(); });
+
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
@@ -726,6 +737,24 @@
     },
     /** What the platform recorded for this player in this game: sessions, play seconds, first and last played, stats, best scores. */
     playRecord: function () { return api('record', {}).catch(function () { return null; }); },
+    /** How the player opened the game. continue is true when they pressed Continue on the platform (their Continue row,
+        library or the game page after playing before): skip the title screen and load their saved run if there is one. */
+    launch: { continue: q.get('gcp_continue') === '1' },
+    /** Where the player left off, shown on their Continue row and library. Optional; games without it still appear there.
+        set({ label: 'Act 2, Floor 14', detail?: 'Ember Knight, 3 relics', progress?: 0..1 }) at checkpoints; clear() when
+        the run ends and there is nothing to resume; get() returns what was last set, or null. */
+    resume: {
+      set: function (info) {
+        if (!info || typeof info !== 'object') info = { label: info };
+        resumeNext = { op: 'set', label: info.label, detail: info.detail, progress: info.progress };
+        var wait = Math.max(0, 5000 - (Date.now() - resumeLast));
+        if (!wait) return resumeFlush();
+        if (!resumeTimer) resumeTimer = setTimeout(resumeFlush, wait);
+        return Promise.resolve(true);
+      },
+      clear: function () { resumeNext = null; clearTimeout(resumeTimer); resumeTimer = 0; return api('resume', { op: 'clear' }).then(function () { return true; }).catch(function () { return false; }); },
+      get: function () { return api('resume', { op: 'get' }).then(function (r) { return r.resume; }).catch(function () { return null; }); },
+    },
     /** Game-wide data every player can read. Written only by the game's server code. */
     shared: { get: function (key) { return api('save', { op: 'get', key: key, shared: true }).then(function (r) { return r.value; }).catch(function () { return null; }); } },
     leaderboard: {

@@ -129,6 +129,17 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'saves',
     },
     {
+      id: 'continue', name: 'Continue playing', category: 'player data', status: 'automatic',
+      what: 'Every signed-in player gets a Continue row on the store front and in their library: the games they played, most recent first, each opening straight into the game with one press.',
+      how_it_works: 'Built from the play record and cloud saves with no game code: every game a player has played appears, with play time, last played and last saved. A game can add where the player is with GCP.resume.set ("Act 2, Floor 14", an optional detail line and progress 0..1), shown on the row. Pressing Continue opens the game with GCP.launch.continue true, so a game that reads it can skip its title screen and load the saved run. Kept per player and game from the play token like saves; the verifier keeps none; resetting progress on the game page clears it.',
+      use_for: ['Telling a returning player where they are before they open the game', 'Landing a returning player in their saved run instead of the title screen', 'Clearing it when a run ends so the row does not promise a run that is gone'],
+      sdk: ['GCP.launch.continue', 'GCP.resume.set({ label, detail, progress })', 'GCP.resume.clear()', 'GCP.resume.get()'],
+      mcp_tools: [],
+      limits: { label_length: '1 to 60 characters, one line', detail_length: 'up to 80 characters', progress: '0 to 1', sent: 'at most once every 5 seconds (the latest value wins, sent at once when the tab is hidden)' },
+      guidelines: ['Optional: games without it still appear on the Continue row.', 'Call GCP.resume.set at the same checkpoints you save at, with words a player recognises ("Act 2, Floor 14"), in the player\'s language (GCP.lang).', 'Call GCP.resume.clear() when a run ends (death in a roguelite, credits) and nothing is left to resume.', 'When GCP.launch.continue is true and a save exists, load it and skip the title screen; with no save, start as usual.'],
+      guide: 'saves',
+    },
+    {
       id: 'shared_data', name: 'Shared game data', category: 'player data', status: 'available',
       what: 'Game-wide JSON every player of the game can read: levels, configuration, a message of the day, a daily seed.',
       how_it_works: 'Stored per game and environment. Players read it with GCP.shared.get; only the creator (game_data set, through MCP) and the game\'s server code (env.store without a player) can write it, so players cannot tamper with it.',

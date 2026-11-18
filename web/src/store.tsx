@@ -320,8 +320,8 @@ export function Cartridges({ n, list, title, to, max = 12 }: { n?: string; list:
 
 // ---- reasons to come back -----------------------------------------------------------------------
 /** "Jump back in" (games this browser played) and "new since your last visit". Shows nothing on a first visit. */
-export function Since({ newCount, since }: { newCount: number; since: number | null }) {
-  const [recent] = useState(() => recentPlays().slice(0, 4));
+export function Since({ newCount, since, recent: showRecent = true }: { newCount: number; since: number | null; recent?: boolean }) {
+  const [all] = useState(() => recentPlays().slice(0, 4)), recent = showRecent ? all : [];
   if (!recent.length && !newCount) return null;
   return (
     <div className="since">

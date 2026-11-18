@@ -31,6 +31,26 @@ const r = await GCP.playRecord();
 
 Use it for a "welcome back" message, a total-time line on a stats screen, or to skip a tutorial for a returning player.
 
+## Continue playing
+
+Signed-in players get a Continue row on the store front and in their library with every game they played, most recent first. Your game is on it without any code: the platform shows its play time, when it was last played and when it last saved. Pressing Continue opens the game at once. Two optional hooks let the row say more and land the player in their run:
+
+```js
+// 1. Where the player is, in words they recognise and in their language (GCP.lang). Call it where you save.
+GCP.resume.set({ label: 'Act 2, Floor 14', detail: 'Ember Knight, 3 relics', progress: 0.4 });
+// label: up to 60 characters (required), detail: up to 80, progress: 0..1 (a bar on the row). At most one call reaches the
+// platform every 5 seconds; the latest value wins and a waiting one is sent when the tab is hidden.
+
+// 2. The run is over (death in a roguelite, the credits): nothing to resume.
+GCP.resume.clear();
+
+// 3. Opened with Continue: skip the title screen and load the saved run, when there is one.
+const save = migrate(await GCP.save.get('progress'));
+if (GCP.launch.continue && save?.run) startRun(save.run); else showTitle(save);
+```
+
+`GCP.resume.get()` returns what was last set (or `null`), and `GCP.playRecord().resume` carries it too. The verifier keeps none. A player who resets their progress on the game page clears it.
+
 ## Player stats
 
 Named numbers per player and game, updated on the server so two tabs never lose an increment:
