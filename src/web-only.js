@@ -33,7 +33,18 @@ export function nonWebContent(b, path) {
   return null;
 }
 
-const NATIVE_LINK = /["'(=]\s*([^"'()\s<>]+\.(?:exe|msi|msix|appx|apk|aab|xapk|ipa|dmg|pkg|deb|rpm|appimage))(?:[?#][^"'()\s<>]*)?\s*["')]/i;
+const NATIVE_LINK = /["'(=]\s*([^"'()\s<>]+\.(?:exe|msi|msix|appx|apk|aab|xapk|ipa|dmg|pkg|deb|rpm|appimage))(?:[?#][^"'()\s<>]*)?\s*["')]/gi;
+// Only a real link counts: a URL or path (it has a slash or a scheme), or a bare name given to href, download, src, a
+// location or window.open. A string that merely ends in ".dmg", such as the translation key 'op.dmg', is not a link.
+const LINK_TARGET = /(?:\b(?:href|download|src|action|location|url)\s*[=:]\s*|\b(?:open|assign|replace|fetch)\s*\(\s*|\burl\(\s*)["']?\s*$/i;
+function nativeLink(src) {
+  NATIVE_LINK.lastIndex = 0;
+  for (let m; (m = NATIVE_LINK.exec(src));) {
+    if (/[/:\\]/.test(m[1]) || LINK_TARGET.test(src.slice(Math.max(0, m.index - 40), m.index + 1))) return m;
+    NATIVE_LINK.lastIndex = m.index + 1;
+  }
+  return null;
+}
 const STORE_LINK = /\b(?:itms-services:|itms-apps:|market:\/\/|https?:\/\/(?:play\.google\.com\/store\/apps|apps\.apple\.com|itunes\.apple\.com\/(?:[a-z-]+\/)?app|apps\.microsoft\.com|www\.microsoft\.com\/(?:[a-z-]+\/)?store\/))/i;
 const REDIRECT = /\blocation(?:\s*\.\s*href)?\s*=\s*["'`]https?:\/\/|\blocation\s*\.\s*(?:replace|assign)\s*\(\s*["'`]https?:\/\/|<meta[^>]+http-equiv=["']?refresh[^>]+url\s*=\s*["']?https?:\/\//i;
 
@@ -43,7 +54,7 @@ const REDIRECT = /\blocation(?:\s*\.\s*href)?\s*=\s*["'`]https?:\/\/|\blocation\
  * @param {string} src @returns {{ index: number, message: string, hint: string }[]}
  */
 export function nonWebPage(src) {
-  const out = [], native = NATIVE_LINK.exec(src), store = STORE_LINK.exec(src), away = REDIRECT.exec(src);
+  const out = [], native = nativeLink(src), store = STORE_LINK.exec(src), away = REDIRECT.exec(src);
   if (native) out.push({ index: native.index, message: `Links to a native download: ${native[1]}. This platform hosts web games only.`, hint: `Remove the download. ${WEB_ONLY_HINT}` });
   if (store) out.push({ index: store.index, message: `Links to an app-store install: ${store[0]}. This platform hosts web games only.`, hint: 'The game must be playable here, in the browser. Remove the store link.' });
   if (away) out.push({ index: away.index, message: 'Sends the player to another site. The platform hosts the game itself, not a page that forwards elsewhere.', hint: 'Remove the redirect; the game must run on this page.' });

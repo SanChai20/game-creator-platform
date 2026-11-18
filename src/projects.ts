@@ -276,13 +276,15 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const mapped = (spec: string, extra: string[]) => [...importKeys, ...extra].some((k) => (k.endsWith('/') ? spec.startsWith(k) : spec === k));
   let sawReady = false, usesGPU = false, bareImports = false;
 
-  const checkJs = (file: string, src: string, kind: 'module' | 'script', lineOffset: number, extraMap: string[]) => {
+  const checkJs = (file: string, src: string, kind: 'module' | 'script', lineOffset: number, extraMap: string[]): void => {
     if (/\bGCP\s*\.\s*ready\s*\(/.test(src) || /\bGCP\b/.test(src) && /\.\s*ready\s*\(\s*[^)]{0,80}\)/.test(src)) sawReady = true; // also matches an alias: const G = window.GCP; G.ready()
     if (/@gcp\/craft(2d)?(\.js|\/stage\.js)/.test(src) && /\.\s*run\s*\(/.test(src) && !/ready\s*:\s*false/.test(src)) sawReady = true;   // stage.run() from the craft blocks calls GCP.ready() after the first frames
     if (/navigator\s*\.\s*gpu\b|three\/webgpu|WebGPURenderer/.test(src)) usesGPU = true;
     let ast: unknown;
     try { ast = parse(src, { ecmaVersion: 'latest', sourceType: kind, locations: true, allowHashBang: true, allowAwaitOutsideFunction: kind === 'module', allowReturnOutsideFunction: kind === 'script' }); }
     catch (e) {
+      // a guess of "script" was wrong: the file uses import/export mid-line (minified ES modules such as pixi.min.mjs)
+      if (kind === 'script' && /sourceType: ?module/.test((e as Error).message)) return checkJs(file, src, 'module', lineOffset, extraMap);
       const loc = (e as { loc?: { line: number; column: number } }).loc;
       err({ file, line: loc ? loc.line + lineOffset : undefined, col: loc?.column, message: `JavaScript syntax error: ${(e as Error).message.replace(/\s*\(\d+:\d+\)$/, '')}`, frame: loc ? frameOf(src, loc.line, loc.column) : undefined,
         hint: kind === 'script' && /\b(import|export)\b/.test(src) ? 'This file uses import/export. Load it with <script type="module">.' : 'Fix the syntax at the marked position, upload the file again, then deploy again.' });
@@ -302,6 +304,27 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
     }
   };
 
+  // Files the page loads with <script type="module" src>, and every file those import, are modules whatever they look like.
+  const moduleFiles = new Set<string>();
+  {
+    const queue: string[] = [];
+    for (const [file, src] of texts) {
+      if (extOf(file) === 'mjs') queue.push(file);
+      if (extOf(file) !== 'html') continue;
+      for (const m of src.matchAll(/<script\b([^>]*)>/gi)) {
+        const type = (m[1].match(/type=["']?([^"'\s>]+)/i)?.[1] || '').toLowerCase(), srcAttr = m[1].match(/src=["']([^"']+)["']/i)?.[1];
+        if (type === 'module' && srcAttr && !/^(https?:)?\/\/|^data:|^blob:/.test(srcAttr)) queue.push(srcAttr.startsWith('/') ? srcAttr.slice(1).split(/[?#]/)[0] : resolveRel(file, srcAttr));
+      }
+    }
+    while (queue.length) {
+      const f = queue.pop()!;
+      if (moduleFiles.has(f) || !texts.has(f)) continue;
+      moduleFiles.add(f);
+      for (const m of texts.get(f)!.matchAll(/(?:\bimport\s*(?:[\w$*{}\s,]+?\s*from\s*)?|\bexport\s*(?:\*(?:\s*as\s+[\w$]+)?|\{[^}]*\})\s*from\s*|\bimport\s*\(\s*)["'`](\.{1,2}\/[^"'`]+|\/[^"'`]+)["'`]/g))
+        queue.push(m[1].startsWith('/') ? m[1].slice(1).split(/[?#]/)[0] : resolveRel(f, m[1]));
+    }
+  }
+
   for (const [file, src] of texts) {
     const ext = extOf(file);
     if (file.startsWith('server/')) continue;
@@ -309,7 +332,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
     if (ext === 'html' || ext === 'js' || ext === 'mjs') for (const i of nonWebPage(src)) err({ file, line: src.slice(0, i.index).split('\n').length, message: i.message, hint: i.hint });
     if (ext === 'js' || ext === 'mjs') {
       // A file is a module if anything imports it or it uses import/export; parse as module first.
-      const isModule = /^\s*(import|export)\b/m.test(src);
+      const isModule = moduleFiles.has(file) || /^\s*(import|export)\b/m.test(src);
       checkJs(file, src, isModule ? 'module' : 'script', 0, []);
     } else if (ext === 'json' && file !== 'gcp.json') {
       try { JSON.parse(src); } catch (e) { err({ file, message: `Invalid JSON: ${(e as Error).message}` }); }

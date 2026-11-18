@@ -175,22 +175,34 @@ const RX = {
 const SDK_GLOBAL = String.raw`(?:(?:window|globalThis|self)\s*\.\s*)?GCP\b`;
 const reEsc = (x: string) => x.replace(/[$]/g, '\\$&');
 
-/** The names the code reaches the SDK through: GCP itself, the usual short names, and aliases such as
- *  `const sdk = window.GCP`. Destructured members (`const { save, leaderboard: lb } = GCP`) are returned too. */
+/** The names the code reaches the SDK through, as regex sources: GCP itself, the usual short names, aliases such as
+ *  `const sdk = window.GCP`, and helpers that return it (`const G = () => window.GCP; const g = G()` or `G().save`). Destructured members (`const { save, leaderboard: lb } = GCP`) are returned too. */
 function sdkNames(texts: Iterable<string>): { objs: string[]; members: Set<string> } {
-  const objs = new Set(['GCP', 'G', 'gcp']), members = new Set<string>();
+  const objs = new Set(['GCP', 'G', 'gcp']), members = new Set<string>(), all = [...texts];
   const alias = new RegExp(String.raw`(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*(?:\(\s*)?${SDK_GLOBAL}(?:\s*\|\|[^;\n]*)?\s*\)?\s*(?=[;,)\n]|$)`, 'g');
   const destructure = new RegExp(String.raw`\{([^{}]*)\}\s*=\s*${SDK_GLOBAL}(?!\s*\??\.)`, 'g');
-  for (const s of texts) {
+  // helpers that hand back the SDK: const G = () => window.GCP; function sdk() { return window.GCP || null; }
+  const helperArrow = new RegExp(String.raw`(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\(\s*\)|[A-Za-z_$][\w$]*)\s*=>\s*\(?\s*${SDK_GLOBAL}(?!\s*\??\.)`, 'g');
+  const helperFn = new RegExp(String.raw`\bfunction\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{\s*return\s+\(?\s*${SDK_GLOBAL}(?!\s*\??\.)`, 'g');
+  const helpers = new Set<string>();
+  for (const s of all) {
     for (const m of s.matchAll(alias)) if (!['window', 'globalThis', 'self'].includes(m[1])) objs.add(m[1]);
     for (const m of s.matchAll(destructure)) for (const part of m[1].split(',')) { const k = part.split(':')[0].trim(); if (k) members.add(k); }
+    for (const m of [...s.matchAll(helperArrow), ...s.matchAll(helperFn)]) helpers.add(m[1]);
   }
-  return { objs: [...objs], members };
+  if (helpers.size) {
+    // the helper's result held in a name (const g = G()) or used directly (G().save.get) counts as the SDK
+    const names = [...helpers].map(reEsc).join('|');
+    const viaHelper = new RegExp(String.raw`(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:${names})\s*\(\s*\)`, 'g');
+    for (const s of all) for (const m of s.matchAll(viaHelper)) objs.add(m[1]);
+  }
+  return { objs: [...[...objs].map(reEsc), ...[...helpers].map((h) => String.raw`${reEsc(h)}\s*\(\s*\)`)], members };
 }
 
-/** A pattern for a call into one SDK service through any of the names, e.g. GCP.save.get or sdk?.save.set. */
+/** A pattern for a call into one SDK service through any of the names (already regex sources), e.g. GCP.save.get,
+ *  sdk?.save.set or G().save.get. */
 const sdkUse = (objs: string[], services: string[], call = String.raw`\s*\??\.`) =>
-  new RegExp(String.raw`(?<![\w$])(?:${objs.map(reEsc).join('|')})\s*\??\.\s*(?:${services.join('|')})\b${call}|(?<![\w$])(?:${objs.map(reEsc).join('|')})\s*\[\s*['"\`](?:${services.join('|')})['"\`]\s*\]`);
+  new RegExp(String.raw`(?<![\w$])(?:${objs.join('|')})\s*\??\.\s*(?:${services.join('|')})\b${call}|(?<![\w$])(?:${objs.join('|')})\s*\[\s*['"\`](?:${services.join('|')})['"\`]\s*\]`);
 
 // Player chat: some code that sounds like chat, and a field where a player can type free text. Short fixed-length
 // fields (a 4-letter room code, a name, a seed) are not chat.

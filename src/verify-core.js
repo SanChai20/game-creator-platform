@@ -167,6 +167,8 @@ export async function verifyPage(page, url, opts = {}) {
   // Calls to the game's own server code (GCP.server, /api/* next to the game) are not files: a failure there is the server
   // code's, reported by the "server" check with what it threw, instead of as a missing file.
   const serverErrors = [], apiBase = (() => { try { const u = new URL(url); return { host: u.host, path: u.pathname.replace(/[^/]*$/, '') + 'api/' }; } catch { return null; } })();
+  const sameHost = (u) => { try { return !!apiBase && new URL(u).host === apiBase.host; } catch { return false; } };
+  const unsettled = [];   // the game's own files that answered 5xx or failed during the current load: the deploy may still be settling
   const isServerCall = (r) => { try { if (r.headers()['x-gcp-server-error']) return true; const u = new URL(r.url()); return !!apiBase && u.host === apiBase.host && u.pathname.startsWith(apiBase.path); } catch { return false; } };
   page.on('response', (r) => { try {
     const s = r.status(); if (s < 400 || /favicon\.ico/.test(r.url())) return;
@@ -177,7 +179,14 @@ export async function verifyPage(page, url, opts = {}) {
       e.read = r.text().then((t) => { try { const j = JSON.parse(t); e.message = String(j.message || j.error || '').slice(0, 300); e.stack = Array.isArray(j.stack) ? j.stack.slice(0, 3).map((l) => String(l).slice(0, 200)) : []; } catch { e.message = /\b1101\b|threw exception/i.test(t) ? 'The Worker threw an exception outside the request (for example in a promise that was not awaited).' : String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200); } }).catch(() => {});
       return;
     }
+    if (s >= 500 && sameHost(r.url())) unsettled.push(`${s} ${r.url().split('?')[0]}`);
     if (badResponses.length < 20) badResponses.push(`${s} ${r.url().split('?')[0]}`);
+  } catch { /* detached */ } });
+  // A file of the game's own that failed outright (no response at all), e.g. src/main.js on an edge still taking the deploy.
+  page.on('requestfailed', (r) => { try {
+    if (!sameHost(r.url()) || r.resourceType() === 'media' || (apiBase && new URL(r.url()).pathname.startsWith(apiBase.path))) return;
+    const why = String((r.failure() && r.failure().errorText) || 'failed');
+    if (!/ABORTED|cancel/i.test(why)) unsettled.push(`${why} ${r.url().split('?')[0]}`);
   } catch { /* detached */ } });
   // What the page does to the player's browser, besides the game: other sites it talks to, windows, downloads, dialogs,
   // navigation away. Read by the conduct check below and by the content check (src/content-check.js).
@@ -209,15 +218,28 @@ export async function verifyPage(page, url, opts = {}) {
 
   const report = { ok: false, summary: '', checks, metrics: {}, errors: [], warnings: [], missing: [], notes: [], caps: {}, gpuLimited: false, at: Date.now() };
   // A Worker that was deployed seconds ago can still be missing at some edge locations, so a 404 or 5xx gets a few more tries.
-  let status = 0, navError = '';
-  for (let attempt = 0; attempt < 6; attempt++) {
-    if (attempt) await sleep(5000);
+  // So does a document that loaded while some of the game's own files answered 5xx or failed outright: the deploy is not yet
+  // served consistently, and the same files usually load a few seconds later. Only the last load counts against the game.
+  const settle = () => page.evaluate(() => Promise.race([
+    new Promise((r) => (document.readyState === 'complete' ? r() : addEventListener('load', () => r(), { once: true }))).then(() => document.fonts && document.fonts.ready),
+    new Promise((r) => setTimeout(r, 8000)),
+  ])).catch(() => {});
+  let status = 0, navError = '', retried = [];
+  const ATTEMPTS = 6;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    if (attempt) await sleep([0, 3000, 5000, 8000, 10000, 12000][attempt]);
+    badResponses.length = 0; pageErrors.length = 0; unsettled.length = 0;   // earlier attempts do not count against the game
     try { const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 }); status = resp ? resp.status() : 0; navError = ''; }
     catch (e) { status = 0; navError = String(e && e.message || e); }
-    if (status === 200 || (status >= 400 && status < 500 && status !== 404)) break;
+    if (status === 200) {
+      await settle();
+      if (unsettled.length && attempt < ATTEMPTS - 1) { retried = unsettled.slice(0, 3); continue; }
+      break;
+    }
+    if (status >= 400 && status < 500 && status !== 404) break;
   }
   if (navError) { add('deployed', false, 'The deployed game responds', `Navigation failed: ${navError}`); report.summary = 'The deployed game did not load.'; return { report, shots: [], frames: [] }; }
-  if (status === 200) { badResponses.length = 0; pageErrors.length = 0; }   // earlier attempts do not count against the game
+  if (status === 200 && retried.length && !unsettled.length) report.notes.push(`The first loads right after the deploy had files that did not load yet (${retried.join('; ')}); a later load served everything.`);
   add('deployed', status === 200, 'The deployed game responds', `HTTP ${status}`, status === 200 ? '' : 'The preview Worker did not serve index.html.');
   if (status !== 200) { report.summary = `The game document returned HTTP ${status}.`; return { report, shots: [], frames: [] }; }
 
