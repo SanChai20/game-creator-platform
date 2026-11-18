@@ -51,7 +51,7 @@ export async function userById(env: Env, id: string): Promise<User | null> {
   return env.DB.prepare(`SELECT ${USER_COLS} FROM users u WHERE u.id = ?`).bind(id).first<User>();
 }
 
-// ---- guests: players without an account, only when the admin setting "Require login to play" is off ----
+// ---- guests: players without an account, only when the admin switches "Require login to play" off (it is on by default) ----
 // A guest is a random id kept in a signed, HttpOnly cookie, so one browser keeps its saves between visits. The id has its
 // own prefix, so every service can tell a guest from an account and refuse guests the moment the setting is switched on.
 export const GUEST_PREFIX = 'guest_';

@@ -105,14 +105,17 @@ export function Game({ slug }: { slug: string }) {
     api('/billing/confirm', { body: { session_id: paid } }).then(() => { toast(t('Purchase complete. Enjoy the game.', '购买成功，祝你玩得开心。')); void reload(); }, (e) => toast((e as Error).message, true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { markSeen(slug); }, [slug]);
-  // Opened from a game's own address (?play=1): start at once, for whoever is signed in here or as a guest. Only where
+  // Opened from a game's own address (?play=1): start at once for whoever is signed in here (a visitor signs in first, unless guests may play). Only where
   // nothing has to be asked first (an adults-only warning, buying); otherwise the page shows what is needed.
   const auto = useRef(query().get('play') === '1');
   useEffect(() => {
     if (!auto.current || !data) return; auto.current = false;
     navigate(`/g/${slug}`, true);
     const g = data.game, free = g.price_cents === 0 || data.owned, guest = !user && config.settings.require_login_to_play === false && g.price_cents === 0;
-    if (g.status === 'live' && free && (user || guest) && !(data.mature?.length || g.mature?.length)) startRef.current();
+    if (g.status !== 'live' || !free) return;
+    // Signed out where sign-in is required: straight to sign-in, which brings the player back here to start the game.
+    if (!user && !guest) { navigate(loginUrl(`/g/${slug}?play=1`), true); return; }
+    if (!(data.mature?.length || g.mature?.length)) startRef.current();
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (data?.my_review) { setRating(data.my_review.rating); setBody(data.my_review.body || ''); } }, [data?.my_review]);
 
@@ -123,11 +126,11 @@ export function Game({ slug }: { slug: string }) {
   const canTry = !!trial && !trial.over, leftMin = trial ? Math.max(1, Math.ceil(trial.remaining_seconds / 60)) : 0, fresh = !!trial && trial.used_seconds === 0;
   const left = trialEnd !== null ? Math.max(0, (trialEnd - Date.now()) / 1000) : 0; void tick;
 
-  // Free games are open to visitors without an account when the admin has switched "Require login to play" off (the server enforces it).
+  // Every game needs an account unless the admin switches "Require login to play" off, which opens free games to guests (the server enforces it).
   const guestOk = !user && config.settings.require_login_to_play === false && g.price_cents === 0;
   const mature: string[] = data.mature?.length ? data.mature : g.mature || [], adult = mature.length > 0;
   const play = (confirmed = adultOk) => {
-    if (!user && !guestOk) return navigate(loginUrl());
+    if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     if (adult && !confirmed) { setAdultGate(true); return; }
     if (user && cv?.verdict === 'no') { setGate(true); return; }
     start(confirmed);
@@ -136,7 +139,7 @@ export function Game({ slug }: { slug: string }) {
   const confirmAdult = () => { setAdultOk(true); setAdultGate(false); play(true); };
   const start = (confirmed = adultOk) => {
     setGate(false);
-    if (!user && !guestOk) return navigate(loginUrl());
+    if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
     void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };

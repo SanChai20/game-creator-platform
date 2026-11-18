@@ -291,7 +291,7 @@ api.post('/games/:slug/play', async (c) => {
     if (b.confirm_mature !== true) throw new AppError(428, 'This game is for adults only. Confirm that you are 18 or older and want to see its content.', 'mature_confirm');
   }
   // "Require login to play" is enforced here, where play sessions are signed: with it on (the default) only accounts get
-  // one. With it off, a visitor without an account plays a free game as a guest; paid games always need an account
+  // one, free games included. With it off, a visitor without an account plays a free game as a guest; paid games always need an account
   // (buying and free trials belong to one). Every service the game then calls checks the setting again (routes/rt.ts).
   if (!c.get('user')) {
     const s = await getSettings(c.env);
