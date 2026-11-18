@@ -139,8 +139,10 @@ Open the preview in two browser windows signed in as different players. The veri
 
 A game that registers `GCP.test.onTwoPlayers` is then opened in two more pages of the verification browser, which meet in a
 real room: the first with `?gcp_two=host&gcp_room=CODE`, the second with `?gcp_two=guest` and the same code. The function runs
-in both pages at once. The check `two_players` passes when both finish, each sees two players, and both return the same
-`world` string. The report has it under `two_players`.
+in both pages at once. The two pages are two different players (each has its own verifier identity), so they can also meet
+in a private server-run match: see the matches guide. The check `two_players` passes when both finish, each sees two
+players, and both return the same `world` string. The report has it under `two_players`; when it fails, the detail says
+what room or match each page opened, its player id and who it saw.
 
 ```js
 const two = GCP.test.twoPlayers;                       // { role, code } in those two pages, null otherwise

@@ -374,6 +374,9 @@
     this.phase = 'searching'; this.id = null; this.you = cfg.player && cfg.player.id; this.players = []; this.tickRate = 0; this.tick = 0;
     this.state = null; this.ack = 0; this.rtt = null; this.result = null; this.renderTick = null;
     var buf = new Smooth({ minDelay: opts.delay != null ? opts.delay : 50, maxDelay: 250, extrapolate: 100 });
+    // what the verifier's two-player check reports when it fails: who this page is, who the lobby listed, how far it got
+    var seen = { code: opts.code != null ? String(opts.code) : null, lobby: [], snapshots: 0, closes: 0, error: '' };
+    (S.matches = S.matches || []).push(function () { return { code: seen.code, phase: self.phase, you: self.you, match: self.id, lobby: seen.lobby, players: (self.players || []).map(function (p) { return p && p.id; }), snapshots: seen.snapshots, closes: seen.closes, error: seen.error }; });
     var n = 0, pending = [], current = {}, pressed = {}, tickMs = 33, predicted = null, prevPredicted = null, predictedAt = 0, offset = {}, pings = {};
     function emit(type, a, b) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b); } catch (e) { console.error(e); } }); }
     this.on = function (type, fn) { (handlers[type] = handlers[type] || []).push(fn); return self; };
@@ -441,6 +444,7 @@
       ws.onmessage = function (ev) {
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.t === 's') {
+          seen.snapshots++;
           self.tick = m.k; self.state = m.f ? m.d : mpatch(self.state, m.d);
           if (m.a > self.ack) { self.ack = m.a; while (pending.length && pending[0].n <= self.ack) pending.shift(); }
           buf.push(self.state, m.k * tickMs);
@@ -458,10 +462,10 @@
         else if (m.t === 'wait' || m.t === 'players') { self.players = m.players; emit('players', m.players); }
         else if (m.t === 'po') { if (pings[m.n]) { var r = performance.now() - pings[m.n]; self.rtt = self.rtt == null ? r : self.rtt * 0.7 + r * 0.3; delete pings[m.n]; } }
         else if (m.t === 'end') { self.phase = 'ended'; self.result = m.result; clearInterval(timer); emit('end', m.result); }
-        else if (m.t === 'error') { var e = new Error(m.message); e.code = m.code; emit('error', e); }
+        else if (m.t === 'error') { seen.error = String(m.code || m.message || ''); var e = new Error(m.message); e.code = m.code; emit('error', e); }
       };
       ws.onclose = function (ev) {
-        clearInterval(timer); clearInterval(pingTimer);
+        clearInterval(timer); clearInterval(pingTimer); seen.closes++;
         var final = closed || self.phase === 'ended' || ev.code === 1000 || ev.code === 4001 || ev.code === 4002 || ev.code === 4003 || ev.code === 4004 || ev.code === 4009 || ev.code === 4500;   // 4009: removed from the match
         if (!final && tries < 5) { self.phase = self.phase === 'running' ? 'reconnecting' : self.phase; emit('reconnecting', tries + 1); setTimeout(connectMatch, Math.min(4000, 300 * Math.pow(2, tries++))); return; }
         if (self.phase !== 'ended') { self.phase = 'closed'; emit('close', ev.code, ev.reason); }
@@ -484,15 +488,15 @@
     mm.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.t === 'queued') emit('queued', { waiting: m.waiting, waited: m.waited || 0 });
-      else if (m.t === 'lobby') emit('lobby', { code: m.code, players: m.players, owner: m.owner, need: m.need });
+      else if (m.t === 'lobby') { seen.lobby = (m.players || []).map(function (p) { return p && p.id; }); emit('lobby', { code: m.code, players: m.players, owner: m.owner, need: m.need }); }
       else if (m.t === 'found') { ticket = m.ticket; self.id = m.match; self.players = m.players; self.phase = 'connecting'; emit('found', { match: m.match, players: m.players, region: m.region }); connectMatch(); }
       else if (m.t === 'error') {
-        var e = new Error(m.message); e.code = m.code; emit('error', e);
+        seen.error = String(m.code || m.message || ''); var e = new Error(m.message); e.code = m.code; emit('error', e);
         // the search moved to another tab, or the session ended: this one is over (close it ourselves, whatever the server does)
         if (m.code === 'replaced' || m.code === 'session_ended') { closed = true; self.phase = 'closed'; try { mm.close(1000); } catch (x) { /* closed */ } emit('close', m.code === 'replaced' ? 4002 : 4001, m.message); }
       }
     };
-    mm.onclose = function (ev) { if (!ticket && !closed) { self.phase = 'closed'; emit('close', ev.code, ev.reason); } };
+    mm.onclose = function (ev) { if (!ticket) seen.closes++; if (!ticket && !closed) { self.phase = 'closed'; emit('close', ev.code, ev.reason); } };
   }
 
   var autostartFns = [], playFn = null, pairFn = null;
@@ -506,6 +510,8 @@
   S.runTwoPlayers = function (limitMs) { var two = GCP.test.twoPlayers; return runScript(pairFn, limitMs, 'two-player check', two ? two.role : 'host'); };
   /** Every GCP.room this page opened: its id, the host, the peers it knows, and how much arrived (messages, createWorldSync ops, state snapshots). */
   S.roomInfo = function () { return (S.rooms || []).map(function (f) { try { return f(); } catch (e) { return null; } }).filter(Boolean); };
+  /** Every GCP.match.find this page made: the lobby code, its phase, this player's id, who the lobby listed, the match's players. */
+  S.matchInfo = function () { return (S.matches || []).map(function (f) { try { return f(); } catch (e) { return null; } }).filter(Boolean); };
   function runScript(fn, limitMs, what, arg) {
     if (!fn) return Promise.resolve({ ran: false });
     var steps = [], t0 = performance.now(), frames0 = S.frames, over = false;
@@ -868,6 +874,6 @@
   var view = {};
   ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
-  ['hold', 'runPlaythrough', 'runTwoPlayers', 'roomInfo'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
+  ['hold', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }
 })();

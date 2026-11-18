@@ -223,6 +223,25 @@ async function main() {
   assert.ok(mv.report.two_players && mv.report.two_players.ok && mv.report.two_players.host.players === 2 && mv.report.two_players.guest.players === 2, JSON.stringify(mv.report.two_players || mv.report.notes).slice(0, 800));
   ok('multiplayer: the two-player check met two pages in one platform room and both ended with the same world');
 
+  // server-run matches: the two verifier pages are two players (one verifier identity each), so both are listed in the
+  // private lobby on twoPlayers.code and the matchmaker starts their match (the local driver has no GameMatch, so the check
+  // ends at the found match)
+  const mg = await tool('create_project', { title: `Match duel ${run}`, tagline: 'Duel' });
+  const duel = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Duel</title></head><body><canvas id="c" width="320" height="180"></canvas><script>
+const cv = document.getElementById('c'), g = cv.getContext('2d'); let t = 0; (function f() { t++; g.fillStyle = 'hsl(' + (t % 360) + ',60%,50%)'; g.fillRect(0, 0, 320, 180); requestAnimationFrame(f); })();
+let found = null; const two = GCP.test.twoPlayers;
+GCP.test.onAutostart(() => { if (two) GCP.match.find({ code: two.code, players: 2 }).on('found', (f) => { found = f; }); });
+GCP.test.onTwoPlayers(async (t) => { t.step('the other player to appear'); await t.until(() => found, 30000, 'the other player to appear'); return { players: found.players.length, world: found.match }; });
+GCP.ready();
+</script></body></html>`;
+  await tool('upload_files', { project: mg.project, files: [{ path: 'index.html', content: duel }, { path: 'server/match.js', content: 'export default { tickRate: 20, init() { return { players: {} }; }, input() {}, tick() {} };\n' }] });
+  let gv = await tool('deploy_preview', { project: mg.project, note: 'match' });
+  for (let i = 0; i < 60 && ['queued', 'deploying', 'verifying'].includes(gv.status); i++) { await sleep(2000); gv = await tool('list_versions', { project: mg.project, version: gv.version }); }
+  assert.ok(gv.report && gv.report.two_players && gv.report.two_players.ok, JSON.stringify(gv.report && gv.report.two_players || gv).slice(0, 1500));
+  assert.notEqual(gv.report.two_players.host.match.you, gv.report.two_players.guest.match.you);
+  assert.equal((await tool('game_metadata', { project: mg.project })).detected.online_play, true);
+  ok('matches: the two-player check met two verifier players in one private lobby; GCP.match.find counts as online play');
+
   // the platform database and multiplayer rooms, managed through MCP
   assert.ok((await tool('game_data', { project: mp.project, action: 'set', env: 'preview', key: 'motd', value: { text: 'hello' } })).ok);
   assert.deepEqual((await tool('game_data', { project: mp.project, action: 'get', env: 'preview', key: 'motd' })).value, { text: 'hello' });

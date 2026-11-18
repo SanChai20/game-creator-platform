@@ -31,7 +31,7 @@ function loadSdk(config = { api: 'https://p.example', token: 'tok', gameId: 'g',
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(new URL('../web/public/sdk/gcp.js', import.meta.url), 'utf8'), ctx);
   const runTimers = () => { for (const t of timeouts.splice(0)) if (t.at <= now) t.fn(); else timeouts.push(t); };
-  return { GCP: win.GCP, sockets, at: () => now, advance: (ms, step = 4) => { const end = now + ms; while (now < end) { now = Math.min(end, now + step); for (const fn of [...intervals.values()]) fn(); runTimers(); } } };
+  return { GCP: win.GCP, win, sockets, at: () => now, advance: (ms, step = 4) => { const end = now + ms; while (now < end) { now = Math.min(end, now + step); for (const fn of [...intervals.values()]) fn(); runTimers(); } } };
 }
 
 const move = (me, inp, dt) => ({ ...me, x: me.x + (Number(inp.mx) || 0) * 6 * dt });
@@ -138,4 +138,22 @@ test('opened outside the platform, find() says so instead of hanging', () => {
   const m = sdk.GCP.match.find({}); m.on('error', (e) => errors.push(e.code));
   sdk.advance(10);
   assert.deepEqual(errors, ['standalone']); assert.equal(sdk.sockets.length, 0);
+});
+
+test('matchInfo() tells the verifier who this page is, who the lobby listed and how far the match got', () => {
+  const sdk = loadSdk();
+  const m = sdk.GCP.match.find({ code: 'VABCDE', players: 2 });
+  const globalThisInfo = () => sdk.win.__GCP.matchInfo();
+  const mm = sdk.sockets[0]; mm.open();
+  mm.recv({ t: 'lobby', code: 'VABCDE', players: [{ id: 'me', name: 'Me' }], owner: 'me', need: 2 });
+  let i = globalThisInfo();
+  assert.equal(i.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(i[0])), { code: 'VABCDE', phase: 'searching', you: 'me', match: null, lobby: ['me'], players: [], snapshots: 0, closes: 0, error: '' });
+  mm.recv({ t: 'found', match: 'abc', ticket: 'T', region: 'weur', players: [{ id: 'me' }, { id: 'op' }] });
+  const ws = sdk.sockets[1]; ws.open();
+  ws.recv({ t: 'hello', you: 'me', match: 'abc', tickRate: 30, maxRewindMs: 200, phase: 'running', k: 0, players: [{ id: 'me' }, { id: 'op' }], ack: 0 });
+  ws.recv({ t: 's', k: 1, f: 1, a: 0, d: { players: { me: { x: 0 }, op: { x: 1 } } } });
+  i = JSON.parse(JSON.stringify(globalThisInfo()[0]));
+  assert.equal(i.phase, 'running'); assert.equal(i.match, 'abc'); assert.deepEqual(i.players, ['me', 'op']); assert.equal(i.snapshots, 1);
+  m.leave();
 });
