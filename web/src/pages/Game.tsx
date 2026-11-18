@@ -227,7 +227,7 @@ export function Game({ slug }: { slug: string }) {
               <div><dt>{t('Creator', '创作者')}</dt><dd><Link to={`/browse?by=${encodeURIComponent(g.owner_id)}&who=${encodeURIComponent(g.author)}`} className="sig">{g.author}</Link></dd></div>
             </dl>
             {g.tags.length > 0 && <div className="gp-tags">{g.tags.map((x: string) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>}
-            <div className="seal"><b>{t('Verified playable', '已验证可玩')}</b><span>{t('Every game here was run in a real browser and checked for playability before it went live.', '这里的每款游戏在上线前都在真实浏览器中运行并通过了可玩性验证。')}</span></div>
+            <div className="seal"><i aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3 5 8.6l4.5-5" /></svg></i><b>{t('Verified playable', '已验证可玩')}</b><span>{t('Every game here was run in a real browser and checked for playability before it went live.', '这里的每款游戏在上线前都在真实浏览器中运行并通过了可玩性验证。')}</span></div>
           </aside>
         </div>
 

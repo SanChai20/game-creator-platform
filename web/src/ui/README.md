@@ -26,8 +26,8 @@ The structure is a web platform's: a top bar with search, sections, a sidebar of
 - **Menu headings.** A section opens with a title over a rule that has a lit, slanted segment (`.section-h`, `.sh`); a panel title carries a slanted pip.
 - **HUD readouts.** Figures (`Stat`, the store's counters) are a lit tick, a small label, a heavy number and a halftone corner. Bars that show a share are segmented meters.
 - **Selection.** A game cover lifts off a halftone shadow and four corner brackets close in on it; rows and menu items light a marker on their leading edge.
-- **Loot labels.** Rarity is a diamond pip in the tier's colour, prices are slanted shop tags, "what players think" carries signal bars, small states are slanted stickers (`.stick`, `Badge`).
-- **Genre colour.** Every category has a hue (`--h`), used as a flat facet on an ink tile and in its tags.
+- **Labels.** Every tag, badge, chip and status line is one shape: a 22 to 26px plate with 4px corners, a hairline edge and a faint tint, never slanted. Colour means state (good, bad, warn, info, accent), never decoration. Status labels (`Badge`, `StatusBadge`, `.trial-tag`, `.ltag`) are capitals with a round dot; descriptive labels (`.gtag`, `.glance-chips`, `.act-chip`) are sentence case and neutral; labels over a picture (`.ovl`, `.live-pill`, `.art-trial`, `.mature-tag`) are dark glass; verdict lines (`.cpill`) and check marks (`CheckRow`, `.cmark`) put a round mark in the state's colour beside words in the text colour. `.stick` ("Featured") is the one solid fill. Rarity keeps its diamond pip, "what players think" its signal bars, and the age rating is a monochrome tile that only takes a colour at 16+ and 18+. Callouts (`Notice`, `.seal`) are a tinted panel with a hairline edge and a dot or seal, not a coloured bar.
+- **Genre colour.** Every category has a hue (`--h`), used as a flat facet on an ink tile (tags stay neutral).
 
 Motion is small and tied to the pointer: a plate slides, a cover lifts, a marker grows. Nothing moves on its own beside the content. Keep pages short: details belong on `/docs`.
 
