@@ -17,11 +17,12 @@ export function holdMs(s: Pick<Settings, 'earnings_hold_days' | 'refund_window_h
   return Math.max(s.earnings_hold_days * 86400000, s.refund_window_hours * 3600000);
 }
 
-/** Seconds this player has spent in a game's live sessions, free trial included, as the platform measured them: each
- *  session counts from the moment the platform started it to the last time the platform heard from it (the game's
- *  heartbeat, any game service call, or the store page that shows the game), and never less than the play time reported. */
+/** Seconds this player has spent in a game's live sessions, free trial included, measured by the platform alone: each
+ *  session counts from the moment the platform started it (server clock) to the last time the platform's server heard
+ *  from it (a heartbeat, any game service call, or the store page that shows the game). Nothing the game reports about
+ *  its own play time is used, so a game cannot make itself refundable by under-reporting. */
 export async function playedSeconds(env: Env, userId: string, projectId: string): Promise<number> {
-  const r = await env.DB.prepare("SELECT COALESCE(SUM(MAX(seconds, (MAX(last_beat_at, COALESCE(seen_at, 0)) - started_at) / 1000)), 0) AS s FROM plays WHERE user_id = ? AND project_id = ? AND env = 'live'")
+  const r = await env.DB.prepare("SELECT COALESCE(SUM((MAX(last_beat_at, COALESCE(seen_at, 0)) - started_at) / 1000), 0) AS s FROM plays WHERE user_id = ? AND project_id = ? AND env = 'live'")
     .bind(userId, projectId).first<{ s: number }>();
   return Math.round(r?.s || 0);
 }
