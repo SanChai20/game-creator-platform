@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "workers_dev": true,
+  "workers_dev": false,   // the platform answers only on hearthcade.com (and www, which redirects)
   // The platform's own address. Games live on GAME_HOST (hearthcade.app), a different site, so a game page can never set
   // or read the platform's cookies. www redirects pages to PUBLIC_ORIGIN (src/index.ts).
   "routes": [
