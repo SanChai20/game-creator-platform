@@ -1273,5 +1273,22 @@
  "The game is not responding": "ゲームが応答していません",
  "It may be busy and come back by itself. Quitting closes it; progress it has not saved may be lost.": "処理中なだけで、しばらくすると戻るかもしれません。終了するとゲームを閉じ、保存していない進行状況は失われることがあります。",
  "Wait": "待つ",
- "Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.": "ゲーム画面をクリックするとキーボード操作が有効になります。Alt+Enter で全画面を切り替えます。"
+ "Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.": "ゲーム画面をクリックするとキーボード操作が有効になります。Alt+Enter で全画面を切り替えます。",
+ "Your guest progress is now on your account.": "ゲストの進行状況をアカウントに移しました。",
+ "Your account already had progress in these games, so it was kept.": "これらのゲームにはアカウントの進行状況が既にあるため、そちらを残しました。",
+ "The guest progress was left out of your account.": "ゲストの進行状況はアカウントに移しませんでした。",
+ "Move guest progress to {name}?": "ゲストの進行状況を {name} に移しますか？",
+ "This browser has progress from playing as a guest. Move it only if it is yours: on a shared computer it may belong to someone else.": "このブラウザにはゲストとして遊んだ進行状況があります。自分のものである場合だけ移してください。共用のパソコンでは他の人のものかもしれません。",
+ "Your account already has progress in {games}. That progress stays as it is and the guest progress is not mixed into it.": "{games} にはアカウントの進行状況が既にあります。そちらはそのまま残り、ゲストの進行状況と混ざることはありません。",
+ "Move to my account": "アカウントに移す",
+ "OK": "OK",
+ "It is not mine": "自分のものではない",
+ "Decide later": "後で決める",
+ "The game was closed": "ゲームを閉じました",
+ "Play again": "もう一度プレイ",
+ "You signed in, so the guest session ended. Play again to continue on your account.": "ログインしたため、ゲストのセッションは終了しました。もう一度プレイすると、アカウントで続けられます。",
+ "This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.": "このブラウザでログアウトまたはアカウントの切り替えがあったため、ゲームを閉じました。進行状況はプレイしていたアカウントに残ります。",
+ "The play session ended. Play again to start a new one.": "プレイのセッションが終了しました。もう一度プレイすると新しく始まります。",
+ "Playing as a guest on this browser.": "このブラウザでゲストとしてプレイ中。",
+ "Playing as {name}. Progress saves to this account.": "{name} としてプレイ中。進行状況はこのアカウントに保存されます。"
 }

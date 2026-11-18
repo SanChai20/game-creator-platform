@@ -406,6 +406,7 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 .seal b::before { content: "✓ "; }
 .seal span { font-size: 13px; color: var(--text-2); line-height: 1.5; }
 .gp-own { margin-top: 20px; }
+.gp-ended { margin-bottom: 28px; }   /* the "game was closed" notice: clear of the player and the buy box below it */
 .gp { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 27vw, 372px); gap: clamp(28px, 4vw, 56px) 24px; align-items: start; margin-top: clamp(40px, 5vw, 64px); }
 .gp .sh { margin-top: 0; margin-bottom: 0; }
 .gp .sh h2 { font-size: var(--fs-2xl); }

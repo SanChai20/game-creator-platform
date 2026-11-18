@@ -10,7 +10,13 @@ import { TRIAL_MIN_CHARGE_S, trialCharge } from '../trials';
 import { clamp, dayOf, now, safeEqual } from '../util';
 // @ts-ignore plain JS module
 import { DataError, authToken, playRecordStmt, playerOf, playerSummary, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
+// @ts-ignore plain JS module
+import { bindingProblem } from '../session-binding.js';
+// @ts-ignore plain JS module
+import { signPlayToken } from '../runtime/game-worker.js';
 
+export const PLAY_SESSION_S = 6 * 3600;   // an account's play token; renewed while the sign-in lasts
+export const GUEST_SESSION_S = 3600;      // a guest's, short so switching "Require login to play" on ends guest play within the hour
 interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'player' | 'owner' | 'verify'; s: string; x: number; tr?: 1 }
 
 // The token names its own game and environment; the signature is checked against that game's key.
@@ -19,6 +25,10 @@ async function authAny(env: Env, token: unknown): Promise<Tok> {
   const tok = await guard(() => authToken(token, (g: string) => playKey(env, g))) as Tok;
   // Guest sessions exist only while "Require login to play" is off; switching it on ends them for every service at once.
   if (isGuestId(tok.u) && (await getSettings(env)).require_login_to_play) throw new AppError(401, 'Sign in to play.', 'unauthenticated');
+  // The session must still belong to the identity that started it: the same sign-in for an account (not signed out, not
+  // switched to another account in this browser), an unclaimed guest id for a guest. Checked on every call.
+  const problem = await bindingProblem(env.DB, tok, now());
+  if (problem) throw new AppError(401, problem.message, problem.code, problem.reason);
   return tok;
 }
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -101,6 +111,31 @@ rt.post('/beat', async (c) => {
     trial = { remaining_seconds: mine, over: mine <= 0 && !bought, bought };
   }
   return c.json({ ok: true, seconds: total, ...(trial ? { trial } : {}) });
+});
+
+// Is this play token still good? The game Worker asks before it serves a game page from the token it kept in a cookie
+// (a reload), so a page reopened after signing out or switching accounts never starts as the previous player.
+rt.post('/check', async (c) => {
+  const b = await body(c), tok = await authAny(c.env, b.t);
+  return c.json({ ok: true, player: { id: tok.u, name: tok.n, guest: isGuestId(tok.u) } });
+});
+
+// A fresh token for a session that is still bound, so a long session never loses its saves when its token runs out.
+// Same session, player and game; a free-trial token is never renewed (it ends with the trial), and a paid game is renewed
+// only while the player still owns it (a refund ends access here too).
+const RENEW_WITHIN_S = 20 * 60;
+rt.post('/renew', async (c) => {
+  const b = await body(c), env = c.env, tok = await authAny(env, b.t);
+  if (tok.tr) throw new AppError(409, 'A free-trial session is not renewed.', 'trial');
+  if (tok.k !== 'player' && tok.k !== 'owner') throw new AppError(409, 'This session is not renewed.', 'not_renewable');
+  const left = tok.x - Math.floor(now() / 1000);
+  if (left > RENEW_WITHIN_S) return c.json({ token: null, expires_in: left });
+  const p = await env.DB.prepare('SELECT price_cents, owner_id, status FROM projects WHERE id = ?').bind(tok.g).first<{ price_cents: number; owner_id: string; status: string }>();
+  if (!p || (tok.e === 'live' && p.status !== 'live')) throw new AppError(409, 'This game is offline.', 'offline');
+  if (tok.k === 'player' && p.price_cents > 0 && !(await owns(env, tok.u, tok.g))) throw new AppError(402, 'Buy the game to keep playing.', 'not_owned');
+  const life = isGuestId(tok.u) ? GUEST_SESSION_S : PLAY_SESSION_S, x = Math.floor(now() / 1000) + life;
+  const token = await signPlayToken({ g: tok.g, e: tok.e, u: tok.u, n: tok.n, k: tok.k, s: tok.s, x }, await playKey(env, tok.g));
+  return c.json({ token, expires_in: life });
 });
 
 rt.post('/save', async (c) => {

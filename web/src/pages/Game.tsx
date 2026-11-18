@@ -58,7 +58,7 @@ function MatureGate({ cats, onConfirm, onCancel }: { cats: string[]; onConfirm: 
 const withLang = (u: string) => { try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); return x.toString(); } catch { return u; } };
 
 export function Game({ slug }: { slug: string }) {
-  const { user, toast, config } = useApp(), { busy, act } = useAct();
+  const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null);
   const [rating, setRating] = useState(0), [body, setBody] = useState('');
@@ -69,6 +69,22 @@ export function Game({ slug }: { slug: string }) {
   // A free-trial session: when it ends (by the clock here or by the game's word from the server), the game is closed.
   const [trialEnd, setTrialEnd] = useState<number | null>(null), [tick, setTick] = useState(0), [trialDone, setTrialDone] = useState(false);
   const quitGame = useCallback(() => { setUrl(null); setTrialEnd(null); void reload(); }, [reload]);
+  // Who the running session plays as. It is bound to that identity: when the browser's account changes (here, in another
+  // tab, or the server says the session ended), the game is closed so it never plays on as the wrong player.
+  const [playingAs, setPlayingAs] = useState<{ id: string; name: string; guest: boolean } | null>(null);
+  const [ended, setEnded] = useState<string | null>(null), restarted = useRef(0), startRef = useRef<() => void>(() => {});
+  const closeFor = useCallback((reason: string) => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    setUrl(null); setTrialEnd(null); setPlayingAs(null); setEnded(reason); void reload();
+  }, [reload]);
+  const onSessionEnded = useCallback((reason: string) => {
+    // The token simply ran out (a reload late in a session): start a fresh one for the same player, once a minute at most.
+    if (reason === 'expired' && Date.now() - restarted.current > 60000) { restarted.current = Date.now(); setUrl(null); setTimeout(() => startRef.current(), 50); return; }
+    void refresh().catch(() => {}); closeFor(reason);
+  }, [closeFor, refresh]);
+  useEffect(() => {
+    if (url && playingAs && (playingAs.guest ? !!user : user?.id !== playingAs.id)) closeFor(playingAs.guest ? 'signed_in' : 'signed_out');
+  }, [user?.id, url, playingAs, closeFor]); // eslint-disable-line react-hooks/exhaustive-deps
   const endTrial = useCallback(() => { if (document.fullscreenElement) void document.exitFullscreen(); setUrl(null); setTrialEnd(null); setTrialDone(true); void reload(); }, [reload]);
   useEffect(() => {
     if (trialEnd === null) return;
@@ -84,6 +100,15 @@ export function Game({ slug }: { slug: string }) {
     api('/billing/confirm', { body: { session_id: paid } }).then(() => { toast(t('Purchase complete. Enjoy the game.', '购买成功，祝你玩得开心。')); void reload(); }, (e) => toast((e as Error).message, true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { markSeen(slug); }, [slug]);
+  // Opened from a game's own address (?play=1): start at once, for whoever is signed in here or as a guest. Only where
+  // nothing has to be asked first (an adults-only warning, buying); otherwise the page shows what is needed.
+  const auto = useRef(query().get('play') === '1');
+  useEffect(() => {
+    if (!auto.current || !data) return; auto.current = false;
+    navigate(`/g/${slug}`, true);
+    const g = data.game, free = g.price_cents === 0 || data.owned, guest = !user && config.settings.require_login_to_play === false && g.price_cents === 0;
+    if (g.status === 'live' && free && (user || guest) && !(data.mature?.length || g.mature?.length)) startRef.current();
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (data?.my_review) { setRating(data.my_review.rating); setBody(data.my_review.body || ''); } }, [data?.my_review]);
 
   if (error && !data) return <div className="wrap page">{error.status === 404 ? <EmptyState title={t('This game is not available', '该游戏暂不可用')} action={<Button to="/">{t('Browse games', '浏览游戏')}</Button>}>{t('It may have been taken offline by its creator.', '它可能已被创作者下线。')}</EmptyState> : <Fail error={error} retry={reload} />}</div>;
@@ -102,12 +127,13 @@ export function Game({ slug }: { slug: string }) {
     if (user && cv?.verdict === 'no') { setGate(true); return; }
     start(confirmed);
   };
+  startRef.current = () => play();
   const confirmAdult = () => { setAdultOk(true); setAdultGate(false); play(true); };
   const start = (confirmed = adultOk) => {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl());
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); setTrialDone(false); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -145,6 +171,13 @@ export function Game({ slug }: { slug: string }) {
             <div className="stack s"><b>{t('Adults only', '仅限成人')} · {mature.map(matureName).join(' · ')}</b><span className="mute fs-sm">{t('Its creator declared this content, and the platform checked it when the game was reviewed. You will be asked to confirm that you are 18 or older before it starts.', '作者已声明这些内容，平台在审核时也做了检查。开始游戏前，你需要确认自己已年满 18 岁。')}</span></div>
           </div>
         )}
+        {ended && !url && (
+          <div className="gp-ended"><Notice tone="info" title={t('The game was closed', '游戏已关闭')} actions={<Button size="sm" variant="primary" onClick={() => { setEnded(null); play(); }}>{t('Play again', '重新开始')}</Button>}>
+            {ended === 'signed_in' ? t('You signed in, so the guest session ended. Play again to continue on your account.', '你已登录，访客会话已结束。重新开始即可在你的账号上继续。')
+              : ended === 'signed_out' ? t('This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.', '此浏览器已退出登录或切换了账号，游戏已关闭。进度保留在游玩时使用的账号中。')
+              : t('The play session ended. Play again to start a new one.', '游玩会话已结束。重新开始即可开启新会话。')}
+          </Notice></div>
+        )}
         {url && trialEnd !== null && trial && (
           <div className="trial-bar ink" role="status">
             <span>{t('Free trial', '免费试玩')}</span>
@@ -155,7 +188,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} onTrialOver={endTrial} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>
@@ -173,7 +206,7 @@ export function Game({ slug }: { slug: string }) {
                 <span className="gp-buy-h">{locked ? t('Buy {title}', '购买 {title}', { title }) : t('Play {title}', '游玩 {title}', { title })}</span>
                 <div className="gp-price-row"><b className="gp-price">{price(g.price_cents)}</b>{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 <div className="gp-buy-act">{cta}</div>
-                <p className="gp-buy-note">{t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
+                <p className="gp-buy-note">{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
                 {data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}
                 {meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}
               </div>

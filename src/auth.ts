@@ -52,14 +52,36 @@ export async function userById(env: Env, id: string): Promise<User | null> {
 export const GUEST_PREFIX = 'guest_';
 const GUEST_COOKIE = 'gcp_guest';
 export const isGuestId = (id: unknown) => typeof id === 'string' && id.startsWith(GUEST_PREFIX);
+/** The guest id this browser's signed cookie carries, if it is valid and has not been claimed by an account. Never mints one. */
+export async function existingGuestId(env: Env, req: Request): Promise<string | null> {
+  const raw = readCookie(req, GUEST_COOKIE), [id, sig] = (raw || '').split('.');
+  if (!id || !sig || !/^guest_[a-z0-9]{12,40}$/.test(id) || !safeEqual(sig, await hmacHex(env.SESSION_SECRET, 'guest:' + id))) return null;
+  // A guest id whose progress moved to an account (or was left behind) is never used again, even if its cookie was copied.
+  if (await env.DB.prepare('SELECT 1 FROM guest_claims WHERE guest_id = ?').bind(id).first()) return null;
+  return id;
+}
+/** The Set-Cookie header that removes this browser's guest id (after its progress moved to an account). */
+export function clearGuestCookie(req: Request): string {
+  const secure = new URL(req.url).protocol === 'https:';
+  return `${GUEST_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`;
+}
 /** The guest id this browser already has, or a new one with the Set-Cookie header that keeps it (a year). */
 export async function guestIdentity(env: Env, req: Request): Promise<{ id: string; name: string; cookie: string | null }> {
-  const sign = (id: string) => hmacHex(env.SESSION_SECRET, 'guest:' + id);
-  const raw = readCookie(req, GUEST_COOKIE), [id, sig] = (raw || '').split('.');
-  if (id && sig && isGuestId(id) && /^guest_[a-z0-9]{12,40}$/.test(id) && safeEqual(sig, await sign(id))) return { id, name: 'Guest', cookie: null };
+  const id = await existingGuestId(env, req);
+  if (id) return { id, name: 'Guest', cookie: null };
   const fresh = GUEST_PREFIX + rid(20).toLowerCase();
   const secure = new URL(req.url).protocol === 'https:';
-  return { id: fresh, name: 'Guest', cookie: `${GUEST_COOKIE}=${fresh}.${await sign(fresh)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure ? '; Secure' : ''}` };
+  return { id: fresh, name: 'Guest', cookie: `${GUEST_COOKIE}=${fresh}.${await hmacHex(env.SESSION_SECRET, 'guest:' + fresh)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure ? '; Secure' : ''}` };
+}
+/** The sign-in (sessions.id) this request's session cookie names, whether or not it is still valid. */
+export async function loginIdOf(req: Request): Promise<string | null> {
+  const t = readCookie(req, COOKIE);
+  return t ? sha256(t) : null;
+}
+/** Ends the sign-in this browser had before (signing in again, maybe as someone else): games still open on it stop. */
+export async function endPreviousLogin(env: Env, req: Request): Promise<void> {
+  const id = await loginIdOf(req);
+  if (id) await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run();
 }
 
 export type Ctx = Context<{ Bindings: Env; Variables: { user: User | null; origin: string } }>;

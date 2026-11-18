@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { announceAuth } from '../account-sync';
 import { api, artStyle, Link, navigate, num, query, t, useApp, useData, type GameCard } from '../lib';
 import { Button, CelScene, Eyebrow, Field, Input, Notice } from '../ui';
 import { PageSkeleton } from '../skeletons';
@@ -15,7 +16,7 @@ export function Auth({ mode }: { mode: 'login' | 'signup' }) {
   const forAgent = next.startsWith('/authorize') || next.startsWith('/device');
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(''); setBusy(true);
-    try { await api(mode === 'login' ? '/auth/login' : '/auth/signup', { body: mode === 'login' ? { email, password } : { email, name, password } }); await refresh(); }
+    try { await api(mode === 'login' ? '/auth/login' : '/auth/signup', { body: mode === 'login' ? { email, password } : { email, name, password } }); announceAuth(); await refresh(); }
     catch (x) { setErr((x as Error).message); setBusy(false); }
   };
   const other = `${mode === 'login' ? '/signup' : '/login'}?next=${encodeURIComponent(next)}`;

@@ -34,6 +34,7 @@ import { Categories, Category } from './pages/Categories';
 import { Queue } from './pages/Queue';
 import { Legal, LEGAL_DOCS, legalTitle, type LegalDoc } from './pages/Legal';
 import { SearchBox, StoreBar } from './store';
+import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
 const isStore = (path: string) => path === '/' || path === '/browse' || path === '/categories' || path === '/queue' || path.startsWith('/c/') || path.startsWith('/g/');
@@ -180,11 +181,12 @@ function App() {
     setTrialRules(cfg.settings); setState({ user: me.user, config: cfg });
   }, []);
   useEffect(() => { refresh().catch(() => setFailed(true)); }, [refresh]);
+  useAuthSync(state ? state.user?.id || null : null, refresh);   // another tab signed in or out: this one follows at once
   const toast = useCallback((msg: string, bad = false) => { setToast({ msg, bad }); clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), bad ? 5200 : 2600); }, []);
   useEffect(() => { if (state) document.title = `${state.config.settings.brand_name} — ${state.config.settings.tagline}`; }, [state]);
   if (failed) return <div className="wrap page"><EmptyState title={t('The site did not respond', '站点暂时无法响应')} action={<Button onClick={() => location.reload()}>{t('Reload', '刷新')}</Button>} /></div>;
   if (!state) return <AppSkeleton path={location.pathname.replace(/\/+$/, '') || '/'} />;
-  const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); await refresh(); navigate('/'); };
+  const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); announceAuth(); await refresh(); navigate('/'); };
   const brand = state.config.settings.brand_name as string;
   return (
     <AppCtx.Provider value={{ ...state, refresh, toast }} key={lang}>
@@ -204,6 +206,7 @@ function App() {
         </div>
         <div className="foot-note"><span>© {new Date().getFullYear()} {brand}</span><span className="foot-tools"><ThemeSwitch label /><FxToggle /><LangPicker /></span></div>
       </div></footer>
+      <GuestProgressPrompt user={state.user} toast={toast} />
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
     </AppCtx.Provider>
   );

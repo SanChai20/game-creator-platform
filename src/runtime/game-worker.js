@@ -44,13 +44,33 @@ function cookie(request, name) {
 }
 
 function gate(env) {
-  const link = `${env.PLATFORM}/g/${encodeURIComponent(env.SLUG)}`;
+  const link = `${env.PLATFORM}/g/${encodeURIComponent(env.SLUG)}?play=1`;
+  // Opened by itself (a bookmark, a shared link, a reload after the session ended): straight on to the game's page, which
+  // starts it at once for whoever is signed in there (or as a guest). Inside the platform's player, the page around the
+  // game is told instead, so it can start a fresh session for the right account.
+  const go = `try{if(window.top===window)location.replace(${JSON.stringify(link).replace(/</g, '\\u003c')});else parent.postMessage({gcp:'session_ended',reason:'expired'},'*')}catch(e){}`;
   return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(env.TITLE)}</title>
 <style>html,body{height:100%;margin:0;background:#0b0d0f;color:#e8e4da;font:15px/1.5 system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}
 main{height:100%;display:grid;place-items:center;text-align:center;padding:24px}h1{font-size:28px;margin:0 0 8px}p{color:rgba(232,228,218,.64);margin:0 0 20px}
 a{display:inline-block;background:#ffb347;color:#1b1203;font-weight:700;text-decoration:none;padding:11px 20px;border-radius:10px}</style>
-<main><div><h1>${esc(env.TITLE)}</h1><p>This game is played from its page on the platform. Sign in there to start a session.</p><a href="${esc(link)}" target="_top">Open the game page</a></div></main>`,
-    { status: 401, headers: { 'content-type': TYPES.html, 'cache-control': 'no-store' } });
+<main><div><h1>${esc(env.TITLE)}</h1><p>This game is played from its page on the platform.</p><a href="${esc(link)}" target="_top">Play on the game page</a></div></main><script>${go}</script>`,
+    { status: 401, headers: { 'content-type': TYPES.html, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
+}
+
+/**
+ * Asks the platform whether a token this origin kept in a cookie is still bound to the player it names (the player may
+ * have signed out or switched accounts since). Only a clear "no" refuses; if the platform cannot be reached the page is
+ * served and every service call is checked there anyway.
+ */
+async function stillBound(env, token) {
+  try {
+    const r = await fetch(`${env.PLATFORM}/api/rt/check`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: token }), signal: AbortSignal.timeout(2500) });
+    return r.status !== 401 && r.status !== 402;
+  } catch { return true; }
+}
+
+function tokenCookie(token, base, secure, maxAge) {
+  return `gcp_t=${token}; Path=${base || '/'}; Max-Age=${maxAge}; HttpOnly; ${secure ? 'Secure; SameSite=None; Partitioned' : 'SameSite=Lax'}`;
 }
 
 function inject(html, env, auth, token, base) {
@@ -102,7 +122,15 @@ export async function handle(request, env, ctx, base = '') {
   if (path.includes('..') || path.includes('\0')) return new Response('Bad path', { status: 400 });
   if (path === '/__gcp/health') return Response.json({ ok: true, game: env.GAME_ID, version: Number(env.VERSION), env: env.ENV });
 
-  const token = url.searchParams.get('gcp_t') || cookie(request, 'gcp_t');
+  const fromUrl = url.searchParams.get('gcp_t'), token = fromUrl || cookie(request, 'gcp_t');
+  // The SDK hands over a renewed token so a reload later in a long session still opens (POST, same origin, signed token only).
+  if (path === '/__gcp/token' && request.method === 'POST') {
+    const next = String(await request.text().catch(() => '')).trim(), ok = await verifyPlayToken(next, env.PLAY_KEY, env.GAME_ID, env.ENV);
+    const cur = await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV);
+    // only a token for the same player and session as the one this origin already holds: a page cannot swap players
+    if (!ok || !cur || ok.u !== cur.u || ok.s !== cur.s) return Response.json({ ok: false }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store', 'set-cookie': tokenCookie(next, base, url.protocol === 'https:', Math.max(60, Math.floor(ok.x - Date.now() / 1000))) } });
+  }
   if (path.startsWith('/api/')) {
     if (!userServer || typeof userServer.fetch !== 'function') return Response.json({ error: 'This game has no server code.' }, { status: 404 });
     const auth = await verifyPlayToken(request.headers.get('x-gcp-token') || token, env.PLAY_KEY, env.GAME_ID, env.ENV);
@@ -125,6 +153,9 @@ export async function handle(request, env, ctx, base = '') {
   if (ext === 'html') {
     const auth = await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV);
     if (!auth) return gate(env);
+    // A token from the address bar was signed a moment ago for this launch. One kept in this origin's cookie (a reload, a
+    // second page of the game) may be from before the player signed out or switched accounts: the platform decides.
+    if (!fromUrl && auth.k !== 'verify' && !(await stillBound(env, token))) return gate(env);
     const obj = await env.FILES.get(key);
     if (!obj) return new Response('Not found', { status: 404 });
     const secure = url.protocol === 'https:';
@@ -134,7 +165,9 @@ export async function handle(request, env, ctx, base = '') {
       // is on the same site (both on <account>.workers.dev): a game busy loading no longer freezes the page around it.
       'origin-agent-cluster': '?1',
       'content-security-policy': `frame-ancestors 'self' ${env.PLATFORM}`,
-      'set-cookie': `gcp_t=${token}; Path=${base || '/'}; Max-Age=21600; HttpOnly; ${secure ? 'Secure; SameSite=None; Partitioned' : 'SameSite=Lax'}`,
+      // The token lives only as long as it is valid; the address-bar copy is removed by the SDK and never sent on.
+      'set-cookie': tokenCookie(token, base, secure, Math.max(60, Math.floor(auth.x - Date.now() / 1000))),
+      'referrer-policy': 'strict-origin-when-cross-origin',
     });
     return new Response(inject(await obj.text(), env, auth, token, base), { headers });
   }

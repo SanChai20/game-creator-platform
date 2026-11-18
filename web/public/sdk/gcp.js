@@ -127,9 +127,40 @@
 
   function api(path, body, method) {
     if (standalone) return Promise.reject(new Error('offline'));
+    if (ended) return Promise.reject(new Error(ended.message));
     return fetch(cfg.api + '/api/rt/' + path, { method: method || 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(Object.assign({ t: cfg.token }, body || {})) })
-      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); });
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) { if (r.status === 401 && j.code === 'session_ended') sessionEnded(j); throw new Error(j.error || ('HTTP ' + r.status)); } return j; }); });
   }
+
+  // ---- the session's binding to the player's platform identity ----
+  // A session belongs to the sign-in that started it (or to this browser's guest id). When the player signs out, signs in
+  // as someone else, or signs in after playing as a guest, the platform refuses the old session: the game is stopped
+  // here before it can play on as the wrong player, and the page around it starts a session for the right one.
+  var ended = null;
+  function sessionEnded(j) {
+    if (ended) return; ended = { reason: (j && j.hint) || 'unknown', message: (j && j.error) || 'This play session ended.' };
+    S.hold(true);
+    try { parent.postMessage({ gcp: 'session_ended', reason: ended.reason }, '*'); } catch (e) { /* not framed */ }
+    try {
+      var d = document.createElement('div');
+      d.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:rgba(11,13,15,.92);color:#e8e4da;font:15px/1.5 system-ui,sans-serif;text-align:center;padding:24px');
+      d.innerHTML = '<div><b style="display:block;font-size:22px;margin-bottom:6px">This play session ended</b><span style="opacity:.7"></span></div>';
+      d.querySelector('span').textContent = ended.message;
+      (document.body || document.documentElement).appendChild(d);
+    } catch (e) { /* no DOM yet */ }
+  }
+  // Long sessions: a fresh token shortly before this one runs out, while the session is still bound, so saves never start
+  // failing in the middle of play. The game's own origin gets it too, so a reload later still opens.
+  function tokenExp(tk) { try { return JSON.parse(atob(String(tk).split('.')[0].replace(/-/g, '+').replace(/_/g, '/'))).x * 1000; } catch (e) { return 0; } }
+  function renew() {
+    if (standalone || ended || !cfg.token) return;
+    api('renew', {}).then(function (r) {
+      if (!r || !r.token) return;
+      cfg.token = r.token;
+      fetch((cfg.base || '') + '/__gcp/token', { method: 'POST', body: r.token, credentials: 'same-origin' }).catch(function () { });
+    }).catch(function () { });
+  }
+  if (!standalone && cfg.kind !== 'verify') setInterval(function () { var x = tokenExp(cfg.token); if (!trial && x && x - Date.now() < 15 * 60000) renew(); }, 60000);
 
   // Free trial of a paid game: the platform signs a trial token that ends with the trial. The server counts the time
   // and refuses the platform services once it is used; here the game is paused and the platform page is told.
@@ -152,7 +183,7 @@
   // Heartbeat: play time counts only while the tab is visible and frames are advancing.
   var beatFrames = 0, fpsEma = 0;
   function beat(last) {
-    if (standalone || !S.ready) return;
+    if (standalone || !S.ready || ended) return;
     var advanced = S.frames - beatFrames; beatFrames = S.frames;
     fpsEma = advanced / 15;
     var body = JSON.stringify({ t: cfg.token, frames: S.frames, active: advanced > 0 && document.visibilityState === 'visible', fps: Math.round(fpsEma), errors: pending.splice(0, 5), fatal: S.fatal });
@@ -162,7 +193,7 @@
       // play time it reports is not lost.
       var send = function () { return fetch(cfg.api + '/api/rt/beat', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: body, keepalive: true }); };
       send().catch(function () { return new Promise(function (ok) { setTimeout(ok, 2000); }).then(send); })
-        .then(function (r) { if ((r.status === 401 || r.status === 402) && trial) trialOver(); return r.json(); }).then(onBeat).catch(function () { });
+        .then(function (r) { return r.json().then(function (j) { if (r.status === 401 && j && j.code === 'session_ended') sessionEnded(j); else if ((r.status === 401 || r.status === 402) && trial) trialOver(); return r.ok ? j : null; }); }).then(onBeat).catch(function () { });
     }
   }
   setInterval(beat, 15000);
