@@ -304,7 +304,11 @@ a.gtag:hover { color: var(--text); background: rgb(var(--text-rgb) / .06); box-s
 .empty p { color: var(--text-2); max-width: 46ch; }
 .empty-a { margin-top: 10px; }
 /* a cel-shaded ball: lit side, shade side, one highlight */
-.empty-ico, .logo { display: block; border-radius: 50%; background: radial-gradient(circle at 34% 32%, var(--c-cream) 0 15%, transparent 16%), radial-gradient(circle at 26% 30%, var(--accent) 0 60%, var(--c-wine) 61%); flex: none; }
+.empty-ico, .logo { position: relative; display: block; border-radius: 50%; overflow: hidden; isolation: isolate; background: radial-gradient(circle at 26% 30%, var(--accent) 0 60%, var(--c-wine) 61%); flex: none; }
+/* The light is fixed, so only the ball's surface turns: a faint seam rides on the ball (::before) while the shade
+   (the element) and the highlight (::after) stay where the light puts them. */
+.empty-ico::before, .logo::before { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: 50%; background: radial-gradient(circle at 118% 112%, transparent 0 57%, rgb(125 18 54 / .42) 57.5% 61.5%, transparent 62%); transition: transform var(--dur-slow) var(--ease); }
+.empty-ico::after, .logo::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: 50%; background: radial-gradient(circle at 34% 32%, var(--c-cream) 0 15%, transparent 16%); }
 .empty-ico { width: 52px; height: 52px; margin-bottom: 8px; }
 .empty.compact .empty-ico { width: 36px; height: 36px; }
 /* loading: a diamond that turns */

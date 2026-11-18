@@ -5,8 +5,8 @@
 .nav { position: sticky; top: 0; z-index: var(--z-nav); background: rgb(var(--paper-rgb) / .88); backdrop-filter: saturate(1.4) blur(16px); border-bottom: 1px solid var(--line); }
 .nav-in { display: flex; align-items: center; gap: 10px; height: var(--nav-h); }
 .brand { display: inline-flex; align-items: center; gap: 10px; font: 800 19px/1 var(--font-display); font-stretch: 80%; letter-spacing: .01em; text-transform: uppercase; white-space: nowrap; flex: none; }
-.brand .logo { width: 30px; height: 30px; transition: transform var(--dur-slow) var(--ease); }
-.brand:hover .logo { transform: rotate(-25deg); }
+.brand .logo { width: 30px; height: 30px; }
+.brand:hover .logo::before { transform: rotate(-35deg); }
 .nav-links { display: flex; align-items: center; gap: 4px; margin-left: clamp(8px, 2vw, 28px); }
 /* places in the top bar: capitals on a slanted plate; the current one is inked, with a lit foot */
 .nl { position: relative; isolation: isolate; display: inline-flex; align-items: center; height: 38px; padding: 0 16px; font: 700 13.5px/1 var(--font-display); letter-spacing: .07em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; transition: color var(--dur-fast); }
