@@ -172,7 +172,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         {ended && !url && (
-          <div className="gp-own"><Notice tone="info" title={t('The game was closed', '游戏已关闭')} actions={<Button size="sm" variant="primary" onClick={() => { setEnded(null); play(); }}>{t('Play again', '重新开始')}</Button>}>
+          <div className="gp-ended"><Notice tone="info" title={t('The game was closed', '游戏已关闭')} actions={<Button size="sm" variant="primary" onClick={() => { setEnded(null); play(); }}>{t('Play again', '重新开始')}</Button>}>
             {ended === 'signed_in' ? t('You signed in, so the guest session ended. Play again to continue on your account.', '你已登录，访客会话已结束。重新开始即可在你的账号上继续。')
               : ended === 'signed_out' ? t('This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.', '此浏览器已退出登录或切换了账号，游戏已关闭。进度保留在游玩时使用的账号中。')
               : t('The play session ended. Play again to start a new one.', '游玩会话已结束。重新开始即可开启新会话。')}
