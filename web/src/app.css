@@ -228,7 +228,6 @@
 .sold-by { text-align: center; margin-top: 2px; }
 .sold-by a { text-decoration: underline; text-underline-offset: 2px; }
 .legal .legal-op { max-width: 72ch; margin: 4px 0 14px; }
-.legal .notice { max-width: 72ch; margin-bottom: 18px; }
 .legal-op a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .legal-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .legal-body { max-width: 72ch; display: grid; gap: 30px; padding-top: 26px; }

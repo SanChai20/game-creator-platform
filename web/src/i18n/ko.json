@@ -1340,8 +1340,6 @@
  "Virtual items, in-game currency and progress are not refunded on their own, unless the law requires it.": "법이 요구하지 않는 한 가상 아이템, 게임 내 화폐 및 진행 상황은 따로 환불되지 않습니다.",
  "Effective date: {date}": "시행일: {date}",
  "{brand} is developed and operated by {op}, a {state} limited liability company (horylo.com).": "{brand}은(는) {state}주 유한책임회사인 {op}(horylo.com)이(가) 개발하고 운영합니다.",
- "Draft pending legal review": "법률 검토 전 초안",
- "This text has not yet been reviewed by a lawyer and may change before launch.": "이 문서는 아직 변호사의 검토를 받지 않았으며 출시 전에 변경될 수 있습니다.",
  "Sold by {op}. Payments by Stripe.": "판매자: {op}. 결제는 Stripe가 처리합니다.",
  "By creating an account you agree to the {terms} and the {privacy}.": "계정을 만들면 {terms} 및 {privacy}에 동의하게 됩니다."
 }
