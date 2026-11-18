@@ -23,7 +23,9 @@ test('the Worker answers 404 for server code and never reads it from storage', a
   // other files are served to a player with a play session, and to nobody else
   assert.equal((await handle(new Request('https://g.example/assets/a.png'), env, {})).status, 401);
   const tok = await signPlayToken({ g: 'abc123', e: 'live', u: 'u1', n: 'P', s: 'pl_1', x: Math.floor(Date.now() / 1000) + 600 }, 'k');
-  const ok = await handle(new Request('https://g.example/assets/a.png', { headers: { cookie: 'gcp_t=' + tok } }), env, {});
+  // over HTTPS only the __Host- cookie counts: a plain gcp_t planted by a sibling game on the same domain is ignored
+  assert.equal((await handle(new Request('https://g.example/assets/a.png', { headers: { cookie: 'gcp_t=' + tok } }), env, {})).status, 401);
+  const ok = await handle(new Request('https://g.example/assets/a.png', { headers: { cookie: '__Host-gcp_t=' + tok } }), env, {});
   assert.equal(ok.status, 200);
   assert.match(ok.headers.get('cache-control'), /^private/);
   assert.equal(ok.headers.get('access-control-allow-origin'), null);

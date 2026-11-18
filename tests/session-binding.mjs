@@ -208,7 +208,7 @@ test('a launch token from the address bar opens the game without asking the plat
 test('a page reopened from a cookie token after signing out shows the gate, not the previous player', async () => {
   const t = await sign('u_alice', 'ps_1');
   await withPlatform(() => Response.json({ error: 'ended', code: 'session_ended' }, { status: 401 }), async (calls) => {
-    const r = await handle(new Request('https://g.example/', { headers: { cookie: `gcp_t=${t}` } }), env, {});
+    const r = await handle(new Request('https://g.example/', { headers: { cookie: `__Host-gcp_t=${t}` } }), env, {});
     assert.equal(r.status, 401);
     const html = await r.text();
     assert.ok(!html.includes('u_alice'), 'nothing of the previous player on the page');
@@ -216,17 +216,17 @@ test('a page reopened from a cookie token after signing out shows the gate, not 
     assert.equal(calls[0].url, 'https://platform.example/api/rt/check');
   });
   await withPlatform(() => Response.json({ ok: true }), async () => {
-    assert.equal((await handle(new Request('https://g.example/', { headers: { cookie: `gcp_t=${t}` } }), env, {})).status, 200);
+    assert.equal((await handle(new Request('https://g.example/', { headers: { cookie: `__Host-gcp_t=${t}` } }), env, {})).status, 200);
   });
   // the platform cannot be reached: served (every service call is still checked there)
   await withPlatform(() => { throw new Error('network'); }, async () => {
-    assert.equal((await handle(new Request('https://g.example/', { headers: { cookie: `gcp_t=${t}` } }), env, {})).status, 200);
+    assert.equal((await handle(new Request('https://g.example/', { headers: { cookie: `__Host-gcp_t=${t}` } }), env, {})).status, 200);
   });
 });
 
 test('a renewed token replaces the cookie only for the same player and session', async () => {
   const cur = await sign('u_alice', 'ps_1'), next = await sign('u_alice', 'ps_1', now() + 7200);
-  const post = (body) => handle(new Request('https://g.example/__gcp/token', { method: 'POST', body, headers: { cookie: `gcp_t=${cur}` } }), env, {});
+  const post = (body) => handle(new Request('https://g.example/__gcp/token', { method: 'POST', body, headers: { cookie: `__Host-gcp_t=${cur}` } }), env, {});
   const ok = await post(next);
   assert.equal(ok.status, 200); assert.match(ok.headers.get('set-cookie'), new RegExp('gcp_t=' + next.replace(/[.]/g, '\\.')));
   assert.equal((await post(await sign('u_bob', 'ps_1', now() + 7200))).status, 400, 'another player');
