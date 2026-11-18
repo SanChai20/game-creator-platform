@@ -61,11 +61,12 @@ The page left for another site, started a download, opened two or more windows b
 
 ## two_players: the two pages did not end up in one shared world
 
-This check exists only when the game registered `GCP.test.onTwoPlayers`. The verifier opened the game twice in one room
-(host first) and ran that function in both pages; the detail says which page failed and at which step, or shows the two
-`world` strings that differ.
+This check exists only when the game registered `GCP.test.onTwoPlayers`. The verifier opened the game twice, as two
+different players meeting on one code (host first), and ran that function in both pages; the detail says which page failed
+and at which step, or shows the two `world` strings that differ, then what each page opened: its room (`GCP.room`) or its
+match (`GCP.match.find`), with its player id and who it saw.
 
-- **"the other player to appear" timed out.** On autostart the game must host or join `GCP.test.twoPlayers.code` instead of playing alone, and both pages must use the same room name.
+- **"the other player to appear" timed out.** On autostart the game must host or join `GCP.test.twoPlayers.code` instead of playing alone, and both pages must use the same room name (with `GCP.room`) or the same lobby code (with `GCP.match.find({ code, players: 2 })`). "opened no room and found no match" means that page never called either.
 - **The worlds differ.** A change reached one side only. Route every change through the host (`createWorldSync`), and return a `world` string that leaves out per-player things and is sorted.
 - **Fine alone, fails here.** A guest starts from the host's world: do not load a local save over it.
 

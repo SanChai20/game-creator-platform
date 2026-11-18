@@ -164,7 +164,7 @@ Translate the listing into the languages the game itself supports at least. The 
   - `pvp-local`: against each other on one device;
   - `pvp-online`: against each other online.
 - A single-player game is `{"min": 1, "max": 1, "modes": ["single"]}`.
-- The platform warns when the code opens rooms (`GCP.room`) but no online mode is declared, and the other way round.
+- The platform warns when the code plays online (a room with `GCP.room`, or a server-run match with `GCP.match.find`) but no online mode is declared, and the other way round.
 
 ## Content descriptors and the age rating
 

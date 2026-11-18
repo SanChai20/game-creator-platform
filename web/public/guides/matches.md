@@ -171,6 +171,6 @@ frame();
 
 ## Testing
 
-- Two players: in the verifier's two-player check, `GCP.test.twoPlayers` is `{ role, code }` in both pages. Have both call `GCP.match.find({ code: GCP.test.twoPlayers.code, players: 2 })` from the autostart hook, and in `GCP.test.onTwoPlayers` check that each page sees the other player move.
+- Two players: in the verifier's two-player check, `GCP.test.twoPlayers` is `{ role, code }` in both pages, and the two pages are two different players (each has its own verifier id, so the lobby lists both). Have both call `GCP.match.find({ code: GCP.test.twoPlayers.code, players: 2 })` from the autostart hook (no room is needed), and in `GCP.test.onTwoPlayers` wait until `match.phase === 'running'`, check that each page sees the other player move, and return `{ players: match.players.length, world }` with `world` built from what both must agree on (the server's state, not each page's prediction). When the check fails, its detail lists each page's match: the lobby code, phase, player id, who the lobby listed and how many snapshots arrived.
 - Opened outside the platform (a file on disk), `GCP.match.find()` fails with the `standalone` error: matches need the platform.
 - `ctx.log()` lines and your code's errors appear in the game Worker's log.

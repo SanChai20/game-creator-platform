@@ -220,7 +220,9 @@ export function buildMeta(gcp: Record<string, unknown>, texts: Map<string, strin
   const chatLike = () => { const word = [...t].find(([, s]) => CHAT_WORD.test(s)), field = [...t].find(([, s]) => freeTextField(s)); if (word && field) ev.chat = `chat-like code (${word[0]}) and a free-text field (${field[0]})`; return !!(word && field); };
   const { objs, members } = sdkNames(t.values());
   const used = (services: string[], key: string, why: string, call?: string) => services.some((x) => members.has(x)) ? (ev[key] = `${why} (taken from GCP by name)`, true) : find(sdkUse(objs, services, call), key, why);
-  const multiplayer = used(['room'], 'multiplayer', 'GCP.room', String.raw`\s*\(`) || find(/@gcp\/net\.js/, 'multiplayer', '@gcp/net.js');
+  // online play goes through a relay room (GCP.room, or @gcp/net.js on top of it) or a server-run match (GCP.match.find)
+  const multiplayer = used(['room'], 'multiplayer', 'GCP.room', String.raw`\s*\(`) || used(['match'], 'multiplayer', 'GCP.match.find', String.raw`\s*\??\.\s*find\b`)
+    || find(/@gcp\/net\.js/, 'multiplayer', '@gcp/net.js');
   const saves = used(['save', 'playerStats'], 'cloud_saves', 'GCP.save or GCP.playerStats'), boards = used(['leaderboard'], 'leaderboards', 'GCP.leaderboard');
   const network = find(RX.fetch, 'network', 'fetch or WebSocket');
   const detectedProgress: Progress = { cloud_saves: saves, leaderboards: boards, offline: !multiplayer && !network };
@@ -228,8 +230,8 @@ export function buildMeta(gcp: Record<string, unknown>, texts: Map<string, strin
 
   const players = parsePlayers(gcp.players, issues);
   if (players) declared.push('players');
-  if (players && multiplayer && players.modes.every((m) => m === 'single' || m.endsWith('-local'))) w(issues, 'players.modes', 'The game opens multiplayer rooms (GCP.room) but no online mode is declared.', 'Add coop-online or pvp-online.');
-  if (players && !multiplayer && players.modes.some((m) => m.endsWith('-online'))) w(issues, 'players.modes', 'An online mode is declared but the game never opens a room (GCP.room).', 'Online play on this platform goes through GCP.room; check the mode list.');
+  if (players && multiplayer && players.modes.every((m) => m === 'single' || m.endsWith('-local'))) w(issues, 'players.modes', 'The game plays online (GCP.room or GCP.match.find) but no online mode is declared.', 'Add coop-online or pvp-online.');
+  if (players && !multiplayer && players.modes.some((m) => m.endsWith('-online'))) w(issues, 'players.modes', 'An online mode is declared but the game never opens a room (GCP.room) or finds a match (GCP.match.find).', 'Online play on this platform goes through GCP.room or GCP.match.find; check the mode list.');
 
   let session: number | null = null;
   if (gcp.session_minutes !== undefined && gcp.session_minutes !== null) {
@@ -252,7 +254,7 @@ export function buildMeta(gcp: Record<string, unknown>, texts: Map<string, strin
   if (accessibility) declared.push('accessibility');
   const content = parseContent(gcp.content, issues);
   if (content) declared.push('content');
-  if (content && multiplayer && !content.player_chat && chatLike()) w(issues, 'content.player_chat', 'The game has multiplayer rooms and chat-like code, but player_chat is false.', 'Set player_chat: true if players can send each other text.');
+  if (content && multiplayer && !content.player_chat && chatLike()) w(issues, 'content.player_chat', 'The game plays online and has chat-like code, but player_chat is false.', 'Set player_chat: true if players can send each other text.');
   const langs = buildLanguages(gcp.languages, t, paths);
   issues.push(...langs.issues);
   if (langs.record.declared) declared.push('languages');

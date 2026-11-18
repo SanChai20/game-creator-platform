@@ -49,7 +49,7 @@ GCP.test.seed     // value of ?gcp_seed, or null
 GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the game
 GCP.test.onPlaythrough(fn) // fn(t) plays the game to its end; the verifier runs it and reports each step
 GCP.test.twoPlayers       // { role: 'host' | 'guest', code } when the verifier opened this page for the two-player check, else null
-GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages that share one room; return { players, world } (see the multiplayer guide)
+GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages, two different players, that meet on twoPlayers.code (GCP.room or GCP.match.find); return { players, world } (see the multiplayer and matches guides)
 GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch, paused, menu }, kept current
 GCP.onDisplay(fn) // fn(display) when it changes; pause while display.paused is true
 GCP.onEscape(fn)  // the Escape rule: fn() returns true when it closed something; otherwise Esc opens the platform menu (input guide)

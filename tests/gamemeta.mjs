@@ -160,6 +160,23 @@ test('services are found through aliases of the SDK, and only a free-text field 
   assert.ok(buildMeta(meta, made, ['g.js']).issues.some((i) => i.field === 'content.player_chat'));
 });
 
+test('a server-run match (GCP.match.find) counts as online play', () => {
+  const meta = { players: { min: 1, max: 2, modes: ['single', 'pvp-online'] }, content: {}, progress: {} };
+  for (const code of ['const m = GCP.match.find({ queue: "duel", players: 2 });', 'const sdk = window.GCP; sdk.match?.find({ code });', 'const { match } = GCP; match.find({});']) {
+    const { record, issues } = buildMeta(meta, { 'g.js': code }, ['g.js']);
+    assert.equal(record.detected.multiplayer, true, code);
+    assert.equal(record.detected.progress.offline, false, code);
+    assert.ok(!issues.some((i) => i.field === 'players.modes'), code + ': ' + JSON.stringify(issues));
+  }
+  // a game that does neither still gets the warning, naming both ways
+  const none = buildMeta(meta, { 'g.js': 'const matchFound = 1; GCP.save.set("a", 1);' }, ['g.js']);
+  assert.equal(none.record.detected.multiplayer, false);
+  assert.match(none.issues.find((i) => i.field === 'players.modes').message, /GCP\.room\) or finds a match \(GCP\.match\.find\)/);
+  // an online game declared single-player only is told to add an online mode, whichever way it plays online
+  const single = buildMeta({ players: { min: 1, max: 1, modes: ['single'] } }, { 'g.js': 'GCP.match.find({ players: 2 });' }, ['g.js']);
+  assert.ok(single.issues.some((i) => i.field === 'players.modes' && /GCP\.match\.find/.test(i.message)));
+});
+
 test('a clean zip upload keeps the declared build metadata its gcp.json leaves out', async () => {
   const { mergeManifest } = await import('../web/src/gamemeta.ts');
   const enc = (o) => new TextEncoder().encode(JSON.stringify(o)), dec = (b) => JSON.parse(new TextDecoder().decode(b));
