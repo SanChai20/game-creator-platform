@@ -60,6 +60,23 @@ GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' })   // see "
 
 Every call that talks to the platform resolves instead of throwing, so a network hiccup never takes the game down.
 
+### GPU warm-up, done for you
+
+Every page in the browser shares one GPU process, the store page around your game included. A game that builds every shader and uploads every texture in its first frame stalls that process, and the whole browser with it, until it finishes. The SDK spreads that work out without any code from you:
+
+- Every WebGL context asks for `KHR_parallel_shader_compile`, so the browser builds shaders on worker threads.
+- three.js `WebGLRenderer`: while the game is loading (before `GCP.ready()`, or while `GCP.progress()` is below 1 after it), a draw to the screen whose scene holds materials that are not built yet is held back. Those materials are compiled four at a time with `compileAsync`, their textures are uploaded a few at a time (large ones one at a time), and there is a short pause between batches. Then the frame is drawn. Draws into render targets are never held back.
+
+So: call `GCP.ready()` after the first real frame (as the contract already says), and report `GCP.progress()` below 1 while a later level loads, so that load is warmed too. Content that a post-processing pipeline renders into render targets is not covered automatically. Warm it yourself behind your loading screen:
+
+```js
+await GCP.gpu.warmup(renderer, [scene, hudScene], camera);   // compile in small batches, with pauses
+await GCP.gpu.upload(renderer, [bigTexture, atlas]);          // stagger texture uploads
+GCP.gpu.auto = false;   // before creating the renderer, to turn the automatic part off
+```
+
+With WebGPU, create pipelines with `createRenderPipelineAsync` / `createComputePipelineAsync` (three's `WebGPURenderer.compileAsync` does), not the synchronous calls.
+
 ## What verification does
 
 `deploy_preview` freezes your files as a numbered version, deploys that version as a Worker, opens it in a real browser at 960×540 and checks, in order:

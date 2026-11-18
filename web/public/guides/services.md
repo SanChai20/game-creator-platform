@@ -98,7 +98,11 @@ GCP.progress(0.4, 'Building terrain');   // optional, 0..1 while loading; shown 
 GCP.ready();                              // required, once, after the first playable frame is drawn
 GCP.fatal(err);                           // the game cannot start: shown as the failure reason
 GCP.stats({ drawCalls, quality });        // optional numbers for reports
+GCP.gpu.warmup(renderer, scenes, camera); // compile shaders in small batches (automatic for three.js while loading)
+GCP.gpu.upload(renderer, textures);       // stagger texture uploads
 ```
+
+While a game loads, the SDK warms the GPU for it. Every WebGL context gets `KHR_parallel_shader_compile`. For three.js, a draw to the screen is held back until its new materials are compiled in small batches and their textures uploaded, so a cold start does not freeze the browser (the GPU process is shared with every tab). See "GPU warm-up" in the contract guide.
 
 The SDK also records uncaught errors, failed file loads and `console.error` for the verification report and for `get_stats`, and sends a heartbeat every 15 seconds that measures active play time (tab visible, frames advancing). Opened outside the platform (a local file or dev server), `GCP.standalone` is `true`, the player is a local one, rooms open with you alone as host, and the data calls fall back to `localStorage` or resolve to `null`, so the same code runs everywhere. Every call that talks to the network resolves instead of throwing.
 
