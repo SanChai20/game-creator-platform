@@ -101,16 +101,19 @@ async function tap(page, x, y) {
 /**
  * @param page   Puppeteer/Playwright page (fresh, viewport ~960x540)
  * @param url    game URL including the play token
- * @param opts   { readyTimeoutS, minFrames, observeS, usesWebGPU, log }
+ * @param opts   { readyTimeoutS, minFrames, observeS, usesWebGPU, log, openPage, guestUrl (the game URL with a second verifier's play token, for the two-player check's guest) }
  */
 /**
  * Opens the game in two more pages that meet in one room (host first, then guest) and runs the function the game gave to
  * GCP.test.onTwoPlayers in both at once. Passes when both finish, each sees at least two players and both return the same
  * world string. openPage() -> a new page of the same browser. Returns { ok, detail, host, guest } or { skipped: why }.
  */
-export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS = 30 } = {}) {
+export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS = 30, guestUrl = '' } = {}) {
   const code = 'V' + Array.from({ length: 5 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join(''), pages = [];
-  const addr = (role) => url + (url.includes('?') ? '&' : '?') + (/[?&]gcp_autostart=/.test(url) ? '' : 'gcp_autostart=1&') + 'gcp_two=' + role + '&gcp_room=' + code;
+  // The guest plays under a verifier identity of its own (guestUrl carries its play token): a server-run match seats players
+  // by identity, so two pages of one identity would be one player whose second tab takes the first one's place.
+  const addr = (role) => { const u = role === 'guest' && guestUrl ? guestUrl : url;
+    return u + (u.includes('?') ? '&' : '?') + (/[?&]gcp_autostart=/.test(u) ? '' : 'gcp_autostart=1&') + 'gcp_two=' + role + '&gcp_room=' + code; };
   const boot = async (role) => { const p = await openPage(); pages.push(p); p.on('dialog', (d) => { d.dismiss().catch(() => {}); }); await p.goto(addr(role), { waitUntil: 'domcontentloaded', timeout: 45000 });
     const t0 = Date.now(); let s = null; while (Date.now() - t0 < readyTimeoutS * 1000) { s = await state(p).catch(() => null); if (s && (s.ready || s.fatal)) break; await sleep(250); }
     if (!s || !s.ready || s.fatal) throw new Error(`the ${role} page did not start` + (s && s.fatal ? ': ' + String(s.fatal).slice(0, 160) : '')); return p; };
@@ -126,16 +129,34 @@ export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS
     let turn = 0; const swap = setInterval(() => { const p = pages[turn++ % pages.length]; if (p && p.bringToFront) p.bringToFront().catch(() => {}); }, 700);
     const [a, b] = await Promise.all([run(host, 'host'), run(guest, 'guest')]).finally(() => clearInterval(swap));
     // what each side's room saw, whatever the outcome: its id, who it knew was there, and how many changes reached it
-    const roomOf = (p) => p.evaluate(() => (window.__GCP && window.__GCP.roomInfo ? window.__GCP.roomInfo() : [])).then((l) => l[l.length - 1] || null).catch(() => null), [ra, rb] = await Promise.all([roomOf(host), roomOf(guest)]);
-    const side = (name, r) => (r ? `${name}: room id ${r.id || 'none (never connected)'}${r.isHost ? ' (host)' : ''}, saw ${r.peers.filter((id) => id !== r.id).length ? 'peer ' + r.peers.filter((id) => id !== r.id).join(', ') : 'no other peer'} in the room, received ${r.world_ops} world change(s), ${r.states} world snapshot(s) and ${r.messages} message(s)${r.closes ? `, lost the connection ${r.closes} time(s)` : ''}` : `${name}: opened no room (GCP.room was never called)`), sides = ` · ${side('Host', ra)} · ${side('Guest', rb)}.`;
+    // (a game plays online through a relay room, GCP.room, or a server-run match, GCP.match.find: whichever it opened is described)
+    const lastOf = (p, what) => p.evaluate((w) => (window.__GCP && window.__GCP[w] ? window.__GCP[w]() : []), what).then((l) => (Array.isArray(l) && l[l.length - 1]) || null).catch(() => null);
+    const [ra, rb, ma, mb] = await Promise.all([lastOf(host, 'roomInfo'), lastOf(guest, 'roomInfo'), lastOf(host, 'matchInfo'), lastOf(guest, 'matchInfo')]);
+    const sides = ` · ${twoPlayerSide('Host', ra, ma)} · ${twoPlayerSide('Guest', rb, mb)}.`;
     const brief = (r) => ({ ok: !!r.ok, error: r.error || '', steps: r.steps || [], players: r.result && r.result.players, world: r.result && typeof r.result.world === 'string' ? r.result.world.slice(0, 2000) : null });
     const H = brief(a), G = brief(b), saw = H.players >= 2 && G.players >= 2, same = H.world != null && H.world === G.world, ok = H.ok && G.ok && saw && same;
     const last = (r) => (r.steps.length ? ` (during "${r.steps[r.steps.length - 1]}")` : '');
-    const detail = ok ? `Host and guest met in one room, each saw ${Math.min(H.players, G.players)} players, and their worlds agree after both changed it.`
+    const detail = ok ? `Host and guest met in one ${(ma && !ra) || (mb && !rb) ? 'match' : 'room'}, each saw ${Math.min(H.players, G.players)} players, and their worlds agree after both changed it.`
       : !H.ok ? `The host failed: ${H.error}${last(H)}` : !G.ok ? `The guest failed: ${G.error}${last(G)}` : !saw ? `The host saw ${H.players || 0} player(s) and the guest ${G.players || 0}: each must see both.`
         : H.world == null || G.world == null ? 'The function must return { players, world } with world a string.' : 'The two worlds differ. Host: ' + H.world.slice(0, 200) + ' · Guest: ' + G.world.slice(0, 200);
-    return { ok, detail: ok ? detail : detail + sides, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players, room: ra }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players, room: rb } };
+    return { ok, detail: ok ? detail : detail + sides, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players, room: ra, match: ma }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players, room: rb, match: mb } };
   } finally { for (const p of pages) { try { await p.close(); } catch { /* gone */ } } }
+}
+
+/** One page's side of a failed two-player check: the room (GCP.room) or match (GCP.match.find) it opened and what reached it. */
+export function twoPlayerSide(name, r, m) {
+  const parts = [];
+  if (r) {
+    const others = (r.peers || []).filter((id) => id !== r.id);
+    parts.push(`room id ${r.id || 'none (never connected)'}${r.isHost ? ' (host)' : ''}, saw ${others.length ? 'peer ' + others.join(', ') : 'no other peer'} in the room, received ${r.world_ops} world change(s), ${r.states} world snapshot(s) and ${r.messages} message(s)${r.closes ? `, lost the connection ${r.closes} time(s)` : ''}`);
+  }
+  if (m) {
+    const lobby = (m.lobby || []).filter(Boolean), players = (m.players || []).filter(Boolean);
+    parts.push(`match ${m.match || '(none found)'}${m.code ? ` from lobby ${m.code}` : ''}, phase ${m.phase || 'unknown'}, player id ${m.you || 'unknown'}`
+      + (lobby.length ? `, the lobby listed ${lobby.join(', ')}` : '') + (players.length ? `, the match has ${players.join(', ')}` : '')
+      + `, received ${m.snapshots || 0} snapshot(s)` + (m.closes ? `, lost the connection ${m.closes} time(s)` : '') + (m.error ? `, error ${m.error}` : ''));
+  }
+  return `${name}: ` + (parts.length ? parts.join('; ') : 'opened no room and found no match (neither GCP.room nor GCP.match.find was called)');
 }
 
 export async function verifyPage(page, url, opts = {}) {
@@ -267,9 +288,9 @@ export async function verifyPage(page, url, opts = {}) {
     }
     // 4c. two players: a game that registered GCP.test.onTwoPlayers is opened twice more, in one room, and both pages must agree
     if (o.openPage && await page.evaluate(() => !!(window.__GCP && window.__GCP.twoPlayers)).catch(() => false)) {
-      const two = await twoPlayerCheck(o.openPage, url, { limitS: o.twoPlayersS || 45, readyTimeoutS: o.readyTimeoutS });
+      const two = await twoPlayerCheck(o.openPage, url, { limitS: o.twoPlayersS || 45, readyTimeoutS: o.readyTimeoutS, guestUrl: o.guestUrl || '' });
       if (two.skipped) report.notes.push('The two-player check could not be run: ' + two.skipped);
-      else { add('two_players', two.ok, 'Two players share one world', two.detail, two.ok ? '' : 'The function given to GCP.test.onTwoPlayers ran in two pages that joined the same room (the first as host). Each must see the other and return the same world string. Check that the game hosts or joins GCP.test.twoPlayers.code on autostart, and that every change to the world reaches the other player.'); report.two_players = two; }
+      else { add('two_players', two.ok, 'Two players share one world', two.detail, two.ok ? '' : 'The function given to GCP.test.onTwoPlayers ran in two pages, two different players, that met on GCP.test.twoPlayers.code (the first as host): a room opened with GCP.room, or a private match from GCP.match.find({ code }). Each must see the other and return the same world string. Check that the game hosts or joins that code on autostart, and that every change to the world reaches the other player.'); report.two_players = two; }
     }
     // 5. input: click, keys, drag, touch. A marker on window tells us afterwards whether the page was reloaded.
     // The probe is read here as well: a game may restart itself by reloading when its end screen is clicked, which resets it.

@@ -69,11 +69,14 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
     report = { ok: false, summary: health.detail, checks: [{ id: 'deployed', ok: false, label: 'The deployed game responds', detail: health.detail }], errors: [] };
   } else {
     await stage(env, v, 'verifying', 'Running the game in a browser');
-    const sid = 'vf_' + rid(12);
-    await env.DB.prepare("INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, 'preview', ?, 'verify', ?, ?)").bind(sid, p.id, v.n, p.owner_id, now(), now()).run();
     // The verifier plays under a throwaway identity of its own: it starts from no save and never touches the creator's progress.
-    const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Verifier', k: 'verify', s: sid, x: Math.floor(now() / 1000) + 900 }, await playKey(env, p.id));
-    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU, job.origin);
+    // The two-player check's guest page gets a second one, so a server-run match (seated by player id) sees two players.
+    const [sid, sid2] = ['vf_' + rid(12), 'vf_' + rid(12)], key = await playKey(env, p.id), x = Math.floor(now() / 1000) + 900;
+    const play = env.DB.prepare("INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, 'preview', ?, 'verify', ?, ?)");
+    await env.DB.batch([play.bind(sid, p.id, v.n, p.owner_id, now(), now()), play.bind(sid2, p.id, v.n, p.owner_id, now(), now())]);
+    const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Verifier', k: 'verify', s: sid, x }, key);
+    const guestToken = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid2), n: 'Verifier 2', k: 'verify', s: sid2, x }, key);
+    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU, job.origin, `${url}?gcp_t=${guestToken}&gcp_autostart=1`);
     report = out.report; shot = out.shot; frames = out.frames || [];
     report.deploy = health.detail;
   }
