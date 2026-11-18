@@ -14,7 +14,7 @@ import { handleMcp } from './mcp/server';
 import { THREE_VERSION } from './generated/runtime-source';
 import { getProject, getVersion } from './projects';
 import { admin } from './routes/admin';
-import { api, retryTransfers } from './routes/api';
+import { api, autoPayouts, retryTransfers } from './routes/api';
 import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './routes/device';
 import { rt } from './routes/rt';
 import { upload } from './routes/upload';
@@ -302,6 +302,7 @@ export default {
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
     ctx.waitUntil(backfillMature(env, 20).catch((e) => console.error('mature backfill failed', e)));
     if (event.cron !== DAILY_CRON) return;
+    ctx.waitUntil(autoPayouts(env).catch((e) => console.error('automatic payouts failed', e)));
     const t = now();
     ctx.waitUntil(env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),

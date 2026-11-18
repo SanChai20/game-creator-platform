@@ -13,8 +13,9 @@ export const SETTING_DEFS = {
   creator_fee_required: { v: true, type: 'bool', group: 'Creator fee', label: 'Require the fee before publishing (preview stays free)', public: true },
   creator_fee_for_projects: { v: false, type: 'bool', group: 'Creator fee', label: 'Require the fee before creating projects at all', public: true },
 
+  auto_payouts: { v: true, type: 'bool', group: 'Withdrawals', label: 'Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)', public: true },
   withdraw_min_cents: { v: 5000, type: 'cents', group: 'Withdrawals', label: 'Minimum balance to withdraw', public: true },
-  allow_manual_withdrawals: { v: true, type: 'bool', group: 'Withdrawals', label: 'Allow manual withdrawals (paid by an admin outside Stripe)', public: true },
+  allow_manual_withdrawals: { v: false, type: 'bool', group: 'Withdrawals', label: 'Allow manual withdrawals (paid by an admin outside Stripe)', public: true },
   stripe_platform_country: { v: 'US', type: 'text', group: 'Withdrawals', label: 'Country of the platform Stripe account (2 letters)' },
 
   platform_fee_percent: { v: 10, type: 'number', group: 'Paid games', label: 'Platform cut of each game sale (percent)', public: true },
@@ -25,7 +26,9 @@ export const SETTING_DEFS = {
   paid_games_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to sell games', public: true },
   trials_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to offer a free trial of a paid game (minutes of play before buying)', public: true },
   trial_max_minutes: { v: 120, type: 'int', group: 'Paid games', label: 'Longest free trial a creator can offer (minutes)', public: true },
-  earnings_hold_days: { v: 7, type: 'int', group: 'Paid games', label: 'Days a sale is held before the creator can withdraw it (covers refunds)', public: true },
+  earnings_hold_days: { v: 3, type: 'int', group: 'Paid games', label: 'Days a sale is held before the creator can withdraw it (never shorter than the refund window)', public: true },
+  refund_window_hours: { v: 24, type: 'int', group: 'Paid games', label: 'Hours after paying that a buyer can refund a game themselves, once per game (0 turns self-serve refunds off)', public: true },
+  refund_max_play_minutes: { v: 30, type: 'int', group: 'Paid games', label: 'Most minutes a buyer can have played a game (trial included) and still refund it themselves', public: true },
 
   play_min_seconds: { v: 30, type: 'int', group: 'Play counting', label: 'Seconds before a session counts as a play', public: true },
   review_requires_play: { v: true, type: 'bool', group: 'Reviews', label: 'Only players with a counted play can rate and review', public: true },

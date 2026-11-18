@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ago, api, blurb, clock, count, date, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -65,7 +65,15 @@ const withLang = (u: string) => { try { const x = new URL(u, location.href); x.s
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
-  const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null);
+  const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null);
+  // While the game is open on this page, the page itself tells the platform once a minute, so play time is measured by
+  // the platform and not only by the game's own heartbeats (it decides whether a purchase can still be refunded).
+  useEffect(() => {
+    if (!url || !user) return;
+    const ping = () => { if (session.current) void api(`/plays/${session.current}/seen`, { method: 'POST' }).catch(() => undefined); };
+    const id = setInterval(ping, 60000);
+    return () => { clearInterval(id); ping(); };
+  }, [url, user]);
   const [rating, setRating] = useState(0), [body, setBody] = useState('');
   // Compatibility: this browser checked against the live version's requirements; a failing device is asked before launch.
   const cv = useCompat(data?.compat), [gate, setGate] = useState(false);
@@ -141,11 +149,15 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; session: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
     void act('buy', async () => { const r = await api<{ url: string }>(`/games/${slug}/buy`, { method: 'POST' }); location.href = r.url; });
+  };
+  const refund = () => {
+    if (!confirm(t('Refund {title}? The money goes back to how you paid, and the game leaves your library. Each game can be refunded once.', '确定为 {title} 退款吗？款项将原路退回，该游戏会从你的游戏库中移除。每款游戏只能退款一次。', { title: local(g, 'title') }))) return;
+    void act('refund', async () => { await api(`/games/${slug}/refund`, { method: 'POST' }); await reload(); }, t('Refunded. The money is on its way back to you.', '已退款，款项正在退回给你。'));
   };
   const review = () => act('review', async () => { await api(`/games/${slug}/reviews`, { body: { rating, body } }); await reload(); }, t('Thanks. Your review is saved.', '感谢，评价已保存。'));
   const total = data.rating_dist.reduce((a: number, b: number) => a + b, 0);
@@ -215,6 +227,7 @@ export function Game({ slug }: { slug: string }) {
                 <div className="gp-price-row"><b className="gp-price">{price(g.price_cents)}</b>{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 <div className="gp-buy-act">{cta}</div>
                 <p className="gp-buy-note">{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
+                {data.refund_until && <p className="gp-buy-note">{t('Not what you hoped? You can refund it until {time}, while you have played less than {minutes} minutes.', '不满意？在 {time} 前且游玩不足 {minutes} 分钟时，你可以申请退款。', { time: dateTime(data.refund_until), minutes: Number(config.settings.refund_max_play_minutes ?? 30) })} <Button size="sm" variant="ghost" onClick={refund} disabled={busy === 'refund'}>{t('Refund', '退款')}</Button></p>}
                 {data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}
                 {meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}
               </div>

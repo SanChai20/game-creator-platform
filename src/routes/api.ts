@@ -4,7 +4,7 @@ import { AppError, bad, forbidden, notFound, type Env, type Project, type User }
 import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestIdentity, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
 import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
-import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
+import { balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
@@ -15,7 +15,9 @@ import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
-import { stripe, stripeReady, verifyWebhook } from '../stripe';
+import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../stripe';
+import { startWithdrawal } from '../payouts';
+export { autoPayouts, retryTransfers, reverseWithdrawal, sendTransfer } from '../payouts';
 import { beginTrial, trialMinutes, trialState } from '../trials';
 import { addDays, dayOf, now, parseJson, rid, safeEqual, sha256 } from '../util';
 // @ts-ignore plain JS module
@@ -249,6 +251,7 @@ api.get('/games/:slug', async (c) => {
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
   }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
+  const refundable = u && p.price_cents > 0 ? await refundablePurchase(c.env, s, u.id, p.id) : null;
   const [v, on] = await Promise.all([
     p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
     c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND last_beat_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
@@ -258,6 +261,9 @@ api.get('/games/:slug', async (c) => {
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // Until when this buyer can still refund the game themselves (null once the window has passed or it was refunded before).
+    refund_until: refundable?.until ?? null,
+    refund_play_left: refundable ? Math.max(0, s.refund_max_play_minutes * 60 - refundable.played_seconds) : null,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
@@ -363,13 +369,22 @@ api.get('/media/*', async (c) => {
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------
-async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string) {
+async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false) {
   const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
   const session = await stripe<{ id: string; url: string }>(c.env, 'POST', '/checkout/sessions', {
-    mode: 'payment', client_reference_id: u.id, customer_email: u.email, metadata, payment_intent_data: { metadata },
+    // HearthCade is the seller of record and pays creators through Connect, which Stripe's Managed Payments (Stripe as
+    // merchant of record) does not support; new Stripe accounts turn it on by default, so it is turned off per session.
+    managed_payments: { enabled: false },
+    mode: 'payment', integration_identifier: 'hearthcade_checkout_kqzvmrtd', client_reference_id: u.id, customer_email: u.email, metadata, payment_intent_data: { metadata },
     line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name, description: `Sold by ${OPERATOR.name} on ${brand}` } } } },
     // The seller of record, next to the Pay button, with the terms the purchase falls under.
-    custom_text: { submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase. Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` } },
+    custom_text: {
+      submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase. Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` },
+      // A game is digital content delivered at once. EU and UK law gives buyers 14 days to cancel unless they ask for it
+      // right away and accept losing that right, so the buyer ticks this before paying; Stripe records the consent.
+      ...(digitalGoods ? { terms_of_service_acceptance: { message: `I agree to the [Terms](${origin}/legal/terms) and want access to this game right away. I understand that I then lose my right to cancel within 14 days; ${brand}'s own [refund policy](${origin}/legal/refunds) still applies.` } } : {}),
+    },
+    ...(digitalGoods ? { consent_collection: { terms_of_service: 'required' } } : {}),
     success_url: `${origin}${back}${back.includes('?') ? '&' : '?'}paid={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}${back}`,
   });
   return c.json({ url: session.url });
@@ -388,7 +403,32 @@ api.post('/games/:slug/buy', async (c) => {
   if (p.price_cents <= 0) throw bad('This game is free.');
   if (u.id === p.owner_id) throw bad('This is your own game.');
   if (await owns(c.env, u.id, p.id)) throw new AppError(409, 'You already own this game.', 'already');
-  return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`);
+  return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`, true);
+});
+
+// The store page showing a game tells the platform, once a minute, that the player's session is still open. This is the
+// platform's own clock for play time, kept by its page rather than by the game (see playedSeconds).
+api.post('/plays/:sid/seen', async (c) => {
+  const u = requireUser(c), t = now();
+  await c.env.DB.prepare("UPDATE plays SET seen_at = ?1 WHERE id = ?2 AND user_id = ?3 AND env = 'live' AND started_at > ?4 AND (seen_at IS NULL OR seen_at < ?1 - 30000)")
+    .bind(t, c.req.param('sid'), u.id, t - PLAY_SESSION_S * 1000).run();
+  return c.json({ ok: true });
+});
+
+// A buyer refunds a game themselves within the refund window (refund_window_hours after paying), once per game. The money
+// goes back through Stripe at once, access goes, and the creator's credit (still on hold, see holdMs) is taken back.
+api.post('/games/:slug/refund', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env);
+  await rateLimit(c.env, 'refund:' + u.id, 5, 3600);
+  const p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  const x = await refundablePurchase(c.env, s, u.id, p.id);
+  if (!x) throw new AppError(409, s.refund_window_hours > 0 ? `A game can be refunded within ${s.refund_window_hours} hours of buying it if you have played it for less than ${s.refund_max_play_minutes} minutes, once per game.` : 'Refunds are not available.', 'not_refundable');
+  // Stripe first, keyed on the purchase: a double press or a retry refunds once. The charge.refunded webhook arrives
+  // later and finds the purchase already refunded.
+  await stripe(c.env, 'POST', '/refunds', { payment_intent: x.payment_intent, reason: 'requested_by_customer', metadata: { purchase: x.id, by: 'buyer' } }, 'refund:' + x.id);
+  await refundPurchase(c.env, { id: x.id });
+  return c.json({ ok: true });
 });
 
 export async function grantCreator(env: Env, userId: string, provider: string, ref: string, amount: number) {
@@ -399,17 +439,45 @@ export async function grantCreator(env: Env, userId: string, provider: string, r
   ]);
 }
 
-async function revokeCreatorFee(env: Env, paymentIntent: string): Promise<void> {
-  const list = await stripe<{ data: { id: string }[] }>(env, 'GET', '/checkout/sessions', { payment_intent: paymentIntent, limit: 1 }).catch(() => ({ data: [] }));
-  const sid = list.data[0]?.id;
+async function creatorFeeSession(env: Env, paymentIntent: string): Promise<string | null> {
+  // A Stripe failure here must reach the webhook's caller, so Stripe retries the event instead of it being dropped.
+  const list = await stripe<{ data: { id: string }[] }>(env, 'GET', '/checkout/sessions', { payment_intent: paymentIntent, limit: 1 });
+  return list.data[0]?.id || null;
+}
+
+/** Takes back a creator license whose payment was refunded or disputed. */
+async function revokeCreatorFee(env: Env, paymentIntent: string, status: 'refunded' | 'disputed' = 'refunded'): Promise<void> {
+  const sid = await creatorFeeSession(env, paymentIntent);
   if (!sid) return;
   const pay = await env.DB.prepare("SELECT id, user_id FROM payments WHERE provider_ref = ? AND kind = 'creator_fee' AND status = 'paid'").bind(sid).first<{ id: string; user_id: string }>();
   if (!pay) return;
   await env.DB.batch([
-    env.DB.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").bind(pay.id),
+    env.DB.prepare("UPDATE payments SET status = ? WHERE id = ? AND status = 'paid'").bind(status, pay.id),
     // only when no other paid license remains (an admin grant, a second payment)
     env.DB.prepare("UPDATE users SET creator = 0 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM payments WHERE user_id = ? AND kind = 'creator_fee' AND status = 'paid')").bind(pay.user_id, pay.user_id),
   ]);
+}
+
+/** A disputed creator license payment that the platform won: the license comes back. */
+async function restoreCreatorFee(env: Env, paymentIntent: string): Promise<void> {
+  const sid = await creatorFeeSession(env, paymentIntent);
+  if (!sid) return;
+  const pay = await env.DB.prepare("SELECT id, user_id FROM payments WHERE provider_ref = ? AND kind = 'creator_fee' AND status = 'disputed'").bind(sid).first<{ id: string; user_id: string }>();
+  if (!pay) return;
+  await env.DB.batch([
+    env.DB.prepare("UPDATE payments SET status = 'paid' WHERE id = ? AND status = 'disputed'").bind(pay.id),
+    env.DB.prepare('UPDATE users SET creator = 1, creator_since = COALESCE(creator_since, ?) WHERE id = ?').bind(now(), pay.user_id),
+  ]);
+}
+
+/**
+ * Makes sure the sale behind a payment is recorded before a refund or dispute is applied to it. Stripe does not promise
+ * event order, and a chargeback on a fresh payment can arrive before checkout.session.completed; without this the dispute
+ * would find nothing to reverse and the late sale would then grant the game anyway.
+ */
+async function syncPayment(env: Env, paymentIntent: string): Promise<void> {
+  const list = await stripe<{ data: any[] }>(env, 'GET', '/checkout/sessions', { payment_intent: paymentIntent, limit: 1 });
+  if (list.data[0]) await applySession(env, list.data[0]);
 }
 
 /** Applies a paid Checkout Session. Safe to call more than once for the same session. */
@@ -449,40 +517,68 @@ api.post('/billing/confirm', async (c) => {
 
 api.post('/stripe/webhook', async (c) => {
   const event = await verifyWebhook(c.env, await c.req.text(), c.req.header('stripe-signature') || null), o = event.data?.object;
+  // Creators' payout accounts (Accounts v2) report changes as thin events that carry only the account's id: the account is
+  // read back from Stripe, so nothing in the event body is trusted beyond which account to look at.
+  if (typeof event.type === 'string' && event.type.startsWith('v2.core.account')) {
+    const id = event.related_object?.type === 'v2.core.account' ? String(event.related_object.id || '') : '';
+    if (/^acct_[A-Za-z0-9]+$/.test(id) && await c.env.DB.prepare('SELECT 1 FROM users WHERE stripe_account = ?').bind(id).first())
+      await c.env.DB.prepare('UPDATE users SET stripe_payouts_enabled = ? WHERE stripe_account = ?').bind((await payoutReady(c.env, id)) ? 1 : 0, id).run();
+    return c.json({ received: true });
+  }
+  // Snapshot events from a connected account (they name the account) are not the platform's money: ignored.
+  if (event.account) return c.json({ received: true, ignored: true });
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') await applySession(c.env, o);
-  else if (event.type === 'charge.refunded' && o?.refunded && o.payment_intent) {
-    // a refunded game sale takes back access and the creator's credit; a refunded creator fee takes back the license
-    if (!(await refundPurchase(c.env, { paymentIntent: o.payment_intent }))) await revokeCreatorFee(c.env, o.payment_intent);
-  } else if (event.type === 'account.updated' && o?.id) {
-    await c.env.DB.prepare('UPDATE users SET stripe_payouts_enabled = ? WHERE stripe_account = ?').bind(o.payouts_enabled && o.capabilities?.transfers === 'active' ? 1 : 0, o.id).run();
+  else if (event.type === 'charge.refunded' && o?.payment_intent) {
+    const pi = typeof o.payment_intent === 'string' ? o.payment_intent : o.payment_intent.id;
+    await syncPayment(c.env, pi);
+    // a refunded game sale takes back access and the creator's credit; a refunded creator fee takes back the license;
+    // a partial refund (Dashboard) takes back the same share of the creator's credit and leaves the game with the buyer
+    if (o.refunded) { if (!(await refundPurchase(c.env, { paymentIntent: pi }))) await revokeCreatorFee(c.env, pi); }
+    else if (Number(o.amount_refunded) > 0) await partialRefund(c.env, pi, Number(o.amount_refunded));
+  } else if ((event.type === 'charge.dispute.created' || event.type === 'charge.dispute.closed') && o?.payment_intent) {
+    // The platform is the seller of record, so a chargeback is debited from the platform's Stripe balance. The buyer loses
+    // access and the creator's credit is held back while it is open; winning (or an inquiry closing) gives both back.
+    const pi = typeof o.payment_intent === 'string' ? o.payment_intent : o.payment_intent.id;
+    await syncPayment(c.env, pi);
+    if (event.type === 'charge.dispute.created') { if (!(await disputePurchase(c.env, pi))) await revokeCreatorFee(c.env, pi, 'disputed'); }
+    else if (o.status === 'won' || o.status === 'warning_closed') { if (!(await disputeWon(c.env, pi))) await restoreCreatorFee(c.env, pi); }
   }
   return c.json({ received: true });
 });
 
 api.post('/billing/payout-account', async (c) => {
-  const u = requireUser(c), s = await getSettings(c.env), origin = c.get('origin');
+  const u = requireUser(c), origin = c.get('origin');
   const b = await c.req.json<{ country?: string }>().catch(() => ({} as any));
   let acct = u.stripe_account;
   if (!acct) {
     const country = String(b.country || '').toUpperCase();
     if (!/^[A-Z]{2}$/.test(country)) throw bad('Choose the country of your bank account.');
-    const cross = country !== String(s.stripe_platform_country).toUpperCase();
-    const a = await stripe<{ id: string }>(c.env, 'POST', '/accounts', {
-      type: 'express', country, email: u.email, business_type: 'individual', metadata: { user_id: u.id },
-      capabilities: { transfers: { requested: true } }, ...(cross ? { tos_acceptance: { service_agreement: 'recipient' } } : {}),
-    }, 'acct:' + u.id + ':' + country);
+    // Accounts v2, marketplace recipient: the creator receives Transfers from the platform's balance and Stripe pays them
+    // out to their bank. HearthCade is the seller of record, so it collects Stripe's fees and carries negative balances.
+    // A recipient in another country than the platform accepts the recipient service agreement during onboarding.
+    const a = await stripeV2<{ id: string }>(c.env, 'POST', '/core/accounts', {
+      contact_email: u.email, display_name: u.name.slice(0, 100), dashboard: 'express',
+      identity: { country: country.toLowerCase(), entity_type: 'individual' },
+      defaults: { responsibilities: { fees_collector: 'application', losses_collector: 'application' } },
+      configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } } },
+      metadata: { user_id: u.id },
+    }, 'acct2:' + u.id + ':' + country);
     acct = a.id;
-    await c.env.DB.prepare('UPDATE users SET stripe_account = ?, payout_country = ? WHERE id = ?').bind(acct, country, u.id).run();
+    // Only the first account sticks: two clicks at once cannot leave the user pointing at an account they did not onboard.
+    await c.env.DB.prepare('UPDATE users SET stripe_account = ?, payout_country = ? WHERE id = ? AND stripe_account IS NULL').bind(acct, country, u.id).run();
+    acct = (await c.env.DB.prepare('SELECT stripe_account FROM users WHERE id = ?').bind(u.id).first<{ stripe_account: string }>())!.stripe_account;
   }
-  const link = await stripe<{ url: string }>(c.env, 'POST', '/account_links', { account: acct, type: 'account_onboarding', refresh_url: `${origin}/console/earnings?payout=retry`, return_url: `${origin}/console/earnings?payout=done` });
+  const link = await stripeV2<{ url: string }>(c.env, 'POST', '/core/account_links', {
+    account: acct,
+    use_case: { type: 'account_onboarding', account_onboarding: { collection_options: { fields: 'eventually_due' }, refresh_url: `${origin}/console/earnings?payout=retry`, return_url: `${origin}/console/earnings?payout=done` } },
+  });
   return c.json({ url: link.url });
 });
 
 api.post('/billing/payout-account/refresh', async (c) => {
   const u = requireUser(c);
   if (!u.stripe_account) return c.json({ payouts_enabled: false });
-  const a = await stripe<{ payouts_enabled: boolean; capabilities?: { transfers?: string } }>(c.env, 'GET', `/accounts/${u.stripe_account}`);
-  const on = a.payouts_enabled && a.capabilities?.transfers === 'active' ? 1 : 0;
+  const on = (await payoutReady(c.env, u.stripe_account)) ? 1 : 0;
   await c.env.DB.prepare('UPDATE users SET stripe_payouts_enabled = ? WHERE id = ?').bind(on, u.id).run();
   return c.json({ payouts_enabled: !!on });
 });
@@ -495,57 +591,11 @@ api.post('/billing/withdraw', async (c) => {
   if (amount < s.withdraw_min_cents) throw bad(`You can withdraw once your available balance reaches $${(s.withdraw_min_cents / 100).toFixed(2)}.`);
   if (method === 'stripe' && !(u.stripe_account && u.stripe_payouts_enabled)) throw bad('Finish setting up your payout account first.');
   if (method === 'manual') { if (!s.allow_manual_withdrawals) throw forbidden('Manual withdrawals are turned off.'); if (String(b.details || '').trim().length < 8) throw bad('Describe where the money should be sent.'); }
-  if (await env.DB.prepare("SELECT 1 FROM withdrawals WHERE user_id = ? AND status = 'pending'").bind(u.id).first()) throw new AppError(409, 'You already have a withdrawal in progress.', 'pending');
-  const id = 'wd_' + rid(16), t = now();
-  // One statement debits the ledger only if the available balance still covers it, so two requests cannot both succeed.
-  const debit = await env.DB.prepare(
-    `INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
-     SELECT ?1, 'withdrawal', -?2, ?3, 'Withdrawal', ?4, ?4
-     WHERE (SELECT COALESCE(SUM(CASE WHEN available_at <= ?4 OR amount_cents < 0 THEN amount_cents ELSE 0 END), 0) FROM ledger WHERE user_id = ?1) >= ?2`).bind(u.id, amount, id, t).run();
-  if (!debit.meta.changes) throw new AppError(409, 'Your balance changed. Try again.', 'conflict');
-  await env.DB.prepare("INSERT INTO withdrawals (id, user_id, amount_cents, method, details, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)").bind(id, u.id, amount, method, String(b.details || '').slice(0, 500), t).run();
-  if (method === 'stripe') {
-    const r = await sendTransfer(env, { id, user_id: u.id, amount_cents: amount, stripe_account: u.stripe_account! });
-    if (r === 'failed') throw new AppError(502, 'The transfer did not go through and your balance was restored.', 'transfer_failed');
-    if (r === 'unknown') return c.json({ ok: true, id, amount_cents: amount, method, pending: true, note: 'Stripe did not confirm the transfer yet. It is checked again in a few minutes; your balance stays reserved meanwhile.' });
-  }
-  return c.json({ ok: true, id, amount_cents: amount, method });
+  const w = await startWithdrawal(env, u.id, amount, method, String(b.details || ''));
+  if (w.result === 'failed') throw new AppError(502, 'The transfer did not go through and your balance was restored.', 'transfer_failed');
+  if (w.result === 'unknown') return c.json({ ok: true, id: w.id, amount_cents: amount, method, pending: true, note: 'Stripe did not confirm the transfer yet. It is checked again in a few minutes; your balance stays reserved meanwhile.' });
+  return c.json({ ok: true, id: w.id, amount_cents: amount, method });
 });
-
-/**
- * Sends (or re-sends, with the same idempotency key, so Stripe never pays twice) a withdrawal's transfer. Only a clear
- * refusal returns the money to the balance; when the outcome is unknown the withdrawal stays pending for the next try.
- */
-export async function sendTransfer(env: Env, w: { id: string; user_id: string; amount_cents: number; stripe_account: string }): Promise<'paid' | 'failed' | 'unknown'> {
-  try {
-    const tr = await stripe<{ id: string }>(env, 'POST', '/transfers', { amount: w.amount_cents, currency: 'usd', destination: w.stripe_account, metadata: { withdrawal: w.id, user_id: w.user_id } }, w.id);
-    await env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ?, error = NULL WHERE id = ? AND status = 'pending'").bind(tr.id, now(), w.id).run();
-    return 'paid';
-  } catch (e) {
-    if (e instanceof AppError && e.code === 'stripe_error') { await reverseWithdrawal(env, w.id, w.user_id, w.amount_cents, 'failed', e.message); return 'failed'; }
-    await env.DB.prepare("UPDATE withdrawals SET error = ? WHERE id = ? AND status = 'pending'").bind(('Unconfirmed: ' + String((e as Error).message)).slice(0, 300), w.id).run();
-    return 'unknown';
-  }
-}
-
-/** Stripe withdrawals whose transfer was never confirmed, tried again (cron, every 10 minutes). */
-export async function retryTransfers(env: Env, max = 20): Promise<void> {
-  const rows = await env.DB.prepare("SELECT w.id, w.user_id, w.amount_cents, u.stripe_account FROM withdrawals w JOIN users u ON u.id = w.user_id WHERE w.status = 'pending' AND w.method = 'stripe' AND w.created_at < ? AND u.stripe_account IS NOT NULL LIMIT ?")
-    .bind(now() - 120000, max).all<{ id: string; user_id: string; amount_cents: number; stripe_account: string }>();
-  for (const w of rows.results) await sendTransfer(env, w);
-}
-
-/** Returns a pending withdrawal's money to the balance, once: a withdrawal that was settled meanwhile is left alone. */
-export async function reverseWithdrawal(env: Env, id: string, userId: string, amount: number, status: 'failed' | 'rejected', error: string): Promise<boolean> {
-  const t = now();
-  const [upd] = await env.DB.batch([
-    env.DB.prepare("UPDATE withdrawals SET status = ?, error = ?, settled_at = ? WHERE id = ? AND status = 'pending'").bind(status, error.slice(0, 300), t, id),
-    env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
-      SELECT ?1, 'withdrawal_reversal', ?2, ?3, ?4, ?5, ?5 WHERE EXISTS (SELECT 1 FROM withdrawals WHERE id = ?3 AND status = ?6 AND settled_at = ?5)
-        AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = 'withdrawal_reversal')`).bind(userId, amount, id, status === 'failed' ? 'Withdrawal failed, returned' : 'Withdrawal rejected, returned', t, status),
-  ]);
-  return !!upd.meta.changes;
-}
 
 // ----- creator console -------------------------------------------------------------------------
 api.get('/console/overview', async (c) => {
@@ -653,7 +703,7 @@ api.get('/console/earnings', async (c) => {
   ]);
   return c.json({
     balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: s.earnings_hold_days, fee_percent: s.platform_fee_percent,
-    payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
+    payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, auto: !!s.auto_payouts, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
   });
 });
 

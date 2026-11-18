@@ -9,6 +9,8 @@ export interface Env {
   MATCHMAKER: DurableObjectNamespace;
   PIPELINE: DurableObjectNamespace;
   BROWSER?: Fetcher;
+  // Cloudflare Email Service (send_email binding): payout emails to creators (src/mail.ts)
+  EMAIL?: { send(m: { from: { email: string; name: string }; to: string; subject: string; text: string; html: string }): Promise<{ messageId: string }> };
   AI?: Ai;                          // Workers AI: plain-language summaries of open implementations
   OAUTH_PROVIDER: OAuthHelpers;
   DEPLOY_DRIVER: string;            // cloudflare | dispatch | local (src/hosting.ts)
@@ -25,6 +27,7 @@ export interface Env {
   ADMIN_CLAIM_TOKEN?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_ACCOUNTS_WEBHOOK_SECRET?: string;  // signing secret of the event destination for creators' Accounts v2 events (thin)
   PUBLIC_ORIGIN?: string;           // set to pin the public origin (custom domain); otherwise taken from the request
   VERIFY_ORIGIN?: string;           // dev only: origin the local verifier can reach
 }

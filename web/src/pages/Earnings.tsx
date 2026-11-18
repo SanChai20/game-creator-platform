@@ -46,6 +46,7 @@ export function Earnings() {
               <div className="stack l">
                 {!data.payments && !data.manual ? <Notice>{t('Withdrawals are not open yet on this platform. Your balance is safe and keeps adding up.', '平台暂未开放提现。你的余额是安全的，并会持续累计。')}</Notice> : (
                   <>
+                    {data.payments && data.auto && <Notice tone="info">{t('Once your payout account is ready, your available balance is sent to it automatically every day when it reaches {min}. You can also withdraw it now.', '收款账户就绪后，可提现余额达到 {min} 时每天会自动转入该账户。你也可以现在提现。', { min: usd(data.min_cents) })}</Notice>}
                     {pending && <Notice tone="info">{t('A withdrawal is in progress. You can request another once it settles.', '有一笔提现正在处理中，完成后才能再次申请。')}</Notice>}
                     {!enough && !pending && <Notice>{t('You can withdraw once your available balance reaches {min}. You are {available} away.', '可提现余额达到 {min} 后即可提现，还差 {available}。', { min: usd(data.min_cents), available: usd(Math.max(0, data.min_cents - b.available)) })}</Notice>}
                     {data.payments && (ready ? (

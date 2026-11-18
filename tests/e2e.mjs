@@ -28,9 +28,9 @@ const mock = createServer(async (req, res) => {
     sessions.set(id, s); return send(s);
   }
   if (req.method === 'GET' && url.pathname.startsWith('/v1/checkout/sessions/')) return send(sessions.get(url.pathname.split('/').pop()));
-  if (url.pathname === '/v1/accounts') return send({ id: 'acct_test1' });
-  if (url.pathname === '/v1/accounts/acct_test1') return send({ id: 'acct_test1', payouts_enabled: true, capabilities: { transfers: 'active' } });
-  if (url.pathname === '/v1/account_links') return send({ url: 'https://connect.stripe.test/onboard' });
+  if (url.pathname === '/v2/core/accounts') return send({ id: 'acct_test1' });
+  if (url.pathname === '/v2/core/accounts/acct_test1') return send({ id: 'acct_test1', configuration: { recipient: { capabilities: { stripe_balance: { stripe_transfers: { status: 'active' } } } } } });
+  if (url.pathname === '/v2/core/account_links') return send({ url: 'https://connect.stripe.test/onboard' });
   if (url.pathname === '/v1/transfers') return send({ id: 'tr_test1', amount: Number(p.amount) });
   if (url.pathname === '/v1/refunds') return send({ id: 're_test1' });
   res.writeHead(404); res.end('{}');
