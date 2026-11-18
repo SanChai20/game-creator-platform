@@ -1,6 +1,6 @@
 {
-  "name": "Game Creator",
-  "short_name": "Game Creator",
+  "name": "HearthCade",
+  "short_name": "HearthCade",
   "description": "Play, buy and publish web games made with AI agents.",
   "id": "/",
   "start_url": "/",

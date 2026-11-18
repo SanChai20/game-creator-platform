@@ -5,6 +5,12 @@
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": true,
+  // The platform's own address. Games stay on workers.dev (or GAME_HOST), a different site, so a game page can never set
+  // or read the platform's cookies. Other hosts of this Worker redirect pages to PUBLIC_ORIGIN (src/index.ts).
+  "routes": [
+    { "pattern": "hearthcade.com", "custom_domain": true },
+    { "pattern": "www.hearthcade.com", "custom_domain": true }
+  ],
   "assets": {
     "directory": "dist",
     "binding": "ASSETS",
@@ -25,7 +31,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }],
   "browser": { "binding": "BROWSER" },
   "ai": { "binding": "AI" },
-  "triggers": { "crons": ["17 3 * * *", "*/10 * * * *"] },   // daily cleanup; game runtime rollout (src/deploy.ts)
+  "triggers": { "crons": ["17 3 * * *", "*/10 * * * *", "* * * * *"] },   // daily cleanup; game runtime rollout (src/deploy.ts); catalogue numbers (src/catalog.ts)
   "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
   "observability": { "enabled": true },
   // Workers for Platforms (docs/workers-for-platforms.md): with DEPLOY_DRIVER "dispatch", games are user Workers in this
@@ -37,6 +43,7 @@
     // the DISPATCH_NAMESPACE dispatch namespace (Workers for Platforms). "local" serves games from this Worker (wrangler dev).
     // Switching from "cloudflare" to "dispatch" moves every game over a few at a time (the scheduled rollout).
     "DEPLOY_DRIVER": "cloudflare",
+    "PUBLIC_ORIGIN": "https://hearthcade.com",
     // "DISPATCH_NAMESPACE": "gcp-games",
     // Games are served at <script>.<GAME_HOST>. Needed for "dispatch". With "cloudflare" plus GAME_ZONE_ID, standard
     // game Workers get per-script routes on that host instead of workers.dev, so addresses do not change at the move.

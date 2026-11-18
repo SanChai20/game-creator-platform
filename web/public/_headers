@@ -1,5 +1,7 @@
-# Every page of the web app asks for its own agent cluster, so Chrome puts it in a process of its own. Games are served
-# from sibling subdomains of the same site (<script>.<account>.workers.dev), and without this a game busy loading in the
-# player froze the store page around it. The Worker adds the same header to the pages it renders itself (src/index.ts).
+# Every page of the web app asks for its own agent cluster, so Chrome puts it in a process of its own: a game frame busy
+# loading never freezes the store page around it. Pages may only be framed by the platform itself (clickjacking of
+# sign-in, purchase and consent buttons). The Worker adds the same headers to the pages it renders itself (src/index.ts).
 /*
   Origin-Agent-Cluster: ?1
+  Content-Security-Policy: frame-ancestors 'self'
+  X-Frame-Options: SAMEORIGIN

@@ -1010,7 +1010,7 @@
  "Updated": "Actualizado",
  "Updated.": "Actualizado.",
  "Upgrades": "Mejoras",
- "Use the Game Creator tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.": "Usa las herramientas de Game Creator. Llama primero a get_started. Después hazme un pequeño juego web sobre un farero que atrapa estrellas fugaces, despliega una vista previa, corrige lo que diga la verificación y enséñame la vista previa antes de publicar.",
+ "Use the HearthCade tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.": "Usa las herramientas de HearthCade. Llama primero a get_started. Después hazme un pequeño juego web sobre un farero que atrapa estrellas fugaces, despliega una vista previa, corrige lo que diga la verificación y enséñame la vista previa antes de publicar.",
  "Use the agent you already have. We deploy every version, test it in a real browser and put it in front of players.": "Usa el agente que ya tienes. Desplegamos cada versión, la probamos en un navegador real y la ponemos delante de los jugadores.",
  "Used": "Usado",
  "User": "Usuario",
@@ -1289,5 +1289,15 @@
  "This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.": "Este navegador ha cerrado sesión o cambiado de cuenta, así que se ha cerrado el juego. Su progreso se queda en la cuenta con la que se jugó.",
  "The play session ended. Play again to start a new one.": "La sesión de juego ha terminado. Juega de nuevo para empezar otra.",
  "Playing as a guest on this browser.": "Jugando como invitado en este navegador.",
- "Playing as {name}. Progress saves to this account.": "Jugando como {name}. El progreso se guarda en esta cuenta."
+ "Playing as {name}. Progress saves to this account.": "Jugando como {name}. El progreso se guarda en esta cuenta.",
+ "Support email address": "Correo de soporte",
+ "Contact": "Contacto",
+ "Questions about these terms, your data or a payment: write to {email}.": "Si tienes preguntas sobre estos términos, tus datos o un pago, escribe a {email}.",
+ "Approved. The version is being published.": "Aprobada. La versión se está publicando.",
+ "Review denied.": "Revisión rechazada.",
+ "Needs WebGPU": "Necesita WebGPU",
+ "Browser unavailable": "Navegador no disponible",
+ "Version reviews": "Revisiones de versiones",
+ "versions the verification browser could not run, checked by a person before they go live": "versiones que el navegador de verificación no pudo ejecutar; una persona las revisa antes de publicarlas",
+ "Open project": "Abrir proyecto"
 }

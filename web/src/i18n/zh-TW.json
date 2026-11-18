@@ -1028,7 +1028,7 @@
  "Updated": "更新於",
  "Updated.": "已更新。",
  "Upgrades": "升級",
- "Use the Game Creator tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.": "使用 Game Creator 工具。先呼叫 get_started，然後幫我做一款網頁小遊戲：燈塔守護者接住墜落的星星。部署預覽，修復驗證報告中的所有問題，發布前先讓我看看預覽。",
+ "Use the HearthCade tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.": "使用 HearthCade 工具。先呼叫 get_started，然後幫我做一款網頁小遊戲：燈塔守護者接住墜落的星星。部署預覽，修復驗證報告中的所有問題，發布前先讓我看看預覽。",
  "Use the agent you already have. We deploy every version, test it in a real browser and put it in front of players.": "用你已有的 AI 代理。我們負責部署每個版本、在真實瀏覽器中測試，並把它送到玩家面前。",
  "Used": "已用",
  "User": "使用者",
@@ -1311,5 +1311,15 @@
  "This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.": "此瀏覽器已登出或切換了帳號，遊戲已關閉。進度保留在遊玩時使用的帳號中。",
  "The play session ended. Play again to start a new one.": "遊玩工作階段已結束。重新開始即可開啟新的工作階段。",
  "Playing as a guest on this browser.": "正在以訪客身分在此瀏覽器遊玩。",
- "Playing as {name}. Progress saves to this account.": "正在以 {name} 的身分遊玩，進度儲存到該帳號。"
+ "Playing as {name}. Progress saves to this account.": "正在以 {name} 的身分遊玩，進度儲存到該帳號。",
+ "Support email address": "客服信箱",
+ "Contact": "聯絡我們",
+ "Questions about these terms, your data or a payment: write to {email}.": "對本條款、你的資料或付款有疑問，請寫信至 {email}。",
+ "Approved. The version is being published.": "已核准，該版本正在發布。",
+ "Review denied.": "已拒絕審核。",
+ "Needs WebGPU": "需要 WebGPU",
+ "Browser unavailable": "瀏覽器無法使用",
+ "Version reviews": "版本審核",
+ "versions the verification browser could not run, checked by a person before they go live": "驗證瀏覽器無法執行的版本，上線前由人工檢查",
+ "Open project": "開啟專案"
 }

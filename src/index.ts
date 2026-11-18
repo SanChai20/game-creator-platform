@@ -1,19 +1,20 @@
-// Game Creator platform Worker: web API, OAuth authorization server, MCP server, and static hosting
+// HearthCade platform Worker: web API, OAuth authorization server, MCP server, and static hosting
 // for the web app, the SDK, the kits and the vendored Three.js build.
 import { AuthorizationError, CimdFetchError, OAuthProvider, type ConsentDescription } from '@cloudflare/workers-oauth-provider';
 import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
-import { userFromRequest } from './auth';
+import { sessionToken, userFromRequest } from './auth';
 import { gameBindings, rolloutRuntime } from './deploy';
 import { dispatchGame, type Namespace } from './dispatch';
 import { hostKind, matchGameRequest } from './hosting';
 
 const DAILY_CRON = '17 3 * * *';   // must match the first cron in wrangler.jsonc
+const MINUTE_CRON = '* * * * *';
 import { handleMcp } from './mcp/server';
 import { THREE_VERSION } from './generated/runtime-source';
 import { getProject, getVersion } from './projects';
 import { admin } from './routes/admin';
-import { api } from './routes/api';
+import { api, retryTransfers } from './routes/api';
 import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './routes/device';
 import { rt } from './routes/rt';
 import { upload } from './routes/upload';
@@ -27,16 +28,26 @@ import type { Lang } from '../web/src/i18n/langs';
 // @ts-ignore plain JS module
 import { handle as handleGame } from './runtime/game-worker.js';
 // @ts-ignore plain JS module
-import { verifierCleanupStmts } from './player-data.js';
+import { idleGuestCleanupStmts, verifierCleanupStmts } from './player-data.js';
 // @ts-ignore plain JS module
 import { claimedGuestCleanupStmts } from './session-binding.js';
 
+import { refreshCatalog } from './catalog';
 export { GameRoom } from './room';
 export { Pipeline } from './pipeline';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 const app = new Hono<App>();
 const originOf = (env: Env, req: Request) => env.PUBLIC_ORIGIN || new URL(req.url).origin;
+
+// Machine endpoints that keep answering on the Worker's other hosts (workers.dev, www): game Workers deployed before a
+// domain move call back to the address they were deployed with, and agents keep their configured MCP URL. None of them
+// sets a cookie. Everything else (pages, cookie-session API) moves to PUBLIC_ORIGIN, so sign-in only ever happens there.
+const MACHINE_PATHS = /^\/(api\/rt\/|api\/upload\/|api\/stripe\/webhook$|mcp(\/|$)|oauth\/(token|register|device(\/token)?)$|\.well-known\/|sdk\/|kits\/|vendor\/|guides\/|templates\/|__game\/)/;
+export function canonicalRedirect(env: Pick<Env, 'PUBLIC_ORIGIN'>, url: URL): Response | null {
+  if (!env.PUBLIC_ORIGIN || url.origin === env.PUBLIC_ORIGIN || MACHINE_PATHS.test(url.pathname)) return null;
+  return new Response(null, { status: 308, headers: { location: env.PUBLIC_ORIGIN + url.pathname + url.search, 'cache-control': 'no-store' } });
+}
 
 app.onError((e, c) => {
   if (e instanceof AppError) return c.json({ error: e.message, code: e.code, hint: e.hint }, e.status as any);
@@ -54,8 +65,10 @@ app.route('/api/upload', upload);
 app.use('/api/*', async (c, next) => {
   const m = c.req.method, path = new URL(c.req.url).pathname;
   if (m !== 'GET' && m !== 'HEAD' && path !== '/api/stripe/webhook') {
-    const o = c.req.header('origin');
+    const o = c.req.header('origin'), site = c.req.header('sec-fetch-site');
     if (o && o !== c.get('origin') && o !== new URL(c.req.url).origin) throw new AppError(403, 'Cross-site request refused.', 'csrf');
+    // A browser always says where a cookie-carrying mutation comes from; one that says neither is refused.
+    if (!o && sessionToken(c.req.raw) && site !== 'same-origin' && site !== 'none') throw new AppError(403, 'Cross-site request refused.', 'csrf');
   }
   c.set('user', path === '/api/stripe/webhook' ? null : await userFromRequest(c.env, c.req.raw));
   await next();
@@ -203,7 +216,7 @@ function provider(origin: string, accessTtl: number, grantTtl: number): OAuthPro
       refreshTokenTTL: Math.max(3600, grantTtl),    // …and the whole authorization expires, forcing a fresh approval
       clientIdMetadataDocumentEnabled: true,
       allowPrivateUseRedirectUris: true,            // native clients (Cursor, desktop apps) use custom URI schemes
-      resourceMetadata: { resource: `${origin}/mcp`, authorization_servers: [origin], resource_name: 'Game Creator MCP', bearer_methods_supported: ['header'] },
+      resourceMetadata: { resource: `${origin}/mcp`, authorization_servers: [origin], resource_name: 'HearthCade MCP', bearer_methods_supported: ['header'] },
     });
     if (providers.size > 8) providers.clear();
     providers.set(key, p);
@@ -238,9 +251,12 @@ function accessHelp(origin: string, hadToken: boolean, accessTtl: number) {
 // (<script>.<account>.workers.dev), and Chrome keeps same-site frames in one process, so a game that is busy loading
 // froze the platform page around it. An origin-keyed page gets a process of its own, and so does the game frame inside
 // it. web/public/_headers does the same for the web app's static pages, and the game runtime for game pages.
+// They also refuse to be framed by any other site (clickjacking of sign-in, purchase and consent buttons).
 function isolated(res: Response): Response {
   if (res.headers.has('origin-agent-cluster') || !(res.headers.get('content-type') || '').includes('text/html') || res.status === 101) return res;
   const h = new Headers(res.headers); h.set('origin-agent-cluster', '?1');
+  if (!h.has('content-security-policy')) h.set('content-security-policy', "frame-ancestors 'self'");
+  if (!h.has('x-frame-options')) h.set('x-frame-options', 'SAMEORIGIN');
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
@@ -250,11 +266,13 @@ export default {
     let s;
     try { s = await getSettings(env); } catch { return new Response('Database is not initialised. Run the D1 migrations.', { status: 500 }); }
     const origin = originOf(env, request), url = new URL(request.url), p = provider(origin, s.oauth_access_ttl_s, s.oauth_grant_ttl_s);
+    const moved = canonicalRedirect(env, url);
+    if (moved) return moved;
 
     // Device-grant polls arrive at the standard token endpoint; the provider does not know that grant, so they are ours.
     if (request.method === 'POST' && url.pathname === '/oauth/token') {
       const body = await request.clone().text().catch(() => '');
-      if (body.includes('device_code')) return p.fetch(new Request(new URL('/oauth/device/token', url), { method: 'POST', headers: request.headers, body }), env, ctx);
+      if (new URLSearchParams(body).get('grant_type') === DEVICE_GRANT) return p.fetch(new Request(new URL('/oauth/device/token', url), { method: 'POST', headers: request.headers, body }), env, ctx);
     }
     const res = await p.fetch(request, env, ctx);
 
@@ -274,6 +292,10 @@ export default {
     return isolated(res);
   },
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // every minute: who is playing what; every 10 minutes also the week's trending numbers
+    if (event.cron === MINUTE_CRON) { ctx.waitUntil(refreshCatalog(env, false).catch((e) => console.error('catalog refresh failed', e))); return; }
+    ctx.waitUntil(refreshCatalog(env, true).catch((e) => console.error('catalog refresh failed', e)));
+    ctx.waitUntil(retryTransfers(env).catch((e) => console.error('transfer retry failed', e)));
     // every few minutes: bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
     ctx.waitUntil(rolloutRuntime(env).catch((e) => console.error('runtime rollout failed', e)));
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
@@ -289,6 +311,7 @@ export default {
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
       ...verifierCleanupStmts(env.DB, t - 86400000),
       ...claimedGuestCleanupStmts(env.DB, t - 30 * 86400000),
+      ...idleGuestCleanupStmts(env.DB, t - 180 * 86400000),   // guests who never came back keep nothing forever
     ]));
     // games published before the duplication check existed get their fingerprints a few at a time
     ctx.waitUntil(backfill(env, 20).catch((e) => console.error('fingerprint backfill failed', e)));

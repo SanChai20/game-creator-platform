@@ -1,7 +1,7 @@
 // The web app's API: accounts, marketplace, play sessions, purchases, the creator console and billing.
 import { Hono } from 'hono';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from '../env';
-import { checkPassword, clearGuestCookie, COOKIE, createSession, endPreviousLogin, existingGuestId, guestIdentity, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, readCookie, requireUser, sessionCookie, type Ctx } from '../auth';
+import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestIdentity, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
 import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { balanceOf, owns, recordPurchase, refundPurchase, splitSale } from '../earnings';
@@ -16,7 +16,7 @@ import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { stripe, stripeReady, verifyWebhook } from '../stripe';
 import { beginTrial, trialMinutes, trialState } from '../trials';
-import { addDays, dayOf, now, parseJson, rid, sha256 } from '../util';
+import { addDays, dayOf, now, parseJson, rid, safeEqual, sha256 } from '../util';
 // @ts-ignore plain JS module
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
@@ -55,7 +55,7 @@ api.get('/me', (c) => { const u = c.get('user'); return c.json({ user: u ? pubUs
 api.post('/auth/signup', async (c) => {
   const b = await c.req.json<{ email?: string; name?: string; password?: string }>().catch(() => ({} as any)), s = await getSettings(c.env);
   if (!s.signups_open) throw forbidden('Sign-ups are closed right now.');
-  await rateLimit(c.env, 'signup:' + (c.req.header('cf-connecting-ip') || 'x'), 10, 3600);
+  await rateLimit(c.env, 'signup:' + clientNet(c.req.raw), 10, 3600);
   const email = String(b.email || '').trim().toLowerCase(), name = String(b.name || '').trim().slice(0, 40), pw = String(b.password || '');
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 200) throw bad('Enter a valid email address.');
   if (name.length < 2) throw bad('Choose a display name of at least 2 characters.');
@@ -68,12 +68,20 @@ api.post('/auth/signup', async (c) => {
   return c.json({ ok: true });
 });
 
+const DUMMY_HASH = 'pbkdf2$100000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 api.post('/auth/login', async (c) => {
   const b = await c.req.json<{ email?: string; password?: string }>().catch(() => ({} as any));
   const email = String(b.email || '').trim().toLowerCase();
-  await rateLimit(c.env, 'login:' + email, 10, 900);
+  // Attempts are limited per network (many emails from one place), per email from one network (guessing one password),
+  // and per email overall at a higher bar (a spread-out attack), so a stranger cannot lock someone out with a few tries.
+  const net = clientNet(c.req.raw);
+  await rateLimit(c.env, 'loginnet:' + net, 60, 900);
+  await rateLimit(c.env, 'login:' + email + '|' + net, 10, 900);
+  await rateLimit(c.env, 'loginall:' + email, 200, 3600);
   const u = await c.env.DB.prepare('SELECT id, pw_hash, status FROM users WHERE email = ?').bind(email).first<{ id: string; pw_hash: string; status: string }>();
-  if (!u || !(await checkPassword(String(b.password || ''), u.pw_hash))) throw new AppError(401, 'Wrong email or password.', 'bad_login');
+  // an unknown email costs the same hash as a known one, so the answer time does not tell which emails have accounts
+  const good = await checkPassword(String(b.password || ''), u?.pw_hash || DUMMY_HASH);
+  if (!u || !good) throw new AppError(401, 'Wrong email or password.', 'bad_login');
   if (u.status !== 'active') throw forbidden('This account is suspended.');
   await c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now(), u.id).run();
   // Signing in replaces this browser's earlier sign-in, whoever it was: games still open on it (another tab, a reload)
@@ -101,7 +109,7 @@ api.post('/guest-progress', async (c) => {
 });
 
 api.post('/auth/logout', async (c) => {
-  const t = readCookie(c.req.raw, COOKIE);
+  const t = sessionToken(c.req.raw);
   if (t) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(await sha256(t)).run();
   c.header('set-cookie', sessionCookie(c.req.raw, '', 0));
   return c.json({ ok: true });
@@ -116,8 +124,8 @@ const ORDER: Record<string, string> = {
   new: 'p.published_at DESC',
   top: '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC',
   played: 'p.plays DESC',
-  playing: 'playing DESC, recent DESC, p.plays DESC',
-  trending: 'p.featured DESC, recent DESC, p.plays DESC, p.published_at DESC',
+  playing: 'p.playing DESC, p.recent DESC, p.plays DESC',
+  trending: 'p.featured DESC, p.recent DESC, p.plays DESC, p.published_at DESC',
 };
 async function listGames(c: Ctx, o: ListOpts) {
   const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
@@ -130,12 +138,11 @@ async function listGames(c: Ctx, o: ListOpts) {
   if (o.minRating) { where.push('p.rating_count > 0 AND p.rating_sum >= ? * p.rating_count'); args.push(Math.max(1, Math.min(5, o.minRating))); }
   if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
   if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
-  const t = now(), w = where.join(' AND ');
+  const w = where.join(' AND ');
   const [rows, total] = await Promise.all([
     c.env.DB.prepare(
-      `SELECT p.*, u.name AS author, COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?), 0) AS recent,
-         (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl WHERE pl.project_id = p.id AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
-       FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${ORDER[sort]} LIMIT ? OFFSET ?`).bind(addDays(dayOf(t), -7), t - ONLINE_WINDOW_MS, ...args, limit, offset).all(),
+      // recent and playing are columns kept fresh by cron (src/catalog.ts), so the sort can use an index
+      `SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${ORDER[sort]} LIMIT ? OFFSET ?`).bind(...args, limit, offset).all(),
     c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${w}`).bind(...args).first<{ n: number }>(),
   ]);
   const games = rows.results.map((r) => card(c.get('origin'), r)), n = total?.n || 0;
@@ -170,24 +177,35 @@ api.get('/games', async (c) => {
 });
 
 /** Every genre with its count and covers (the categories index), or one genre's numbers and related genres. */
-api.get('/categories', async (c) => {
-  c.header('cache-control', 'public, max-age=60');
-  return c.json({ genres: await genreCounts(c, 200) });
-});
+api.get('/categories', (c) => edgeCached(c, 60, async () => { c.header('cache-control', 'public, max-age=60'); return c.json({ genres: await genreCounts(c, 200) }); }));
 api.get('/categories/:tag', async (c) => {
   const tag = c.req.param('tag').trim().toLowerCase().slice(0, 24), like = '%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%', t = now();
   const [related, nums] = await Promise.all([
     genreCounts(c, 14, tag),
     c.env.DB.prepare(`SELECT COUNT(*) AS games, COALESCE(SUM(price_cents = 0), 0) AS free, COALESCE(SUM(published_at > ?), 0) AS new_week,
-        (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl JOIN projects q ON q.id = pl.project_id WHERE q.status = 'live' AND q.tags LIKE ? ESCAPE '\\' AND pl.env = 'live' AND pl.last_beat_at > ? AND pl.kind != 'verify') AS playing
-      FROM projects WHERE status = 'live' AND tags LIKE ? ESCAPE '\\'`).bind(t - 7 * 86400000, like, t - ONLINE_WINDOW_MS, like).first<{ games: number; free: number; new_week: number; playing: number }>(),
+        COALESCE(SUM(playing), 0) AS playing
+      FROM projects WHERE status = 'live' AND tags LIKE ? ESCAPE '\\'`).bind(t - 7 * 86400000, like).first<{ games: number; free: number; new_week: number; playing: number }>(),
   ]);
   c.header('cache-control', 'public, max-age=30');
   return c.json({ tag, games: nums?.games || 0, free: nums?.free || 0, new_week: nums?.new_week || 0, playing: nums?.playing || 0, related });
 });
 
 /** Everything the home page shows, in one request: the spotlight, the shelves, the genres and the key numbers. */
-api.get('/home', async (c) => {
+/** Public, same for everyone: answered from this data centre's cache for a few seconds, so a rush does not reach D1. */
+async function edgeCached(c: Ctx, seconds: number, make: () => Promise<Response>): Promise<Response> {
+  const cache = (globalThis as any).caches?.default as Cache | undefined, key = new Request(new URL(c.req.url).toString(), { method: 'GET' });
+  const hit = cache && await cache.match(key).catch(() => undefined);
+  if (hit) return hit;
+  const res = await make();
+  if (cache && res.ok) {
+    const copy = new Response(res.clone().body, res); copy.headers.set('cache-control', `public, max-age=${seconds}`); copy.headers.delete('set-cookie');
+    c.executionCtx.waitUntil(cache.put(key, copy).catch(() => {}));
+  }
+  return res;
+}
+
+api.get('/home', (c) => edgeCached(c, 20, () => homeData(c)));
+async function homeData(c: Ctx): Promise<Response> {
   const t = now(), weekAgo = t - 7 * 86400000;
   const [trending, playing, fresh, top, free, genres, stats] = await Promise.all([
     listGames(c, { sort: 'trending', limit: 16 }),
@@ -210,7 +228,7 @@ api.get('/home', async (c) => {
     },
     genres,
   });
-});
+}
 
 async function liveGame(c: Ctx, slug: string): Promise<Project & { author: string }> {
   const p = await c.env.DB.prepare('SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ?').bind(slug).first<Project & { author: string }>();
@@ -278,11 +296,16 @@ api.post('/games/:slug/play', async (c) => {
     const s = await getSettings(c.env);
     if (s.require_login_to_play) throw new AppError(401, 'Sign in to play.', 'unauthenticated');
     if (p.price_cents > 0) throw new AppError(401, 'Sign in to buy or try this game.', 'unauthenticated');
+    // Every visitor without a cookie becomes a new guest with its own save quota, so guest play starts are limited per
+    // network: plenty for people sharing an address, too few to fill the database with throwaway guests.
+    await rateLimit(c.env, 'guestplay:' + clientNet(c.req.raw), 60, 3600);
     const g = await guestIdentity(c.env, c.req.raw);
+    if (g.cookie) await rateLimit(c.env, 'guestnew:' + clientNet(c.req.raw), 20, 3600);
     if (g.cookie) c.header('set-cookie', g.cookie, { append: true });
     return c.json(await startPlay(c, p, 'live', p.live_version, { id: g.id, name: g.name, role: 'player' } as unknown as User, undefined, GUEST_SESSION_S));
   }
   const u = requireUser(c);
+  await rateLimit(c.env, 'play:' + u.id, 240, 3600);
   if (p.price_cents > 0 && u.id !== p.owner_id && u.role !== 'admin' && !(await owns(c.env, u.id, p.id))) {
     // Not bought: a free trial if the game offers one and this account has time left, otherwise the purchase prompt.
     const tr = await beginTrial(c.env, p, await getSettings(c.env), u.id);
@@ -322,10 +345,20 @@ api.post('/games/:slug/reviews', async (c) => {
 
 api.get('/media/*', async (c) => {
   const key = decodeURIComponent(new URL(c.req.url).pathname.replace(/^\/api\/media\//, ''));
-  if (!/^(shots|covers)\/[A-Za-z0-9/_.\-]+$/.test(key) || key.includes('..')) throw notFound();
+  // shots/<project>/<version>[-play-i].ext and covers/<project>-<time>.ext
+  const m = key.match(/^(shots)\/([A-Za-z0-9_\-]+)\/([A-Za-z0-9_.\-]+)$/) || key.match(/^(covers)\/([A-Za-z0-9_]+)-([A-Za-z0-9]+\.[a-z0-9]+)$/);
+  if (!m || key.includes('..')) throw notFound();
+  // Public only for a live game's cover and the pictures of versions that went live. A draft's, a removed game's or the
+  // verifier's frames of an unpublished version are for the creator and admins.
+  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null }>();
+  if (!p) throw notFound();
+  const n = m[1] === 'shots' ? Number((m[3].match(/^(\d+)/) || [])[1]) : NaN;
+  const published = p.status === 'live' && (key === p.cover_key || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
+  const u = c.get('user');
+  if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
   const obj = await c.env.FILES.get(key);
   if (!obj) throw notFound();
-  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'image/png', 'cache-control': 'public, max-age=3600', etag: obj.httpEtag } });
+  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'image/png', 'cache-control': published ? 'public, max-age=3600' : 'private, no-store', etag: obj.httpEtag } });
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------
@@ -363,6 +396,19 @@ export async function grantCreator(env: Env, userId: string, provider: string, r
   ]);
 }
 
+async function revokeCreatorFee(env: Env, paymentIntent: string): Promise<void> {
+  const list = await stripe<{ data: { id: string }[] }>(env, 'GET', '/checkout/sessions', { payment_intent: paymentIntent, limit: 1 }).catch(() => ({ data: [] }));
+  const sid = list.data[0]?.id;
+  if (!sid) return;
+  const pay = await env.DB.prepare("SELECT id, user_id FROM payments WHERE provider_ref = ? AND kind = 'creator_fee' AND status = 'paid'").bind(sid).first<{ id: string; user_id: string }>();
+  if (!pay) return;
+  await env.DB.batch([
+    env.DB.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").bind(pay.id),
+    // only when no other paid license remains (an admin grant, a second payment)
+    env.DB.prepare("UPDATE users SET creator = 0 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM payments WHERE user_id = ? AND kind = 'creator_fee' AND status = 'paid')").bind(pay.user_id, pay.user_id),
+  ]);
+}
+
 /** Applies a paid Checkout Session. Safe to call more than once for the same session. */
 async function applySession(env: Env, session: any): Promise<string> {
   if (!session || session.payment_status !== 'paid') return 'unpaid';
@@ -372,7 +418,18 @@ async function applySession(env: Env, session: any): Promise<string> {
   if (m.kind === 'game' && m.user_id && m.project_id) {
     const p = await getProject(env, m.project_id);
     if (!p) return 'missing_project';
-    await recordPurchase(env, await getSettings(env), { userId: m.user_id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: session.amount_total || p.price_cents, provider: 'stripe', providerRef: session.id, paymentIntent: pi });
+    const sale = { userId: m.user_id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: session.amount_total || p.price_cents, provider: 'stripe' as const, providerRef: session.id, paymentIntent: pi };
+    try { await recordPurchase(env, await getSettings(env), sale); }
+    catch (e) {
+      // The buyer already owns the game (two checkouts open at once, or paid in two tabs): the second payment is given
+      // back at once and kept on record as refunded, instead of failing and leaving the money taken.
+      if (!/UNIQUE/i.test(String((e as Error).message))) throw e;
+      if (await env.DB.prepare('SELECT 1 FROM purchases WHERE provider_ref = ?').bind(session.id).first()) return 'game';
+      if (pi) await stripe(env, 'POST', '/refunds', { payment_intent: pi, reason: 'duplicate', metadata: { session: session.id } }, 'dup:' + session.id);
+      await env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at, refunded_at) VALUES (?, ?, ?, ?, ?, 0, 0, 'stripe', ?, ?, 'refunded', ?, ?)")
+        .bind('pur_' + rid(20), m.user_id, p.id, p.owner_id, sale.priceCents, session.id, pi, now(), now()).run();
+      return 'duplicate_refunded';
+    }
     return 'game';
   }
   return 'ignored';
@@ -391,7 +448,8 @@ api.post('/stripe/webhook', async (c) => {
   const event = await verifyWebhook(c.env, await c.req.text(), c.req.header('stripe-signature') || null), o = event.data?.object;
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') await applySession(c.env, o);
   else if (event.type === 'charge.refunded' && o?.refunded && o.payment_intent) {
-    await refundPurchase(c.env, { paymentIntent: o.payment_intent }); // a refunded creator fee is handled by an admin
+    // a refunded game sale takes back access and the creator's credit; a refunded creator fee takes back the license
+    if (!(await refundPurchase(c.env, { paymentIntent: o.payment_intent }))) await revokeCreatorFee(c.env, o.payment_intent);
   } else if (event.type === 'account.updated' && o?.id) {
     await c.env.DB.prepare('UPDATE users SET stripe_payouts_enabled = ? WHERE stripe_account = ?').bind(o.payouts_enabled && o.capabilities?.transfers === 'active' ? 1 : 0, o.id).run();
   }
@@ -444,23 +502,46 @@ api.post('/billing/withdraw', async (c) => {
   if (!debit.meta.changes) throw new AppError(409, 'Your balance changed. Try again.', 'conflict');
   await env.DB.prepare("INSERT INTO withdrawals (id, user_id, amount_cents, method, details, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)").bind(id, u.id, amount, method, String(b.details || '').slice(0, 500), t).run();
   if (method === 'stripe') {
-    try {
-      const tr = await stripe<{ id: string }>(env, 'POST', '/transfers', { amount, currency: 'usd', destination: u.stripe_account, metadata: { withdrawal: id, user_id: u.id } }, id);
-      await env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ? WHERE id = ?").bind(tr.id, now(), id).run();
-    } catch (e) {
-      await reverseWithdrawal(env, id, u.id, amount, 'failed', String((e as Error).message));
-      throw new AppError(502, `The transfer did not go through and your balance was restored. ${(e as Error).message}`, 'transfer_failed');
-    }
+    const r = await sendTransfer(env, { id, user_id: u.id, amount_cents: amount, stripe_account: u.stripe_account! });
+    if (r === 'failed') throw new AppError(502, 'The transfer did not go through and your balance was restored.', 'transfer_failed');
+    if (r === 'unknown') return c.json({ ok: true, id, amount_cents: amount, method, pending: true, note: 'Stripe did not confirm the transfer yet. It is checked again in a few minutes; your balance stays reserved meanwhile.' });
   }
   return c.json({ ok: true, id, amount_cents: amount, method });
 });
 
-export async function reverseWithdrawal(env: Env, id: string, userId: string, amount: number, status: 'failed' | 'rejected', error: string) {
+/**
+ * Sends (or re-sends, with the same idempotency key, so Stripe never pays twice) a withdrawal's transfer. Only a clear
+ * refusal returns the money to the balance; when the outcome is unknown the withdrawal stays pending for the next try.
+ */
+export async function sendTransfer(env: Env, w: { id: string; user_id: string; amount_cents: number; stripe_account: string }): Promise<'paid' | 'failed' | 'unknown'> {
+  try {
+    const tr = await stripe<{ id: string }>(env, 'POST', '/transfers', { amount: w.amount_cents, currency: 'usd', destination: w.stripe_account, metadata: { withdrawal: w.id, user_id: w.user_id } }, w.id);
+    await env.DB.prepare("UPDATE withdrawals SET status = 'paid', provider_ref = ?, settled_at = ?, error = NULL WHERE id = ? AND status = 'pending'").bind(tr.id, now(), w.id).run();
+    return 'paid';
+  } catch (e) {
+    if (e instanceof AppError && e.code === 'stripe_error') { await reverseWithdrawal(env, w.id, w.user_id, w.amount_cents, 'failed', e.message); return 'failed'; }
+    await env.DB.prepare("UPDATE withdrawals SET error = ? WHERE id = ? AND status = 'pending'").bind(('Unconfirmed: ' + String((e as Error).message)).slice(0, 300), w.id).run();
+    return 'unknown';
+  }
+}
+
+/** Stripe withdrawals whose transfer was never confirmed, tried again (cron, every 10 minutes). */
+export async function retryTransfers(env: Env, max = 20): Promise<void> {
+  const rows = await env.DB.prepare("SELECT w.id, w.user_id, w.amount_cents, u.stripe_account FROM withdrawals w JOIN users u ON u.id = w.user_id WHERE w.status = 'pending' AND w.method = 'stripe' AND w.created_at < ? AND u.stripe_account IS NOT NULL LIMIT ?")
+    .bind(now() - 120000, max).all<{ id: string; user_id: string; amount_cents: number; stripe_account: string }>();
+  for (const w of rows.results) await sendTransfer(env, w);
+}
+
+/** Returns a pending withdrawal's money to the balance, once: a withdrawal that was settled meanwhile is left alone. */
+export async function reverseWithdrawal(env: Env, id: string, userId: string, amount: number, status: 'failed' | 'rejected', error: string): Promise<boolean> {
   const t = now();
-  await env.DB.batch([
-    env.DB.prepare('UPDATE withdrawals SET status = ?, error = ?, settled_at = ? WHERE id = ?').bind(status, error.slice(0, 300), t, id),
-    env.DB.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) VALUES (?, 'withdrawal_reversal', ?, ?, ?, ?, ?)").bind(userId, amount, id, status === 'failed' ? 'Withdrawal failed, returned' : 'Withdrawal rejected, returned', t, t),
+  const [upd] = await env.DB.batch([
+    env.DB.prepare("UPDATE withdrawals SET status = ?, error = ?, settled_at = ? WHERE id = ? AND status = 'pending'").bind(status, error.slice(0, 300), t, id),
+    env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
+      SELECT ?1, 'withdrawal_reversal', ?2, ?3, ?4, ?5, ?5 WHERE EXISTS (SELECT 1 FROM withdrawals WHERE id = ?3 AND status = ?6 AND settled_at = ?5)
+        AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = 'withdrawal_reversal')`).bind(userId, amount, id, status === 'failed' ? 'Withdrawal failed, returned' : 'Withdrawal rejected, returned', t, status),
   ]);
+  return !!upd.meta.changes;
 }
 
 // ----- creator console -------------------------------------------------------------------------
@@ -592,8 +673,10 @@ api.delete('/console/agents/:id', async (c) => {
 // ----- first admin -----------------------------------------------------------------------------
 api.post('/claim-admin', async (c) => {
   const u = requireUser(c), b = await c.req.json<{ token?: string }>().catch(() => ({} as any));
-  if (!c.env.ADMIN_CLAIM_TOKEN || String(b.token || '') !== c.env.ADMIN_CLAIM_TOKEN) throw forbidden('That claim link is not valid.');
-  if (await c.env.DB.prepare("SELECT 1 FROM users WHERE role = 'admin'").first()) throw forbidden('An admin already exists. Ask them to promote you.');
-  await c.env.DB.prepare("UPDATE users SET role = 'admin', creator = 1, creator_since = COALESCE(creator_since, ?) WHERE id = ?").bind(now(), u.id).run();
+  await rateLimit(c.env, 'claim:' + clientNet(c.req.raw), 10, 3600);
+  if (!c.env.ADMIN_CLAIM_TOKEN || !safeEqual(String(b.token || ''), c.env.ADMIN_CLAIM_TOKEN)) throw forbidden('That claim link is not valid.');
+  // one statement: two people claiming at the same moment cannot both become the first admin
+  const r = await c.env.DB.prepare("UPDATE users SET role = 'admin', creator = 1, creator_since = COALESCE(creator_since, ?1) WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')").bind(now(), u.id).run();
+  if (!r.meta.changes) throw forbidden('An admin already exists. Ask them to promote you.');
   return c.json({ ok: true });
 });

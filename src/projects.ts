@@ -21,7 +21,9 @@ export async function logEvent(env: Env, pid: string, kind: string, detail = '',
 }
 
 export async function getProject(env: Env, idOrSlug: string): Promise<Project | null> {
-  return env.DB.prepare('SELECT * FROM projects WHERE id = ?1 OR slug = ?1').bind(idOrSlug).first<Project>();
+  // an id always wins over a slug, so a game whose address happens to spell another game's id can never shadow it
+  return (await env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(idOrSlug).first<Project>())
+    || env.DB.prepare('SELECT * FROM projects WHERE slug = ?').bind(idOrSlug).first<Project>();
 }
 export async function ownedProject(env: Env, user: User, idOrSlug: string): Promise<Project> {
   const p = await getProject(env, idOrSlug);
@@ -39,7 +41,7 @@ export async function createProject(env: Env, user: User, input: { title: string
   if ((count?.n || 0) >= s.projects_per_user) throw forbidden(`Project limit reached (${s.projects_per_user}).`);
   let slug = slugify(input.slug || title) || 'game';
   if (slug.length < 3) slug = `${slug}-game`;
-  if (await env.DB.prepare('SELECT 1 FROM projects WHERE slug = ?').bind(slug).first()) slug = `${slug.slice(0, 40)}-${rid(4)}`;
+  if (await env.DB.prepare('SELECT 1 FROM projects WHERE slug = ?1 OR id = ?1').bind(slug).first()) slug = `${slug.slice(0, 40)}-${rid(4)}`;
   const id = rid(10), t = now();
   await env.DB.prepare('INSERT INTO projects (id, owner_id, slug, title, tagline, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(id, user.id, slug, title, String(input.tagline || '').slice(0, 140), String(input.description || '').slice(0, 4000), JSON.stringify(chooseTags(input.tags)), t, t).run();
@@ -395,10 +397,19 @@ export async function snapshot(env: Env, p: Project, manifest: Manifest, note: s
   return (await getVersion(env, p.id, n))!;
 }
 
-export function versionEligible(v: Version, browserRequired: boolean): { ok: boolean; reason: string } {
+export function versionEligible(v: Version, browserRequired: boolean): { ok: boolean; reason: string; review?: 'needed' | 'pending' | 'denied' } {
   const report = parseJson<{ ok?: boolean; gpuLimited?: boolean; browser?: string }>(v.report, {});
   if (v.status === 'verified' && report.ok) return { ok: true, reason: 'Automated browser check passed.' };
-  if (v.human_ok && (!browserRequired || report.gpuLimited || report.browser === 'unavailable')) return { ok: true, reason: 'A clean real-browser preview session qualified this version.' };
+  if (v.human_ok && !browserRequired) return { ok: true, reason: 'A clean real-browser preview session qualified this version.' };
+  // The verification browser could not run this version (it needs WebGPU, or no browser was available). The creator's
+  // own preview session proves little on its own (its heartbeats are plain requests anyone can script, and the content
+  // review saw no frames), so such a version also needs an admin's approval.
+  if (v.human_ok && (report.gpuLimited || report.browser === 'unavailable')) {
+    if (v.review === 'approved') return { ok: true, reason: 'Qualified by a clean preview session and approved by the platform.' };
+    if (v.review === 'denied') return { ok: false, review: 'denied', reason: `The platform did not approve version ${v.n}${v.review_note ? `: ${v.review_note}` : '.'}` };
+    if (v.review === 'pending') return { ok: false, review: 'pending', reason: `Version ${v.n} is waiting for the platform to review it. The verification browser could not run it, so a person checks it before it goes live; it is published as soon as it is approved.` };
+    return { ok: false, review: 'needed', reason: `Version ${v.n} needs a review by the platform: the verification browser could not run it. Call publish to ask for the review; it goes live as soon as it is approved.` };
+  }
   if (v.status === 'queued' || v.status === 'deploying' || v.status === 'verifying') return { ok: false, reason: `Version ${v.n} is still ${v.status}. Call list_versions {project, version} again in a few seconds.` };
   return { ok: false, reason: `Version ${v.n} has not passed verification.` };
 }

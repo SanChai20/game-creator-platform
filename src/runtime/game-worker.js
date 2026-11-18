@@ -6,6 +6,9 @@
 // The same script runs as a standard Worker or as a user Worker in a Workers for Platforms dispatch namespace (src/hosting.ts):
 // it reads nothing host-specific (no request.cf, no Cache API), and it is deployed with disallow_importable_env so the
 // game's server modules only ever see the narrow env handed to them below, never these bindings.
+// gcp-intrinsics.js must stay the FIRST import: modules are evaluated in import order, so it captures the built-ins
+// before the game's server modules (imported next) can replace them.
+import { I } from './gcp-intrinsics.js';
 import userServer from './server/index.js';
 
 const TYPES = {
@@ -16,27 +19,30 @@ const TYPES = {
   mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4', mp4: 'video/mp4', webm: 'video/webm',
   woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf', wgsl: 'text/plain; charset=utf-8', glsl: 'text/plain; charset=utf-8',
 };
-const enc = new TextEncoder();
-const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+const b64u = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return I.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
+const unb64u = (s) => { const b = I.atob(s.replace(/-/g, '+').replace(/_/g, '/')), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 export async function verifyPlayToken(token, key, gameId, envName) {
   try {
     const [body, sig] = String(token || '').split('.');
     if (!body || !sig) return null;
-    const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    if (!(await crypto.subtle.verify('HMAC', k, unb64u(sig), enc.encode(body)))) return null;
-    const p = JSON.parse(new TextDecoder().decode(unb64u(body)));
+    const k = await I.importKey('raw', I.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    if (!(await I.verify('HMAC', k, unb64u(sig), I.encode(body)))) return null;
+    const p = I.parse(I.decode(unb64u(body)));
     if (p.g !== gameId || p.e !== envName || !(p.x > Date.now() / 1000)) return null;
     return p;
   } catch { return null; }
 }
 export async function signPlayToken(payload, key) {
-  const body = b64u(enc.encode(JSON.stringify(payload)));
-  const k = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return body + '.' + b64u(await crypto.subtle.sign('HMAC', k, enc.encode(body)));
+  const body = b64u(I.encode(I.stringify(payload)));
+  const k = await I.importKey('raw', I.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return body + '.' + b64u(await I.sign('HMAC', k, I.encode(body)));
 }
+
+// Calls to the platform use the fetch captured before the game's code ran. Tests hand in their own through env (the env
+// object belongs to the runtime; game code never receives it, so it cannot set this).
+const platformFetch = (env) => (typeof env.__testFetch === 'function' ? env.__testFetch : I.fetch);
 
 function cookie(request, name) {
   const m = (request.headers.get('cookie') || '').match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
@@ -64,7 +70,7 @@ a{display:inline-block;background:#ffb347;color:#1b1203;font-weight:700;text-dec
  */
 async function stillBound(env, token) {
   try {
-    const r = await fetch(`${env.PLATFORM}/api/rt/check`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: token }), signal: AbortSignal.timeout(2500) });
+    const r = await platformFetch(env)(`${env.PLATFORM}/api/rt/check`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: token }), signal: AbortSignal.timeout(2500) });
     return r.status !== 401 && r.status !== 402;
   } catch { return true; }
 }
@@ -90,12 +96,14 @@ function inject(html, env, auth, token, base) {
   return d ? html.slice(0, d.index + d[0].length) + head + html.slice(d.index + d[0].length) : head + html;
 }
 
-// A small client for the platform's game data service, handed to the game's server code.
+// A small client for the platform's game data service, handed to the game's server code. It authenticates with
+// STORE_KEY, which is only good for this game's store in this environment (never PLAY_KEY, which signs play tokens), and
+// it goes through the captured fetch, so server code that replaced globalThis.fetch never sees the key.
 function storeClient(env) {
   const call = async (op, body) => {
-    const r = await fetch(`${env.PLATFORM}/api/rt/server-store`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-gcp-game': env.GAME_ID, 'x-gcp-env': env.ENV, 'x-gcp-key': env.PLAY_KEY },
-      body: JSON.stringify({ op, ...body }),
+    const r = await platformFetch(env)(`${env.PLATFORM}/api/rt/server-store`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-gcp-game': env.GAME_ID, 'x-gcp-env': env.ENV, 'x-gcp-key': env.STORE_KEY || env.PLAY_KEY },
+      body: I.stringify({ op, ...body }),
     });
     if (!r.ok) throw new Error(`store ${op} failed: ${r.status}`);
     return r.json();
@@ -172,12 +180,15 @@ export async function handle(request, env, ctx, base = '') {
     return new Response(inject(await obj.text(), env, auth, token, base), { headers });
   }
 
+  // Every other file needs the same play token as the page (the page's cookie comes along with its own requests), so a
+  // paid game's code and assets cannot be fetched without a session, and a trial that ended stops loading them.
+  if (!(await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV))) return new Response('A play session is needed.', { status: 401, headers: { 'cache-control': 'no-store' } });
   const obj = await env.FILES.get(key, { range: request.headers, onlyIf: request.headers });
   if (!obj) return new Response('Not found: ' + path, { status: 404 });
   const headers = new Headers({
     'content-type': TYPES[ext] || obj.httpMetadata?.contentType || 'application/octet-stream', etag: obj.httpEtag,
-    'cache-control': env.ENV === 'live' ? 'public, max-age=300' : 'no-cache', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes',
-    'access-control-allow-origin': '*',
+    'cache-control': env.ENV === 'live' ? 'private, max-age=300' : 'no-cache', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes',
+    vary: 'cookie',
   });
   if (!('body' in obj) || !obj.body) return new Response(null, { status: 304, headers });
   if (obj.range && request.headers.has('range')) {

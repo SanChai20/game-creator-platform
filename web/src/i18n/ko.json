@@ -1011,7 +1011,7 @@
  "Updated": "업데이트",
  "Updated.": "업데이트했습니다.",
  "Upgrades": "업그레이드",
- "Use the Game Creator tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.": "Game Creator 도구를 사용해 줘. 먼저 get_started를 호출해. 그다음 떨어지는 별을 잡는 등대지기에 관한 작은 웹 게임을 만들고, 프리뷰를 배포하고, 검증 결과에서 나온 문제를 모두 고친 뒤, 게시하기 전에 프리뷰를 보여 줘.",
+ "Use the HearthCade tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.": "HearthCade 도구를 사용해 줘. 먼저 get_started를 호출해. 그다음 떨어지는 별을 잡는 등대지기에 관한 작은 웹 게임을 만들고, 프리뷰를 배포하고, 검증 결과에서 나온 문제를 모두 고친 뒤, 게시하기 전에 프리뷰를 보여 줘.",
  "Use the agent you already have. We deploy every version, test it in a real browser and put it in front of players.": "이미 쓰고 있는 에이전트를 그대로 사용하세요. 모든 버전을 배포하고, 실제 브라우저에서 테스트하고, 플레이어 앞에 내놓습니다.",
  "Used": "사용",
  "User": "사용자",
@@ -1290,5 +1290,15 @@
  "This browser signed out or switched accounts, so the game was closed. Its progress stays with the account it was played on.": "이 브라우저에서 로그아웃하거나 계정을 바꿔 게임을 닫았습니다. 진행 상황은 플레이하던 계정에 남아 있습니다.",
  "The play session ended. Play again to start a new one.": "플레이 세션이 종료되었습니다. 다시 플레이하면 새 세션이 시작됩니다.",
  "Playing as a guest on this browser.": "이 브라우저에서 게스트로 플레이 중입니다.",
- "Playing as {name}. Progress saves to this account.": "{name}(으)로 플레이 중입니다. 진행 상황은 이 계정에 저장됩니다."
+ "Playing as {name}. Progress saves to this account.": "{name}(으)로 플레이 중입니다. 진행 상황은 이 계정에 저장됩니다.",
+ "Support email address": "고객 지원 이메일 주소",
+ "Contact": "문의",
+ "Questions about these terms, your data or a payment: write to {email}.": "이 약관, 데이터 또는 결제에 관한 문의는 {email}로 보내 주세요.",
+ "Approved. The version is being published.": "승인했습니다. 이 버전을 게시하는 중입니다.",
+ "Review denied.": "검토를 거부했습니다.",
+ "Needs WebGPU": "WebGPU 필요",
+ "Browser unavailable": "브라우저 사용 불가",
+ "Version reviews": "버전 검토",
+ "versions the verification browser could not run, checked by a person before they go live": "검증 브라우저에서 실행할 수 없었던 버전으로, 게시 전에 사람이 확인합니다",
+ "Open project": "프로젝트 열기"
 }

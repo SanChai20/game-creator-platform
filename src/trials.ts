@@ -38,10 +38,14 @@ export async function beginTrial(env: Env, p: Project, s: Settings, userId: stri
   if (!st) throw new AppError(402, 'Buy this game to play it.', 'purchase_required');
   if (st.over) throw new AppError(402, `Your ${st.minutes}-minute free trial is used up. Buy the game to keep playing.`, 'trial_over');
   const t = now();
-  await env.DB.prepare('INSERT INTO trials (project_id, user_id, seconds, sessions, started_at, last_at) VALUES (?, ?, ?, 1, ?, ?) ON CONFLICT(project_id, user_id) DO UPDATE SET seconds = seconds + excluded.seconds, sessions = sessions + 1, last_at = excluded.last_at')
-    .bind(p.id, userId, TRIAL_MIN_CHARGE_S, t, t).run();
+  // Checked and charged in one statement, so sessions started at the same moment cannot all pass on the same last seconds.
+  const row = await env.DB.prepare(`INSERT INTO trials (project_id, user_id, seconds, sessions, started_at, last_at) VALUES (?1, ?2, ?3, 1, ?4, ?4)
+      ON CONFLICT(project_id, user_id) DO UPDATE SET seconds = seconds + excluded.seconds, sessions = sessions + 1, last_at = excluded.last_at WHERE trials.seconds < ?5
+      RETURNING seconds`).bind(p.id, userId, TRIAL_MIN_CHARGE_S, t, st.minutes * 60).first<{ seconds: number }>();
+  if (!row) throw new AppError(402, `Your ${st.minutes}-minute free trial is used up. Buy the game to keep playing.`, 'trial_over');
   // The session may stay open for the time that was left; the up-front charge is part of that time, not on top of it.
-  return { ...st, used_seconds: Math.min(st.minutes * 60, st.used_seconds + TRIAL_MIN_CHARGE_S) };
+  const before = row.seconds - TRIAL_MIN_CHARGE_S;
+  return { ...st, used_seconds: Math.min(st.minutes * 60, row.seconds), remaining_seconds: Math.max(0, st.minutes * 60 - before), over: false };
 }
 
 /** Extra seconds to add to the allowance after a heartbeat moved a trial session from `before` to `after` open seconds. */

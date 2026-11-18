@@ -98,7 +98,7 @@ export type Binding = { type: 'plain_text' | 'secret_text'; name: string; text: 
 /** The bindings of a game script. Plain text, secret text and one R2 bucket: all supported unchanged on user Workers. */
 export function scriptBindings(vars: Record<string, string>, bucket: string): Binding[] {
   const out: Binding[] = [{ type: 'r2_bucket', name: 'FILES', bucket_name: bucket }];
-  for (const [name, text] of Object.entries(vars)) out.push({ type: name === 'PLAY_KEY' ? 'secret_text' : 'plain_text', name, text });
+  for (const [name, text] of Object.entries(vars)) out.push({ type: name === 'PLAY_KEY' || name === 'STORE_KEY' ? 'secret_text' : 'plain_text', name, text });
   return out;
 }
 

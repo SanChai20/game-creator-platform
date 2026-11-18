@@ -17,7 +17,7 @@ const UPDATED = '2026-11-15';
 const S = ({ h, children }: { h: string; children: ReactNode }) => <section><h2>{h}</h2>{children}</section>;
 
 export function Legal({ doc }: { doc: LegalDoc }) {
-  const { config } = useApp(), s = config.settings, brand = String(s.brand_name || 'Game Creator');
+  const { config } = useApp(), s = config.settings, brand = String(s.brand_name || 'HearthCade'), support = String(s.support_email || '');
   const fee = Number(s.platform_fee_percent ?? 10), hold = Number(s.earnings_hold_days ?? 7), min = Number(s.withdraw_min_cents ?? 5000);
   const body: Record<LegalDoc, ReactNode> = {
     terms: <>
@@ -91,7 +91,9 @@ export function Legal({ doc }: { doc: LegalDoc }) {
     <div className="wrap page legal">
       <PageHeader eyebrow={t('Legal', '法律信息')} title={legalTitle(doc)} sub={t('Last updated {date}', '最后更新：{date}', { date: UPDATED })} />
       <Tabs active={doc} items={LEGAL_DOCS.map((d) => ({ key: d, to: `/legal/${d}`, label: legalTitle(d) }))} />
-      <article className="legal-body">{body[doc]}</article>
+      <article className="legal-body">{body[doc]}
+        {support && <S h={t('Contact', '联系我们')}><p>{t('Questions about these terms, your data or a payment: write to {email}.', '对本条款、你的数据或付款有疑问，请发邮件至 {email}。', { email: support })}</p></S>}
+      </article>
     </div>
   );
 }
