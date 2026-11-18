@@ -406,6 +406,15 @@ api.post('/games/:slug/buy', async (c) => {
   return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`, true);
 });
 
+// The store page showing a game tells the platform, once a minute, that the player's session is still open. This is the
+// platform's own clock for play time, kept by its page rather than by the game (see playedSeconds).
+api.post('/plays/:sid/seen', async (c) => {
+  const u = requireUser(c), t = now();
+  await c.env.DB.prepare("UPDATE plays SET seen_at = ?1 WHERE id = ?2 AND user_id = ?3 AND env = 'live' AND started_at > ?4 AND (seen_at IS NULL OR seen_at < ?1 - 30000)")
+    .bind(t, c.req.param('sid'), u.id, t - PLAY_SESSION_S * 1000).run();
+  return c.json({ ok: true });
+});
+
 // A buyer refunds a game themselves within the refund window (refund_window_hours after paying), once per game. The money
 // goes back through Stripe at once, access goes, and the creator's credit (still on hold, see holdMs) is taken back.
 api.post('/games/:slug/refund', async (c) => {

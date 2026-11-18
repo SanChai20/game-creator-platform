@@ -18,7 +18,9 @@ The creator license fee (`POST /api/billing/creator-fee`) is a plain Checkout pa
 
 **Refunds.** A buyer refunds a game themselves from its page (`POST /api/games/:slug/refund`) when it was bought less
 than `refund_window_hours` ago (default 24) and played less than `refund_max_play_minutes` (default 30, free trial
-included, counted from the play sessions), once per game. After that a purchase is final; an admin can still refund
+included), once per game. Play time is the platform's own measure: each session counts from when the platform started
+it to the last time the platform heard from it, whether the game's heartbeat, any game service call (saves, scores,
+rooms, token renewal) or the store page showing the game, which reports once a minute (`plays.seen_at`, migration 0017). After that a purchase is final; an admin can still refund
 from the console where the law requires it. Game checkouts collect a required consent checkbox (Checkout's
 `consent_collection.terms_of_service`) in which the buyer asks for immediate access and gives up the EU/UK 14-day right
 to cancel. If live mode refuses it, set the terms of service URL (`https://hearthcade.com/legal/terms`) under

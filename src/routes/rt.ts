@@ -22,6 +22,13 @@ interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'play
 
 // The token names its own game and environment; the signature is checked against that game's key.
 // Every per-player read and write below takes the game, environment and player from this token, never from the request body.
+/** Notes that a play session is still open: every game service call counts, not only heartbeats, so play time measured
+ *  by the platform (self-serve refunds) does not depend on the game reporting it. At most one write per 30 seconds. */
+export async function seen(env: Env, session: string | undefined, t = now()): Promise<void> {
+  if (!session) return;
+  await env.DB.prepare('UPDATE plays SET seen_at = ?1 WHERE id = ?2 AND (seen_at IS NULL OR seen_at < ?1 - 30000)').bind(t, session).run();
+}
+
 async function authAny(env: Env, token: unknown): Promise<Tok> {
   const tok = await guard(() => authToken(token, (g: string) => playKey(env, g))) as Tok;
   // Guest sessions exist only while "Require login to play" is off; switching it on ends them for every service at once.
@@ -30,6 +37,7 @@ async function authAny(env: Env, token: unknown): Promise<Tok> {
   // switched to another account in this browser), an unclaimed guest id for a guest. Checked on every call.
   const problem = await bindingProblem(env.DB, tok, now());
   if (problem) throw new AppError(401, problem.message, problem.code, problem.reason);
+  await seen(env, tok.s);
   return tok;
 }
 async function guard<T>(fn: () => Promise<T>): Promise<T> {

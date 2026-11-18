@@ -158,6 +158,10 @@ test('a buyer can refund within the window, under the play limit, and once per g
   db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl2', 'g1', 1, 'live', 'u_buyer', ?, ?, 60)").run(t - 60000, t);
   assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
   db.exec("DELETE FROM plays");
+  // the platform's own clock: a session whose game sent no heartbeats but stayed open on the store page for 31 minutes
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl3', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 1860000, t - 1860000, t);
+  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  db.exec("DELETE FROM plays");
   // past the window
   db.prepare("UPDATE purchases SET created_at = ? WHERE payment_intent = 'pi_1'").run(t - 25 * 3600000);
   assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
