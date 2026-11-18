@@ -11,7 +11,8 @@ export function reach(secs: number): { dist: number; rating: number } {
 
 /**
  * Forms as many matches as the queue allows right now. Oldest player first: they get the closest players by rating within
- * their reach. A full match is preferred; after `shortAfter` seconds a match of at least `min` players starts anyway.
+ * their reach. A full match is preferred; after `shortAfter` seconds a match of at least `min` players starts anyway
+ * (with min 1, a player nobody else is in reach of starts alone).
  */
 export function formGroups(waiting: Waiting[], now: number, size: number, min: number, shortAfter = 30): Waiting[][] {
   const queue = [...waiting].sort((a, b) => a.at - b.at), used = new Set<string>(), out: Waiting[][] = [];
@@ -67,7 +68,9 @@ export function matchRequest(q: { queue?: string | null; size?: string | null; m
   const size = Math.round(Number(q.size || 2));
   if (!(size >= 2 && size <= cap)) return { ok: false, error: `players must be between 2 and ${cap}.` };
   const min = Math.round(Number(q.min || size));
-  if (!(min >= 2 && min <= size)) return { ok: false, error: 'min must be between 2 and players.' };
+  // min 1: a lone player starts alone (after the short-start wait, or at once from a private lobby) and the game's
+  // server/match.js fills the empty seats, with bots for example
+  if (!(min >= 1 && min <= size)) return { ok: false, error: 'min must be between 1 and players.' };
   const teams = Math.round(Number(q.teams || 1));
   if (!(teams >= 1 && teams <= size)) return { ok: false, error: 'teams must be between 1 and players.' };
   const code = q.code ? String(q.code).toUpperCase() : null;

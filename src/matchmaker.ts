@@ -102,7 +102,7 @@ export class Matchmaker extends DurableObject<Env> {
   /** Public queue: form every group the rules allow now. */
   private async match(): Promise<void> {
     const here = this.seats();
-    if (here.length < 2) return;
+    if (!here.length || here.length < Math.min(2, here[0].s.min)) return;
     const shape = here[0].s;
     const groups = formGroups(here.map(({ s }) => ({ u: s.u, n: s.n, region: s.region, rating: s.rating, at: s.at } as Waiting)), Date.now(), shape.size, shape.min);
     for (const g of groups) await this.launch(g.map((w) => here.find((x) => x.s.u === w.u)!));
@@ -121,7 +121,8 @@ export class Matchmaker extends DurableObject<Env> {
   /** Records the match, gives each player a signed ticket, and lets them go. */
   private async launch(group: { ws: WebSocket; s: Seat }[]): Promise<void> {
     const live = group.filter((x) => x.ws.deserializeAttachment());
-    if (live.length < 2) return;
+    // a queue or lobby with min 1 may start with one player (the game fills the empty seats); any other needs two
+    if (!live.length || live.length < Math.min(2, live[0].s.min)) return;
     for (const x of live) x.ws.serializeAttachment(null);   // taken: nobody else can match them while this runs
     const first = live[0].s, id = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
     const roster = assignTeams(live.map(({ s }) => ({ id: s.u, name: s.n, rating: Math.round(s.rating) })), first.teams);

@@ -66,6 +66,7 @@ test('match requests are checked', () => {
   assert.equal(matchRequest({ size: '17' }, 16).ok, false);
   assert.equal(matchRequest({ size: '65' }, 999).ok, false, 'the hard cap is 64');
   assert.equal(matchRequest({ size: '1' }, 16).ok, false);
+  assert.equal(matchRequest({ min: '0' }, 16).ok, false);
   assert.equal(matchRequest({ size: '4', min: '5' }, 16).ok, false);
   assert.equal(matchRequest({ size: '4', teams: '5' }, 16).ok, false);
   assert.equal(matchRequest({ code: 'ab' }, 16).ok, false);
@@ -97,4 +98,14 @@ test('a game script gets the match class once: the migration only when the scrip
   const m = scriptMetadata('workers', { bindings: b, tags: [], limits: { cpuMs: 1000, subRequests: 10 }, migrations: { new_tag: 't' } });
   assert.deepEqual(m.migrations, { new_tag: 't' });
   assert.equal('migrations' in scriptMetadata('workers', { bindings: b, tags: [], limits: { cpuMs: 1000, subRequests: 10 } }), false);
+});
+
+test('min 1: a lone player starts alone after the short-start wait; others still group first', () => {
+  assert.deepEqual(matchRequest({ size: '4', min: '1' }, 16), { ok: true, queue: 'default', size: 4, min: 1, teams: 1, code: null, mode: '' });
+  assert.equal(matchRequest({ size: '4', min: '0' }, 16).ok, false);
+  assert.deepEqual(formGroups([w('solo', 'weur', 1000, 10)], T, 4, 1), [], 'not before 30 s');
+  assert.deepEqual(formGroups([w('solo', 'weur', 1000, 31)], T, 4, 1).map((g) => g.map((x) => x.u)), [['solo']]);
+  assert.deepEqual(formGroups([w('a', 'weur', 1000, 31), w('b', 'weur', 1000, 2)], T, 4, 1).map((g) => g.map((x) => x.u)), [['a', 'b']], 'whoever is waiting joins the short match');
+  assert.equal(formGroups([w('a', 'weur', 1000, 1), w('b', 'weur', 1000, 1)], T, 2, 1)[0].length, 2, 'a full match still starts at once');
+  assert.deepEqual(formGroups([w('solo', 'weur', 1000, 31)], T, 4, 2), [], 'min 2 never starts alone');
 });
