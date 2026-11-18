@@ -4,7 +4,7 @@ Each game runs on its own origin, and the preview and live versions are differen
 
 ## Player progress: what every game should do
 
-Every game should keep each player's progress with the platform, not only in `localStorage`. Every player is signed in when a game opens (or, where the platform allows guests for free games, has a guest id kept per browser, with `GCP.player.guest` true), so `GCP.player.id` always identifies one player, and each of the services below belongs to one player in one game:
+Every game should keep each player's progress with the platform, not only in `localStorage`. Every player is signed in when a game opens (only if the platform's administrators open free games to guests does a player have a guest id kept per browser instead, with `GCP.player.guest` true), so `GCP.player.id` always identifies one player, and each of the services below belongs to one player in one game:
 
 - The platform takes the game, the environment (preview or live) and the player from the signed play session on every call. Nothing in a request can name another player or another game, so a game cannot read or overwrite anyone else's progress, even by mistake.
 - Preview data is kept apart from live data. The verification browser plays under a throwaway identity of its own, so it always starts from no save and never touches your own progress.

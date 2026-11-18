@@ -295,8 +295,8 @@ async function main() {
   assert.equal((await rpc('tools/call', { name: 'game_metadata', arguments: { project: pid, action: 'declare', listing_translations: { fr: { title: 'x' } } } })).isError, true);
   ok('published; visible in the marketplace with a cover, its declared requirements, metadata (age 3+, players, languages, genre) and a Japanese listing');
 
-  // play: playable at once (a visitor without an account plays a free game as a guest), session token, document gated, play time counted, review gated on play
-  assert.equal(must(await client().get('/api/config')).settings.require_login_to_play, false, 'guest play is on by default (checked below)');
+  // play: playable at once for a signed-in player, session token, document gated, play time counted, review gated on play
+  assert.equal(must(await client().get('/api/config')).settings.require_login_to_play, true, 'every game needs an account by default (guest play is checked below)');
   const play = must(await B.post(`/api/games/${slug}/play`));
   const doc = await fetch(play.url);
   assert.equal(doc.status, 200); const html = await doc.text(); assert.ok(html.includes('/sdk/gcp.js') && html.includes('importmap'));
@@ -313,7 +313,7 @@ async function main() {
   const detail = must(await B.get(`/api/games/${slug}`));
   assert.equal(detail.game.plays, 1); assert.equal(detail.game.rating, 5); assert.equal(detail.game.rating_count, 1); assert.equal(detail.played, true);
   assert.equal((await A.post(`/api/games/${slug}/reviews`, { rating: 5 })).status, 403);
-  ok('play session: guests play at once, document gated by token, play counted after the minimum, review updates rating, own-game review refused');
+  ok('play session: signed-in players play at once, document gated by token, play counted after the minimum, review updates rating, own-game review refused');
 
   // game services: saves, leaderboard, room
   const svc = (path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t, ...body }) }).then((r) => r.json());
@@ -449,6 +449,7 @@ async function main() {
   must(await ADM.put('/api/admin/settings', { require_login_to_play: true }));
   await sleep(16000);
   assert.equal((await G.post(`/api/games/${slug}/play`)).status, 401);
+  assert.equal((await fetch(gpl.url)).status, 401, 'a guest link signed before the switch no longer opens the game');
   for (const path of ['save', 'stats', 'score', 'record', 'beat']) assert.equal((await gsvc(path, { op: 'get', key: 'slot1', name: 'x', board: 'b' })).status, 401, `${path} still open to a guest`);
   const gws = await new Promise((res) => { const w = new WebSocket(`${BASE.replace('http', 'ws')}/api/rt/room?room=g&t=${gt}`); w.onopen = () => { w.close(); res('open'); }; w.onerror = () => res('refused'); w.onclose = () => res('refused'); });
   assert.equal(gws, 'refused');

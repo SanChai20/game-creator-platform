@@ -52,7 +52,7 @@ function cookie(request, name) {
 function gate(env) {
   const link = `${env.PLATFORM}/g/${encodeURIComponent(env.SLUG)}?play=1`;
   // Opened by itself (a bookmark, a shared link, a reload after the session ended): straight on to the game's page, which
-  // starts it at once for whoever is signed in there (or as a guest). Inside the platform's player, the page around the
+  // starts it at once for whoever is signed in there (or asks them to sign in first). Inside the platform's player, the page around the
   // game is told instead, so it can start a fresh session for the right account.
   const go = `try{if(window.top===window)location.replace(${JSON.stringify(link).replace(/</g, '\\u003c')});else parent.postMessage({gcp:'session_ended',reason:'expired'},'*')}catch(e){}`;
   return new Response(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(env.TITLE)}</title>
@@ -185,7 +185,10 @@ export async function handle(request, env, ctx, base = '') {
     if (!auth) return gate(env);
     // A token from the address bar was signed a moment ago for this launch. One kept in this origin's cookie (a reload, a
     // second page of the game) may be from before the player signed out or switched accounts: the platform decides.
-    if (!fromUrl && auth.k !== 'verify' && !(await stillBound(env, token))) return gate(env);
+    // A guest's token is checked every time, even fresh from the address bar: guest play exists only while the platform
+    // allows it, and a link handed out before "Require login to play" was switched on must not open the game.
+    const guest = String(auth.u).startsWith('guest_');
+    if ((guest || !fromUrl) && auth.k !== 'verify' && !(await stillBound(env, token))) return gate(env);
     const obj = await env.FILES.get(key);
     if (!obj) return new Response('Not found', { status: 404 });
     const secure = url.protocol === 'https:';

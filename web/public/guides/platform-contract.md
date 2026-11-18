@@ -43,7 +43,7 @@ await GCP.leaderboard.submit('time', 42.5, 'asc');
 const rows = await GCP.leaderboard.top('time', 10, 'asc');   // [{ name, score, me }]
 const room = GCP.room('lobby');                  // realtime multiplayer, see the multiplayer guide
 
-GCP.player        // { id, name, guest } of the player: an account, or a guest when the platform lets free games be played without one
+GCP.player        // { id, name, guest } of the signed-in player (guest is true only if the platform has opened free games to guests)
 GCP.env           // 'preview' | 'live' | 'local'
 GCP.test.seed     // value of ?gcp_seed, or null
 GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the game
