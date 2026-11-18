@@ -31,8 +31,8 @@ export function ConnectAgent() {
 }
 
 export const starterPrompt = () => t(
-  'Use the Game Creator tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.',
-  '使用 Game Creator 工具。先调用 get_started，然后帮我做一款网页小游戏：灯塔守护者接住坠落的星星。部署预览，修复验证报告中的所有问题，发布前先让我看看预览。');
+  'Use the HearthCade tools. Call get_started first. Then make me a small web game about a lighthouse keeper catching falling stars, deploy a preview, fix whatever verification reports, and show me the preview before publishing.',
+  '使用 HearthCade 工具。先调用 get_started，然后帮我做一款网页小游戏：灯塔守护者接住坠落的星星。部署预览，修复验证报告中的所有问题，发布前先让我看看预览。');
 
 export function Creators() {
   const { config, user } = useApp(), s = config.settings;

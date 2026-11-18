@@ -1,7 +1,7 @@
 // The game Worker never serves the game's server code as a file, however the path is spelled.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { handle, isServerPath } from '../src/runtime/game-worker.js';
+import { handle, isServerPath, signPlayToken } from '../src/runtime/game-worker.js';
 
 test('every spelling of a server/ path is recognised', () => {
   for (const p of ['/server/index.js', '/server/', '/server', '//server/index.js', '/./server/a.js', '/x/../server/a.js', '/server/sub/b.js', 'server/index.js'])
@@ -20,8 +20,13 @@ test('the Worker answers 404 for server code and never reads it from storage', a
     }
   }
   assert.deepEqual(reads, []);
-  const ok = await handle(new Request('https://g.example/assets/a.png'), env, {});
-  assert.equal(ok.status, 200);   // other files are still served
+  // other files are served to a player with a play session, and to nobody else
+  assert.equal((await handle(new Request('https://g.example/assets/a.png'), env, {})).status, 401);
+  const tok = await signPlayToken({ g: 'abc123', e: 'live', u: 'u1', n: 'P', s: 'pl_1', x: Math.floor(Date.now() / 1000) + 600 }, 'k');
+  const ok = await handle(new Request('https://g.example/assets/a.png', { headers: { cookie: 'gcp_t=' + tok } }), env, {});
+  assert.equal(ok.status, 200);
+  assert.match(ok.headers.get('cache-control'), /^private/);
+  assert.equal(ok.headers.get('access-control-allow-origin'), null);
 });
 
 test('a game with server code: /api/* runs it (with its imports and the player), its files are never served', async () => {
@@ -29,6 +34,7 @@ test('a game with server code: /api/* runs it (with its imports and the player),
   const { tmpdir } = await import('node:os'), { join } = await import('node:path');
   const dir = mkdtempSync(join(tmpdir(), 'gcp-srv-'));
   copyFileSync(new URL('../src/runtime/game-worker.js', import.meta.url), join(dir, 'game-worker.js'));
+  copyFileSync(new URL('../src/runtime/gcp-intrinsics.js', import.meta.url), join(dir, 'gcp-intrinsics.js'));
   mkdirSync(join(dir, 'server'));
   writeFileSync(join(dir, 'server/secret.js'), "export const KEY = 'sk_live_test_0123456789';\n");
   writeFileSync(join(dir, 'server/index.js'), "import { KEY } from './secret.js';\nexport default { async fetch(request, env) { return Response.json({ n: KEY.length, player: env.player, game: env.GAME.id }); } };\n");
@@ -47,6 +53,7 @@ test('a crash in server code answers 500 marked as the server code\'s, with wher
   const { tmpdir } = await import('node:os'), { join } = await import('node:path');
   const dir = mkdtempSync(join(tmpdir(), 'gcp-srv-'));
   copyFileSync(new URL('../src/runtime/game-worker.js', import.meta.url), join(dir, 'game-worker.js'));
+  copyFileSync(new URL('../src/runtime/gcp-intrinsics.js', import.meta.url), join(dir, 'gcp-intrinsics.js'));
   mkdirSync(join(dir, 'server'));
   writeFileSync(join(dir, 'server/index.js'), "export default { async fetch() { const world = null; return Response.json(world.cells); } };\n");
   const mod = await import(join(dir, 'game-worker.js'));

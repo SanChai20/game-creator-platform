@@ -4,7 +4,7 @@
 // Workers for Platforms dispatch namespace later) is decided by src/hosting.ts from the configuration; this file only
 // talks to "a host". See docs/workers-for-platforms.md.
 import { AppError, type Env, type Project, type Version } from './env';
-import { GAME_WORKER_SOURCE } from './generated/runtime-source';
+import { GAME_INTRINSICS_SOURCE, GAME_WORKER_SOURCE } from './generated/runtime-source';
 import { getSettings, getState, setState } from './settings';
 import { hmacHex, now, parseJson, sha256 } from './util';
 import { getVersion, verKey } from './projects';
@@ -17,6 +17,9 @@ import { gameFetch } from './dispatch';
 export type { GameEnv } from './hosting';
 export const workerName = scriptName;
 export const playKey = (env: Env, pid: string) => hmacHex(env.SESSION_SECRET, 'play:' + pid);
+/** The key a game's server code uses for the game data service: only good for that game AND environment, so a preview's
+    server code cannot write live data, and it cannot sign play tokens. */
+export const storeKey = (env: Env, pid: string, e: string) => hmacHex(env.SESSION_SECRET, `store:${pid}:${e === 'preview' ? 'preview' : 'live'}`);
 
 async function cfFetch(env: Env, method: string, path: string, body?: BodyInit, headers: Record<string, string> = {}): Promise<any> {
   if (!env.CF_API_TOKEN || !env.CF_ACCOUNT_ID) throw new AppError(503, 'Game deployment is not configured (CF_API_TOKEN / CF_ACCOUNT_ID secrets are missing).', 'not_configured');
@@ -97,14 +100,14 @@ export async function gameBindings(env: Env, origin: string, p: Project, v: Vers
   return {
     PREFIX: verKey(p.id, v.n, ''), PLATFORM: origin, GAME_ID: p.id, SLUG: p.slug, TITLE: p.title, VERSION: String(v.n), ENV: e,
     // the game Worker needs the import map and flags, not the compatibility record (bindings are size-limited)
-    MANIFEST: (() => { try { const { compat: _c, meta: _m, ...m } = JSON.parse(v.manifest || '{}'); return JSON.stringify(m); } catch { return v.manifest; } })(), PLAY_KEY: await playKey(env, p.id),
+    MANIFEST: (() => { try { const { compat: _c, meta: _m, ...m } = JSON.parse(v.manifest || '{}'); return JSON.stringify(m); } catch { return v.manifest; } })(), PLAY_KEY: await playKey(env, p.id), STORE_KEY: await storeKey(env, p.id, e),
   };
 }
 
 let runtimeSum: string | null = null;
 /** Identifies the runtime this platform build deploys game Workers with: the source, compatibility date and flags. */
 export async function runtimeHash(): Promise<string> {
-  return (runtimeSum ??= (await sha256(JSON.stringify([GAME_WORKER_SOURCE, GAME_COMPAT_DATE, GAME_COMPAT_FLAGS]))).slice(0, 16));
+  return (runtimeSum ??= (await sha256(JSON.stringify([GAME_WORKER_SOURCE, GAME_INTRINSICS_SOURCE, GAME_COMPAT_DATE, GAME_COMPAT_FLAGS]))).slice(0, 16));
 }
 /** What game_workers.runtime records: the runtime, plus the limits when they are baked into the script (standard
     Workers). Changing a limit in the admin settings then makes the rollout redeploy every game with it. */
@@ -128,6 +131,7 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
   }))], { type: 'application/json' }));
   const mod = (name: string, src: string | ArrayBuffer) => form.set(name, new File([src], name, { type: 'application/javascript+module' }));
   mod(GAME_MAIN_MODULE, GAME_WORKER_SOURCE);
+  mod('gcp-intrinsics.js', GAME_INTRINSICS_SOURCE);
   if (!files.some((f) => f.path === 'server/index.js')) mod('server/index.js', 'export default null;\n');
   for (const f of files) {
     const obj = await env.FILES.get(verKey(p.id, v.n, f.path));
@@ -184,7 +188,9 @@ export async function rolloutRuntime(env: Env, max = 8): Promise<{ updated: stri
     const name = scriptName(r.id, r.env);
     try {
       const p = await env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(r.id).first<Project>(), v = await getVersion(env, r.id, r.n);
-      const origin = r.origin || await deployedOrigin(env, r.host || 'workers', name);
+      const was = r.origin || await deployedOrigin(env, r.host || 'workers', name);
+      // a pinned public origin wins, so a move to a custom domain reaches every game Worker with the next rollout
+      const origin = was ? env.PUBLIC_ORIGIN || was : null;
       if (!p || !v || !origin) {
         // no Worker to refresh (never deployed, or deleted): remember that, so the rollout does not keep coming back to it
         await env.DB.prepare('INSERT INTO game_workers (project_id, env, version, runtime, origin, deployed_at, host, script) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, env) DO UPDATE SET runtime = excluded.runtime, deployed_at = excluded.deployed_at, host = excluded.host, script = excluded.script')

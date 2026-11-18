@@ -219,6 +219,64 @@ const CONTENT_SCHEMA = { type: 'object', description: `Content descriptors; the 
 const TAGS_SCHEMA = { type: 'array', maxItems: MAX_TAGS, items: { type: 'string', enum: [...TAGS] }, description: `${MIN_TAGS} to ${MAX_TAGS} tags from the platform list (only these are accepted; genres go in genre and genres). ${Object.entries(TAG_GROUPS).map(([g, l]) => `${g}: ${l.join(', ')}`).join('. ')}.` };
 const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The primary genre; the store groups games by it.' };
 
+async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: boolean): Promise<unknown> {
+  const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
+  if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
+  let v: any = null;
+  if (a.version !== undefined && a.version !== null) {
+    const n = Number(a.version);
+    if (!Number.isInteger(n) || n < 1) throw bad('version must be a whole number from list_versions.');
+    v = await getVersion(c.env, p.id, n);
+    if (!v) throw bad(`Version ${n} does not exist.`, 'Call list_versions to see the versions this game has.');
+  } else {
+    const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all<any>();
+    v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
+  }
+  if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
+  // Input is checked before the license, so a wrong version number is reported as such for any account.
+  if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
+  // A rollback only goes back to a version that was live before; anything else is a new publish and meets every gate.
+  if (rollback && !v.published_at) throw bad(`Version ${v.n} was never live, so it cannot be rolled back to.`, 'Call publish {project, version} instead: a version that was never live meets the publishing checks.');
+  const el = versionEligible(v, s.verify_browser_required);
+  if (!el.ok && el.review === 'pending') throw new AppError(409, el.reason, 'awaiting_review', 'Nothing to do: the game goes live by itself once a platform admin approves it. Tell the user it is waiting for review.');
+  if (!el.ok && el.review === 'denied') throw new AppError(409, el.reason, 'review_denied', 'Fix what the review note says, deploy_preview again, and publish the new version.');
+  if (!el.ok && el.review !== 'needed') throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
+  if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
+  // The store page needs the game's metadata. A rollback to a version that was live before is not held to it.
+  if (s.metadata_required && !rollback) {
+    const { compat, meta } = await ensureVersionMeta(c.env, v), missing = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]'));
+    if (missing.length) {
+      const steps = metadataChecklist(p, compat, meta).filter((x) => x.required && x.status === 'missing').map((x) => `${x.step}. ${x.field}: ${x.ask} Allowed: ${JSON.stringify(x.allowed)}. Suggested call: ${x.call}`);
+      // Listing fields (genre, tags) take effect at once; only build fields are frozen with a version and need a new deploy.
+      const needsDeploy = missing.some((m) => (BUILD_FIELDS as readonly string[]).includes(m.split(/[\s:]/)[0]) || /^requirements/.test(m));
+      const hint = needsDeploy
+        ? 'Ask the user anything you cannot tell from the game, declare each field with game_metadata {action: "declare", …}, then deploy_preview again (build fields are frozen with a version) and publish the new version. game_metadata {project} shows the whole checklist.'
+        : `Declare the missing listing fields with game_metadata {action: "declare", …} or update_project, then call publish {project, version: ${v.n}} again. No new deploy is needed.`;
+      throw new AppError(409, `Version ${v.n} cannot be published until its store metadata is complete. Missing: ${missing.join('; ')}.\n${steps.join('\n')}`, 'metadata_incomplete', hint);
+    }
+  }
+  // Storage: a new version must fit the game's storage. A rollback to a version that was live before is not held to it.
+  const over = !rollback && overBudget(s, p, v.bytes, v.file_count);
+  if (over) throw new AppError(413, `Version ${v.n} cannot be published: ${over.message}`, 'storage_full', over.hint);
+  const copy = await publishGate(c.env, p, v);
+  if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
+  if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
+  if (el.review === 'needed') {
+    // Every other check passed; a person looks at the game before it goes live (the admin's Reviews queue).
+    await c.env.DB.prepare("UPDATE versions SET review = 'pending', review_note = NULL, reviewed_at = NULL, reviewed_by = NULL WHERE project_id = ? AND n = ?").bind(p.id, v.n).run();
+    await logEvent(c.env, p.id, 'review_requested', 'The verification browser could not run this version', v.n, c.client);
+    return { live: false, version: v.n, review: 'pending', next: `Version ${v.n} is waiting for a platform review because the verification browser could not run it. It goes live by itself once approved; list_versions {project, version: ${v.n}} shows the review state. Tell the user.` };
+  }
+  await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
+  await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
+  const end = Date.now() + 45000;
+  let q = await ownedProject(c.env, c.user, p.id);
+  while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
+  const live = q.status === 'live' && q.live_version === v.n;
+  const vm = await ensureVersionMeta(c.env, v);
+  return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+}
+
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
@@ -262,7 +320,7 @@ export const TOOLS: Tool[] = [
         ],
         services: {
           catalog: 'platform_services lists every service (what it is, how it works, SDK calls, MCP tools, limits, guidelines) and what the platform does not provide. Read it before planning a game that needs more than hosting. get_started {topic: "services"} is the long form.',
-          sdk: 'window.GCP, injected into every page. GCP.ready(), GCP.progress(f, label), GCP.fatal(err), GCP.player, GCP.env, GCP.display (fullscreen, touch, paused), GCP.onEscape(fn) (Esc closes an open menu first; an Esc with nothing open opens the platform menu), GCP.menu(), GCP.quit(), GCP.setDisplay({ orientation, exitButton, edgeToEdge }). GCP.fullscreen() toggles fullscreen (the player also has a button and Alt+Enter, and phones start in fullscreen); see the input guide for touch controls. Every page is opened by a signed-in player, so GCP.player.id is always that player.',
+          sdk: 'window.GCP, injected into every page. GCP.ready(), GCP.progress(f, label), GCP.fatal(err), GCP.player, GCP.env, GCP.display (fullscreen, touch, paused), GCP.onEscape(fn) (Esc closes an open menu first; an Esc with nothing open opens the platform menu), GCP.menu(), GCP.quit(), GCP.setDisplay({ orientation, exitButton, edgeToEdge }). GCP.fullscreen() toggles fullscreen (the player also has a button and Alt+Enter, and phones start in fullscreen); see the input guide for touch controls. Every page is opened by a player: a signed-in account, or a guest (GCP.player.guest is true) when the platform allows play without signing in. GCP.player.id is always that player.',
           saves: 'Every game should keep each player\'s progress with the platform: GCP.save.get/set/remove for the player\'s save (JSON), GCP.playerStats.add/max/min/set for numbers worth tracking (levels cleared, coins, best lap), GCP.playRecord() for what the platform recorded on its own (sessions, play time, first and last played). All of it is private to the signed-in player and this game, and preview is kept apart from live; the server enforces it, so a game cannot read another player\'s data. GCP.shared.get reads data every player sees. Load the save before the first playable frame and save at checkpoints and when the tab is hidden. game_data seeds shared data, aggregates saves and stats and manages leaderboards. get_started {topic: "saves"}.',
           leaderboards: 'GCP.leaderboard.submit(board, score, order) and GCP.leaderboard.top(board, n, order). game_data {action: "leaderboard"} reads or clears one.',
           multiplayer: 'GCP.room(code): a realtime room per code on the platform\'s multiplayer servers, with a host and host migration. game_room inspects or resets one. get_started {topic: "multiplayer"}.',
@@ -336,6 +394,7 @@ export const TOOLS: Tool[] = [
         project: p.id, slug: p.slug, title: p.title, console_page: `${c.origin}/console/projects/${p.id}`, storage: await storageLine(c.env, p, []),
         tell_the_developer: `This game has ${mb(budgetOf(p, await getSettings(c.env)).bytes)} of storage for all its files. Plan assets around it: generate content from code and load large or optional content at run time (game_storage {project} explains how).`,
         next: 'Upload the game: upload_files for text files, create_upload_url for big or binary files or a whole folder. Then deploy_preview.',
+        ...(JSON.parse(p.tags || '[]').length < 2 ? { before_publishing: 'Publishing needs 2 to 8 tags from the platform list (game_metadata {project} shows them). Add them with update_project {project, tags} any time before publish.' } : {}),
       };
     },
   },
@@ -620,54 +679,13 @@ export const TOOLS: Tool[] = [
     name: 'publish', title: 'Publish a verified version',
     description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. open_implementation sets whether other developers\' agents may learn how the game is built (never its code); leave it out to keep the current choice, and ask the user before turning it on.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' } }, ['project']),
-    run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
-      if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
-      let v: any = null;
-      if (a.version !== undefined && a.version !== null) {
-        const n = Number(a.version);
-        if (!Number.isInteger(n) || n < 1) throw bad('version must be a whole number from list_versions.');
-        v = await getVersion(c.env, p.id, n);
-        if (!v) throw bad(`Version ${n} does not exist.`, 'Call list_versions to see the versions this game has.');
-      } else {
-        const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all<any>();
-        v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
-      }
-      if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
-      // Input is checked before the license, so a wrong version number is reported as such for any account.
-      if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
-      const el = versionEligible(v, s.verify_browser_required);
-      if (!el.ok) throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
-      if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
-      // The store page needs the game's metadata. A rollback to a version that was live before is not held to it.
-      if (s.metadata_required && !a._rollback) {
-        const { compat, meta } = await ensureVersionMeta(c.env, v), missing = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]'));
-        if (missing.length) {
-          const steps = metadataChecklist(p, compat, meta).filter((x) => x.required && x.status === 'missing').map((x) => `${x.step}. ${x.field}: ${x.ask} Allowed: ${JSON.stringify(x.allowed)}. Suggested call: ${x.call}`);
-          throw new AppError(409, `Version ${v.n} cannot be published until its store metadata is complete. Missing: ${missing.join('; ')}.\n${steps.join('\n')}`, 'metadata_incomplete', 'Ask the user anything you cannot tell from the game (genre, content descriptors), declare each field with game_metadata {action: "declare", …}, then deploy_preview again (build fields are frozen with a version) and publish the new version. game_metadata {project} shows the whole checklist.');
-        }
-      }
-      // Storage: a new version must fit the game's storage. A rollback to a version that was live before is not held to it.
-      const over = !a._rollback && overBudget(s, p, v.bytes, v.file_count);
-      if (over) throw new AppError(413, `Version ${v.n} cannot be published: ${over.message}`, 'storage_full', over.hint);
-      const copy = await publishGate(c.env, p, v);
-      if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
-      if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
-      await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
-      await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
-      const end = Date.now() + 45000;
-      let q = await ownedProject(c.env, c.user, p.id);
-      while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
-      const live = q.status === 'live' && q.live_version === v.n;
-      const vm = await ensureVersionMeta(c.env, v);
-      return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
-    },
+    run: (a, c) => publishVersion(a, c, false),
   },
   {
     name: 'rollback', title: 'Roll back to an earlier version',
-    description: 'Makes an earlier verified version live again. list_versions shows which ones can be published.',
+    description: 'Makes an earlier version that was live before live again. list_versions shows which ones can be published.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer' } }, ['project', 'version']),
-    run: async (a, c) => { if (a.version === undefined || a.version === null) throw bad('version is required.', 'Call list_versions to pick the version to go back to.'); return TOOLS.find((t) => t.name === 'publish')!.run({ ...a, _rollback: true }, c); },
+    run: async (a, c) => { if (a.version === undefined || a.version === null) throw bad('version is required.', 'Call list_versions to pick the version to go back to.'); return publishVersion(a, c, true); },
   },
   {
     name: 'unpublish', title: 'Take a game offline',
@@ -697,16 +715,16 @@ export const TOOLS: Tool[] = [
         case 'summary': {
           const [shared, saves, boards, records, stats] = await Promise.all([
             db.prepare("SELECT COUNT(*) AS keys, COALESCE(SUM(LENGTH(v)), 0) AS bytes FROM saves WHERE project_id = ? AND user_id = ''").bind(scope).first<{ keys: number; bytes: number }>(),
-            db.prepare("SELECT COUNT(DISTINCT user_id) AS players, COUNT(*) AS keys, COALESCE(SUM(LENGTH(v)), 0) AS bytes FROM saves WHERE project_id = ? AND user_id != ''").bind(scope).first<{ players: number; keys: number; bytes: number }>(),
+            db.prepare("SELECT COUNT(DISTINCT user_id) AS players, COUNT(*) AS keys, COALESCE(SUM(LENGTH(v)), 0) AS bytes FROM saves WHERE project_id = ? AND user_id != '' AND user_id NOT LIKE 'verify:%'").bind(scope).first<{ players: number; keys: number; bytes: number }>(),
             db.prepare('SELECT board, COUNT(*) AS entries, MAX(updated_at) AS last_at FROM scores WHERE project_id = ? GROUP BY board ORDER BY board').bind(scope).all<{ board: string; entries: number; last_at: number }>(),
-            db.prepare('SELECT COUNT(*) AS players, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(seconds), 0) AS seconds FROM player_games WHERE project_id = ?').bind(scope).first<{ players: number; sessions: number; seconds: number }>(),
+            db.prepare("SELECT COUNT(*) AS players, COALESCE(SUM(sessions), 0) AS sessions, COALESCE(SUM(seconds), 0) AS seconds FROM player_games WHERE project_id = ? AND user_id NOT LIKE 'verify:%'").bind(scope).first<{ players: number; sessions: number; seconds: number }>(),
             db.prepare("SELECT name, COUNT(*) AS players, SUM(value) AS sum, AVG(value) AS avg, MIN(value) AS min, MAX(value) AS max FROM player_stats WHERE project_id = ? AND user_id NOT LIKE 'verify:%' GROUP BY name ORDER BY players DESC, name LIMIT 64").bind(scope).all<{ name: string; players: number; sum: number; avg: number; min: number; max: number }>(),
           ]);
           return {
             env, shared_data: shared, player_saves: saves, leaderboards: boards.results.map((b) => ({ board: b.board, entries: b.entries, last_submit: new Date(b.last_at).toISOString() })),
             player_records: records, player_stats: stats.results,
             note: 'Player saves, stats and records are counted and aggregated here, never shown per player.',
-            limits: { value_bytes: 256 * 1024, save_keys_per_player: 64, stats_per_player: 64 },
+            limits: { value_bytes: 256 * 1024, save_bytes_per_player: 2 * 1024 * 1024, save_bytes_per_guest: 512 * 1024, save_keys_per_player: 64, stats_per_player: 64 },
           };
         }
         case 'list': {
@@ -733,12 +751,14 @@ export const TOOLS: Tool[] = [
           return { ok: true, env, key, deleted: (r.meta.changes || 0) > 0 };
         }
         case 'leaderboard': {
-          const asc = a.order === 'asc';
+          const fixed = await db.prepare('SELECT asc FROM boards WHERE project_id = ? AND board = ?').bind(scope, board).first<{ asc: number }>();
+          const asc = fixed ? !!fixed.asc : a.order === 'asc';
           const rows = await db.prepare(`SELECT name, score, updated_at FROM scores WHERE project_id = ? AND board = ? ORDER BY score ${asc ? 'ASC' : 'DESC'} LIMIT ?`).bind(scope, board, clamp(Number(a.limit) || 20, 1, 100)).all<{ name: string; score: number; updated_at: number }>();
           return { env, board, order: asc ? 'asc' : 'desc', rows: rows.results.map((r, i) => ({ rank: i + 1, name: r.name, score: r.score, at: new Date(r.updated_at).toISOString() })) };
         }
         case 'clear_leaderboard': {
-          const r = await db.prepare('DELETE FROM scores WHERE project_id = ? AND board = ?').bind(scope, board).run();
+          // clearing a board also frees its order, so the next first submit sets it again
+          const [r] = await db.batch([db.prepare('DELETE FROM scores WHERE project_id = ? AND board = ?').bind(scope, board), db.prepare('DELETE FROM boards WHERE project_id = ? AND board = ?').bind(scope, board)]);
           await logEvent(c.env, p.id, 'leaderboard_cleared', `${env}: ${board}`, null, c.client);
           return { ok: true, env, board, removed: r.meta.changes || 0 };
         }

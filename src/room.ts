@@ -3,8 +3,11 @@
 // idle room costs nothing. The first player in is the host; if the host leaves, the oldest peer takes over.
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './env';
+// @ts-ignore plain JS module
+import { bindingProblem } from './session-binding.js';
 
-interface Peer { id: string; name: string; at: number; g?: string; e?: string; r?: string }
+interface Peer { id: string; name: string; at: number; g?: string; e?: string; r?: string; uid?: string; s?: string; k?: string; x?: number; tr?: boolean }
+const RECHECK_MS = 10_000;   // how often open sockets are checked against their play session (sign-out, trial end)
 const MAX_MSG = 64 * 1024, MAX_STATE = 256 * 1024;
 
 export class GameRoom extends DurableObject<Env> {
@@ -25,7 +28,10 @@ export class GameRoom extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.headers.get('upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
-    const max = Math.max(2, Math.min(Number(url.searchParams.get('cap')) || 16, 64));
+    // The room's size is fixed by whoever opens it, so a later joiner cannot raise it by asking for more.
+    const asked = Math.max(2, Math.min(Number(url.searchParams.get('cap')) || 16, 64));
+    let max = await this.ctx.storage.get<number>('cap');
+    if (!max || !this.peers().length) { max = asked; await this.ctx.storage.put('cap', max); }
     const pair = new WebSocketPair();
     const existing = this.peers();
     this.ctx.acceptWebSocket(pair[1]);
@@ -34,13 +40,33 @@ export class GameRoom extends DurableObject<Env> {
     // The same account may join from two tabs; give each connection its own peer id.
     let id = base, i = 2;
     while (existing.some((e) => e.p.id === id)) id = `${base}#${i++}`;
-    const peer: Peer = { id, name: (url.searchParams.get('name') || 'Player').slice(0, 40), at: Date.now() + existing.length / 1000, g: url.searchParams.get('g') || undefined, e: url.searchParams.get('e') || undefined, r: url.searchParams.get('r') || undefined };
+    const q = url.searchParams;
+    const peer: Peer = { id, name: (q.get('name') || 'Player').slice(0, 40), at: Date.now() + existing.length / 1000, g: q.get('g') || undefined, e: q.get('e') || undefined, r: q.get('r') || undefined,
+      uid: q.get('uid') || undefined, s: q.get('s') || undefined, k: q.get('k') || undefined, x: Number(q.get('x')) || undefined, tr: q.get('tr') === '1' };
     pair[1].serializeAttachment(peer);
     for (const e of existing) this.send(e.ws, { t: 'join', peer: { id: peer.id, name: peer.name } });
     const state = await this.ctx.storage.get<string>('state');
     this.send(pair[1], { t: 'welcome', id: peer.id, host: existing[0]?.p.id ?? peer.id, peers: existing.map((e) => ({ id: e.p.id, name: e.p.name })), state: state ? JSON.parse(state) : null });
     await this.presence(peer, existing.length + 1);
+    if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + RECHECK_MS);
     return new Response(null, { status: 101, webSocket: pair[0] });
+  }
+
+  /** Closes sockets whose play session ended after they joined: signed out, switched account, suspended, a claimed
+      guest, or a free trial that ran out. The check at join time alone would let them keep relaying for hours. */
+  async alarm(): Promise<void> {
+    const peers = this.peers(), t = Date.now();
+    for (const { ws, p } of peers) {
+      if (!p.s || !p.g || !p.e || !p.uid) continue;
+      let reason: string | null = null;
+      if (p.tr && p.x && t / 1000 > p.x) reason = 'The free trial is over.';
+      else {
+        const problem = await bindingProblem(this.env.DB, { g: p.g, e: p.e, u: p.uid, k: p.k || 'player', s: p.s }, t).catch(() => null);
+        if (problem) reason = problem.message;
+      }
+      if (reason) { this.send(ws, { t: 'error', code: 'session_ended', message: reason }); try { ws.close(4001, 'Session ended'); } catch { /* closing */ } await this.left(ws); }
+    }
+    if (this.peers().length) await this.ctx.storage.setAlarm(Date.now() + RECHECK_MS);
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -90,6 +116,6 @@ export class GameRoom extends DurableObject<Env> {
     const rest = this.peers().filter((e) => e.ws !== ws);
     if (me) for (const e of rest) this.send(e.ws, { t: 'leave', id: me.id, host: rest[0]?.p.id ?? null });
     await this.presence(me, rest.length);
-    if (!rest.length) await this.ctx.storage.deleteAll(); // empty rooms keep nothing
+    if (!rest.length) { await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); } // empty rooms keep nothing
   }
 }

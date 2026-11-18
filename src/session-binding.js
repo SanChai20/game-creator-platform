@@ -19,14 +19,21 @@ export const SESSION_ENDED = 'session_ended';
  * Returns null when it is, or { code, message } saying why the game must stop using the token.
  */
 export async function bindingProblem(db, tok, t = Date.now()) {
-  if (tok.k === 'verify') return null;   // the verifier's throwaway identity has no sign-in
   const guest = String(tok.u || '').startsWith('guest_');
-  const r = await db.prepare(`SELECT p.user_id, p.login_id, s.user_id AS login_user, s.expires_at AS login_expires,
+  const r = await db.prepare(`SELECT p.user_id, p.login_id, p.kind, p.project_id, p.env, s.user_id AS login_user, s.expires_at AS login_expires,
       EXISTS (SELECT 1 FROM guest_claims g WHERE g.guest_id = ?2) AS claimed
     FROM (SELECT 1) LEFT JOIN plays p ON p.id = ?1 LEFT JOIN sessions s ON s.id = p.login_id`).bind(String(tok.s || ''), guest ? String(tok.u) : '').first();
+  const unknown = { code: SESSION_ENDED, reason: 'unknown', message: 'This play session is no longer valid. Reopen the game from its page.' };
+  // The token's session must be a session of this game and environment, of the same kind (a verifier token names a
+  // verifier session; any other token names a player's or owner's session). A token signed with a leaked key therefore
+  // cannot claim to be the verifier to skip the checks below.
+  if (!r || r.project_id == null) return unknown;
+  if (r.project_id !== tok.g || (r.env != null && r.env !== tok.e)) return unknown;
+  if (tok.k === 'verify') return r.kind === 'verify' && tok.u === `verify:${tok.s}` ? null : unknown;
+  if (r.kind === 'verify') return unknown;
   // A claimed guest: the progress moved to an account (or was left behind), so the guest session is over.
-  if (guest && r?.claimed) return { code: SESSION_ENDED, reason: 'signed_in', message: 'You signed in, so this guest session ended. Reopen the game to keep playing on your account.' };
-  if (!r || r.user_id !== tok.u) return { code: SESSION_ENDED, reason: 'unknown', message: 'This play session is no longer valid. Reopen the game from its page.' };
+  if (guest && r.claimed) return { code: SESSION_ENDED, reason: 'signed_in', message: 'You signed in, so this guest session ended. Reopen the game to keep playing on your account.' };
+  if (r.user_id !== tok.u) return unknown;
   if (guest) return null;
   if (r.login_id == null) return null;    // sessions started before binding existed run out with their token (six hours at most)
   if (!r.login_user || r.login_user !== tok.u || !(r.login_expires > t)) {

@@ -161,6 +161,32 @@ function StorageRequests({ onChange }: { onChange: () => void }) {
   );
 }
 
+/** Versions the verification browser could not run (WebGPU, or no browser): approve to publish, or deny with a reason. */
+function Reviews({ onChange }: { onChange: () => void }) {
+  const { busy, act } = useAct(), { data, reload } = useData<any>('/admin/reviews');
+  if (!data?.reviews?.length) return null;
+  const decide = (r: any, approve: boolean) => {
+    const note = prompt(approve ? t('Note for the creator (optional)', '给创作者的备注（可选）') : t('Reason shown to the creator', '向创作者显示的原因'));
+    if (note === null) return;
+    const key = `${r.project_id}:${r.n}`;
+    void act(key, async () => { await api(`/admin/reviews/${r.project_id}/${r.n}`, { body: { action: approve ? 'approve' : 'deny', note } }); await reload(); onChange(); }, approve ? t('Approved. The version is being published.', '已批准，该版本正在发布。') : t('Review denied.', '已拒绝审核。'));
+  };
+  const waiting = data.reviews.filter((r: any) => r.review === 'pending').length;
+  const why = (w: string) => (w === 'webgpu' ? t('Needs WebGPU', '需要 WebGPU') : w === 'no_browser' ? t('Browser unavailable', '浏览器不可用') : t('Other', '其他'));
+  return (
+    <Card title={t('Version reviews', '版本审核')} aside={t('versions the verification browser could not run, checked by a person before they go live', '验证浏览器无法运行的版本，上线前需人工检查')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
+      <Table><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Version', '版本')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
+        <tbody>{data.reviews.map((r: any) => { const key = `${r.project_id}:${r.n}`; return <tr key={key}>
+          <td><b>{r.title}</b> <a className="fs-sm" href={`/console/p/${r.project_id}`} target="_blank" rel="noreferrer">{t('Open project', '打开项目')}</a><div className="mute fs-sm">{r.author} · {r.author_email}</div><div className="dim fs-xs">{ago(r.created_at)}</div></td>
+          <td className="n">{r.n}</td>
+          <td className="fs-sm">{why(r.why)}{r.review_note && <div className="mute">{t('Answer', '答复')}: {r.review_note}</div>}</td>
+          <td><StatusBadge status={r.review} /></td>
+          <td>{r.review === 'pending' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === key} onClick={() => decide(r, true)}>{t('Approve', '批准')}</Button><Button size="sm" variant="danger" disabled={busy === key} onClick={() => decide(r, false)}>{t('Deny', '拒绝')}</Button></div>}</td>
+        </tr>; })}</tbody></Table>
+    </Card>
+  );
+}
+
 function Games() {
   const { config } = useApp(), defaultStorage = config.settings.bundle_max_bytes as number;
   const { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/games');
@@ -174,6 +200,7 @@ function Games() {
   const remove = (g: any) => { const reason = prompt(t('Remove "{title}" from the platform? Give the reason shown to its creator.', '确定将《{title}》从平台移除吗？请填写向创作者显示的原因。', { title: g.title })); if (reason !== null) void patch(g.id, { action: 'remove', reason }, t('Game removed.', '游戏已移除。')); };
   return (
     <div className="stack l">
+      <Reviews onChange={reload} />
       <StorageRequests onChange={reload} />
       <div className="admin-tools"><SearchInput placeholder={t('Search by title, address or creator email', '按标题、地址或创作者邮箱搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : (

@@ -17,13 +17,18 @@ function encode(obj: Record<string, unknown>, prefix = '', out: string[] = []): 
 export async function stripe<T = any>(env: Env, method: 'GET' | 'POST', path: string, params?: Record<string, unknown>, idempotencyKey?: string): Promise<T> {
   if (!env.STRIPE_SECRET_KEY) throw new AppError(503, 'Payments are not configured yet.', 'payments_unavailable');
   const qs = params ? encode(params).join('&') : '';
-  const r = await fetch(`${env.STRIPE_API_BASE}/v1${path}${method === 'GET' && qs ? '?' + qs : ''}`, {
-    method,
-    headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'content-type': 'application/x-www-form-urlencoded', ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}) },
-    body: method === 'POST' ? qs : undefined,
-  });
+  // 'stripe_error': Stripe answered and refused, so nothing happened. 'stripe_unknown': no answer, a server error or a
+  // request still in flight, so it may have gone through; retry with the same idempotency key to learn which.
+  let r: Response;
+  try {
+    r = await fetch(`${env.STRIPE_API_BASE}/v1${path}${method === 'GET' && qs ? '?' + qs : ''}`, {
+      method,
+      headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, 'content-type': 'application/x-www-form-urlencoded', ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}) },
+      body: method === 'POST' ? qs : undefined,
+    });
+  } catch (e) { throw new AppError(502, `Stripe could not be reached: ${(e as Error).message}`, 'stripe_unknown'); }
   const j = await r.json<any>().catch(() => ({}));
-  if (!r.ok) throw new AppError(502, `Stripe: ${j?.error?.message || `HTTP ${r.status}`}`, 'stripe_error');
+  if (!r.ok) throw new AppError(502, `Stripe: ${j?.error?.message || `HTTP ${r.status}`}`, r.status >= 500 || r.status === 409 || r.status === 429 ? 'stripe_unknown' : 'stripe_error');
   return j as T;
 }
 
