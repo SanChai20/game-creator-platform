@@ -8,6 +8,11 @@
 - `rollback {version}` makes an earlier verified version live again at once. `unpublish` takes the game offline; `publish` brings it back.
 - `list_versions` lists them all with their status; `list_versions {version}` returns one version's full report.
 
+## Seeing the game and what the creator saw
+
+- `debug_preview {project, action: "open"}` opens the current preview in a browser you drive and returns a screenshot; `{action: "act", steps}` clicks, taps, drags, presses keys, types and waits, then returns screenshots and the game's state (errors, frames, `GCP.test.onState`). Reproduce a failed check or a reported bug there before changing code, and look again after the next `deploy_preview`. `get_started {topic: "services"}` lists every step.
+- `creator_feedback {project}` returns the screenshots the creator marked up while playing the preview, with their notes, and removes them from the queue. Read it at the start of a session and whenever `deploy_preview` or `list_versions` says items are waiting.
+
 ## Reading a failed report
 
 The report has one entry per check, the errors the browser saw, any files that failed to load, timings, and a screenshot. Read `summary` first, then the first check that failed: later checks often fail only because an earlier one did. Fix, upload the changed files, and `deploy_preview` again (`dry_run: true` runs only the static checks).

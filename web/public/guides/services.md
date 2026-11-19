@@ -49,7 +49,9 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Game server code | available unless switched off | `GCP.server` | `upload_files`, `deploy_preview` | saves |
 | Display, fullscreen and devices | available | `GCP.fullscreen`, `GCP.display`, `GCP.setDisplay` | `compatibility` | contract |
 | Compatibility requirements | available | none | `compatibility` | contract |
-| Verification and test hooks | automatic | `GCP.test.*` | `deploy_preview`, `list_versions` | versions |
+| Verification and test hooks | automatic | `GCP.test.*` | `deploy_preview`, `list_versions`, `debug_preview` | versions |
+| Preview debugging in a browser | available unless switched off | `GCP.test.onState` | `debug_preview` | versions |
+| Creator feedback queue | available unless switched off | `GCP.test.onState` | `creator_feedback` | versions |
 | Publish checks (originality, content, web only) | automatic | none | `publish`, `list_versions` | versions |
 | Marketplace listing, ratings and reviews | available | none | `update_project`, `game_metadata` | metadata |
 | Paid games, free trials and payouts | available unless switched off | none (handled by the platform) | `update_project`, `get_stats` | none |
@@ -251,6 +253,38 @@ GCP.test.onTwoPlayers(async (t, role) => ({ players: room.peers.length + 1, worl
 ```
 
 Limits (defaults): play-through 30 seconds and 60 steps. WebGPU-only games are verified by a short clean play of the preview by their creator. Each check, why it fails and the fix: `get_started {topic: "versions"}`.
+
+## Preview debugging in a browser
+
+`debug_preview` opens the game's current preview in a real browser (Browser Rendering, the one verification uses) that you drive step by step, under a throwaway test player whose save is empty and never the creator's.
+
+```
+debug_preview {project, action: "open", viewport: "phone-landscape"}            → a screenshot and the game's state
+debug_preview {project, action: "act", steps: [
+  {do: "tap", x: 420, y: 300},
+  {do: "key", key: "ArrowRight", hold_ms: 800},
+  {do: "wait_for", until: "text", text: "Level 2"},
+  {do: "screenshot", label: "level 2", clip: {x: 0, y: 0, width: 420, height: 120}},
+  {do: "eval", js: "window.game && window.game.player"}
+]}                                                                                → screenshots after the steps, a log per step, state
+debug_preview {project, action: "close"}
+```
+
+Coordinates are CSS pixels of the viewport, read off the last screenshot. Steps: `click`, `double_click`, `right_click`, `move`, `down`, `up`, `drag`, `tap`, `scroll`, `key` (with `hold_ms` to hold it), `key_down`, `key_up`, `type`, `wait`, `wait_for` (`ready`, `text` or `frames`), `screenshot` (with `clip` for a close-up) and `eval`. Every answer carries `state`: ready, frames drawn, uncaught errors and console errors the SDK saw, missing files, and what the game's `GCP.test.onState(fn)` returns.
+
+Limits (defaults): one browser per account and three on the platform at once, 40 a day per account, 40 steps, 20 seconds of waits and 4 screenshots per call; a browser closes after 3 idle minutes and 10 minutes after it opened. It has no GPU: judge layout, text, input and logic here, not frame rate, and WebGPU is not available.
+
+```js
+GCP.test.onState(() => ({ scene: game.scene, level: game.level, player: { x: player.x, y: player.y, hp: player.hp }, menu: ui.open }));
+```
+
+## Creator feedback queue
+
+While the creator plays the preview in the console, **Capture feedback** takes a picture of the game (every canvas, drawn right after a frame; **Capture tab** takes the whole tab, page elements included, on desktop browsers that can share a tab). They circle, box, point at or draw on what is wrong, label each mark, write a note and add it to the queue.
+
+`creator_feedback {project}` returns the oldest items (up to 5 per call) and removes them from the queue: each with its note, its marks numbered as drawn and placed in picture pixels, the version, the screen size, the errors the game had and what `GCP.test.onState(fn)` returned, then the annotated pictures as images. `peek: true` lists what is waiting without taking anything. `deploy_preview`, `list_versions` and `list_projects {project}` say when items are waiting. Only the game's creator's own account can read its queue.
+
+Limits (defaults): 20 items waiting per game, kept 30 days if unread, 1.5 MB per picture, 2,000 characters per note, 30 marks per picture.
 
 ## Publish checks
 

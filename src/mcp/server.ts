@@ -3,7 +3,8 @@
 import { AppError, type Env } from '../env';
 import { rateLimit, userById } from '../auth';
 import { getSettings } from '../settings';
-import { PLATFORM_GUIDES, TOOLS, WEB_ONLY, guideText, type ToolCtx } from './tools';
+import { PLATFORM_GUIDES, TOOLS, WEB_ONLY, WithImages, guideText, type ToolCtx } from './tools';
+import { b64 } from '../util';
 import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -13,6 +14,7 @@ const INSTRUCTIONS = `${WEB_ONLY}
 This server deploys, verifies, publishes and versions web games for the account that authorized you, and hosts their services: player saves, shared game data and leaderboards in the platform database (game_data), and realtime multiplayer rooms (game_room). How you make the game is up to you; the platform does not prescribe engines, renderers or art. find_implementations and get_implementation show how other creators' live games were built when they chose to share it (never their code).
 Call get_started first: it returns the rules a game must meet, the workflow, the account status and the platform services. platform_services (or the gcp://services resource) lists every service with its SDK calls, tools and limits, and what the platform does not provide.
 Typical loop: create_project → upload_files (or create_upload_url for big files and folders) → deploy_preview → read the report → fix → deploy_preview → publish.
+To see and debug the game: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game's state). creator_feedback returns the annotated screenshots and notes the creator left while playing the preview; read it at the start of a session and whenever an answer says feedback is waiting.
 A game is index.html plus the files it loads. The platform injects a global GCP; call GCP.ready() after the first playable frame.`;
 
 const MAX_BATCH = 20;           // JSON-RPC messages in one POST
@@ -67,6 +69,9 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
         if (wrong) throw new AppError(400, wrong, 'bad_request', `Expected: ${JSON.stringify(tool.inputSchema.properties)}`);
         await rateLimit(c.env, 'mcp:' + c.user.id, CALLS_PER_HOUR, 3600);
         const result = await tool.run(args, c);
+        if (result instanceof WithImages) {
+          return ok({ content: [{ type: 'text', text: JSON.stringify(result.data, null, 1) }, ...result.images.map((i) => ({ type: 'image', data: b64(i.data), mimeType: i.type }))], isError: false });
+        }
         return ok({ content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 1) }], isError: false });
       } catch (e) {
         if (!(e instanceof AppError)) console.error('tool failed', tool.name, e);

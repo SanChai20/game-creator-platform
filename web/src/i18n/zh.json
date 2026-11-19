@@ -113,5 +113,13 @@
  "Depending on where you live, you can ask to see, correct, export or delete your information, or object to how we use it. You can delete your account yourself on your Account page. Send other privacy requests to {email}. We may need to confirm it is you, and we will answer within the time the law sets. You can also complain to your local data protection authority.": "根据你所在地区的法律，你可以要求查看、更正、导出或删除你的信息，或反对我们使用这些信息的方式。你可以在“账户”页面自行删除账户。其他隐私请求请发送至 {email}。我们可能需要核实你的身份，并会在法律规定的期限内答复。你也可以向当地的数据保护机构投诉。",
  "{brand} is operated by {op}. We use only the cookies the site needs to work: one that keeps you signed in, one that remembers your language so pages we send are in it, one that lets a game you opened know it may run for you, and, when you play without an account, one that keeps your guest progress in this browser. There are no advertising or tracking cookies.": "{brand} 由 {op} 运营。我们只使用网站运行所必需的 Cookie：一个用于保持登录状态，一个用于记住你的语言以便我们发送的页面使用该语言，一个让你打开的游戏确认可以为你运行，以及在你不登录游玩时，一个在当前浏览器中保存你的访客进度。没有广告或追踪 Cookie。",
  "Platform cut of each sale of a game that shares its Open Implementation (percent)": "开放实现的游戏每笔销售的平台分成（百分比）",
- "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "开放实现的免费游戏在免费游戏中的排名加成（近期游玩权重增加的百分比；0 为关闭，最高 100；评价较差的游戏不加成）"
+ "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "开放实现的免费游戏在免费游戏中的排名加成（近期游玩权重增加的百分比；0 为关闭，最高 100；评价较差的游戏不加成）",
+ "Debugging and feedback": "调试与反馈",
+ "Let agents open their game's preview in a browser they drive (debug_preview: screenshots, clicks, keys)": "允许智能体在由其操控的浏览器中打开游戏预览（debug_preview：截图、点击、按键）",
+ "Debug browsers open at once across the platform (each uses one Browser Rendering browser; verification needs some too)": "全平台同时打开的调试浏览器数（每个占用一个 Browser Rendering 浏览器；验证也需要一些）",
+ "Debug browsers one account may open per day": "每个账号每天可打开的调试浏览器数",
+ "Longest a debug browser stays open (minutes, 1 to 10; it also closes after 3 idle minutes)": "调试浏览器最长保持打开的时间（分钟，1 至 10；闲置 3 分钟也会关闭）",
+ "Let creators send annotated screenshots of their preview to their agent (creator feedback queue)": "允许创作者把带标注的预览截图发送给他们的智能体（创作者反馈队列）",
+ "Feedback items waiting per game before the creator must remove some or the agent read them": "每款游戏可排队的反馈条数（达到后需创作者移除或智能体读取）",
+ "Days an unread feedback item is kept": "未读反馈保留的天数"
 }
