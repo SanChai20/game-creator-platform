@@ -469,7 +469,7 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 .crow.s-no .cmark { background: rgb(var(--bad-rgb) / .13); color: var(--bad); }
 .crow.s-unknown .cmark { background: rgb(var(--warn-rgb) / .14); color: var(--warn); }
 .compat-notes { padding: 14px 16px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-md); color: var(--text-2); font-size: 14px; }
-.cgate { display: grid; gap: 12px; justify-items: center; max-width: 460px; padding: 20px 22px; border-radius: var(--r-lg); background: rgb(23 21 28 / .92); border: 1.5px solid rgb(var(--bad-rgb) / .6); backdrop-filter: blur(10px); text-align: center; }
+.cgate { display: grid; gap: 12px; justify-items: center; max-width: 460px; padding: 20px 22px; border-radius: var(--r-lg); background: rgb(23 21 28 / .92); border: 1.5px solid rgb(var(--bad-rgb) / .6); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); text-align: center; }
 .cgate > b { color: var(--bad); font-size: 15.5px; }
 .cgate ul { list-style: none; padding: 0; display: grid; gap: 5px; font-size: 13.5px; color: var(--text-2); }
 .cgate ul b { color: var(--text); }
