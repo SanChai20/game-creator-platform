@@ -101,6 +101,42 @@
     EventTarget.prototype.addEventListener = function (type) { if (watch[type]) P.listeners[type] = (P.listeners[type] || 0) + 1; return add.apply(this, arguments); };
   })();
 
+  // ---- Canvas roundRect() for older browsers. Safari and iOS before 16, Firefox before 112 and Chrome before 99 do not
+  // have it, and a game that calls it there throws and stops (Void Echoes could not start a fight on iOS 15). It draws the
+  // same path the standard method draws: four corners, radii as a number, {x, y} or a list of one to four, scaled down
+  // together when they do not fit. Only filled in where the browser has none, so modern browsers keep their own.
+  (function () {
+    function radius(r) { var v = r && typeof r === 'object' ? (+r.x || 0) : +r || 0; if (v < 0) throw new RangeError('roundRect radius ' + v + ' is negative.'); return v; }
+    function roundRect(x, y, w, h, radii) {
+      x = +x; y = +y; w = +w; h = +h;
+      if (!isFinite(x) || !isFinite(y) || !isFinite(w) || !isFinite(h)) return;
+      var list = radii == null ? [0] : (Array.isArray(radii) ? radii : [radii]);
+      if (list.length < 1 || list.length > 4) throw new RangeError('roundRect takes one to four radii, not ' + list.length + '.');
+      var r = list.map(radius), tl, tr, br, bl;
+      if (r.length === 1) { tl = tr = br = bl = r[0]; }
+      else if (r.length === 2) { tl = br = r[0]; tr = bl = r[1]; }
+      else if (r.length === 3) { tl = r[0]; tr = bl = r[1]; br = r[2]; }
+      else { tl = r[0]; tr = r[1]; br = r[2]; bl = r[3]; }
+      // a negative width or height draws the same box from the other side, with the corners mirrored
+      if (w < 0) { x += w; w = -w; var a = tl; tl = tr; tr = a; a = bl; bl = br; br = a; }
+      if (h < 0) { y += h; h = -h; var b = tl; tl = bl; bl = b; b = tr; tr = br; br = b; }
+      var k = Math.min(1, w / (tl + tr || 1), w / (bl + br || 1), h / (tl + bl || 1), h / (tr + br || 1));
+      tl *= k; tr *= k; br *= k; bl *= k;
+      this.moveTo(x + tl, y);
+      this.lineTo(x + w - tr, y); if (tr) this.arcTo(x + w, y, x + w, y + tr, tr);
+      this.lineTo(x + w, y + h - br); if (br) this.arcTo(x + w, y + h, x + w - br, y + h, br);
+      this.lineTo(x + bl, y + h); if (bl) this.arcTo(x, y + h, x, y + h - bl, bl);
+      this.lineTo(x, y + tl); if (tl) this.arcTo(x, y, x + tl, y, tl);
+      this.closePath();
+      this.moveTo(x, y);
+    }
+    [window.CanvasRenderingContext2D, window.OffscreenCanvasRenderingContext2D, window.Path2D].forEach(function (C) {
+      if (C && C.prototype && typeof C.prototype.roundRect !== 'function') {
+        try { Object.defineProperty(C.prototype, 'roundRect', { value: roundRect, writable: true, configurable: true }); } catch (e) { /* frozen */ }
+      }
+    });
+  })();
+
   // ---- Sound that starts on the first tap, for every game. Browsers only let a page start sound inside a user gesture,
   // and on iPhone and iPad only some events count: touchend, pointerup, click and keydown do, but pointerdown and
   // touchstart from a finger do not. A game that creates or resumes its AudioContext on pointerdown (a common choice that

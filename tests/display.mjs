@@ -236,3 +236,32 @@ test('subclasses of AudioContext keep their own class', () => {
   assert.equal(c.hi(), 'hi');
   assert.ok(c instanceof Sub); assert.ok(c instanceof AudioContext); assert.ok(new sdk.win.AudioContext() instanceof AudioContext);
 });
+
+// Canvas roundRect() for browsers without it (iOS and Safari before 16, Firefox before 112): Void Echoes stopped there.
+function recorder() {
+  return class { constructor() { this.ops = []; } moveTo(x, y) { this.ops.push(['M', x, y]); } lineTo(x, y) { this.ops.push(['L', x, y]); } arcTo(...a) { this.ops.push(['A', ...a]); } closePath() { this.ops.push(['Z']); } };
+}
+test('roundRect is filled in only where the browser has none', () => {
+  const Ctx = recorder(), Path = recorder(), native = function () {};
+  class Has { roundRect() { return native; } }
+  const { win } = loadSdk({ CanvasRenderingContext2D: Ctx, Path2D: Path, OffscreenCanvasRenderingContext2D: Has, RangeError });
+  assert.equal(typeof win.CanvasRenderingContext2D.prototype.roundRect, 'function');
+  assert.equal(typeof win.Path2D.prototype.roundRect, 'function');
+  assert.equal(new Has().roundRect(), native, 'a browser that has it keeps its own');
+});
+test('roundRect draws the standard path: corners, radius lists, oversize radii and negative sizes', () => {
+  const Ctx = recorder();
+  loadSdk({ CanvasRenderingContext2D: Ctx, RangeError });
+  const draw = (...a) => { const g = new Ctx(); g.roundRect(...a); return g.ops; };
+  assert.deepEqual(draw(0, 0, 100, 50, 10), [['M', 10, 0], ['L', 90, 0], ['A', 100, 0, 100, 10, 10], ['L', 100, 40], ['A', 100, 50, 90, 50, 10], ['L', 10, 50], ['A', 0, 50, 0, 40, 10], ['L', 0, 10], ['A', 0, 0, 10, 0, 10], ['Z'], ['M', 0, 0]]);
+  assert.deepEqual(draw(0, 0, 10, 10).filter((o) => o[0] === 'A'), [], 'no radius: a plain box');
+  const arcs = (ops) => ops.filter((o) => o[0] === 'A').map((o) => o[5]);
+  assert.deepEqual(arcs(draw(0, 0, 100, 50, [1, 2])), [2, 1, 2, 1], 'two radii: top-left/bottom-right, then top-right/bottom-left');
+  assert.deepEqual(arcs(draw(0, 0, 100, 50, [1, 2, 3])), [2, 3, 2, 1]);
+  assert.deepEqual(arcs(draw(0, 0, 100, 50, [{ x: 4, y: 4 }, 2, 3, 1])), [2, 3, 1, 4], 'DOMPoint radii use x');
+  assert.deepEqual(arcs(draw(0, 0, 40, 40, 100)), [20, 20, 20, 20], 'radii too big for the box shrink together');
+  assert.deepEqual(draw(100, 50, -100, -50, 10)[0], ['M', 10, 0], 'a negative size draws the same box');
+  assert.throws(() => draw(0, 0, 10, 10, -1), RangeError);
+  assert.throws(() => draw(0, 0, 10, 10, [1, 2, 3, 4, 5]), RangeError);
+  assert.deepEqual(draw(NaN, 0, 10, 10, 2), [], 'non-finite sizes draw nothing');
+});

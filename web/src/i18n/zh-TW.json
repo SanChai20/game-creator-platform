@@ -1651,5 +1651,7 @@
  "Use my own screenshot": "使用我自己的截圖",
  "The game could not draw itself (it has no canvas this can copy, or it draws pictures from another site).": "遊戲無法繪製自身畫面（沒有可複製的畫布，或使用了其他網站的圖片）。",
  "Taken from this tab exactly as you see it. If the picture does not match the game (cut off, shrunk, black or blank), use the game's own drawing instead, or your own screenshot.": "這張圖直接取自此分頁，與你所見一致。如果畫面與遊戲不符（被裁切、縮小、發黑或空白），可改用遊戲自己繪製的畫面，或你自己的截圖。",
- "Use the game's own drawing": "改用遊戲自繪畫面"
+ "Use the game's own drawing": "改用遊戲自繪畫面",
+ "Your browser has only {api}. Update it, or turn on hardware acceleration in its settings and restart it.": "你的瀏覽器僅支援 {api}。請更新瀏覽器，或在設定中開啟硬體加速後重新啟動瀏覽器。",
+ "Turned off or blocked in this browser. Turn on hardware acceleration in its settings and restart it, or try another browser.": "此瀏覽器已關閉或封鎖該功能。請在設定中開啟硬體加速後重新啟動瀏覽器，或改用其他瀏覽器。"
 }
