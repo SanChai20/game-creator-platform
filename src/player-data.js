@@ -174,7 +174,7 @@ export async function resumeOp(db, tok, b, t = Date.now()) {
   if (b.op !== 'set') throw bad('op must be set, clear or get.');
   const r = cleanResume(b, t);
   if (tok.k === 'verify') return { ok: true, resume: r };
-  // usually the heartbeat has made the row already; if not, start it without counting a session
+  // usually the page's first check-in has made the row already; if not, start it without counting a session
   await db.prepare(`INSERT INTO player_games (project_id, user_id, first_at, last_at, sessions, seconds, resume) VALUES (?1, ?2, ?3, ?3, 0, 0, ?4)
     ON CONFLICT(project_id, user_id) DO UPDATE SET resume = excluded.resume`).bind(scope, owner, t, JSON.stringify(r)).run();
   return { ok: true, resume: r };

@@ -4,7 +4,8 @@
 // Enforced on the server:
 //  - the allowance is kept per account (play always needs a signed-in player), so reloading, clearing the browser,
 //    another browser or another device all draw from the same minutes;
-//  - time is wall-clock time while the game is open, measured by the heartbeats the SDK already sends; every trial
+//  - time is wall-clock time while the game is open, by the server's clock, charged at each check-in of the page showing
+//    the game and at each heartbeat of the game (whichever comes; neither can stretch it, see trialOpenStmts); every trial
 //    session also costs at least TRIAL_MIN_CHARGE_S up front, so reloading over and over (or blocking heartbeats)
 //    cannot stretch the trial;
 //  - a trial play token expires when the remaining time runs out, so the game document cannot be reopened and the
@@ -50,3 +51,20 @@ export async function beginTrial(env: Env, p: Project, s: Settings, userId: stri
 
 /** Extra seconds to add to the allowance after a heartbeat moved a trial session from `before` to `after` open seconds. */
 export const trialCharge = (before: number, after: number) => Math.max(0, after - TRIAL_MIN_CHARGE_S) - Math.max(0, before - TRIAL_MIN_CHARGE_S);
+
+/**
+ * Charges a free-trial session for the wall-clock time it has been open, by the server's clock: from when the platform
+ * started it to `t`, never past `until` (when the session's time runs out). Called from the game's heartbeat and from the
+ * store page's check-ins, so the trial is used up even if the game stops sending heartbeats. Guarded on the value read,
+ * so two calls at once charge the time once.
+ */
+export function trialOpenStmts(db: D1Database, play: { id: string; project_id: string; user_id: string; started_at: number; trial_seconds: number }, t: number, until: number): D1PreparedStatement[] {
+  const end = Math.max(play.started_at, Math.min(t, until));
+  const open = Math.max(play.trial_seconds, Math.round((end - play.started_at) / 1000)), extra = trialCharge(play.trial_seconds, open);
+  if (open === play.trial_seconds) return [];
+  return [
+    ...(extra ? [db.prepare('UPDATE trials SET seconds = seconds + ?1, last_at = ?2 WHERE project_id = ?3 AND user_id = ?4 AND (SELECT trial_seconds FROM plays WHERE id = ?5) = ?6')
+      .bind(extra, t, play.project_id, play.user_id, play.id, play.trial_seconds)] : []),
+    db.prepare('UPDATE plays SET trial_seconds = ?1 WHERE id = ?2 AND trial_seconds = ?3').bind(open, play.id, play.trial_seconds),
+  ];
+}

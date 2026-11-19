@@ -12,7 +12,7 @@ export const projectTabs = (id: string, on: 'overview' | 'analytics') => (
   <Tabs active={on} items={[{ key: 'overview', to: `/console/p/${id}`, label: t('Overview', '概览') }, { key: 'analytics', to: `/console/p/${id}/analytics`, label: t('Analytics', '数据分析') }]} />
 );
 
-/** Players online now, refreshed every 15 seconds (the rate the games send heartbeats). */
+/** Players online now, refreshed every 15 seconds (the rate the page showing a game checks in). */
 function LiveNow({ id, first }: { id: string; first: any }) {
   const [now, setNow] = useState(first);
   useEffect(() => { const i = setInterval(() => { void api(`/console/projects/${id}/online`).then(setNow).catch(() => { }); }, 15000); return () => clearInterval(i); }, [id]);
@@ -25,7 +25,7 @@ function LiveNow({ id, first }: { id: string; first: any }) {
       </StatGrid>
       {!!now.rooms.busiest.length && <div style={{ marginTop: 18 }}><Table><thead><tr><th>{t('Room', '房间')}</th><th>{t('Where', '环境')}</th><th className="n">{t('Players', '玩家')}</th><th className="n">{t('Last change', '最近变化')}</th></tr></thead>
         <tbody>{now.rooms.busiest.map((r: any) => <tr key={r.env + r.room}><td className="mono">{r.room}</td><td>{r.env === 'live' ? t('Live', '线上') : t('Preview', '预览')}</td><td className="n">{r.players}</td><td className="n">{ago(Date.parse(r.since))}</td></tr>)}</tbody></Table></div>}
-      <p className="dim fs-sm" style={{ marginTop: 14 }}>{t('Online means the game sent a heartbeat in the last minute. Rooms count players connected to GCP.room now.', '在线指游戏在最近一分钟内发送过心跳；房间人数为当前连接到 GCP.room 的玩家。')}</p>
+      <p className="dim fs-sm" style={{ marginTop: 14 }}>{t('Online means the page showing the game checked in with the platform in the last minute; the game\'s own heartbeats do not count. Rooms count players connected to GCP.room now.', '在线指显示游戏的页面在最近一分钟内向平台报到过；游戏自己的心跳不计入。房间人数为当前连接到 GCP.room 的玩家。')}</p>
     </Card>
   );
 }
@@ -35,7 +35,7 @@ export function Analytics({ id }: { id: string }) {
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}/analytics?days=${days}`);
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <AnalyticsSkeleton />;
-  const p = data.project, x = data.totals, daily = data.daily as any[];
+  const p = data.project, x = data.totals, daily = data.daily as any[], g = data.reported_by_game;
   const bar = (k: string) => daily.map((d) => ({ label: d.day, value: d[k] }));
   const empty = !x.sessions;
 
@@ -55,8 +55,9 @@ export function Analytics({ id }: { id: string }) {
             <Stat label={t('Players', '玩家')} value={num(x.players)} sub={t('{new_players} new · {returning_players} returning', '{new_players} 新玩家 · {returning_players} 回访', { new_players: num(x.new_players), returning_players: num(x.returning_players) })} />
             <Stat label={t('Sessions', '会话')} value={num(x.sessions)} sub={t('{sessions_per_player} per player · {counted_plays} counted plays', '人均 {sessions_per_player} 次 · {counted_plays} 次计入游玩', { sessions_per_player: x.sessions_per_player, counted_plays: num(x.counted_plays) })} />
             <Stat label={t('Time played', '游玩时长')} value={mins(x.minutes_played)} sub={t('{avg_session_minutes} min average · {median_session_minutes} min median', '平均 {avg_session_minutes} 分钟 · 中位 {median_session_minutes} 分钟', { avg_session_minutes: x.avg_session_minutes, median_session_minutes: x.median_session_minutes })} />
-            <Stat tone={x.error_session_share > 5 ? 'accent' : undefined} label={t('Sessions with errors', '出错的会话')} value={pct(x.error_session_share)} sub={`${count(x.sessions_with_errors, 'session', 'sessions', '个会话')} · ${num(x.never_started)} ${t('never started', '个未能启动')}`} />
+            <Stat label={t('Returning players', '回访玩家')} value={pct(x.returning_share)} sub={t('{returning_players} of {players} players', '{players} 位玩家中的 {returning_players} 位', { returning_players: num(x.returning_players), players: num(x.players) })} />
           </StatGrid>
+          <p className="dim fs-sm">{t('Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 15 seconds while the game is on screen. Nothing the game reports about itself changes them.', '会话、游玩时长和玩家数由平台自己测量：从玩家点击“开始”起，并由游戏页面在游戏显示期间每 15 秒报到一次。游戏自己上报的内容不会改变这些数字。')}</p>
 
           <div className="cols">
             <div className="stack l">
@@ -71,12 +72,23 @@ export function Analytics({ id }: { id: string }) {
                 <Bars data={data.last_24_hours.map((h: any) => ({ label: h.hour.slice(11, 16), value: h.sessions }))} tip={(d) => `${d.label} · ${d.value}`} height={96} />
               </Card>
               <Card title={t('By version', '按版本')}>
-                <Table><thead><tr><th>{t('Version', '版本')}</th><th className="n">{t('Players', '玩家')}</th><th className="n">{t('Sessions', '会话')}</th><th className="n">{t('Avg session', '平均时长')}</th><th className="n">{t('With errors', '出错占比')}</th></tr></thead>
-                  <tbody>{data.versions.map((v: any) => <tr key={v.version}><td className="mono">v{v.version}{v.version === p.live_version && <> <Badge tone="good" dot={false}>{t('Live', '线上')}</Badge></>}</td><td className="n">{num(v.players)}</td><td className="n">{num(v.sessions)}</td><td className="n">{v.avg_minutes} {t('min', '分钟')}</td><td className={'n' + (v.error_session_share > 5 ? ' bad' : '')}>{pct(v.error_session_share)}</td></tr>)}</tbody></Table>
+                <Table><thead><tr><th>{t('Version', '版本')}</th><th className="n">{t('Players', '玩家')}</th><th className="n">{t('Sessions', '会话')}</th><th className="n">{t('Avg session', '平均时长')}</th></tr></thead>
+                  <tbody>{data.versions.map((v: any) => <tr key={v.version}><td className="mono">v{v.version}{v.version === p.live_version && <> <Badge tone="good" dot={false}>{t('Live', '线上')}</Badge></>}</td><td className="n">{num(v.players)}</td><td className="n">{num(v.sessions)}</td><td className="n">{v.avg_minutes} {t('min', '分钟')}</td></tr>)}</tbody></Table>
               </Card>
-              <Card title={t('Errors players hit', '玩家遇到的错误')} aside={`${count(data.errors.total, 'report', 'reports', '次报告')} · ${count(data.errors.kinds, 'kind', 'kinds', '种')}`}>
-                {data.errors.top.length ? <Table><thead><tr><th>{t('Message', '信息')}</th><th>{t('Version', '版本')}</th><th className="n">{t('Count', '次数')}</th><th className="n">{t('Last seen', '最近出现')}</th></tr></thead>
-                  <tbody>{data.errors.top.map((e: any, i: number) => <tr key={i}><td className="mono bad fs-sm" style={{ wordBreak: 'break-word' }}>{e.message}</td><td>v{e.version}</td><td className="n">{e.count}</td><td className="n">{ago(Date.parse(e.last_seen))}</td></tr>)}</tbody></Table>
+              <Card title={t('Reported by the game', '游戏自己上报的')} aside={t('for finding bugs; not used in any number above', '用于排查问题；不计入上面的任何数字')} pad>
+                <div className="stack">
+                  <p className="dim fs-sm">{t('These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.', '这些来自游戏本身的心跳，平台无法核实：游戏是否调用了 GCP.ready，以及它捕获到的错误。')}</p>
+                  <StatGrid>
+                    <Stat tone={g.error_session_share > 5 ? 'accent' : undefined} label={t('Sessions with errors', '出错的会话')} value={pct(g.error_session_share)} sub={count(g.sessions_with_errors, 'session', 'sessions', '个会话')} />
+                    <Stat label={t('Never started', '未能启动')} value={num(g.never_started)} sub={t('no GCP.ready before the player left', '玩家离开前未调用 GCP.ready')} />
+                  </StatGrid>
+                  {g.versions.some((v: any) => v.error_session_share > 0) && <Table><thead><tr><th>{t('Version', '版本')}</th><th className="n">{t('With errors', '出错占比')}</th></tr></thead>
+                    <tbody>{g.versions.map((v: any) => <tr key={v.version}><td className="mono">v{v.version}</td><td className={'n' + (v.error_session_share > 5 ? ' bad' : '')}>{pct(v.error_session_share)}</td></tr>)}</tbody></Table>}
+                </div>
+              </Card>
+              <Card title={t('Errors players hit', '玩家遇到的错误')} aside={`${count(g.errors.total, 'report', 'reports', '次报告')} · ${count(g.errors.kinds, 'kind', 'kinds', '种')}`}>
+                {g.errors.top.length ? <Table><thead><tr><th>{t('Message', '信息')}</th><th>{t('Version', '版本')}</th><th className="n">{t('Count', '次数')}</th><th className="n">{t('Last seen', '最近出现')}</th></tr></thead>
+                  <tbody>{g.errors.top.map((e: any, i: number) => <tr key={i}><td className="mono bad fs-sm" style={{ wordBreak: 'break-word' }}>{e.message}</td><td>v{e.version}</td><td className="n">{e.count}</td><td className="n">{ago(Date.parse(e.last_seen))}</td></tr>)}</tbody></Table>
                   : <div className="pad mute">{t('No errors reported by players in this window.', '此时间段内玩家没有报告错误。')}</div>}
               </Card>
             </div>

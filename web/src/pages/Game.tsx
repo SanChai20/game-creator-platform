@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { usePlayClock } from '../play-clock';
 import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
@@ -71,14 +72,9 @@ export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null);
-  // While the game is open on this page, the page itself tells the platform once a minute, so play time is measured by
-  // the platform and not only by the game's own heartbeats (it decides whether a purchase can still be refunded).
-  useEffect(() => {
-    if (!url || !user) return;
-    const ping = () => { if (session.current) void api(`/plays/${session.current}/seen`, { method: 'POST' }).catch(() => undefined); };
-    const id = setInterval(ping, 60000);
-    return () => { clearInterval(id); ping(); };
-  }, [url, user]);
+  // While the game is open, this page checks in with the platform every 15 seconds: the platform's own play clock, which
+  // every play number comes from (plays, play time, players online, trial and refund time), not the game's heartbeats.
+  usePlayClock(url ? session.current : null);
   const [rating, setRating] = useState(0), [body, setBody] = useState('');
   // Compatibility: this browser checked against the live version's requirements; a failing device is asked before launch.
   const cv = useCompat(data?.compat), [gate, setGate] = useState(false);

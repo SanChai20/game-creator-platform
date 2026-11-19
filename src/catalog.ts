@@ -4,12 +4,12 @@ import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
 import { ONLINE_WINDOW_MS } from './analytics';
 
-/** Players with a heartbeat in the last minute, per live game (runs every minute). */
+/** Players whose page checked in during the last minute (the platform's play clock, not the game's heartbeat), per live game (runs every minute). */
 export function playingStmts(db: D1Database, t = now()): D1PreparedStatement[] {
-  const since = t - ONLINE_WINDOW_MS, active = "SELECT project_id FROM plays WHERE env = 'live' AND last_beat_at > ?1 AND kind != 'verify'";
+  const since = t - ONLINE_WINDOW_MS, active = "SELECT project_id FROM plays WHERE env = 'live' AND seen_at > ?1 AND kind != 'verify'";
   return [
     db.prepare(`UPDATE projects SET playing = 0 WHERE playing != 0 AND id NOT IN (${active})`).bind(since),
-    db.prepare(`UPDATE projects SET playing = (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl WHERE pl.project_id = projects.id AND pl.env = 'live' AND pl.last_beat_at > ?1 AND pl.kind != 'verify')
+    db.prepare(`UPDATE projects SET playing = (SELECT COUNT(DISTINCT pl.user_id) FROM plays pl WHERE pl.project_id = projects.id AND pl.env = 'live' AND pl.seen_at > ?1 AND pl.kind != 'verify')
       WHERE id IN (${active})`).bind(since),
   ];
 }
