@@ -2,7 +2,7 @@
 // number in the address so any view can be shared or bookmarked. Results come 30 to a page with numbered pages,
 // as a grid of cards or as a dense list. The same engine (Catalogue) runs the browse page and each category page.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { api, ApiError, Fail, GameTile, genreHue, genreName, tagGroupName, lastVisit, Link, navigate, num, query, t, useLocation, type GameCard } from '../lib';
+import { api, ApiError, Fail, GameTile, genreHue, genreName, tagGroupName, lastVisit, Link, navigate, num, query, t, useLang, useLocation, type GameCard } from '../lib';
 import { Button, EmptyState } from '../ui';
 import { SkGrid } from '../skeletons';
 import { Sk } from '../ui/skeleton';
@@ -58,7 +58,8 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
   const prices: [string, string][] = [['', t('Any price', '任意价格')], ['free', t('Free', '免费')], ['under5', t('Under $5', '5 美元以下')], ['paid', t('Paid', '付费')], ['trial', t('Free trial', '可免费试玩')]];
   const ratings: [string, string][] = [['', t('Any rating', '任意评分')], ['3', '★ 3+'], ['4', '★ 4+'], ['4.5', '★ 4.5+']];
   const [gq, setGq] = useState(''), [moreG, setMoreG] = useState<Record<string, boolean>>({});
-  const glist = useMemo(() => { const f = gq.trim().toLowerCase(); return genres.filter((g) => g.tag !== pinned && (!f || g.tag.includes(f) || genreName(g.tag).toLowerCase().includes(f))); }, [genres, gq, pinned]);
+  const lang = useLang();   // genre names follow the platform language when it changes
+  const glist = useMemo(() => { const f = gq.trim().toLowerCase(); return genres.filter((g) => g.tag !== pinned && (!f || g.tag.includes(f) || genreName(g.tag).toLowerCase().includes(f))); }, [genres, gq, pinned, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // genres first, then the platform's tag groups: each shows its most used tags, with the rest a click away
   const groups = useMemo(() => FACET_GROUPS.map((k) => [k, glist.filter((g) => (g.group || 'genre') === k)] as const).filter(([, l]) => l.length), [glist]);
 

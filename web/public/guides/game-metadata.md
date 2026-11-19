@@ -126,6 +126,21 @@ const lang = STRINGS[pick] ? pick : 'en';
 
 Declare `follows_platform: true` when the game does this.
 
+### When the player switches language mid-game
+
+The player can change the platform language from the page around the game at any time. The game is never reloaded or restarted for it: it keeps running, `GCP.lang` changes to the new code, and every function registered with `GCP.onLang(fn)` is called as `fn(lang, previous)`. A game that can swap its text live does it there; a game that cannot needs nothing, and opens in the new language the next time it starts (the SDK also keeps the new language in the frame's address, so a game that reloads itself opens in it).
+
+```js
+function applyLang(code) {
+  const pick = { zh: 'zh-Hans', 'zh-TW': 'zh-Hant' }[code] || code.split('-')[0];
+  setLanguage(STRINGS[pick] ? pick : 'en');   // the game's own: redraw menus, HUD and subtitles in that language
+}
+applyLang(GCP.lang);
+GCP.onLang(applyLang);   // returns a function that stops listening
+```
+
+Only follow the platform language this way if the player has not picked a language in the game's own settings: a choice they made in the game wins.
+
 ### Detection
 
 At every deploy the platform looks for languages in the code: locale files (`locales/ja.json`, `i18n/ko.json`, `lang/es/…`), the `lang` attribute of `index.html`, and the scripts in text strings (Japanese kana, Korean Hangul, Chinese, Cyrillic, Arabic and others). It also notices when the code reads `GCP.lang`. With no declaration, the store shows what was detected and says so. With one, the declaration wins and anything that disagrees is reported as a warning, for example a detected language the declaration never lists.

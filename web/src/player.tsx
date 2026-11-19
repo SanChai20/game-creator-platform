@@ -10,10 +10,11 @@
 //     the visible viewport ("immersive"), page scroll and pinch zoom off; the back gesture leaves it.
 // Leaving fullscreen, however it happens, puts the game back in its window on the page; it keeps running.
 // The game is told what is going on through the SDK (GCP.display, GCP.onDisplay), can toggle fullscreen (GCP.fullscreen),
-// open the platform menu (GCP.menu) or quit (GCP.quit), and can keep Esc for itself (GCP.onEscape). A watchdog pings it
+// open the platform menu (GCP.menu) or quit (GCP.quit), and can keep Esc for itself (GCP.onEscape). Switching the
+// platform language on the page does not restart the game: it is told the new language (GCP.lang, GCP.onLang). A watchdog pings it
 // every second and offers Wait or Quit game when it stops answering.
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
-import { artStyle, t } from './lib';
+import { artStyle, getLang, t, useLang } from './lib';
 import { Button } from './ui';
 import './player.css';
 
@@ -203,6 +204,10 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
     frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung, menu }, '*');
   }, [active, fs, immersive, want, handheld, edge, insets, menu, hung]);
   useEffect(() => { post(); }, [post]);
+  // The platform language, switched on the page while the game runs: the game keeps running and is told (GCP.lang, GCP.onLang).
+  const lang = useLang();
+  const postLang = useCallback(() => { frame.current?.contentWindow?.postMessage({ gcp: 'lang', lang: getLang() }, '*'); }, []);
+  useEffect(() => { postLang(); }, [lang, postLang]);
   useEffect(() => {
     const f = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow || !e.data) return;
@@ -216,13 +221,13 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
         exit: ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'none'].includes(d.exitButton) ? d.exitButton : p.exit,
         edge: typeof d.edgeToEdge === 'boolean' ? d.edgeToEdge : p.edge,
       }));
-      if (d.gcp === 'display_query') post();
+      if (d.gcp === 'display_query') { post(); postLang(); }
       if (d.gcp === 'escape') gameEsc.current = d.on === true;
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
-  }, [enter, exit, toggle, quit, post, active, onTrialOver, onSessionEnded]);
+  }, [enter, exit, toggle, quit, post, postLang, active, onTrialOver, onSessionEnded]);
   useEffect(() => { if (active && want !== 'any') lockOrientation(want); }, [active, want]);
   useEffect(() => { gameEsc.current = false; }, [url]);
   // Esc pressed while the page, not the game frame, has the keyboard: close the menu if it is open, otherwise hand the key
@@ -272,7 +277,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   return (
     <div>
       <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '')} ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} inert={menu || hung} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
+        {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
         {active && url && !menu && !hung && (corner !== 'none' || badge) && (
