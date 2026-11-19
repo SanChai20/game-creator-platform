@@ -101,6 +101,48 @@
     EventTarget.prototype.addEventListener = function (type) { if (watch[type]) P.listeners[type] = (P.listeners[type] || 0) + 1; return add.apply(this, arguments); };
   })();
 
+  // ---- Sound that starts on the first tap, for every game. Browsers only let a page start sound inside a user gesture,
+  // and on iPhone and iPad only some events count: touchend, pointerup, click and keydown do, but pointerdown and
+  // touchstart from a finger do not. A game that creates or resumes its AudioContext on pointerdown (a common choice that
+  // works on computers) stays silent there until something else happens to resume it in the right event. So every audio
+  // context the game makes is noted, and on each such gesture any that is not running is resumed, unless the game itself
+  // suspended it (a pause, a hidden tab): its own resume() hands it back. Interrupted contexts (a call, the lock screen)
+  // come back the same way on the next tap. Subclasses (Tone.js and the like) keep working: the context is built with
+  // the subclass as its constructor.
+  (function () {
+    var live = [], held = typeof WeakSet === 'function' ? new WeakSet() : null;
+    if (!held || typeof Reflect !== 'object') return;
+    ['AudioContext', 'webkitAudioContext'].forEach(function (n) {
+      var A = window[n]; if (typeof A !== 'function' || A.__gcpUnlock) return;
+      var W = function AudioContext() {
+        var nt = this instanceof W && typeof this.constructor === 'function' ? this.constructor : A;   // a subclass's own constructor
+        var c = Reflect.construct(A, arguments, nt);
+        try { if (c.state !== 'running') live.push(c); c.addEventListener('statechange', function () { if (c.state === 'closed') { var i = live.indexOf(c); if (i >= 0) live.splice(i, 1); } else if (c.state !== 'running' && live.indexOf(c) < 0) live.push(c); }); } catch (e) { /* not a real context */ }
+        return c;
+      };
+      W.prototype = A.prototype; W.__gcpUnlock = 1;
+      try { Object.setPrototypeOf(W, A); } catch (e) { /* old browser */ }
+      var P0 = A.prototype;
+      if (P0 && typeof P0.suspend === 'function' && typeof P0.resume === 'function' && !P0.__gcpUnlock) {
+        var sus = P0.suspend, res = P0.resume;
+        P0.suspend = function () { held.add(this); return sus.apply(this, arguments); };
+        P0.resume = function () { held.delete(this); return res.apply(this, arguments); };
+        P0.__gcpUnlock = 1;
+      }
+      try { window[n] = W; } catch (e) { /* read-only */ }
+    });
+    var unlock = function () {
+      for (var i = live.length - 1; i >= 0; i--) {
+        var c = live[i];
+        if (c.state === 'closed') { live.splice(i, 1); continue; }
+        if (c.state === 'running') { live.splice(i, 1); continue; }
+        if (held.has(c)) continue;
+        try { var r = c.resume(); if (r && r.catch) r.catch(function () { }); } catch (e) { /* not now */ }
+      }
+    };
+    ['pointerup', 'touchend', 'click', 'keydown', 'mousedown'].forEach(function (t) { window.addEventListener(t, unlock, { capture: true, passive: true }); });
+  })();
+
   // Count frames for any engine by wrapping requestAnimationFrame. Frames are what "alive" means.
   var raf0 = window.requestAnimationFrame.bind(window), lastT = -1, lastFrameAt = 0;
   // In the portrait pass frames are paced: a full-quality frame on a CPU renderer takes far longer to draw than to submit,

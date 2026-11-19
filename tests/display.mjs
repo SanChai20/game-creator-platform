@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-function loadSdk() {
+function loadSdk(extra = {}) {
   const noop = () => {}, listeners = {}, docListeners = {}, posted = [], props = {}, classes = new Set(), styles = [], timers = [];
   const parent = { postMessage: (m) => posted.push(m) };
   const win = { addEventListener: (k, f) => { (listeners[k] ||= []).push(f); }, requestAnimationFrame: () => 0, location: { search: '', pathname: '/', hash: '' }, history: { replaceState: noop }, parent };
@@ -17,6 +17,7 @@ function loadSdk() {
     performance: { now: () => 0, timeOrigin: 1.7e12 }, setTimeout: (f) => { timers.push(f); return 0; }, clearTimeout: noop, setInterval: () => 0, clearInterval: noop,
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop }, fetch: () => Promise.reject(new Error('offline')), Promise, JSON, Math, Object, Array, Date, Number, String, isFinite, Error, Blob: class {}, Uint8Array, Float32Array,
   };
+  Object.assign(ctx, extra);
   win.window = win; Object.assign(win, ctx);
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(new URL('../web/public/sdk/gcp.js', import.meta.url), 'utf8'), ctx);
@@ -30,7 +31,8 @@ function loadSdk() {
     (docListeners.touchstart || []).forEach((f) => f(ev()));
     const e = ev(); if (game) game(e); (docListeners.touchmove || []).forEach((f) => f(e)); return e;
   };
-  return { GCP: win.GCP, posted, props, send, key, classes, styles, gesture, swipe };
+  const fire = (type) => (listeners[type] || []).forEach((f) => f({ type }));
+  return { GCP: win.GCP, win, posted, props, send, key, classes, styles, gesture, swipe, fire };
 }
 
 test('setDisplay passes edgeToEdge to the platform page', () => {
@@ -183,4 +185,54 @@ test('a platform language switch updates GCP.lang and calls onLang, without relo
   off(); send({ gcp: 'lang', lang: 'es' });
   assert.equal(GCP.lang, 'es');
   assert.equal(heard.length, 2);
+});
+
+// A stand-in for the browser's AudioContext: resume() only works inside a gesture the browser counts.
+function fakeAudio() {
+  const gate = { open: false };
+  class AudioContext {
+    constructor() { this.state = gate.open ? 'running' : 'suspended'; this.fns = []; }
+    addEventListener(k, f) { if (k === 'statechange') this.fns.push(f); }
+    set(st) { this.state = st; this.fns.forEach((f) => f()); }
+    resume() { if (gate.open && this.state !== 'closed') this.set('running'); return Promise.resolve(); }
+    suspend() { this.set('suspended'); return Promise.resolve(); }
+    close() { this.set('closed'); return Promise.resolve(); }
+  }
+  return { AudioContext, gate };
+}
+const gestureEnd = (sdk, gate, type = 'touchend') => { gate.open = true; sdk.fire(type); gate.open = false; };
+
+test('sound made on pointerdown starts on the same tap (iPhone and iPad only unlock audio on touchend)', () => {
+  const { AudioContext, gate } = fakeAudio();
+  const sdk = loadSdk({ AudioContext });
+  const ctx = new sdk.win.AudioContext();     // the game, in its pointerdown handler: not a gesture on iOS
+  ctx.resume();
+  assert.equal(ctx.state, 'suspended');
+  gestureEnd(sdk, gate);
+  assert.equal(ctx.state, 'running');
+});
+
+test('a context the game suspended itself stays suspended until the game resumes it', () => {
+  const { AudioContext, gate } = fakeAudio();
+  const sdk = loadSdk({ AudioContext });
+  gate.open = true; const ctx = new sdk.win.AudioContext(); gate.open = false;
+  ctx.suspend();
+  gestureEnd(sdk, gate, 'click');
+  assert.equal(ctx.state, 'suspended', 'the game paused its sound');
+  ctx.resume();                                // the game resumes outside a gesture (tab shown again): refused
+  assert.equal(ctx.state, 'suspended');
+  gestureEnd(sdk, gate, 'pointerup');
+  assert.equal(ctx.state, 'running', 'the next tap finishes the game\'s resume');
+  ctx.set('interrupted');                      // iOS: a call or the lock screen
+  gestureEnd(sdk, gate, 'keydown');
+  assert.equal(ctx.state, 'running');
+});
+
+test('subclasses of AudioContext keep their own class', () => {
+  const { AudioContext } = fakeAudio();
+  const sdk = loadSdk({ AudioContext });
+  const Sub = class extends sdk.win.AudioContext { hi() { return 'hi'; } };
+  const c = new Sub();
+  assert.equal(c.hi(), 'hi');
+  assert.ok(c instanceof Sub); assert.ok(c instanceof AudioContext); assert.ok(new sdk.win.AudioContext() instanceof AudioContext);
 });
