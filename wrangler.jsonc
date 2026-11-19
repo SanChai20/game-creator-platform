@@ -43,7 +43,7 @@
   // Cloudflare Email Service: payout emails to creators (src/mail.ts). Sends nothing until the domain is onboarded under
   // Compute > Email Service > Email Sending; sending to any address needs the Workers Paid plan.
   "send_email": [{ "name": "EMAIL" }],
-  "triggers": { "crons": ["17 3 * * *", "*/10 * * * *", "* * * * *"] },   // daily cleanup; game runtime rollout (src/deploy.ts); catalogue numbers (src/catalog.ts)
+  "triggers": { "crons": ["17 3 * * *", "*/10 * * * *", "* * * * *"] },   // daily cleanup and payouts; every 10 min trending scores, today's picks and the runtime rollout; every minute playing now (src/rankings.ts lists them all)
   "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": true }],
   "observability": { "enabled": true },
   // Workers for Platforms (docs/workers-for-platforms.md): with DEPLOY_DRIVER "dispatch", games are user Workers in this

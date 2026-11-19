@@ -19,6 +19,7 @@ export const SETTING_DEFS = {
   stripe_platform_country: { v: 'US', type: 'text', group: 'Withdrawals', label: 'Country of the platform Stripe account (2 letters)' },
 
   platform_fee_percent: { v: 10, type: 'number', group: 'Paid games', label: 'Platform cut of each game sale (percent)', public: true },
+  platform_fee_open_percent: { v: 5, type: 'number', group: 'Paid games', label: 'Platform cut of each sale of a game that shares its Open Implementation (percent)', public: true },
   sale_processing_percent: { v: 0, type: 'number', group: 'Paid games', label: 'Payment processing cost passed on to the creator (percent of price, on top of the cut)', public: true },
   sale_processing_fixed_cents: { v: 0, type: 'cents', group: 'Paid games', label: 'Payment processing cost passed on to the creator (fixed, per sale)', public: true },
   game_price_min_cents: { v: 199, type: 'cents', group: 'Paid games', label: 'Lowest price a paid game can have', public: true },
@@ -71,6 +72,7 @@ export const SETTING_DEFS = {
   content_ai_threshold: { v: 50, type: 'int', group: 'Content and conduct', label: 'How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it' },
 
   open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },
+  open_impl_free_boost_percent: { v: 50, type: 'int', group: 'Open implementation', label: 'Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)', public: true },
   open_impl_ai_daily: { v: 200, type: 'int', group: 'Open implementation', label: 'Most AI summaries written per day (the rest use the rule-based summary)' },
 
   game_cpu_ms: { v: 0, type: 'int', group: 'Game Workers', label: 'CPU time a game Worker may use per request, in milliseconds (0: the Cloudflare default, 30000; at most 300000)', public: true },

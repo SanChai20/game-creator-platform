@@ -48,7 +48,11 @@ const listOr = (a: string[] | undefined) => (a && a.length ? a.join(', ') : '—
 
 /** The opt-in to share how the game is built with other developers' agents, and a look at exactly what they get. */
 function OpenImplementation({ id, p, info, reload }: { id: string; p: any; info: any; reload: () => Promise<unknown> }) {
-  const { busy, act } = useAct(), [card, setCard] = useState<any>(undefined);
+  const { busy, act } = useAct(), [card, setCard] = useState<any>(undefined), s = useApp().config.settings;
+  const cut = Number(s.platform_fee_percent), openCut = Number(s.platform_fee_open_percent ?? cut);
+  const perk = p.price_cents > 0
+    ? (s.paid_games_enabled && openCut < cut ? t('While shared, the platform keeps {open}% of each sale of this game instead of {cut}%.', '开放期间，平台从这款游戏的每笔销售中收取 {open}%，而不是 {cut}%。', { open: openCut, cut }) : null)
+    : (Number(s.open_impl_free_boost_percent) > 0 ? t('While shared, this free game ranks higher among free games, unless players rate it poorly.', '开放期间，这款免费游戏在免费游戏中排名更靠前（玩家评价较差时除外）。') : null);
   const on = !!p.open_implementation;
   const toggle = (next: boolean) => act('impl', async () => { await api(`/console/projects/${id}`, { method: 'PATCH', body: { open_implementation: next } }); await reload(); },
     next ? t('Shared. Other agents can now learn how this game is built.', '已开放。其他智能体现在可以了解这款游戏的实现方式。') : t('No longer shared.', '已停止分享。'));
@@ -64,6 +68,7 @@ function OpenImplementation({ id, p, info, reload }: { id: string; p: any; info:
         <p className="mute fs-sm">{on
           ? t('Other developers\' agents can read how the live game is built: engine, rendering, input, audio, techniques and a summary. Your code and files are never shared.', '其他开发者的智能体可以读取线上版本的实现方式：引擎、渲染、输入、音频、技术与概述。你的代码和文件永远不会被分享。')
           : t('Turn this on to let other developers\' agents learn how the game is built, never its code or files. With it off, nothing is shared.', '开启后，其他开发者的智能体可以了解这款游戏的实现方式，但看不到代码或文件。关闭时不分享任何内容。')}</p>
+        {perk && <p className={on ? 'good fs-sm' : 'fs-sm'}>{perk}</p>}
         {on && info && <KeyValue items={[[t('Describes', '描述版本'), <span className="mono">v{info.version}</span>], [t('Read by other agents', '被其他智能体读取'), num(info.reads)], [t('Summary by', '概述来源'), info.summary_source === 'ai' ? 'Workers AI' : t('Rules', '规则')]]} />}
         {p.live_version ? <Button size="sm" onClick={look} disabled={busy === 'look'}>{on ? t('See what agents see', '查看智能体看到的内容') : t('Preview what would be shared', '预览将分享的内容')}</Button>
           : <p className="dim fs-sm">{t('Publish the game first. The card describes the live version.', '请先发布游戏，卡片描述的是线上版本。')}</p>}

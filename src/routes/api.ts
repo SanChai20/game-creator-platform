@@ -16,7 +16,9 @@ import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
+import { freeTrendingOrder } from '../catalog';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
+import { currentPicks } from '../rankings';
 import { checkIn, sessionStartStmt } from '../play-clock';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../stripe';
@@ -45,6 +47,8 @@ function card(origin: string, r: Record<string, any>) {
     author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
     // adults-only games: the store blurs the cover and labels it 18+ (sexual, violence, other)
     age: r.age || null, mature: matureList(r),
+    // on today's picks: why the game was picked (featured, trending, rising, new, gem, free, more)
+    ...(r.pick ? { pick: r.pick } : {}),
     // the title and tagline in other platform languages, when the creator translated the listing
     ...(r.listing_i18n && r.listing_i18n !== '{}' ? { i18n: Object.fromEntries(Object.entries(parseJson<Record<string, { title?: string; tagline?: string }>>(r.listing_i18n, {})).map(([k, v]) => [k, { title: v.title, tagline: v.tagline }])) } : {}),
   };
@@ -218,7 +222,8 @@ const ORDER: Record<string, string> = {
   top: '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC',
   played: 'p.plays DESC',
   playing: 'p.playing DESC, p.recent DESC, p.plays DESC',
-  trending: 'p.featured DESC, p.recent DESC, p.plays DESC, p.published_at DESC',
+  // the trending score (src/rankings.ts); admin-featured games go into today's picks instead of being pinned here
+  trending: 'p.recent DESC, p.plays DESC, p.published_at DESC',
 };
 async function listGames(c: Ctx, o: ListOpts) {
   const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
@@ -232,10 +237,12 @@ async function listGames(c: Ctx, o: ListOpts) {
   if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
   if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
   const w = where.join(' AND ');
+  // among free games, those that share their Open Implementation get a moderate lift (src/catalog.ts)
+  const order = sort === 'trending' && o.price === 'free' ? freeTrendingOrder((await getSettings(c.env)).open_impl_free_boost_percent) : ORDER[sort];
   const [rows, total] = await Promise.all([
     c.env.DB.prepare(
       // recent and playing are columns kept fresh by cron (src/catalog.ts), so the sort can use an index
-      `SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${ORDER[sort]} LIMIT ? OFFSET ?`).bind(...args, limit, offset).all(),
+      `SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...args, limit, offset).all(),
     c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${w}`).bind(...args).first<{ n: number }>(),
   ]);
   const games = rows.results.map((r) => card(c.get('origin'), r)), n = total?.n || 0;
@@ -300,7 +307,8 @@ async function edgeCached(c: Ctx, seconds: number, make: () => Promise<Response>
 api.get('/home', (c) => edgeCached(c, 20, () => homeData(c)));
 async function homeData(c: Ctx): Promise<Response> {
   const t = now(), weekAgo = t - 7 * 86400000;
-  const [trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+  const [picks, trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+    currentPicks(c.env.DB, t),
     listGames(c, { sort: 'trending', limit: 16 }),
     listGames(c, { sort: 'playing', limit: 12 }),
     listGames(c, { sort: 'new', limit: 12 }),
@@ -317,6 +325,8 @@ async function homeData(c: Ctx): Promise<Response> {
   return c.json({
     stats: { games: stats?.games || 0, new_week: stats?.new_week || 0, playing: stats?.playing || 0, creators: stats?.creators || 0 },
     shelves: {
+      // today's picks lead the page (chosen each day by the schedule, src/rankings.ts)
+      picks: picks.map((r) => card(c.get('origin'), r)),
       trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
     },
     genres,
@@ -649,7 +659,7 @@ async function applySession(env: Env, session: any): Promise<string> {
     const p = await getProject(env, m.project_id);
     if (!p) return 'missing_project';
     const sale = { userId: m.user_id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: session.amount_total || p.price_cents, provider: 'stripe' as const, providerRef: session.id, paymentIntent: pi };
-    try { await recordPurchase(env, await getSettings(env), sale); }
+    try { await recordPurchase(env, await getSettings(env), { ...sale, openImplementation: !!p.open_implementation }); }
     catch (e) {
       // The buyer already owns the game (two checkouts open at once, or paid in two tabs): the second payment is given
       // back at once and kept on record as refunded, instead of failing and leaving the money taken.
@@ -789,7 +799,7 @@ api.get('/console/projects/:id', async (c) => {
     versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
-    split: p.price_cents > 0 ? splitSale(p.price_cents, s) : null,
+    split: p.price_cents > 0 ? splitSale(p.price_cents, s, !!p.open_implementation) : null,
     trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },
     online: await onlineNow(c.env, p.id),
     implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
@@ -862,7 +872,7 @@ api.get('/console/earnings', async (c) => {
     db.prepare("SELECT p.title, p.slug, COUNT(*) AS n, SUM(x.price_cents) AS gross, SUM(x.fee_cents) AS fees, SUM(x.net_cents) AS net FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid' GROUP BY x.project_id ORDER BY net DESC").bind(u.id).all(),
   ]);
   return c.json({
-    balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: Math.ceil(holdMs(s, now() - u.created_at) / 86400000), fee_percent: s.platform_fee_percent,
+    balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: Math.ceil(holdMs(s, now() - u.created_at) / 86400000), fee_percent: s.platform_fee_percent, fee_open_percent: s.platform_fee_open_percent,
     payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, auto: !!s.auto_payouts, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
   });
 });

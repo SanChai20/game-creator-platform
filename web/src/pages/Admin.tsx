@@ -46,10 +46,33 @@ function Overview() {
         </div></Card>
         <Card title={t('System', '系统状态')} pad><div>{items.map(([label, ok, detail]) => <CheckRow key={label} ok={ok} title={label} detail={detail} />)}</div></Card>
       </div>
+      <Jobs jobs={data.jobs || []} picks={data.picks || []} />
       <Card title={t('Flagged uploads', '被标记的上传')} aside={t('copies of other creators\' games and uploads that are not games, caught before publishing', '发布前拦截的抄袭作品与非游戏上传')}>
         {data.flags?.length ? <Table><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Creator', '创作者')}</th><th>{t('Why', '原因')}</th><th className="n">{t('When', '时间')}</th></tr></thead>
           <tbody>{data.flags.map((f: any, i: number) => <tr key={i}><td><b>{f.title}</b> <span className="dim mono fs-xs">v{f.version}</span></td><td className="mono fs-sm">{f.email}</td><td className="fs-sm"><Badge tone={f.kind === 'not_game_flagged' ? 'neutral' : 'accent'} dot={false}>{f.kind === 'copy_flagged' ? t('Copy', '抄袭') : f.kind === 'player_report' ? t('Player report', '玩家举报') : t('Not a game', '非游戏')}</Badge> <span className="mute">{f.detail}</span></td><td className="n fs-sm">{ago(f.created_at)}</td></tr>)}</tbody></Table>
           : <div className="pad mute">{t('Nothing flagged.', '暂无标记。')}</div>}
+      </Card>
+    </div>
+  );
+}
+
+const JOB_LABEL = (): Record<string, string> => ({
+  playing: t('Playing now counts', '在线人数统计'), trending: t('Trending scores', '热门分数'), picks: t('Today\'s picks', '今日推荐'),
+  transfers: t('Stripe transfer retries', 'Stripe 转账重试'), rollout: t('Game runtime rollout', '游戏运行时更新'), mature: t('Age rating backfill', '年龄分级补全'),
+  payouts: t('Automatic payouts', '自动提现'), cleanup: t('Expired data cleanup', '过期数据清理'), fingerprints: t('Originality fingerprint backfill', '原创性指纹补全'),
+});
+/** The scheduled jobs: they run by themselves; this only shows that they do (a job late by more than two of its periods, or failing, is marked). */
+function Jobs({ jobs, picks }: { jobs: { job: string; every: number; last_run_at: number | null; last_ok_at: number | null; last_error: string | null; runs: number }[]; picks: { id: string; slug: string; title: string; reason: string }[] }) {
+  const L = JOB_LABEL(), late = (j: (typeof jobs)[number]) => !j.last_ok_at || Date.now() - j.last_ok_at > (j.every * 2 + 5) * 60000;
+  return (
+    <div className="cols">
+      <Card title={t('Scheduled jobs', '定时任务')} aside={t('They run on their own; nothing here needs doing', '自动运行，无需手动操作')} pad><div>
+        {jobs.map((j) => <CheckRow key={j.job} ok={!j.last_error && !late(j)} title={L[j.job] || j.job}
+          detail={j.last_error ? j.last_error : j.last_ok_at ? t('Last ran {when}', '上次运行：{when}', { when: ago(j.last_ok_at) }) : t('Not run yet', '尚未运行')} />)}
+      </div></Card>
+      <Card title={t('Today\'s picks', '今日推荐')} aside={t('Chosen every day from play numbers and ratings', '每天根据游玩数据与评分自动选出')} pad>
+        {picks.length ? <ol className="stack s">{picks.map((p) => <li key={p.id}><Link to={`/g/${p.slug}`}>{p.title}</Link> <span className="dim fs-xs">{p.reason}</span></li>)}</ol>
+          : <div className="mute">{t('Chosen at the next run, within 10 minutes.', '将在下次运行时选出（10 分钟内）。')}</div>}
       </Card>
     </div>
   );

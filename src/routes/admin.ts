@@ -13,6 +13,7 @@ import { enqueue } from '../pipeline';
 import { hostId, hostingProblems } from '../hosting';
 import { decideRequest, setGameStorage, MB } from '../storage';
 import { addDays, dayOf, now, rid } from '../util';
+import { currentPicks, JOBS } from '../rankings';
 import { grantCreator, reverseWithdrawal, takeOffline } from './api';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
@@ -30,7 +31,7 @@ admin.post('/audit/files', async (c) => {
 
 admin.get('/overview', async (c) => {
   const db = c.env.DB, since = addDays(dayOf(now()), -29), t30 = now() - 30 * 86400000;
-  const [users, games, plays, sales, fees, owed, pendingW, daily, signups, salesDaily, flags, ai] = await Promise.all([
+  const [users, games, plays, sales, fees, owed, pendingW, daily, signups, salesDaily, flags, ai, runs, picks] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n, SUM(creator) AS creators, SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS new30 FROM users").bind(t30).first<any>(),
     db.prepare("SELECT COUNT(*) AS n, SUM(status = 'live') AS live, SUM(status = 'live' AND price_cents > 0) AS paid, SUM(status = 'draft') AS draft, SUM(status = 'offline') AS offline, SUM(status = 'removed') AS removed FROM projects").first<any>(),
     db.prepare('SELECT COALESCE(SUM(plays), 0) AS plays, COALESCE(SUM(seconds), 0) AS seconds, COALESCE(SUM(sessions), 0) AS sessions FROM game_daily WHERE day >= ?').bind(since).first<any>(),
@@ -43,9 +44,15 @@ admin.get('/overview', async (c) => {
     db.prepare("SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS n, SUM(price_cents) AS gross, SUM(fee_cents) AS fees FROM purchases WHERE status = 'paid' AND created_at >= ? GROUP BY day ORDER BY day").bind(t30).all(),
     db.prepare("SELECT e.kind, e.detail, e.version, e.created_at, p.id, p.title, p.slug, u.email FROM events e JOIN projects p ON p.id = e.project_id JOIN users u ON u.id = p.owner_id WHERE e.kind IN ('copy_flagged', 'not_game_flagged', 'player_report') ORDER BY e.id DESC LIMIT 30").all(),
     db.prepare("SELECT purpose, SUM(calls) AS calls FROM ai_usage WHERE day >= ? GROUP BY purpose").bind(since).all(),
+    db.prepare('SELECT job, last_run_at, last_ok_at, last_error, last_error_at, runs FROM job_runs').all<Record<string, any>>(),
+    currentPicks(db),
   ]);
+  // the scheduled jobs (src/rankings.ts): each one's last run, so a stuck job shows without anyone having to watch it
+  const ran = new Map(runs.results.map((r) => [r.job, r]));
+  const jobs = JOBS.map((j) => { const r = ran.get(j.job); return { ...j, last_run_at: r?.last_run_at ?? null, last_ok_at: r?.last_ok_at ?? null, last_error: r && r.last_error_at && (!r.last_ok_at || r.last_error_at > r.last_ok_at) ? r.last_error : null, runs: r?.runs || 0 }; });
   return c.json({
     users, games, plays, sales, creator_fees: fees, owed_cents: owed?.c || 0, pending_withdrawals: pendingW, daily: daily.results, signups: signups.results, sales_daily: salesDaily.results, flags: flags.results, ai_calls_30d: ai.results,
+    jobs, picks: picks.map((p) => ({ id: p.id, slug: p.slug, title: p.title, reason: p.pick })),
     health: { payments: stripeReady(c.env), webhook: !!c.env.STRIPE_WEBHOOK_SECRET, accounts_webhook: !!c.env.STRIPE_ACCOUNTS_WEBHOOK_SECRET, deploy: (!!(c.env.CF_API_TOKEN && c.env.CF_ACCOUNT_ID) && !hostingProblems(c.env).length) || c.env.DEPLOY_DRIVER === 'local', hosting: hostId(c.env), hosting_problems: hostingProblems(c.env), browser: !!c.env.BROWSER || !!(c.env as any).VERIFIER_URL, driver: c.env.DEPLOY_DRIVER, db_bytes: await dbSize(c.env) },
   });
 });
@@ -205,7 +212,7 @@ admin.post('/grant-game', async (c) => {
   const p = await getProject(c.env, String(b.slug || ''));
   if (!u || !p) throw notFound('User or game not found.');
   const s = await getSettings(c.env);
-  await recordPurchase(c.env, b.credit ? s : { ...s, platform_fee_percent: 100, sale_processing_percent: 0, sale_processing_fixed_cents: 0 }, { userId: u.id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: b.credit ? p.price_cents : 0, provider: 'admin', providerRef: 'grant:' + rid(12) });
+  await recordPurchase(c.env, b.credit ? s : { ...s, platform_fee_percent: 100, sale_processing_percent: 0, sale_processing_fixed_cents: 0 }, { userId: u.id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: b.credit ? p.price_cents : 0, provider: 'admin', providerRef: 'grant:' + rid(12), openImplementation: !!p.open_implementation });
   return c.json({ ok: true });
 });
 

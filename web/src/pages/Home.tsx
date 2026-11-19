@@ -8,7 +8,7 @@ import { HomeSkeleton } from '../skeletons';
 import { ContinueRow } from '../continue';
 import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, type Genre, type StoreStats } from '../store';
 
-interface HomeData { stats: StoreStats; shelves: { trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: Genre[] }
+interface HomeData { stats: StoreStats; shelves: { picks?: GameCard[]; trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[] }; genres: Genre[] }
 
 export function Home() {
   const { config, user } = useApp();
@@ -32,8 +32,9 @@ export function Home() {
     </section></div>
   );
 
-  // the carousel takes the top picks; the trending lists carry on from there
-  const spot = sh.trending.slice(0, 6), more = sh.trending.slice(6);
+  // the carousel shows today's picks (chosen each day by the platform); before the first day's are chosen, the top of
+  // trending. The trending lists carry on with what the carousel does not show.
+  const spot = (sh.picks?.length || 0) >= 2 ? sh.picks! : sh.trending.slice(0, 6), more = sh.trending.filter((g) => !spot.some((x) => x.id === g.id));
   const pool = [...sh.trending, ...sh.new, ...sh.top].filter((g, i, a) => a.findIndex((x) => x.id === g.id) === i);
   return (
     <div className="store">

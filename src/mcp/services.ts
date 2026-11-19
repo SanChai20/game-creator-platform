@@ -5,6 +5,14 @@
 // Pure data over the settings, so tests/services.mjs can check it against the SDK and the tool list without a Worker.
 import type { Settings } from '../settings';
 
+/** What a creator gets for sharing, in words agents can pass on to the user when they ask whether to share. */
+export function openPerks(s: Pick<Settings, 'paid_games_enabled' | 'platform_fee_percent' | 'platform_fee_open_percent' | 'open_impl_free_boost_percent'>): string {
+  const out: string[] = [];
+  if (s.paid_games_enabled && s.platform_fee_open_percent < s.platform_fee_percent) out.push(`a paid game pays a ${s.platform_fee_open_percent}% platform cut on each sale made while it is shared, instead of ${s.platform_fee_percent}%`);
+  if (s.open_impl_free_boost_percent > 0) out.push('a free game is ranked higher among free games (unless players rate it poorly)');
+  return out.length ? `Sharing has benefits: ${out.join('; ')}.` : '';
+}
+
 export type Availability = 'available' | 'disabled' | 'automatic';
 export interface Service {
   id: string;
@@ -273,10 +281,10 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'payments', name: 'Paid games, free trials and payouts', category: 'business', status: on(s.paid_games_enabled),
       what: 'A creator can sell a game for a one-time price, offer a timed free trial, and withdraw earnings. Payments and payouts run on Stripe.',
-      how_it_works: `Players buy on the game page with Stripe Checkout; the platform keeps ${s.platform_fee_percent}% and credits the rest to the creator after ${Math.max(s.earnings_hold_days, Math.ceil(s.refund_window_hours / 24))} days. ${s.refund_window_hours > 0 ? `Buyers can refund a game themselves within ${s.refund_window_hours} hours of paying if they played it for less than ${s.refund_max_play_minutes} minutes, once per game; otherwise there are no refunds.` : 'Buyers cannot refund games themselves.'} A free trial is kept per account on the server by wall-clock time; when it ends the SDK pauses the game, the game page closes it, shows a buy prompt, and saves, leaderboards, rooms and server code answer 402. A trial plays the same files as the full game, so treat it as a soft limit: a determined player can keep the files. Put what only buyers should get behind server code or saved progress, which stop answering when the trial ends. Withdrawals go to a bank through Stripe Connect once the balance reaches ${usd(s.withdraw_min_cents)}. Publishing needs a one-time creator license${s.creator_fee_required ? ` (${usd(s.creator_fee_cents)})` : ' (not required on this platform)'}.`,
+      how_it_works: `Players buy on the game page with Stripe Checkout; the platform keeps ${s.platform_fee_percent}% (${s.platform_fee_open_percent}% for a game that shares its Open Implementation at the time of the sale) and credits the rest to the creator after ${Math.max(s.earnings_hold_days, Math.ceil(s.refund_window_hours / 24))} days. ${s.refund_window_hours > 0 ? `Buyers can refund a game themselves within ${s.refund_window_hours} hours of paying if they played it for less than ${s.refund_max_play_minutes} minutes, once per game; otherwise there are no refunds.` : 'Buyers cannot refund games themselves.'} A free trial is kept per account on the server by wall-clock time; when it ends the SDK pauses the game, the game page closes it, shows a buy prompt, and saves, leaderboards, rooms and server code answer 402. A trial plays the same files as the full game, so treat it as a soft limit: a determined player can keep the files. Put what only buyers should get behind server code or saved progress, which stop answering when the trial ends. Withdrawals go to a bank through Stripe Connect once the balance reaches ${usd(s.withdraw_min_cents)}. Publishing needs a one-time creator license${s.creator_fee_required ? ` (${usd(s.creator_fee_cents)})` : ' (not required on this platform)'}.`,
       use_for: ['Premium games', 'Demo-then-buy with trial_minutes'],
       sdk: [], mcp_tools: ['update_project', 'get_stats', 'get_started'],
-      limits: { price_range: `${usd(s.game_price_min_cents)} to ${usd(s.game_price_max_cents)}`, platform_cut_percent: s.platform_fee_percent, free_trials: s.trials_enabled ? `up to ${s.trial_max_minutes} minutes` : 'disabled', earnings_hold_days: s.earnings_hold_days, withdraw_minimum: usd(s.withdraw_min_cents) },
+      limits: { price_range: `${usd(s.game_price_min_cents)} to ${usd(s.game_price_max_cents)}`, platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_open_implementation: s.platform_fee_open_percent, free_trials: s.trials_enabled ? `up to ${s.trial_max_minutes} minutes` : 'disabled', earnings_hold_days: s.earnings_hold_days, withdraw_minimum: usd(s.withdraw_min_cents) },
       guidelines: ['The game itself never takes payments: no in-game purchases, and no links to outside stores.', 'A paid game\'s code does not need to check ownership; the platform only opens it for owners and trial players.', 'Ask the user before setting or changing a price.'],
       guide: null,
     },
@@ -293,7 +301,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'open_implementations', name: 'Open implementations', category: 'insight', status: 'available',
       what: 'Cards that tell agents how other creators\' live games were built, when those creators opted in. Never code.',
-      how_it_works: 'find_implementations searches shared games by kind, engine or technique and shows the common patterns; get_implementation returns one card (engine, rendering, input, audio, assets, platform services, loop, structure, play-through, summary).',
+      how_it_works: `find_implementations searches shared games by kind, engine or technique and shows the common patterns; get_implementation returns one card (engine, rendering, input, audio, assets, platform services, loop, structure, play-through, summary). ${openPerks(s)}`,
       use_for: ['Learning how games of a kind are built here before starting one'],
       sdk: [], mcp_tools: ['find_implementations', 'get_implementation', 'update_project', 'publish'],
       limits: {},
