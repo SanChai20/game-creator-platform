@@ -1,7 +1,8 @@
 // The catalogue's sort numbers, kept on each project by cron instead of being worked out for every live game on every
 // store request (correlated subqueries per row took the home page to seconds at 20,000 games).
 import type { Env } from './env';
-import { addDays, dayOf, now } from './util';
+import { now } from './util';
+import { trendStmt } from './rankings';
 import { ONLINE_WINDOW_MS } from './analytics';
 
 /** Players whose page checked in during the last minute (the platform's play clock, not the game's heartbeat), per live game (runs every minute). */
@@ -14,11 +15,8 @@ export function playingStmts(db: D1Database, t = now()): D1PreparedStatement[] {
   ];
 }
 
-/** Plays * 4 + minutes played over the last 7 days, per live game (runs every 10 minutes). */
-export function recentStmt(db: D1Database, t = now()): D1PreparedStatement {
-  return db.prepare(`UPDATE projects SET recent = COALESCE((SELECT SUM(plays) * 4 + SUM(seconds) / 60 FROM game_daily d WHERE d.project_id = projects.id AND d.day >= ?), 0)
-    WHERE status = 'live' OR recent != 0`).bind(addDays(dayOf(t), -7));
-}
+/** The trending score, per live game (runs every 10 minutes). Worked out in src/rankings.ts. */
+export const recentStmt = (db: D1Database, t = now()) => trendStmt(db, t);
 
 export async function refreshCatalog(env: Env, withRecent: boolean): Promise<void> {
   await env.DB.batch([...playingStmts(env.DB), ...(withRecent ? [recentStmt(env.DB)] : [])]);
@@ -34,7 +32,8 @@ export async function refreshCatalog(env: Env, withRecent: boolean): Promise<voi
  */
 export function freeTrendingOrder(boostPercent: number, a = 'p'): string {
   const b = Math.max(0, Math.min(100, Math.round(Number(boostPercent) || 0)));
-  if (!b) return `${a}.featured DESC, ${a}.recent DESC, ${a}.plays DESC, ${a}.published_at DESC`;
+  // like Trending, no admin-featured pin: featured games go into today's picks (src/rankings.ts)
+  if (!b) return `${a}.recent DESC, ${a}.plays DESC, ${a}.published_at DESC`;
   const goodEnough = `(${a}.rating_sum + 3.5 * 3) * 1.0 / (${a}.rating_count + 3) >= 3`;
-  return `${a}.featured DESC, ${a}.recent * (CASE WHEN ${a}.open_implementation = 1 AND ${goodEnough} THEN ${(100 + b) / 100} ELSE 1 END) DESC, ${a}.plays DESC, ${a}.published_at DESC`;
+  return `${a}.recent * (CASE WHEN ${a}.open_implementation = 1 AND ${goodEnough} THEN ${(100 + b) / 100} ELSE 1 END) DESC, ${a}.plays DESC, ${a}.published_at DESC`;
 }

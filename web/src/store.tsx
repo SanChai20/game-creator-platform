@@ -147,6 +147,19 @@ export function StoreBar() {
  * cut in along a slanted edge. The other picks sit underneath as small covers. It advances by itself every eight
  * seconds, stops while you hover or focus it, and never moves on its own under reduced motion.
  */
+/** Why a game is in the lead: today's pick reason, or for the trending fallback its place. */
+function pickLabel(g: GameCard, i: number): string {
+  switch (g.pick) {
+    case 'featured': return t('Featured', '精选');
+    case 'rising': return t('Rising fast', '人气飙升');
+    case 'new': return t('New', '新上架');
+    case 'gem': return t('Hidden gem', '宝藏佳作');
+    case 'free': return t('Free', '免费');
+    case 'trending': case 'more': return t('Trending', '热门');
+  }
+  return g.featured ? t('Featured', '精选') : i === 0 ? t('#1 this week', '本周第一') : t('Trending', '热门');
+}
+
 export function Spotlight({ games }: { games: GameCard[] }) {
   const picks = games.slice(0, 6), [i, setI] = useState(0), [paused, setPaused] = useState(false);
   const calm = useMemo(still, []);
@@ -159,12 +172,12 @@ export function Spotlight({ games }: { games: GameCard[] }) {
   const g = picks[Math.min(i, picks.length - 1)], rar = rarity(g), R = RARITY[rar], step = (d: number) => setI((v) => (v + d + picks.length) % picks.length);
   const to = `/g/${g.slug}`, trial = trialOf(g);
   return (
-    <section className="hero ink" style={hue(g.tags[0])} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)} aria-roledescription={t('carousel', '轮播')} aria-label={t('Featured', '精选推荐')}>
+    <section className="hero ink" style={hue(g.tags[0])} onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={() => setPaused(false)} aria-roledescription={t('carousel', '轮播')} aria-label={t('Today\'s picks', '今日推荐')}>
       <Link to={to} className="hero-art" key={'a' + g.id} tabIndex={-1} aria-hidden="true">
         <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}<MatureTag g={g} /></span>
       </Link>
       <div className="hero-body" key={'b' + g.id} aria-live={paused ? 'polite' : 'off'}>
-        <span className="stick">{g.featured ? t('Featured', '精选') : i === 0 ? t('#1 this week', '本周第一') : t('Trending', '热门')}</span>
+        <span className="stick">{pickLabel(g, i)}</span>
         <h2><Link to={to}>{g.title}</Link></h2>
         {blurb(g) && <p className="lede">{blurb(g)}</p>}
         <div className="hero-tags" style={{ '--rc': R.color } as CSSProperties}>{rar !== 'common' && <span className="rar" title={rarityHint()}>{R.name()}</span>}{g.tags.slice(0, 3).map((x) => <span key={x} className="gtag" style={hue(x)}>{genreName(x)}</span>)}</div>
@@ -181,7 +194,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
       </div>
       {picks.length > 1 && (
         <div className="hero-picks">
-          <div className="hero-strip" role="tablist" aria-label={t('Featured picks', '精选列表')}>
+          <div className="hero-strip" role="tablist" aria-label={t('Today\'s picks', '今日推荐')}>
             {picks.map((x, k) => (
               <button key={x.id} role="tab" aria-selected={k === i} aria-label={x.title} className={'hero-pick' + (k === i ? ' on' : '') + (paused || calm ? ' held' : '')} onClick={() => setI(k)}>
                 <span className="thumb" style={x.cover ? undefined : artStyle(x.slug)}>{x.cover && <CoverImg g={x} src={x.cover} />}</span>
