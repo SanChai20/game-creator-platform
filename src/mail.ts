@@ -37,3 +37,14 @@ export async function payoutSentMail(env: Env, userId: string, amountCents: numb
     html: `<p>Hi ${esc(u.name)},</p><p>${esc(body)}</p><p><a href="${esc(link)}">See the details on your Earnings page</a></p><p>— ${esc(brand)}</p>`,
   });
 }
+
+/** The password reset link (security review, finding 8). Returns false when email cannot be sent. */
+export async function passwordResetMail(env: Env, to: string, name: string, link: string): Promise<boolean> {
+  const brand = (await getSettings(env)).brand_name || 'HearthCade';
+  const body = 'Someone asked to reset the password of your account. If it was you, open the link below within an hour to choose a new password. If it was not you, ignore this email: your password stays as it is.';
+  return sendMail(env, {
+    to, subject: `${brand}: reset your password`,
+    text: [`Hi ${name},`, body, link, `— ${brand}`].join('\n\n'),
+    html: `<p>Hi ${esc(name)},</p><p>${esc(body)}</p><p><a href="${esc(link)}">Choose a new password</a></p><p>— ${esc(brand)}</p>`,
+  });
+}

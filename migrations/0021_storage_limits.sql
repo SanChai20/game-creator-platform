@@ -15,3 +15,23 @@ ALTER TABLE versions ADD COLUMN purged_at INTEGER;
 -- Device sign-in (security review, finding 9): where the request came from, shown to the person approving it.
 ALTER TABLE device_codes ADD COLUMN req_place TEXT;
 ALTER TABLE device_codes ADD COLUMN req_country TEXT;
+
+-- Account basics (security review, finding 8): a password reset link emailed to the account's address. id is the
+-- sha-256 of the token in the link, so the table never holds a usable link; a link works once, for an hour.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS password_resets_user ON password_resets(user_id);
+
+-- Removed games (security review, finding 12): their players' saves, stats and scores are deleted 30 days after the
+-- removal, as the privacy policy says. data_purged_at marks when that happened.
+ALTER TABLE projects ADD COLUMN data_purged_at INTEGER;
+
+-- The first-admin claim link works once ever (security review, low findings): a platform that already has an admin
+-- counts as claimed, so the link does not come back to life if every admin is later demoted.
+INSERT INTO settings (key, value, updated_at) SELECT '_admin_claimed', '"migrated"', 0 WHERE EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+  ON CONFLICT(key) DO NOTHING;

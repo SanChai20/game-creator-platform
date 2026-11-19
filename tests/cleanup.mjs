@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { register } from 'node:module';
 
 register('./ts-hook.mjs', import.meta.url);
-const { purgeOldVersions, retireIdlePreviews, KEEP_VERSIONS } = await import('../src/cleanup.ts');
+const { purgeOldVersions, purgeRemovedGameData, retireIdlePreviews, KEEP_VERSIONS } = await import('../src/cleanup.ts');
 
 function d1() {
   const sql = new DatabaseSync(':memory:');
@@ -56,4 +56,21 @@ test('a preview nobody opened for two weeks is removed and marked, so the rollou
   const out = await retireIdlePreviews({ DB, DEPLOY_DRIVER: 'local' });
   assert.deepEqual(out, ['gamea1'], 'the one played yesterday stays');
   assert.ok(DB.sql.prepare("SELECT idle_at FROM game_workers WHERE project_id = 'gamea1'").get().idle_at > 0);
+});
+
+test('players\' data of a game removed more than 30 days ago is deleted; recently removed and live games keep theirs', async () => {
+  const DB = d1();
+  const q = (x, ...a) => DB.sql.prepare(x).run(...a);
+  q("INSERT INTO projects (id, owner_id, slug, title, status, created_at, updated_at) VALUES ('gameold', 'u1', 'o', 'O', 'removed', 0, ?), ('gamenew', 'u1', 'n', 'N', 'removed', 0, ?), ('gamelive', 'u1', 'l', 'L', 'live', 0, 0)", T - 40 * DAY, T - 5 * DAY);
+  for (const pid of ['gameold', 'gameold:preview', 'gamenew', 'gamelive']) {
+    q("INSERT INTO saves (project_id, user_id, k, v, updated_at) VALUES (?, 'u2', 'slot', '{}', 0)", pid);
+    q("INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, 'main', 'u2', 'B', 1, 0)", pid);
+  }
+  q("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, status, provider, provider_ref, created_at) VALUES ('p1', 'u2', 'gameold', 'u1', 500, 50, 450, 'paid', 'stripe', 'r1', 0)");
+  assert.deepEqual(await purgeRemovedGameData({ DB }), ['gameold']);
+  const left = (tb) => DB.sql.prepare(`SELECT project_id FROM ${tb} ORDER BY project_id`).all().map((r) => r.project_id);
+  assert.deepEqual(left('saves'), ['gamelive', 'gamenew']);
+  assert.deepEqual(left('scores'), ['gamelive', 'gamenew']);
+  assert.deepEqual(left('purchases'), ['gameold']);
+  assert.deepEqual(await purgeRemovedGameData({ DB }), [], 'done once');
 });

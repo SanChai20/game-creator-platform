@@ -254,3 +254,8 @@
 
 /* ---- CJK: the display sizes are tuned for condensed Latin capitals; full-width glyphs need less ----------- */
 :lang(zh) :is(.lead h1, .gp-head h1, .cat-hero h1), :lang(ja) :is(.lead h1, .gp-head h1, .cat-hero h1), :lang(ko) :is(.lead h1, .gp-head h1, .cat-hero h1) { font-size: var(--fs-4xl); }
+
+/* the account page (pages/Account.tsx) */
+.page.account > .stack { max-width: 720px; }
+.acct-list { list-style: none; margin: 0; padding: 0; }
+.acct-list li { gap: 10px; flex-wrap: wrap; }

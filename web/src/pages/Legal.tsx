@@ -14,7 +14,7 @@ export const legalTitle = (d: LegalDoc) => ({
 }[d]);
 
 /** The date each text takes effect. Change it whenever that text changes in a meaningful way. */
-const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-19', privacy: '2026-11-18', cookies: '2026-11-18', refunds: '2026-11-19' };
+const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-19', privacy: '2026-11-19', cookies: '2026-11-19', refunds: '2026-11-19' };
 
 const S = ({ h, children }: { h: string; children: ReactNode }) => <section><h2>{h}</h2>{children}</section>;
 
@@ -110,10 +110,10 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         </ul>
       </S>
       <S h={t('How long we keep it', '保存期限')}>
-        <P>{t('We keep account and gameplay data while your account is open, and delete it within 30 days after you close it. Payment and tax records are kept as long as the law requires, usually up to 7 years. Security logs are kept for a short time. A game’s saves and stats are deleted with the game or your account.', '账户和游玩数据在你的账户存续期间保留，并在你注销后 30 天内删除。支付和税务记录按法律要求保留，通常最长 7 年。安全日志仅短期保留。游戏的存档和统计会随游戏或你的账户一并删除。')}</P>
+        <P>{t('We keep account and gameplay data while your account is open. When you delete your account on your Account page, your email, name, password, saves, stats, scores and reviews are deleted at once. Purchase, payment and tax records are kept, no longer linked to your name or email, as long as the law requires, usually up to 7 years. Security logs are kept for a short time. When a game is removed from the Service, its players’ saves, stats and scores are deleted within 30 days.', '账户和游玩数据在你的账户存续期间保留。你在“账户”页面删除账户后，你的邮箱、名称、密码、存档、统计、分数和评价会立即删除。购买、支付和税务记录会保留，但不再与你的名称或邮箱关联，保留期限按法律要求，通常最长 7 年。安全日志仅短期保留。游戏从本服务中移除后，其玩家的存档、统计和分数会在 30 天内删除。')}</P>
       </S>
       <S h={t('Your rights', '你的权利')}>
-        <P>{t('Depending on where you live, you can ask to see, correct, export or delete your information, or object to how we use it. Send privacy requests to {email}. We may need to confirm it is you, and we will answer within the time the law sets. You can also complain to your local data protection authority.', '根据你所在地区的法律，你可以要求查看、更正、导出或删除你的信息，或反对我们使用这些信息的方式。隐私请求请发送至 {email}。我们可能需要核实你的身份，并会在法律规定的期限内答复。你也可以向当地的数据保护机构投诉。', { email: legal })}</P>
+        <P>{t('Depending on where you live, you can ask to see, correct, export or delete your information, or object to how we use it. You can delete your account yourself on your Account page. Send other privacy requests to {email}. We may need to confirm it is you, and we will answer within the time the law sets. You can also complain to your local data protection authority.', '根据你所在地区的法律，你可以要求查看、更正、导出或删除你的信息，或反对我们使用这些信息的方式。你可以在“账户”页面自行删除账户。其他隐私请求请发送至 {email}。我们可能需要核实你的身份，并会在法律规定的期限内答复。你也可以向当地的数据保护机构投诉。', { email: legal })}</P>
       </S>
       <S h={t('Children’s privacy', '儿童隐私')}>
         <P>{t('The Service is not directed to children under 13, and we do not knowingly collect personal information from them. If we learn that a child under 13 has an account, we delete it and its data. A parent or guardian who believes this has happened can write to {email}.', '本服务并非面向 13 岁以下儿童，我们不会在知情的情况下收集其个人信息。如果我们得知有 13 岁以下儿童注册了账户，将删除该账户及其数据。父母或监护人如认为发生了此类情况，可发送邮件至 {email}。', { email: legal })}</P>
@@ -127,12 +127,11 @@ export function Legal({ doc }: { doc: LegalDoc }) {
     </>,
     cookies: <>
       <S h={t('Cookies', 'Cookie')}>
-        <P>{t('{brand} is operated by {op}. We use only the cookies the site needs to work: one that keeps you signed in, one that remembers your language, and one that lets a game you opened know it may run for you. There are no advertising or tracking cookies.', '{brand} 由 {op} 运营。我们只使用网站运行所必需的 Cookie：一个用于保持登录状态，一个用于记住你的语言，另一个让你打开的游戏确认可以为你运行。没有广告或追踪 Cookie。', { brand, op })}</P>
+        <P>{t('{brand} is operated by {op}. We use only the cookies the site needs to work: one that keeps you signed in, one that remembers your language so pages we send are in it, one that lets a game you opened know it may run for you, and, when you play without an account, one that keeps your guest progress in this browser. There are no advertising or tracking cookies.', '{brand} 由 {op} 运营。我们只使用网站运行所必需的 Cookie：一个用于保持登录状态，一个用于记住你的语言以便我们发送的页面使用该语言，一个让你打开的游戏确认可以为你运行，以及在你不登录游玩时，一个在当前浏览器中保存你的访客进度。没有广告或追踪 Cookie。', { brand, op })}</P>
       </S>
       <S h={t('Stored in your browser', '保存在浏览器中的信息')}>
         <p>{t('Some choices are kept in this browser only and never sent to us:', '有些选择只保存在当前浏览器中，从不发送给我们：')}</p>
         <ul>
-          <li>{t('Your language.', '你选择的语言。')}</li>
           <li>{t('Whether visual effects are on or off, and whether they failed on this device during this visit.', '视觉特效的开关状态，以及本次访问中特效是否在此设备上出错。')}</li>
           <li>{t('Games you played recently, games you have seen in the discovery queue, and when you last visited, so the store can say what is new.', '最近玩过的游戏、在探索队列中看过的游戏，以及你上次来访的时间，以便商店提示新内容。')}</li>
         </ul>

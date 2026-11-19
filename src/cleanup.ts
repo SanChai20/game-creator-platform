@@ -70,3 +70,20 @@ export async function purgeOldVersions(env: Env, max = 20): Promise<string[]> {
   if (out.length) console.log(JSON.stringify({ versions_purged: out }));
   return out;
 }
+
+export const REMOVED_DATA_DAYS = 30;
+/** Players' data of games removed from the platform more than REMOVED_DATA_DAYS ago (security review, finding 12; the
+ *  privacy policy says so). Until then an admin can still restore the game with its players' progress. Purchases stay. */
+export async function purgeRemovedGameData(env: Env, max = 20): Promise<string[]> {
+  const t = now();
+  const rows = await env.DB.prepare(`SELECT id FROM projects WHERE status = 'removed' AND updated_at < ?1
+    AND (data_purged_at IS NULL OR data_purged_at < updated_at) LIMIT ?2`).bind(t - REMOVED_DATA_DAYS * DAY, max).all<{ id: string }>();
+  for (const { id } of rows.results) {
+    // live data is scoped "<id>", preview data "<id>:preview"
+    await env.DB.batch([
+      ...['saves', 'player_stats', 'player_games', 'scores', 'match_ratings'].map((tb) => env.DB.prepare(`DELETE FROM ${tb} WHERE project_id IN (?1, ?1 || ':preview')`).bind(id)),
+      env.DB.prepare('UPDATE projects SET data_purged_at = ? WHERE id = ?').bind(t, id),
+    ]);
+  }
+  return rows.results.map((r) => r.id);
+}

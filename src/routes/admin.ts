@@ -73,8 +73,9 @@ admin.get('/users', async (c) => {
 
 admin.patch('/users/:id', async (c) => {
   const me = requireAdmin(c as any), id = c.req.param('id'), b = await c.req.json<Record<string, any>>().catch(() => ({} as Record<string, any>));
-  const u = await c.env.DB.prepare('SELECT id, role FROM users WHERE id = ?').bind(id).first<{ id: string; role: string }>();
+  const u = await c.env.DB.prepare('SELECT id, role, status FROM users WHERE id = ?').bind(id).first<{ id: string; role: string; status: string }>();
   if (!u) throw notFound();
+  if (u.status === 'deleted') throw bad('This account was deleted by its owner.');
   if (b.creator === true) await grantCreator(c.env, id, 'admin', 'grant:' + id + ':' + rid(6), 0);
   if (b.creator === false) await c.env.DB.prepare('UPDATE users SET creator = 0 WHERE id = ?').bind(id).run();
   if (b.status === 'active' || b.status === 'suspended') {
