@@ -154,7 +154,15 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel }: { projectI
     addEventListener('keydown', k, true); return () => removeEventListener('keydown', k, true);
   }, [draft, onCancel]);
 
-  const at = (e: RPointerEvent<HTMLCanvasElement>): [number, number] => { const r = e.currentTarget.getBoundingClientRect(); return [unit((e.clientX - r.left) / r.width), unit((e.clientY - r.top) / r.height)]; };
+  // Where the pointer is on the picture, in picture fractions. Measured at every event from where the picture is drawn
+  // right now: inside the element's border, and inside the bars the browser adds when the element's shape differs from the
+  // picture's (object-fit: contain), so any window size, zoom or layout change keeps marks under the pointer.
+  const at = (e: RPointerEvent<HTMLCanvasElement>): [number, number] => {
+    const c = e.currentTarget, r = c.getBoundingClientRect(), bw = c.clientWidth, bh = c.clientHeight;
+    const left = r.left + c.clientLeft, top = r.top + c.clientTop;
+    const k = Math.min(bw / (c.width || 1), bh / (c.height || 1)), w = c.width * k || bw, h = c.height * k || bh;
+    return [unit((e.clientX - left - (bw - w) / 2) / w), unit((e.clientY - top - (bh - h) / 2) / h)];
+  };
   const shape = (a: [number, number], b: [number, number]): Mark => tool === 'arrow' ? { type: 'arrow', x1: a[0], y1: a[1], x2: b[0], y2: b[1] }
     : { type: tool, x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
   const down = (e: RPointerEvent<HTMLCanvasElement>) => {
