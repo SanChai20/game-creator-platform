@@ -13,7 +13,7 @@ export function ConsoleTabs({ on }: { on: 'games' | 'earnings' }) {
 }
 
 export function Console() {
-  const { config, refresh, toast } = useApp(), { busy, act } = useAct(), s = config.settings;
+  const { config, refresh, toast, user: me } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>('/console/overview');
   const agents = useData<{ agents: any[] }>('/console/agents');
 
@@ -51,6 +51,12 @@ export function Console() {
             actions={<><Button variant="primary" onClick={buyLicense} disabled={busy === 'fee' || (data.fee_cents > 0 && !config.payments)}>{data.fee_cents > 0 ? `${t('Get the license', '获取许可')} · ${usd(data.fee_cents)}` : t('Activate', '激活')}</Button>
               {data.fee_cents > 0 && !config.payments && <span className="dim fs-sm">{t('Payments are not set up on this platform yet.', '平台尚未开通支付。')}</span>}</>}>
             {t('Build and preview for free. Pay {fee} once to publish as many games as you like.', '创作与预览免费。一次性支付 {fee}，即可发布任意数量的游戏。', { fee: usd(data.fee_cents) })}
+          </Notice>
+        )}
+
+        {u.creator && !me?.two_factor && (
+          <Notice tone="info" title={t('Protect your creator account', '保护你的创作者账户')} actions={<Button to="/account">{t('Turn on two-factor sign-in', '开启两步验证登录')}</Button>}>
+            {t('Your games, earnings and connected agents are behind your password. Two-factor sign-in adds a code from your phone.', '你的游戏、收益和已连接的智能体目前只受密码保护。两步验证登录会再增加一个手机验证码。')}
           </Notice>
         )}
 

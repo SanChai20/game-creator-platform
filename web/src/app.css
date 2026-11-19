@@ -259,6 +259,17 @@
 .page.account > .stack { max-width: 720px; }
 .acct-list { list-style: none; margin: 0; padding: 0; }
 .acct-list li { gap: 10px; flex-wrap: wrap; }
+/* two-factor sign-in: the QR code beside its steps (stacked on a phone), the key, recovery codes, the code input */
+.tfa-setup { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: start; }
+.tfa-setup .qr { width: 168px; height: 168px; border-radius: var(--r-md); border: 1px solid var(--line); }
+.tfa-key { display: inline-block; padding: 8px 10px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); font: 600 14px/1.4 var(--font-mono, ui-monospace, monospace); letter-spacing: .06em; word-break: break-all; user-select: all; }
+.rc-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; margin: 0; padding: 14px 16px 14px 36px; border-radius: 10px; background: var(--sunk); border: 1px solid var(--line); font-size: 15px; letter-spacing: .04em; }
+.input.otp { font-size: 22px; letter-spacing: .4em; text-align: center; }
+@media (max-width: 560px) {
+  .tfa-setup { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+  .tfa-setup .stack { justify-items: center; }
+  .rc-list { grid-template-columns: 1fr; }
+}
 
 /* creator feedback (web/src/feedback.tsx) */
 .fb-canvas { width: 100%; height: auto; max-height: 64vh; object-fit: contain; border-radius: 6px; cursor: crosshair; touch-action: none; background: #000; display: block; }
