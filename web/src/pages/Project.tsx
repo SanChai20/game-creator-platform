@@ -250,13 +250,17 @@ export function Project({ id }: { id: string }) {
 
       {preview && <Modal wide onClose={() => { setPreview(null); setShot(null); void reload(); }}><div className="stack">
         <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); setShot(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
-        {shot && <FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} />}
         {(() => {
           const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} version={p.preview_version} capture={(pic) => stage.current!.capture(pic)} frame={() => stageBox.current?.querySelector('iframe') ?? null}
             fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); setShot(sh); }} /> : null;
-          // hidden while a capture is marked up: a hidden frame stops drawing, so the game waits where it was
-          return <div ref={stageBox} style={shot ? { display: 'none' } : undefined}>
-            <Stage ctl={stage} poster={null} seed={p.slug} url={preview} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} />
+          // While a capture is marked up, the editor covers the game rather than replacing it: the game's frame keeps its
+          // size and stays on screen. Hiding or shrinking it would resize the game, and a browser slows the drawing of a
+          // frame it no longer shows, which a game can take for a slow device and lower its picture quality for good.
+          return <div className="fb-stack">
+            <div ref={stageBox} inert={shot ? true : undefined} aria-hidden={shot ? true : undefined}>
+              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} />
+            </div>
+            {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
           </div>;
         })()}
         <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>

@@ -332,7 +332,7 @@ a.gtag:hover { color: var(--text); background: rgb(var(--text-rgb) / .06); box-s
 .modal { position: fixed; inset: 0; z-index: var(--z-modal); display: grid; place-items: center; padding: 20px; background: rgb(23 21 28 / .66); backdrop-filter: blur(6px); animation: page-in var(--dur) var(--ease) backwards; overflow-y: auto; }
 /* a dialog wears a striped band across the top, like a system prompt */
 .modal > div { width: min(540px, 100%); max-height: calc(100dvh - 40px); overflow: auto; background: var(--surface); border-radius: 0 0 var(--r-lg) var(--r-lg); padding: clamp(20px, 3vw, 30px); box-shadow: var(--shadow-3); border-top: 7px solid var(--accent); border-image: repeating-linear-gradient(-60deg, var(--accent) 0 12px, var(--accent-lo) 12px 18px) 7 0 0 0; }
-.modal > div.wide { width: min(1120px, 100%); }
+.modal > div.wide { width: min(1120px, 100%); scrollbar-gutter: stable; }
 .modal > div:focus { outline: none; }
 /* the preview fills the dialog but never pushes its own bottom edge off the screen */
 .modal > div.wide .stage { width: min(100%, calc((100dvh - 230px) * 16 / 9)); margin-inline: auto; }
