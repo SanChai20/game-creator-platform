@@ -1403,5 +1403,17 @@
  "Games you play show up here, with where you left off.": "你玩過的遊戲會出現在這裡，並記錄你上次玩到哪裡。",
  "Show more": "顯示更多",
  "Bought, not played yet": "已購買，尚未遊玩",
- "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "資料庫超過這麼多 GB 後停止儲存遊戲資料（存檔、統計、分數、伺服器儲存），以確保登入和購買仍可正常運作（D1 上限為 10 GB；0：永不停止）"
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "資料庫超過這麼多 GB 後停止儲存遊戲資料（存檔、統計、分數、伺服器儲存），以確保登入和購買仍可正常運作（D1 上限為 10 GB；0：永不停止）",
+ "Player report": "玩家檢舉",
+ "Thanks. The platform team will look at your report.": "感謝，平台團隊會查看你的檢舉。",
+ "Report this game": "檢舉這款遊戲",
+ "What is wrong?": "有什麼問題？",
+ "It asks for my password or payment details": "它索取我的密碼或付款資訊",
+ "It does something harmful or sends me somewhere else": "它有害，或把我帶到別的地方",
+ "It copies someone else's work": "它抄襲了別人的作品",
+ "Its content is offensive or not as rated": "內容冒犯，或與年齡分級不符",
+ "It does not work": "無法正常運作",
+ "Something else": "其他問題",
+ "What happened? (optional)": "發生了什麼？（選填）",
+ "Send report": "送出檢舉"
 }

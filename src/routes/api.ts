@@ -373,6 +373,20 @@ api.get('/me/library', async (c) => {
   return c.json({ ...played, unplayed: bought ? bought.results.map((r) => ({ ...card(origin, r), bought_at: r.bought_at })) : null });
 });
 
+// A player tells the platform something is wrong with a live game: it asks for passwords or payment, behaves differently
+// than it did in review, uses someone else's work. Each report goes to the admin overview with the game's other flags.
+export const REPORT_REASONS = ['phishing', 'malicious', 'stolen', 'offensive', 'broken', 'other'] as const;
+api.post('/games/:slug/report', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  const b = await c.req.json<{ reason?: string; detail?: string }>().catch(() => ({} as { reason?: string; detail?: string }));
+  const reason = String(b.reason || '');
+  if (!(REPORT_REASONS as readonly string[]).includes(reason)) throw bad(`reason must be one of: ${REPORT_REASONS.join(', ')}.`);
+  await rateLimit(c.env, 'report:' + u.id, 10, 86400);
+  const detail = String(b.detail || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  await logEvent(c.env, p.id, 'player_report', detail ? `${reason}: ${detail}` : reason, p.live_version, 'user:' + u.id);
+  return c.json({ ok: true });
+});
+
 api.post('/games/:slug/reviews', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug')), s = await getSettings(c.env);
   const b = await c.req.json<{ rating?: number; body?: string }>().catch(() => ({} as any));

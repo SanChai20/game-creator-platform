@@ -1381,5 +1381,17 @@
  "Games you play show up here, with where you left off.": "Los juegos que juegues aparecen aquí, con el punto donde lo dejaste.",
  "Show more": "Mostrar más",
  "Bought, not played yet": "Comprados, sin jugar todavía",
- "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "Dejar de guardar datos de juego (partidas, estadísticas, puntuaciones, almacén del servidor) cuando la base de datos supere estos GB, para que el inicio de sesión y las compras sigan funcionando (D1 se detiene en 10 GB; 0: nunca)"
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "Dejar de guardar datos de juego (partidas, estadísticas, puntuaciones, almacén del servidor) cuando la base de datos supere estos GB, para que el inicio de sesión y las compras sigan funcionando (D1 se detiene en 10 GB; 0: nunca)",
+ "Player report": "Denuncia de jugador",
+ "Thanks. The platform team will look at your report.": "Gracias. El equipo de la plataforma revisará tu denuncia.",
+ "Report this game": "Denunciar este juego",
+ "What is wrong?": "¿Qué ocurre?",
+ "It asks for my password or payment details": "Me pide la contraseña o datos de pago",
+ "It does something harmful or sends me somewhere else": "Hace algo dañino o me lleva a otro sitio",
+ "It copies someone else's work": "Copia el trabajo de otra persona",
+ "Its content is offensive or not as rated": "Su contenido es ofensivo o no corresponde a su clasificación",
+ "It does not work": "No funciona",
+ "Something else": "Otra cosa",
+ "What happened? (optional)": "¿Qué pasó? (opcional)",
+ "Send report": "Enviar denuncia"
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
-import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Stat, StatGrid, Textarea } from '../ui';
+import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
@@ -286,6 +286,7 @@ export function Game({ slug }: { slug: string }) {
                   {r.body && <p className="prose">{r.body}</p>}
                 </div>))}</div> : <EmptyState compact title={t('No reviews yet', '还没有评价')}>{t('Be the first to say something.', '来做第一个吧。')}</EmptyState>}
             </section>
+            {user && live && !data.is_owner && <ReportGame slug={slug} />}
           </div>
 
           <aside className="stack l gp-side">
@@ -316,5 +317,31 @@ export function Game({ slug }: { slug: string }) {
         <MoreLike tag={genre} slug={g.slug} />
       </div>
     </div>
+  );
+}
+
+/** "Report this game": something players should not be shown (a fake sign-in, a request for payment details, someone
+    else's work). Goes to the platform's admins with the game's other flags. */
+function ReportGame({ slug }: { slug: string }) {
+  const { act, busy } = useAct();
+  const [open, setOpen] = useState(false), [reason, setReason] = useState(''), [detail, setDetail] = useState(''), [sent, setSent] = useState(false);
+  if (sent) return <p className="mute fs-sm">{t('Thanks. The platform team will look at your report.', '感谢，平台团队会查看你的举报。')}</p>;
+  if (!open) return <p className="fs-sm"><button type="button" className="sig" onClick={() => setOpen(true)}>{t('Report this game', '举报这款游戏')}</button></p>;
+  const send = () => act('report', async () => { await api(`/games/${slug}/report`, { body: { reason, detail } }); setSent(true); });
+  return (
+    <Card pad>
+      <b>{t('Report this game', '举报这款游戏')}</b>
+      <Select value={reason} onChange={(e) => setReason(e.target.value)} aria-label={t('What is wrong?', '有什么问题？')}>
+        <option value="">{t('What is wrong?', '有什么问题？')}</option>
+        <option value="phishing">{t('It asks for my password or payment details', '它索要我的密码或付款信息')}</option>
+        <option value="malicious">{t('It does something harmful or sends me somewhere else', '它有害，或把我带到别的地方')}</option>
+        <option value="stolen">{t('It copies someone else\'s work', '它抄袭了别人的作品')}</option>
+        <option value="offensive">{t('Its content is offensive or not as rated', '内容冒犯，或与年龄分级不符')}</option>
+        <option value="broken">{t('It does not work', '无法正常运行')}</option>
+        <option value="other">{t('Something else', '其他问题')}</option>
+      </Select>
+      <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} maxLength={1000} placeholder={t('What happened? (optional)', '发生了什么？（选填）')} />
+      <div className="row"><Button variant="primary" disabled={!reason || busy === 'report'} onClick={send}>{t('Send report', '提交举报')}</Button><Button onClick={() => setOpen(false)}>{t('Cancel', '取消')}</Button></div>
+    </Card>
   );
 }

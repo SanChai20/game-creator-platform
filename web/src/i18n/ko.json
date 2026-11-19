@@ -1382,5 +1382,17 @@
  "Games you play show up here, with where you left off.": "플레이한 게임이 멈춘 위치와 함께 여기에 표시됩니다.",
  "Show more": "더 보기",
  "Bought, not played yet": "구매함, 아직 플레이 안 함",
- "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "데이터베이스가 이 GB를 넘으면 게임 데이터(저장, 통계, 점수, 서버 저장소) 저장을 멈춰 로그인과 구매가 계속 작동하도록 합니다(D1 한도는 10 GB, 0: 멈추지 않음)"
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "데이터베이스가 이 GB를 넘으면 게임 데이터(저장, 통계, 점수, 서버 저장소) 저장을 멈춰 로그인과 구매가 계속 작동하도록 합니다(D1 한도는 10 GB, 0: 멈추지 않음)",
+ "Player report": "플레이어 신고",
+ "Thanks. The platform team will look at your report.": "감사합니다. 플랫폼 팀이 신고를 검토합니다.",
+ "Report this game": "이 게임 신고",
+ "What is wrong?": "무엇이 문제인가요?",
+ "It asks for my password or payment details": "비밀번호나 결제 정보를 요구함",
+ "It does something harmful or sends me somewhere else": "해로운 동작을 하거나 다른 곳으로 보냄",
+ "It copies someone else's work": "다른 사람의 작품을 베꼈음",
+ "Its content is offensive or not as rated": "내용이 불쾌하거나 등급과 맞지 않음",
+ "It does not work": "작동하지 않음",
+ "Something else": "기타",
+ "What happened? (optional)": "무슨 일이 있었나요? (선택)",
+ "Send report": "신고 보내기"
 }

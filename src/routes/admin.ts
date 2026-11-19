@@ -41,7 +41,7 @@ admin.get('/overview', async (c) => {
     db.prepare('SELECT day, SUM(sessions) AS sessions, SUM(plays) AS plays, SUM(seconds) AS seconds FROM game_daily WHERE day >= ? GROUP BY day ORDER BY day').bind(since).all(),
     db.prepare("SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS n FROM users WHERE created_at >= ? GROUP BY day ORDER BY day").bind(t30).all(),
     db.prepare("SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS n, SUM(price_cents) AS gross, SUM(fee_cents) AS fees FROM purchases WHERE status = 'paid' AND created_at >= ? GROUP BY day ORDER BY day").bind(t30).all(),
-    db.prepare("SELECT e.kind, e.detail, e.version, e.created_at, p.id, p.title, p.slug, u.email FROM events e JOIN projects p ON p.id = e.project_id JOIN users u ON u.id = p.owner_id WHERE e.kind IN ('copy_flagged', 'not_game_flagged') ORDER BY e.id DESC LIMIT 20").all(),
+    db.prepare("SELECT e.kind, e.detail, e.version, e.created_at, p.id, p.title, p.slug, u.email FROM events e JOIN projects p ON p.id = e.project_id JOIN users u ON u.id = p.owner_id WHERE e.kind IN ('copy_flagged', 'not_game_flagged', 'player_report') ORDER BY e.id DESC LIMIT 30").all(),
     db.prepare("SELECT purpose, SUM(calls) AS calls FROM ai_usage WHERE day >= ? GROUP BY purpose").bind(since).all(),
   ]);
   return c.json({

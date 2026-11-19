@@ -1382,5 +1382,17 @@
  "Games you play show up here, with where you left off.": "プレイしたゲームが、どこまで進んだかと一緒にここに表示されます。",
  "Show more": "もっと見る",
  "Bought, not played yet": "購入済み・未プレイ",
- "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "データベースがこの GB 数を超えたらゲームデータ（セーブ、統計、スコア、サーバーストア）の保存を止め、サインインと購入が動き続けるようにします（D1 の上限は 10 GB、0：止めない）"
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "データベースがこの GB 数を超えたらゲームデータ（セーブ、統計、スコア、サーバーストア）の保存を止め、サインインと購入が動き続けるようにします（D1 の上限は 10 GB、0：止めない）",
+ "Player report": "プレイヤーからの報告",
+ "Thanks. The platform team will look at your report.": "ありがとうございます。プラットフォームのチームが報告を確認します。",
+ "Report this game": "このゲームを報告",
+ "What is wrong?": "どんな問題がありますか？",
+ "It asks for my password or payment details": "パスワードや支払い情報を求めてくる",
+ "It does something harmful or sends me somewhere else": "有害な動作をする、または別の場所へ移動させる",
+ "It copies someone else's work": "他人の作品をコピーしている",
+ "Its content is offensive or not as rated": "内容が不快、または年齢区分と合っていない",
+ "It does not work": "動作しない",
+ "Something else": "その他",
+ "What happened? (optional)": "何が起きましたか？（任意）",
+ "Send report": "報告を送信"
 }
