@@ -53,3 +53,13 @@ test('notes and context are cut to size and never keep the page address', () => 
   assert.equal(cleanContext({ method: 'page' }).method, 'page');
   assert.equal(cleanContext({ state: 'y'.repeat(9000) }).state.length, FEEDBACK_LIMITS.state_chars);
 });
+
+test('an exact picture keeps how it was cut from the tab, and nothing else', () => {
+  const c = cleanContext({ method: 'screen', dpr: 1.75, capture: { dpr: 1.75, view: [1211, 855], frame: [2119, 1496], crop: [196.9, 220, 1820, 1024], k: 1.75, trimmed: true, waited_ms: 260, evil: '<x>', zoom: 'x' } });
+  assert.equal(c.dpr, 1.75);
+  assert.deepEqual(c.capture, { view: [1211, 855], frame: [2119, 1496], crop: [197, 220, 1820, 1024], dpr: 1.75, k: 1.75, waited_ms: 260, trimmed: true });
+  // only for a picture from the tab, and only well-formed numbers
+  assert.equal(cleanContext({ method: 'page', capture: { k: 1 } }).capture, undefined);
+  assert.equal(cleanContext({ method: 'screen', capture: { view: [1, 'a'], crop: [1, 2] } }).capture, undefined);
+  assert.equal(cleanContext({ dpr: 99 }).dpr, undefined);
+});

@@ -207,9 +207,15 @@ export function EmptyState({ title, children, action, compact }: { title: ReactN
 
 export const Spinner = () => <div className="spinner" role="status" aria-label={t('Loading', '加载中')} />;
 
-export function Modal({ children, onClose, wide }: { children: ReactNode; onClose: () => void; wide?: boolean }) {
+/**
+ * A dialog over the page. `game`: it holds a running game (the preview). Esc and a click beside it then do not close it,
+ * since both happen all the time while playing and would end the game; its Close button does. Nothing around the game
+ * is blurred, faded in or moved either: a game's frame under a backdrop-filter or an animated layer is drawn through
+ * extra GPU surfaces, which on some systems tore and smeared the game's picture.
+ */
+export function Modal({ children, onClose, wide, game }: { children: ReactNode; onClose: () => void; wide?: boolean; game?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [onClose]);
+  useEffect(() => { if (game) return; const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, [onClose, game]);
   // Open in front of the person, wherever they had scrolled: the page behind stops scrolling, focus moves into the
   // dialog and returns to what opened it on close.
   useEffect(() => {
@@ -218,7 +224,7 @@ export function Modal({ children, onClose, wide }: { children: ReactNode; onClos
     return () => { html.style.overflow = was; back?.focus?.({ preventScroll: true }); };
   }, []);
   // Rendered into <body> so no transformed or filtered ancestor can capture its position: fixed.
-  return createPortal(<div className="modal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" tabIndex={-1} ref={box} className={wide ? 'wide' : ''}>{children}</div></div>, document.body);
+  return createPortal(<div className={game ? 'modal modal-game' : 'modal'} onMouseDown={(e) => { if (!game && e.target === e.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" tabIndex={-1} ref={box} className={wide ? 'wide' : ''}>{children}</div></div>, document.body);
 }
 
 export function Code({ text }: { text: string }) {

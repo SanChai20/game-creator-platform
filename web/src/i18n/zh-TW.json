@@ -1648,5 +1648,8 @@
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "你也可以自己截圖後貼到這裡，或透過「使用我自己的截圖」選擇。",
  "Your own screenshot. Mark it up as usual.": "這是你自己的截圖，照常標註即可。",
  "Use a screenshot you took yourself instead (you can also paste one)": "改用你自己截的圖（也可以直接貼上）",
- "Use my own screenshot": "使用我自己的截圖"
+ "Use my own screenshot": "使用我自己的截圖",
+ "The game could not draw itself (it has no canvas this can copy, or it draws pictures from another site).": "遊戲無法繪製自身畫面（沒有可複製的畫布，或使用了其他網站的圖片）。",
+ "Taken from this tab exactly as you see it. If the picture does not match the game (cut off, shrunk, black or blank), use the game's own drawing instead, or your own screenshot.": "這張圖直接取自此分頁，與你所見一致。如果畫面與遊戲不符（被裁切、縮小、發黑或空白），可改用遊戲自己繪製的畫面，或你自己的截圖。",
+ "Use the game's own drawing": "改用遊戲自繪畫面"
 }

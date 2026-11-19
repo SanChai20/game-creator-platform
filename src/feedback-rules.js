@@ -108,6 +108,19 @@ export function cleanContext(v) {
   if (typeof c.ready === 'boolean') out.ready = c.ready;
   if (typeof c.fullscreen === 'boolean') out.fullscreen = c.fullscreen;
   if (typeof c.touch === 'boolean') out.touch = c.touch;
+  const dpr = Number(c.dpr); if (Number.isFinite(dpr) && dpr > 0 && dpr <= 8) out.dpr = Math.round(dpr * 100) / 100;
+  // how an exact picture was cut from the browser's tab capture (web/src/capture.ts), kept to explain a picture that is off
+  const k = c.capture;
+  if (out.method === 'screen' && k && typeof k === 'object') {
+    const nums = (x, n) => (Array.isArray(x) && x.length === n && x.every((v) => Number.isFinite(Number(v))) ? x.map((v) => Math.max(-1e5, Math.min(1e5, Math.round(Number(v))))) : undefined);
+    const cap = {};
+    for (const [key, n] of [['view', 2], ['frame', 2], ['crop', 4]]) { const v = nums(k[key], n); if (v) cap[key] = v; }
+    for (const key of ['dpr', 'k', 'zoom']) { const v = Number(k[key]); if (Number.isFinite(v) && v > 0 && v < 100) cap[key] = Math.round(v * 1000) / 1000; }
+    const w = int(k.waited_ms, 60000); if (w !== undefined) cap.waited_ms = w;
+    if (k.trimmed === true) cap.trimmed = true;
+    if (k.mismatch === true) cap.mismatch = true;
+    if (Object.keys(cap).length) out.capture = cap;
+  }
   const lang = str(c.lang, 12); if (lang) out.lang = lang;
   const browser = str(c.browser, 160); if (browser) out.browser = browser;
   const label = str(c.label, 120); if (label) out.label = label;
@@ -124,16 +137,22 @@ export function cleanContext(v) {
 }
 
 const px = (f, size) => Math.round(f * size);
-/** The marks in words, in pixels of the picture, for an agent reading the item. */
-export function describeMarks(marks, width, height) {
+/**
+ * The marks in words, in pixels of the picture, for an agent reading the item. With `game` (the game's viewport in CSS
+ * pixels, for a picture of the whole game) each mark also says where it is in the game's own coordinates, the ones
+ * debug_preview clicks and taps take.
+ */
+export function describeMarks(marks, width, height, game) {
+  const g = game && game.width > 0 && game.height > 0 ? game : null;
+  const at = (fx, fy) => (g ? ` [game (${px(fx, g.width)}, ${px(fy, g.height)})]` : '');
   return (marks || []).map((m) => {
     const label = m.label ? `: "${m.label}"` : '';
-    if (m.type === 'arrow') return `${m.n}. arrow from (${px(m.x1, width)}, ${px(m.y1, height)}) pointing at (${px(m.x2, width)}, ${px(m.y2, height)})${label}`;
+    if (m.type === 'arrow') return `${m.n}. arrow from (${px(m.x1, width)}, ${px(m.y1, height)}) pointing at (${px(m.x2, width)}, ${px(m.y2, height)})${at(m.x2, m.y2)}${label}`;
     if (m.type === 'pen') {
       const xs = m.points.map((p) => p[0]), ys = m.points.map((p) => p[1]);
-      return `${m.n}. freehand line around x ${px(Math.min(...xs), width)} to ${px(Math.max(...xs), width)}, y ${px(Math.min(...ys), height)} to ${px(Math.max(...ys), height)}${label}`;
+      return `${m.n}. freehand line around x ${px(Math.min(...xs), width)} to ${px(Math.max(...xs), width)}, y ${px(Math.min(...ys), height)} to ${px(Math.max(...ys), height)}${at((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2)}${label}`;
     }
     const cx = px(m.x + m.w / 2, width), cy = px(m.y + m.h / 2, height);
-    return `${m.n}. ${m.type === 'circle' ? 'circle' : 'box'} around (${cx}, ${cy}), ${px(m.w, width)} × ${px(m.h, height)} px${label}`;
+    return `${m.n}. ${m.type === 'circle' ? 'circle' : 'box'} around (${cx}, ${cy}), ${px(m.w, width)} × ${px(m.h, height)} px${at(m.x + m.w / 2, m.y + m.h / 2)}${label}`;
   });
 }

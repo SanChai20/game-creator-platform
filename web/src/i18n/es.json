@@ -1626,5 +1626,8 @@
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "O haz tú mismo una captura y pégala aquí, o elígela con Usar mi propia captura.",
  "Your own screenshot. Mark it up as usual.": "Tu propia captura. Márcala como siempre.",
  "Use a screenshot you took yourself instead (you can also paste one)": "Usar en su lugar una captura que hiciste tú (también puedes pegarla)",
- "Use my own screenshot": "Usar mi propia captura"
+ "Use my own screenshot": "Usar mi propia captura",
+ "The game could not draw itself (it has no canvas this can copy, or it draws pictures from another site).": "El juego no pudo dibujarse a sí mismo (no tiene un lienzo que se pueda copiar o usa imágenes de otro sitio).",
+ "Taken from this tab exactly as you see it. If the picture does not match the game (cut off, shrunk, black or blank), use the game's own drawing instead, or your own screenshot.": "Tomada de esta pestaña tal como la ves. Si la imagen no coincide con el juego (cortada, encogida, negra o en blanco), usa el dibujo del propio juego o tu propia captura.",
+ "Use the game's own drawing": "Usar el dibujo del propio juego"
 }

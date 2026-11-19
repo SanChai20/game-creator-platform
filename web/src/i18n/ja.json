@@ -1627,5 +1627,8 @@
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "自分で撮ったスクリーンショットをここに貼り付けるか、「自分のスクリーンショットを使う」で選ぶこともできます。",
  "Your own screenshot. Mark it up as usual.": "あなた自身のスクリーンショットです。いつもどおり書き込んでください。",
  "Use a screenshot you took yourself instead (you can also paste one)": "代わりに自分で撮ったスクリーンショットを使う（貼り付けも可）",
- "Use my own screenshot": "自分のスクリーンショットを使う"
+ "Use my own screenshot": "自分のスクリーンショットを使う",
+ "The game could not draw itself (it has no canvas this can copy, or it draws pictures from another site).": "ゲームが自分の画面を描けませんでした（コピーできるキャンバスがないか、他のサイトの画像を使っています）。",
+ "Taken from this tab exactly as you see it. If the picture does not match the game (cut off, shrunk, black or blank), use the game's own drawing instead, or your own screenshot.": "このタブから見たままを取り込んだ画像です。ゲームと違って見える場合（切れている、縮んでいる、黒い、空白）は、ゲーム自身が描いた画像か、自分で撮ったスクリーンショットを使ってください。",
+ "Use the game's own drawing": "ゲーム自身の描画を使う"
 }

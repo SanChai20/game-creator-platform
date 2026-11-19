@@ -127,7 +127,13 @@ assert.equal(read.data.items[0].game_state, '{"level":1}');
 const again = await ok('creator_feedback', { project: pid, limit: 5 });
 assert.equal(again.data.taken, 1); assert.equal(again.data.items[0].note, 'Second note');
 assert.equal((await ok('creator_feedback', { project: pid })).data.taken, 0);
-step('creator_feedback: hint in list_versions, peek, read once with the picture, never twice');
+// the marks also say where they are in the game, and read items can be read again (an answer that never arrived)
+assert.match(read.data.items[0].marks[0], /\[game \(169, 78\)\]/);
+const recent = await ok('creator_feedback', { project: pid, recent: true });
+assert.equal(recent.data.read_again, 2); assert.equal(recent.images.length, 2); assert.equal(recent.data.items[0].note, 'Second note');
+assert.equal((await ok('creator_feedback', { project: pid })).data.taken, 0);
+assert.equal(must(await creator.get(`/api/console/projects/${pid}/feedback`)).items.length, 0);
+step('creator_feedback: hint in list_versions, peek, read once with the picture, never twice, read again with recent');
 const third = must(await add('Remove me'));
 must(await creator.del(`/api/console/projects/${pid}/feedback/${third.id}`));
 assert.equal(must(await creator.get(`/api/console/projects/${pid}/feedback`)).items.length, 0);
