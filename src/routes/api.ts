@@ -395,6 +395,7 @@ api.post('/games/:slug/reviews', async (c) => {
   return c.json({ ok: true });
 });
 
+const MEDIA_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 api.get('/media/*', async (c) => {
   const key = decodeURIComponent(new URL(c.req.url).pathname.replace(/^\/api\/media\//, ''));
   // shots/<project>/<version>[-play-i].ext and covers/<project>-<time>.ext
@@ -408,9 +409,16 @@ api.get('/media/*', async (c) => {
   const published = p.status === 'live' && (key === p.cover_key || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
   const u = c.get('user');
   if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
+  // Only pictures, typed by their name, never by what was stored with them: this is the platform's own origin, so an
+  // object stored as HTML or SVG must never render here as a page.
+  const type = MEDIA_TYPES[(key.match(/\.([a-z0-9]+)$/) || [])[1] || ''];
+  if (!type) throw notFound();
   const obj = await c.env.FILES.get(key);
   if (!obj) throw notFound();
-  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'image/png', 'cache-control': published ? 'public, max-age=3600' : 'private, no-store', etag: obj.httpEtag } });
+  return new Response(obj.body, { headers: {
+    'content-type': type, 'cache-control': published ? 'public, max-age=3600' : 'private, no-store', etag: obj.httpEtag,
+    'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+  } });
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------

@@ -140,7 +140,7 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
   const build = async (setup: ReturnType<typeof matchSetup>) => {
     const form = new FormData();
     form.set('metadata', new Blob([JSON.stringify(scriptMetadata(kind, {
-      bindings: scriptBindings(await gameBindings(env, origin, p, v, e), env.GAMES_BUCKET, setup.binding),
+      bindings: scriptBindings(await gameBindings(env, origin, p, v, e), setup.binding),
       tags: scriptTags({ pid: p.id, owner: p.owner_id, env: e, server: files.some((f) => f.path.startsWith('server/')) }),
       limits: gameLimits(await getSettings(env)),
       migrations: setup.migrations,
@@ -200,7 +200,7 @@ async function deployedOrigin(env: Env, id: string, script: string): Promise<str
     older runtime or older limits, or that lives in another host than the configured one (which is how games move to
     a dispatch namespace). Then deletes the old copies of moved games once their sessions are over. Runs from the
     scheduled handler, so a runtime fix (such as never serving server code as a file) reaches every game. */
-export async function rolloutRuntime(env: Env, max = 8): Promise<{ updated: string[]; skipped: string[]; failed: string[]; retired: string[]; remaining: number }> {
+export async function rolloutRuntime(env: Env, max = 16): Promise<{ updated: string[]; skipped: string[]; failed: string[]; retired: string[]; remaining: number }> {
   const out = { updated: [] as string[], skipped: [] as string[], failed: [] as string[], retired: [] as string[], remaining: 0 };
   if (hostKind(env) === 'local' || !env.CF_API_TOKEN || !env.CF_ACCOUNT_ID) return out;
   const fp = await fingerprint(env), hid = hostId(env);

@@ -11,7 +11,7 @@ The code is already shaped for that move. Switching is configuration plus a few 
 | Choosing the host | `src/hosting.ts` (`DEPLOY_DRIVER`) | `cloudflare` | `dispatch` |
 | Upload, delete, settings | `src/deploy.ts` (`host()`) | `/workers/scripts/<name>` | `/workers/dispatch/namespaces/<ns>/scripts/<name>` |
 | Script names | `scriptName()` | `gcp-<pid>-<env>` | the same |
-| Bindings | `scriptBindings()` | R2 `FILES`, plain text, `PLAY_KEY` secret | the same (all supported on user Workers) |
+| Bindings | `scriptBindings()` | plain text, `PLAY_KEY` and `STORE_KEY` secrets (no bucket: files are read through `/api/rt/file`) | the same (all supported on user Workers) |
 | Compatibility | `GAME_COMPAT_DATE`, `GAME_COMPAT_FLAGS` | `disallow_importable_env` | the same |
 | Tags | `scriptTags()` | `gcp-game`, `gcp-<env>`, `project-<pid>`, `owner-<user>`, `server-code` or `static` | the same; usable for bulk delete (`?tags=owner-u_x:yes`) |
 | CPU and subrequest limits | admin settings `game_cpu_ms`, `game_subrequests` | baked into each script's upload metadata (`limits`) | passed per request: `DISPATCHER.get(name, {}, { limits })` |
