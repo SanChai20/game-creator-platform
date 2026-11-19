@@ -34,6 +34,15 @@ export interface StageCtl {
   quit(): void;
   /** enter(), but only on a phone or tablet. Call it from the click that starts the game. */
   enterOnPhone(): void;
+  /** A picture of the game as it is now, taken by the SDK inside the game page (preview only, for the game's owner). */
+  capture(): Promise<GameCapture>;
+  /** Whether the stage fills the screen right now. */
+  isActive(): boolean;
+}
+/** What the SDK answers a capture with: the picture (a JPEG data URL, '' on error) and what it knew about the game. */
+export interface GameCapture {
+  image: string; error: string; canvases: number; state: string | null; frames: number; fps: number; ready: boolean; label: string;
+  errors: string[]; warnings: string[]; viewport: { width: number; height: number };
 }
 
 const mq = (q: string) => typeof matchMedia === 'function' && matchMedia(q).matches;
@@ -109,7 +118,9 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur }: {
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools }: {
+  /** Extra buttons in the bar under the game (the console's preview puts its feedback capture there). */
+  tools?: ReactNode;
   poster: string | null; seed: string; url: string | null; children?: ReactNode; onTrialOver?: () => void;
   /** The platform refused the game's session (signed out, switched accounts, signed in after guest play, token ran out). */
   onSessionEnded?: (reason: string) => void;
@@ -161,7 +172,21 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   toggleRef.current = toggle;
   const quit = useCallback(() => { setMenu(false); onQuit?.(); exit(); }, [onQuit, exit]);
   const resume = useCallback(() => { setMenu(false); frame.current?.focus(); }, []);
-  useImperativeHandle(ctl, () => ({ enter, exit, toggle, quit, enterOnPhone: () => { if (isHandheld()) enter(); } }), [enter, exit, toggle, quit]);
+  const activeRef = useRef(false); activeRef.current = active;
+  // A capture asks the game page and waits for its answer (only that frame's answers count).
+  const capture = useCallback(() => new Promise<GameCapture>((resolve, reject) => {
+    const win = frame.current?.contentWindow, src = urlRef.current;
+    if (!win || !src) { reject(new Error(t('The game is not running.', '游戏未在运行。'))); return; }
+    const id = Math.random().toString(36).slice(2, 12);
+    const done = (e: MessageEvent) => {
+      if (e.source !== frame.current?.contentWindow || e.data?.gcp !== 'capture_result' || e.data.id !== id) return;
+      clearTimeout(timer); removeEventListener('message', done); resolve(e.data as GameCapture);
+    };
+    const timer = setTimeout(() => { removeEventListener('message', done); reject(new Error(t('The game did not answer. It may be busy; try again.', '游戏没有响应，可能正忙，请重试。'))); }, 4000);
+    addEventListener('message', done);
+    win.postMessage({ gcp: 'capture', id }, new URL(src, location.href).origin);
+  }), []);
+  useImperativeHandle(ctl, () => ({ enter, exit, toggle, quit, enterOnPhone: () => { if (isHandheld()) enter(); }, capture, isActive: () => activeRef.current }), [enter, exit, toggle, quit, capture]);
   // Alt+Enter toggles fullscreen, the shortcut PC games use. Pressed in the game, the SDK passes it on (the key press
   // counts as the player's gesture for this page too).
   useEffect(() => {
@@ -322,6 +347,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
         <div className="row stage-bar">
           <span className="mute fs-sm">{handheld ? t('Fullscreen gives the game the whole screen.', '全屏可让游戏占满整个屏幕。') : t('Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.', '点击游戏画面以获取键盘焦点。Alt+Enter 切换全屏。')}</span>
           <span className="row right" style={{ gap: 8 }}>
+            {tools}
             {onQuit && <Button size="sm" variant="ghost" onClick={quit}>{t('Quit game', '退出游戏')}</Button>}
             <Button size="sm" variant="primary" onClick={toggle}>{t('Fullscreen', '全屏')}</Button>
           </span>

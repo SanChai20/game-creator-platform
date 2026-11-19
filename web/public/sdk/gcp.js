@@ -123,7 +123,8 @@
   // The verifier can hold the frame loop still while it photographs a slow, full-quality frame (see the portrait pass).
   var held = [];
   S.hold = function (on) { S.held = !!on; if (!on) { var h = held; held = []; for (var i = 0; i < h.length; i++) window.requestAnimationFrame(h[i]); } };
-  window.requestAnimationFrame = function (cb) { if (S.held) { held.push(cb); return 0; } return raf(function (t) { if (t !== lastT) { lastT = t; S.frames++; lastFrameAt = performance.now(); for (var i = 0; i < frameHooks.length; i++) frameHooks[i](); } cb(t); }); };
+  window.requestAnimationFrame = function (cb) { if (S.held) { held.push(cb); return 0; } return raf(function (t) { if (t !== lastT) { lastT = t; S.frames++; lastFrameAt = performance.now(); for (var i = 0; i < frameHooks.length; i++) frameHooks[i](); } cb(t); if (afterDraw) afterDraw(t); }); };
+  var afterDraw = null;   // set while the creator's console takes a picture of the game (see "creator feedback" below)
 
   function api(path, body, method) {
     if (standalone) return Promise.reject(new Error('offline'));
@@ -500,7 +501,8 @@
     mm.onclose = function (ev) { if (!ticket) seen.closes++; if (!ticket && !closed) { self.phase = 'closed'; emit('close', ev.code, ev.reason); } };
   }
 
-  var autostartFns = [], playFn = null, pairFn = null;
+  var autostartFns = [], playFn = null, pairFn = null, stateFn = null;
+  S.debugState = function () { if (!stateFn) return null; var v = stateFn(); if (v === undefined || v === null) return null; var j = typeof v === 'string' ? v : JSON.stringify(v); return String(j).slice(0, 4000); };
   // The play-through a game may register: the verifier runs it and reports each step, so "playable" can mean
   // "the whole loop was played to the end" instead of only "it booted". Limits: 60 steps, one run at a time.
   S.playthrough = false;
@@ -819,6 +821,11 @@
           The verifier runs it in both pages at once and fails the version if either throws, sees fewer than two players, or the worlds differ. */
       twoPlayers: q.get('gcp_two') ? { role: q.get('gcp_two') === 'guest' ? 'guest' : 'host', code: String(q.get('gcp_room') || 'VERIFY').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'VERIFY' } : null,
       onTwoPlayers: function (fn) { pairFn = typeof fn === 'function' ? fn : null; S.twoPlayers = !!pairFn; },
+      /** Register fn() returning a small JSON-able object that says where the game is right now (level, scene, the
+          player's position, score, open menu…). It is attached to the screenshots the creator sends their agent from the
+          preview, and debug_preview returns it with every screenshot, so the agent can tell what the picture shows.
+          Keep it under 4 KB; it is never called for players. */
+      onState: function (fn) { stateFn = typeof fn === 'function' ? fn : null; },
     },
     /** Open (true), close (false) or toggle (no argument) the platform's menu in the player: Resume and Quit game. Give your
         own pause screen a button for it when the game hides the platform's menu button (setDisplay({ exitButton: 'none' })). */
@@ -874,8 +881,53 @@
     if (e.key !== 'Escape' || e.repeat || escFn || !display.fullscreen) return;
     setTimeout(function () { if (!e.defaultPrevented) toParent({ gcp: 'menu', on: true }); }, 0);
   });
+  // ---- creator feedback: the console asks for a picture of the game while its creator plays the preview. Only on the
+  // preview, only for the game's owner, only when the platform's own page asks. Every canvas on the page is drawn into one
+  // picture right after the game drew a frame (a WebGL canvas is still holding that frame then, whatever its settings),
+  // where each sits on the screen. Page elements over the canvas (HTML menus) are not in it; the console can capture the
+  // whole tab instead.
+  var platformOrigin = ''; try { platformOrigin = new URL(cfg.api || location.origin, location.href).origin; } catch (e) { /* no platform */ }
+  var fpsAt = 0, fpsN = 0, fpsNow = 0;
+  frameHooks.push(function () { var t = performance.now(); fpsN++; if (!fpsAt) fpsAt = t; if (t - fpsAt >= 1000) { fpsNow = Math.round(fpsN * 1000 / (t - fpsAt)); fpsN = 0; fpsAt = t; } });
+  function captureGame(id) {
+    var vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight), dpr = window.devicePixelRatio || 1;
+    var scale = Math.min(dpr, 1600 / vw, 1600 / vh), out = document.createElement('canvas');
+    out.width = Math.round(vw * scale); out.height = Math.round(vh * scale);
+    var g = out.getContext('2d'), drew = 0, done = false, timer = 0;
+    function compose() {
+      var bg = '#000'; try { var b = getComputedStyle(document.body).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; } catch (e) { /* no body */ }
+      g.fillStyle = bg; g.fillRect(0, 0, out.width, out.height); drew = 0;
+      var cs = document.querySelectorAll('canvas');
+      for (var i = 0; i < cs.length; i++) {
+        var c = cs[i], r = c.getBoundingClientRect(); if (r.width < 2 || r.height < 2 || !c.width || !c.height || r.right < 0 || r.bottom < 0 || r.left > vw || r.top > vh) continue;
+        var st = getComputedStyle(c); if (st.display === 'none' || st.visibility === 'hidden' || +st.opacity === 0) continue;
+        try { g.globalAlpha = Math.max(0, Math.min(1, +st.opacity || 1)); g.drawImage(c, r.left * scale, r.top * scale, r.width * scale, r.height * scale); drew++; } catch (e) { /* not drawable */ }
+      }
+      g.globalAlpha = 1;
+    }
+    function finish(err) {
+      if (done) return; done = true; afterDraw = null; clearTimeout(timer);
+      var image = '', error = err || '';
+      if (!error && !drew) error = 'no_canvas';
+      if (!error) { try { image = out.toDataURL('image/jpeg', 0.86); } catch (e) { error = 'tainted'; } }
+      var state = null; try { state = S.debugState(); } catch (e) { state = 'onState threw: ' + (e && e.message || e); }
+      toParent({ gcp: 'capture_result', id: id, image: image, error: error, canvases: drew,
+        state: state, frames: S.frames, fps: fpsNow, ready: S.ready, label: S.label || '', errors: S.errors.slice(0, 10), warnings: S.warnings.slice(0, 10),
+        viewport: { width: vw, height: vh } });
+    }
+    // the frame being drawn now: draw after every callback of it, and send once the frame is over
+    var armed = -1;
+    afterDraw = function (t) { if (armed < 0) { armed = t; setTimeout(function () { finish(); }, 0); } if (t === armed) compose(); };
+    // a game that is not drawing (paused, turn-based): take what the canvases hold now
+    timer = setTimeout(function () { if (armed < 0) { compose(); finish(); } }, 500);
+  }
   window.addEventListener('message', function (e) {
     var d = e.data;
+    if (e.source === window.parent && d && d.gcp === 'capture') {
+      if (cfg.env === 'preview' && cfg.kind === 'owner' && e.origin === platformOrigin) captureGame(String(d.id || '').slice(0, 40));
+      else toParent({ gcp: 'capture_result', id: String(d.id || '').slice(0, 40), error: 'not_allowed' });
+      return;
+    }
     // The player's watchdog: an answer proves the game's main thread is free. A game stuck in a long loop cannot answer,
     // and the player then offers Wait or Quit game.
     if (e.source === window.parent && d && d.gcp === 'ping') { toParent({ gcp: 'pong', n: d.n, frames: S.frames }); return; }
@@ -895,6 +947,6 @@
   var view = {};
   ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
-  ['hold', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
+  ['hold', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }
 })();
