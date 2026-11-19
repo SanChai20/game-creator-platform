@@ -1409,5 +1409,12 @@
  "for finding bugs; not used in any number above": "用於排查問題；不計入上面的任何數字",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "這些來自遊戲本身的心跳，平台無法核實：遊戲是否呼叫了 GCP.ready，以及它捕獲到的錯誤。",
  "Never started": "未能啟動",
- "no GCP.ready before the player left": "玩家離開前未呼叫 GCP.ready"
+ "no GCP.ready before the player left": "玩家離開前未呼叫 GCP.ready",
+ "Platform cut of each sale of a game that shares its Open Implementation (percent)": "開放實現的遊戲每筆銷售的平台分成（百分比）",
+ "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "開放實現的免費遊戲在免費遊戲中的排名加成（近期遊玩權重增加的百分比；0 為關閉，最高 100；評價較差的遊戲不加成）",
+ "Share your game's Open Implementation and you keep {share}% instead.": "開放遊戲的實作方式，你可獲得 {share}%。",
+ "The platform keeps {cut}% of each sale, {open}% on games that share their Open Implementation": "平台從每筆銷售中收取 {cut}%，開放實現的遊戲僅收取 {open}%",
+ "For a game that shares its Open Implementation, the platform’s share is {open}% instead, on sales made while sharing is turned on.": "對開放實現的遊戲，在開放期間產生的銷售中，平台分成改為 {open}%。",
+ "While shared, the platform keeps {open}% of each sale of this game instead of {cut}%.": "開放期間，平台從這款遊戲的每筆銷售中收取 {open}%，而不是 {cut}%。",
+ "While shared, this free game ranks higher among free games, unless players rate it poorly.": "開放期間，這款免費遊戲在免費遊戲中排名更靠前（玩家評價較差時除外）。"
 }

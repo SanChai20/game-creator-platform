@@ -4,11 +4,20 @@ import type { Env } from './env';
 import type { Settings } from './settings';
 import { now } from './util';
 
-export function splitSale(priceCents: number, s: Settings): { fee: number; net: number; cut: number; processing: number } {
-  const cut = Math.round(priceCents * s.platform_fee_percent / 100);
+type FeeSettings = Pick<Settings, 'platform_fee_percent' | 'platform_fee_open_percent'>;
+
+/** The platform's cut of a sale, in percent. A paid game that shares its Open Implementation pays the lower rate; the
+ *  rate is the one in force when the sale is recorded, and the purchase keeps the fee it was charged, so turning sharing
+ *  on or off later never changes past sales, their refunds or the creator's ledger. */
+export function cutPercent(s: FeeSettings, open: boolean): number {
+  return open ? s.platform_fee_open_percent : s.platform_fee_percent;
+}
+
+export function splitSale(priceCents: number, s: Settings, open = false): { fee: number; net: number; cut: number; processing: number; cut_percent: number } {
+  const pct = cutPercent(s, open), cut = Math.round(priceCents * pct / 100);
   const processing = Math.round(priceCents * s.sale_processing_percent / 100) + s.sale_processing_fixed_cents;
   const fee = Math.min(priceCents, cut + processing);
-  return { fee, net: priceCents - fee, cut, processing };
+  return { fee, net: priceCents - fee, cut, processing, cut_percent: pct };
 }
 
 /** How long a sale's credit waits before the creator can withdraw it: the hold period, and never less than the window in
@@ -63,9 +72,9 @@ export async function balanceOf(env: Env, userId: string): Promise<Balance> {
 }
 
 /** Records a paid purchase and credits the creator. Idempotent on providerRef. Returns false if it already existed. */
-export async function recordPurchase(env: Env, s: Settings, a: { userId: string; projectId: string; ownerId: string; title: string; priceCents: number; provider: 'stripe' | 'admin'; providerRef: string; paymentIntent?: string | null }): Promise<boolean> {
+export async function recordPurchase(env: Env, s: Settings, a: { userId: string; projectId: string; ownerId: string; title: string; priceCents: number; provider: 'stripe' | 'admin'; providerRef: string; paymentIntent?: string | null; openImplementation?: boolean }): Promise<boolean> {
   if (await env.DB.prepare('SELECT 1 FROM purchases WHERE provider_ref = ?').bind(a.providerRef).first()) return false;
-  const { fee, net } = splitSale(a.priceCents, s);
+  const { fee, net } = splitSale(a.priceCents, s, !!a.openImplementation);
   const t = now(), id = 'pur_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
   await env.DB.batch([
     env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)")

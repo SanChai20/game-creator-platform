@@ -78,5 +78,7 @@
  "Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)": "每天自动向创作者付款：可提现余额达到最低额时（仅限 Stripe 收款账户）",
  "Days a sale is held before the creator can withdraw it (never shorter than the refund window)": "销售款项在创作者可提取前的保留天数（不会短于退款期限）",
  "Hours after paying that a buyer can refund a game themselves, once per game (0 turns self-serve refunds off)": "买家付款后可自行退款的小时数，每款游戏限一次（0 表示关闭自助退款）",
- "Most minutes a buyer can have played a game (trial included) and still refund it themselves": "买家仍可自行退款时，游戏最多可已游玩的分钟数（含试玩）"
+ "Most minutes a buyer can have played a game (trial included) and still refund it themselves": "买家仍可自行退款时，游戏最多可已游玩的分钟数（含试玩）",
+ "Platform cut of each sale of a game that shares its Open Implementation (percent)": "开放实现的游戏每笔销售的平台分成（百分比）",
+ "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "开放实现的免费游戏在免费游戏中的排名加成（近期游玩权重增加的百分比；0 为关闭，最高 100；评价较差的游戏不加成）"
 }

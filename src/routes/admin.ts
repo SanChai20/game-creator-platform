@@ -203,7 +203,7 @@ admin.post('/grant-game', async (c) => {
   const p = await getProject(c.env, String(b.slug || ''));
   if (!u || !p) throw notFound('User or game not found.');
   const s = await getSettings(c.env);
-  await recordPurchase(c.env, b.credit ? s : { ...s, platform_fee_percent: 100, sale_processing_percent: 0, sale_processing_fixed_cents: 0 }, { userId: u.id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: b.credit ? p.price_cents : 0, provider: 'admin', providerRef: 'grant:' + rid(12) });
+  await recordPurchase(c.env, b.credit ? s : { ...s, platform_fee_percent: 100, sale_processing_percent: 0, sale_processing_fixed_cents: 0 }, { userId: u.id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: b.credit ? p.price_cents : 0, provider: 'admin', providerRef: 'grant:' + rid(12), openImplementation: !!p.open_implementation });
   return c.json({ ok: true });
 });
 

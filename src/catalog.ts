@@ -23,3 +23,18 @@ export function recentStmt(db: D1Database, t = now()): D1PreparedStatement {
 export async function refreshCatalog(env: Env, withRecent: boolean): Promise<void> {
   await env.DB.batch([...playingStmts(env.DB), ...(withRecent ? [recentStmt(env.DB)] : [])]);
 }
+
+/**
+ * How free games are ranked against each other (the Free shelf, and /games?price=free in trending order). A free game
+ * that shares its Open Implementation gets its recent play counted `boostPercent` percent higher, so it rises above
+ * free games with similar or somewhat more play, but never above one with clearly more (at most double). A game rated
+ * poorly (Bayesian average below 3, with the same prior as the Top sort) gets no boost, so sharing never lifts a bad game.
+ * Returns an ORDER BY fragment over the projects table aliased p; the boost is clamped to a whole number from 0 to 100
+ * before it is written into the SQL.
+ */
+export function freeTrendingOrder(boostPercent: number, a = 'p'): string {
+  const b = Math.max(0, Math.min(100, Math.round(Number(boostPercent) || 0)));
+  if (!b) return `${a}.featured DESC, ${a}.recent DESC, ${a}.plays DESC, ${a}.published_at DESC`;
+  const goodEnough = `(${a}.rating_sum + 3.5 * 3) * 1.0 / (${a}.rating_count + 3) >= 3`;
+  return `${a}.featured DESC, ${a}.recent * (CASE WHEN ${a}.open_implementation = 1 AND ${goodEnough} THEN ${(100 + b) / 100} ELSE 1 END) DESC, ${a}.plays DESC, ${a}.published_at DESC`;
+}
