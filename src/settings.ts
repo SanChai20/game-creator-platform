@@ -79,6 +79,15 @@ export const SETTING_DEFS = {
   game_subrequests: { v: 0, type: 'int', group: 'Game Workers', label: 'Outgoing requests a game Worker may make per request, including its calls to the platform (0: the Cloudflare default, 10000)', public: true },
   game_blocked_hosts: { v: '', type: 'text', group: 'Game Workers', label: 'Hosts game server code may not call, comma-separated (enforced by the outbound Worker once games run on Workers for Platforms)' },
 
+  // Agent debugging (debug_preview, src/debug.ts) shares Browser Rendering with the verifier: keep room for verification.
+  debug_enabled: { v: true, type: 'bool', group: 'Debugging and feedback', label: 'Let agents open their game\'s preview in a browser they drive (debug_preview: screenshots, clicks, keys)', public: true },
+  debug_max_sessions: { v: 3, type: 'int', group: 'Debugging and feedback', label: 'Debug browsers open at once across the platform (each uses one Browser Rendering browser; verification needs some too)' },
+  debug_sessions_per_day: { v: 40, type: 'int', group: 'Debugging and feedback', label: 'Debug browsers one account may open per day' },
+  debug_session_minutes: { v: 10, type: 'int', group: 'Debugging and feedback', label: 'Longest a debug browser stays open (minutes, 1 to 10; it also closes after 3 idle minutes)', public: true },
+  feedback_enabled: { v: true, type: 'bool', group: 'Debugging and feedback', label: 'Let creators send annotated screenshots of their preview to their agent (creator feedback queue)', public: true },
+  feedback_max_pending: { v: 20, type: 'int', group: 'Debugging and feedback', label: 'Feedback items waiting per game before the creator must remove some or the agent read them', public: true },
+  feedback_keep_days: { v: 30, type: 'int', group: 'Debugging and feedback', label: 'Days an unread feedback item is kept', public: true },
+
   oauth_access_ttl_s: { v: 3600, type: 'int', group: 'Agent access (OAuth)', label: 'Access token lifetime (seconds)' },
   oauth_grant_ttl_s: { v: 30 * 86400, type: 'int', group: 'Agent access (OAuth)', label: 'Authorization lifetime before the agent must be re-approved (seconds)' },
 } as const;

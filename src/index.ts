@@ -6,6 +6,8 @@ import { AppError, type Env, type User } from './env';
 import { sessionToken, userFromRequest } from './auth';
 import { gameBindings, rolloutRuntime } from './deploy';
 import { purgeOldVersions, purgeRemovedGameData, retireIdlePreviews } from './cleanup';
+import { reapDebugSessions } from './debug';
+import { purgeOldFeedback } from './feedback';
 import { dispatchGame, type Namespace } from './dispatch';
 import { hostKind, matchGameRequest } from './hosting';
 
@@ -308,6 +310,8 @@ export default {
     job('rollout', () => rolloutRuntime(env));
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
     job('mature', () => backfillMature(env, 20));
+    // debug browsers past their lifetime are closed (src/debug.ts)
+    job('debug sessions', () => reapDebugSessions(env));
     if (event.cron !== DAILY_CRON) return;
     job('payouts', () => autoPayouts(env));
     const t = now();
@@ -331,5 +335,6 @@ export default {
     job('idle previews', () => retireIdlePreviews(env));
     job('old versions', () => purgeOldVersions(env));
     job('removed game data', () => purgeRemovedGameData(env));
+    job('old feedback', () => purgeOldFeedback(env));
   },
 } satisfies ExportedHandler<Env>;

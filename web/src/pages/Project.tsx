@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePlayClock } from '../play-clock';
 import { ago, api, bytes, dateTime, Fail, genreName, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
+import type { StageCtl } from '../player';
+import { CaptureButtons, FeedbackEditor, FeedbackQueue, type Shot } from '../feedback';
 import { projectTabs } from './Analytics';
 import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
 import { AgeBadge, ageLabel } from '../meta-ui';
@@ -122,6 +124,9 @@ export function Project({ id }: { id: string }) {
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
   const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [previewSession, setPreviewSession] = useState<string | null>(null), [priceText, setPriceText] = useState<string | null>(null);
   usePlayClock(preview ? previewSession : null);   // the platform's play clock for the preview session (src/play-clock.ts)
+  // creator feedback: a capture being marked up (the game keeps its place, hidden, behind the editor), and a counter that
+  // refreshes the queue card after an item was added
+  const stage = useRef<StageCtl>(null), stageBox = useRef<HTMLDivElement>(null), [shot, setShot] = useState<Shot | null>(null), [fbStamp, setFbStamp] = useState(0);
 
   // While a deployment is running, keep the page fresh.
   const working = !!data?.versions.some((v: any) => ['queued', 'deploying', 'verifying'].includes(v.status));
@@ -211,6 +216,7 @@ export function Project({ id }: { id: string }) {
           </div>
 
           <div className="stack l">
+            {s.feedback_enabled !== false && <FeedbackQueue projectId={id} stamp={fbStamp} />}
             {data.metadata && <StoreMetadata m={data.metadata} />}
             <Card title={t('Price', '价格')} pad>
               {priceText === null ? (
@@ -242,9 +248,17 @@ export function Project({ id }: { id: string }) {
         </div>
       </div>
 
-      {preview && <Modal wide onClose={() => { setPreview(null); void reload(); }}><div className="stack">
-        <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
-        <Stage poster={null} seed={p.slug} url={preview} onQuit={() => { setPreview(null); void reload(); }} />
+      {preview && <Modal wide onClose={() => { setPreview(null); setShot(null); void reload(); }}><div className="stack">
+        <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); setShot(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
+        {shot && <FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} />}
+        {(() => {
+          const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} version={p.preview_version} capture={() => stage.current!.capture()} frame={() => stageBox.current?.querySelector('iframe') ?? null}
+            fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); setShot(sh); }} /> : null;
+          // hidden while a capture is marked up: a hidden frame stops drawing, so the game waits where it was
+          return <div ref={stageBox} style={shot ? { display: 'none' } : undefined}>
+            <Stage ctl={stage} poster={null} seed={p.slug} url={preview} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} />
+          </div>;
+        })()}
         <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>
       </div></Modal>}
     </div>
