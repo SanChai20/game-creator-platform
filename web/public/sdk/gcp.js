@@ -561,17 +561,40 @@
     ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
   }
   markDisplay();
-  // In the platform's player, swipes and pinches must reach the game and never the page: a pinch or an overscroll can
-  // otherwise zoom the game or drop the browser out of fullscreen on phones and tablets. Panning stays allowed, so a game's
-  // own scrolling lists keep working.
-  var guardCss = 'html.gcp-guard,html.gcp-guard body{overscroll-behavior:none;touch-action:pan-x pan-y;-webkit-touch-callout:none;-webkit-text-size-adjust:100%}';
+  // In the platform's player, swipes and pinches must reach the game and never the browser: a pinch, an overscroll or a
+  // swipe the page did not use can otherwise zoom the game, navigate back, or (iPad, Android) drop the browser out of
+  // fullscreen. It holds in fullscreen on every device (a trackpad swipe on a computer is an overscroll too), and it never
+  // loosens what the game asked for: the pan-only touch-action sits on <html> with no specificity, so a game's own
+  // touch-action (none, say) wins, and the browser combines it with every element under it.
+  var guardCss = 'html.gcp-guard,html.gcp-guard body{overscroll-behavior:none;-webkit-touch-callout:none;-webkit-text-size-adjust:100%}:where(html.gcp-guard){touch-action:pan-x pan-y}';
   function guard() {
-    var on = display.fullscreen && display.touch, h = document.documentElement; if (!h || !h.classList) return;
+    var on = display.fullscreen, h = document.documentElement; if (!h || !h.classList) return;
     h.classList.toggle('gcp-guard', on);
     if (on && document.head && !document.getElementById('gcp-guard')) { var st = document.createElement('style'); st.id = 'gcp-guard'; st.textContent = guardCss; document.head.appendChild(st); }
   }
   var noPinch = function (e) { if (display.fullscreen && display.touch && e.cancelable) e.preventDefault(); };
   try { document.addEventListener('gesturestart', noPinch, { passive: false }); document.addEventListener('gesturechange', noPinch, { passive: false }); } catch (e) { /* old browser */ }
+  // A finger that moves over something that cannot scroll is the game's, whatever the game did with it: the move is
+  // cancelled, so the browser never turns it into a gesture of its own (iPad's swipe down that closes fullscreen, a pan
+  // that steals a drag with pointercancel, a pinch). Pointer and touch events still reach the game. A move inside a list
+  // that scrolls, or over a text field or slider, is left to the browser.
+  var scrolls = function (el) {
+    for (; el && el.nodeType === 1 && el !== document.body && el !== document.documentElement; el = el.parentNode) {
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return true;
+      var st = getComputedStyle(el), oy = st.overflowY, ox = st.overflowX;
+      if ((/auto|scroll/.test(oy) && el.scrollHeight > el.clientHeight + 1) || (/auto|scroll/.test(ox) && el.scrollWidth > el.clientWidth + 1)) return true;
+    }
+    return false;
+  };
+  var free = false;   // whether the finger went down on something that scrolls (decided once per touch)
+  var keepTouch = function (e) {
+    if (!display.fullscreen || !e.cancelable || e.defaultPrevented) return;   // a touch screen on a computer too
+    if ((e.touches && e.touches.length > 1) || !free) e.preventDefault();
+  };
+  try {
+    document.addEventListener('touchstart', function (e) { if (e.touches && e.touches.length === 1) free = display.fullscreen && scrolls(e.target); }, { passive: true, capture: true });
+    document.addEventListener('touchmove', keepTouch, { passive: false });
+  } catch (e) { /* old browser */ }
   function toParent(msg) { if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } } }
   var escFn = null;
   function runEscape(e) {

@@ -152,19 +152,21 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const urlRef = useRef(url), toggleRef = useRef<() => void>(() => {}); urlRef.current = url;
 
   const leaveImmersive = useCallback(() => { unlock.current?.(); unlock.current = null; setImmersive(false); }, []);
+  // While the game fills the screen, an entry of its own sits on top of the page's history, so a stray back gesture (a
+  // trackpad swipe, Android's overscroll) takes that entry instead of leaving the page and closing the game.
+  const pushPlay = useCallback(() => { try { if (!history.state?.gcpPlay) history.pushState({ ...(history.state || {}), gcpPlay: 1 }, ''); } catch { /* sandboxed */ } }, []);
   const goImmersive = useCallback(() => {
     if (unlock.current) return;
-    unlock.current = lockPage(); setImmersive(true);
-    try { history.pushState({ ...(history.state || {}), gcpPlay: 1 }, ''); } catch { /* sandboxed */ }
-  }, []);
+    unlock.current = lockPage(); setImmersive(true); pushPlay();
+  }, [pushPlay]);
   // Call it from a click or key press: browsers refuse fullscreen otherwise. On iPhone, and in an installed web app on
   // iOS (already full screen, where a swipe would only drop an element fullscreen), the stage fills the viewport instead.
   const enter = useCallback(() => {
     const el = box.current as FsEl | null; if (!el || fsElement() === el || unlock.current) return;
     setTurned(false); setMenu(false);
-    if (fsAvailable(el) && !(isIOS() && isInstalled())) requestFs(el).then(() => lockOrientation(want), goImmersive);
+    if (fsAvailable(el) && !(isIOS() && isInstalled())) requestFs(el).then(() => { lockOrientation(want); pushPlay(); }, goImmersive);
     else goImmersive();
-  }, [want, goImmersive]);
+  }, [want, goImmersive, pushPlay]);
   const exit = useCallback(() => {
     setMenu(false); exitFs();
     if (unlock.current) { if (history.state?.gcpPlay) history.back(); else leaveImmersive(); }   // back: the popstate below cleans up
@@ -197,11 +199,16 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // Real fullscreen ends by itself too (holding Esc, the back or swipe gesture): follow it. Esc stays locked while it lasts.
   useEffect(() => {
-    const f = () => { const on = !!box.current && fsElement() === box.current; setFs(on); if (!on) unlockOrientation(); escLock(on); };
+    const f = () => {
+      const on = !!box.current && fsElement() === box.current; setFs(on); escLock(on);
+      // Drop the play entry, once any back that ended fullscreen has landed (it may already have taken the entry).
+      if (!on) { unlockOrientation(); setTimeout(() => { if (!fsElement() && !unlock.current && history.state?.gcpPlay) history.back(); }, 250); }
+    };
     document.addEventListener('fullscreenchange', f); document.addEventListener('webkitfullscreenchange', f);
     return () => { document.removeEventListener('fullscreenchange', f); document.removeEventListener('webkitfullscreenchange', f); };
   }, []);
-  // The back gesture or button pauses immersive play instead of leaving the page.
+  // The back gesture or button pauses immersive play instead of leaving the page. In real fullscreen it only takes the play
+  // entry: the game stays in fullscreen (a back that the browser itself turns into leaving fullscreen is handled above).
   useEffect(() => {
     const f = () => { if (unlock.current && !history.state?.gcpPlay) leaveImmersive(); };
     addEventListener('popstate', f); return () => removeEventListener('popstate', f);
