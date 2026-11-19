@@ -12,6 +12,8 @@
 // never from what a game reports.
 import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
+import { freeTrendingOrder } from './catalog';
+import { getSettings } from './settings';
 
 /** Days of activity the trending score looks at. */
 export const TREND_DAYS = 14;
@@ -42,11 +44,10 @@ export const REPEAT_DAYS = 3;
 /** Picks are kept this long, then the daily cleanup drops them. */
 export const KEEP_PICKS_DAYS = 30;
 /**
- * How the free slot orders free games (an ORDER BY fragment over projects p). Hook for the Open Implementation boost: the free-game ranking that lifts free
- * games sharing their implementation (src/catalog.ts) should be used here too, so today's free pick follows the same
- * order as the Free shelf.
+ * How the free slot orders free games (an ORDER BY fragment over projects p): the same order as the Free shelf, so
+ * free games that share their Open Implementation get the same lift here (src/catalog.ts).
  */
-export async function freePickOrder(_env: Env): Promise<string> { return 'p.recent DESC, p.plays DESC'; }
+export async function freePickOrder(env: Env): Promise<string> { return freeTrendingOrder((await getSettings(env)).open_impl_free_boost_percent); }
 
 export type PickReason = 'featured' | 'trending' | 'rising' | 'new' | 'gem' | 'free' | 'more';
 export interface PickCandidate {

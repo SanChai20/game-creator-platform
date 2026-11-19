@@ -6,7 +6,8 @@ import { balanceOf, recordPurchase, refundPurchase } from '../earnings';
 import { getProject, logEvent } from '../projects';
 import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
-import { undeployGame } from '../deploy';
+import { rolloutRuntime, undeployGame } from '../deploy';
+import { auditFiles } from '../audit';
 import { enqueue } from '../pipeline';
 import { hostId, hostingProblems } from '../hosting';
 import { decideRequest, setGameStorage, MB } from '../storage';
@@ -16,6 +17,16 @@ import { grantCreator, reverseWithdrawal, takeOffline } from './api';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
+
+// Brings game Workers up to this build's runtime now, instead of waiting for the scheduled rollout (16 every 10 minutes).
+// Run it again while `remaining` is above 0. A security fix to the runtime reaches every game this way.
+admin.post('/hosting/rollout', async (c) => c.json(await rolloutRuntime(c.env, 25)));
+
+// One page of the games bucket checked against the database (src/audit.ts). Pass the returned cursor to go on.
+admin.post('/audit/files', async (c) => {
+  const b = await c.req.json<{ cursor?: string; limit?: number }>().catch(() => ({} as { cursor?: string; limit?: number }));
+  return c.json(await auditFiles(c.env, typeof b.cursor === 'string' && b.cursor ? b.cursor : undefined, Number(b.limit) || 500));
+});
 
 admin.get('/overview', async (c) => {
   const db = c.env.DB, since = addDays(dayOf(now()), -29), t30 = now() - 30 * 86400000;
@@ -199,7 +210,7 @@ admin.post('/grant-game', async (c) => {
   const p = await getProject(c.env, String(b.slug || ''));
   if (!u || !p) throw notFound('User or game not found.');
   const s = await getSettings(c.env);
-  await recordPurchase(c.env, b.credit ? s : { ...s, platform_fee_percent: 100, sale_processing_percent: 0, sale_processing_fixed_cents: 0 }, { userId: u.id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: b.credit ? p.price_cents : 0, provider: 'admin', providerRef: 'grant:' + rid(12) });
+  await recordPurchase(c.env, b.credit ? s : { ...s, platform_fee_percent: 100, sale_processing_percent: 0, sale_processing_fixed_cents: 0 }, { userId: u.id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: b.credit ? p.price_cents : 0, provider: 'admin', providerRef: 'grant:' + rid(12), openImplementation: !!p.open_implementation });
   return c.json({ ok: true });
 });
 

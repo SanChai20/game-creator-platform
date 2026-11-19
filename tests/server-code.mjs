@@ -73,3 +73,69 @@ test('a crash in server code answers 500 marked as the server code\'s, with wher
   const live = await (await mod.handle(new Request('https://g.example/api/world'), env('live'), {})).json();
   assert.equal(live.stack, undefined);   // players of the live game never see where the creator's code failed
 });
+
+// ---- the runtime's env is out of the game's reach -------------------------------------------------------------------
+async function runtimeWith(serverSrc, matchSrc = 'export default null;\n') {
+  const { mkdtempSync, mkdirSync, copyFileSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'gcp-srv-'));
+  for (const f of ['game-worker.js', 'gcp-intrinsics.js', 'match-core.js']) copyFileSync(new URL('../src/runtime/' + f, import.meta.url), join(dir, f));
+  mkdirSync(join(dir, 'server'));
+  writeFileSync(join(dir, 'server/match.js'), matchSrc);
+  writeFileSync(join(dir, 'server/index.js'), serverSrc);
+  return import(join(dir, 'game-worker.js'));
+}
+
+test('server code cannot reach the runtime env or the keys through Object.prototype getters or patched crypto', async () => {
+  // what a hostile game tried in the security review: a getter on Object.prototype for a property the runtime reads on
+  // its env, and a replaced crypto.subtle.importKey that sees the raw key bytes
+  const mod = await runtimeWith(`
+const seen = globalThis.__seen = { envs: [], keys: [] };
+for (const name of ['__testFetch', 'FILES', 'MATCH', 'STORE_KEY', 'PLAY_KEY']) {
+  Object.defineProperty(Object.prototype, name, { configurable: true, get() { if (this && this.PLAY_KEY !== undefined && this !== Object.prototype) seen.envs.push(Object.keys(this)); return undefined; } });
+}
+const s = crypto.subtle, orig = s.importKey;
+Object.defineProperty(s, 'importKey', { configurable: true, value: function (fmt, data, ...rest) { seen.keys.push(new TextDecoder().decode(data)); return orig.call(s, fmt, data, ...rest); } });
+const origParse = JSON.parse; JSON.parse = function (t, r) { seen.keys.push('parse:' + String(t).slice(0, 40)); return origParse(t, r); };
+export default { async fetch(request, env) { await env.store.get('x').catch(() => {}); return Response.json({ ok: true }); } };
+`, 'export default { init() { return {}; }, tick(s) { return s; } };\n');
+  const env = { PREFIX: 'v/', GAME_ID: 'abc123', SLUG: 's', VERSION: '1', ENV: 'preview', PLAY_KEY: 'SECRET-PLAY', STORE_KEY: 'SECRET-STORE', PLATFORM: 'http://127.0.0.1:9' };
+  const tok = await mod.signPlayToken({ g: 'abc123', e: 'preview', u: 'u1', n: 'P', k: 'player', s: 'ps', x: Math.floor(Date.now() / 1000) + 60 }, 'SECRET-PLAY');
+  try {
+    const r = await mod.handle(new Request('https://g.example/api/x', { headers: { 'x-gcp-token': tok } }), env, {});
+    assert.equal(r.status, 200);
+    const m = await mod.handle(new Request('https://g.example/__gcp/match?t=x', { headers: { upgrade: 'websocket' } }), env, {});
+    assert.equal(m.status, 501);   // read env.MATCH, found nothing, and ran no getter of the game's while doing so
+    await mod.handle(new Request('https://g.example/assets/a.png', { headers: { cookie: '__Host-gcp_t=' + tok } }), env, {}).catch(() => {});
+    assert.deepEqual(globalThis.__seen.envs, [], 'no getter of the game ever ran with the runtime env as `this`');
+    assert.ok(!globalThis.__seen.keys.some((k) => k.includes('SECRET')), 'the patched importKey and JSON.parse never saw a key');
+  } finally {
+    for (const name of ['__testFetch', 'FILES', 'MATCH', 'STORE_KEY', 'PLAY_KEY']) delete Object.prototype[name];
+  }
+});
+
+test('a deployed game Worker has no bucket: files come from the platform with the game\'s store key, ranges included', async () => {
+  const mod = await runtimeWith('export default null;\n');
+  const calls = [];
+  const env = { PREFIX: 'v/abc123/3/', GAME_ID: 'abc123', SLUG: 's', TITLE: 'T', VERSION: '3', ENV: 'live', PLAY_KEY: 'k', STORE_KEY: 'sk', PLATFORM: 'https://p', MANIFEST: '{}',
+    __testFetch: async (url, init) => {
+      calls.push({ url: String(url), headers: init.headers });
+      if (String(url).endsWith('/missing.png')) return new Response('nope', { status: 404 });
+      if (init.headers.range) return new Response('BC', { status: 206, headers: { etag: '"e"', 'x-gcp-size': '4', 'content-range': 'bytes 1-2/4', 'x-gcp-type': 'image/png' } });
+      if (init.headers['if-none-match'] === '"e"') return new Response(null, { status: 304, headers: { etag: '"e"', 'x-gcp-size': '4' } });
+      if (String(url).endsWith('/index.html')) return new Response('<!doctype html><head></head>hi', { headers: { etag: '"h"', 'x-gcp-size': '30' } });
+      return new Response('ABCD', { headers: { etag: '"e"', 'x-gcp-size': '4', 'x-gcp-type': 'image/png' } });
+    } };
+  const tok = await mod.signPlayToken({ g: 'abc123', e: 'live', u: 'u1', n: 'P', k: 'player', s: 'ps', x: Math.floor(Date.now() / 1000) + 600 }, 'k');
+  const get = (path, headers = {}) => mod.handle(new Request('https://g.example' + path, { headers: { cookie: '__Host-gcp_t=' + tok, ...headers } }), env, {});
+  const full = await get('/a b/c.png');
+  assert.equal(full.status, 200); assert.equal(await full.text(), 'ABCD'); assert.equal(full.headers.get('etag'), '"e"');
+  assert.equal(calls[0].url, 'https://p/api/rt/file/3/a%20b/c.png');
+  assert.deepEqual([calls[0].headers['x-gcp-game'], calls[0].headers['x-gcp-env'], calls[0].headers['x-gcp-key']], ['abc123', 'live', 'sk']);
+  const part = await get('/c.png', { range: 'bytes=1-2' });
+  assert.equal(part.status, 206); assert.equal(part.headers.get('content-range'), 'bytes 1-2/4'); assert.equal(await part.text(), 'BC');
+  assert.equal((await get('/c.png', { 'if-none-match': '"e"' })).status, 304);
+  assert.equal((await get('/missing.png')).status, 404);
+  const page = await mod.handle(new Request('https://g.example/?gcp_t=' + tok), env, {});
+  assert.equal(page.status, 200); assert.match(await page.text(), /__GCP_CONFIG/);
+});

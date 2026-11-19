@@ -138,6 +138,16 @@
   .keys > div { grid-column: 1 / -1; grid-template-columns: subgrid; border-left: 0; padding: 0; align-items: center; justify-items: start; text-align: start; }
   .keys b { font-size: 76px; justify-self: center; }
 }
+/* Wide screens: the headings and the three steps are centered in the same three columns as the stats above. */
+@media (min-width: 761px) {
+  .creators .rule { text-align: center; }
+  .creators .rule::after { left: 50%; transform: translateX(-50%); }
+  .creators .track { gap: 0; }
+  .creators .track > div { justify-items: center; text-align: center; padding: 4px clamp(16px, 3vw, 40px) 8px; border-top: 0; border-left: 1.5px solid var(--line-2); }
+  .creators .track > div:first-child { border-left: 0; }
+  .creators .track > div::before { justify-self: center; }
+  .creators .track p { text-wrap: balance; }
+}
 .pitch { margin-top: clamp(56px, 7vw, 96px); padding: clamp(32px, 5vw, 72px); min-height: 340px; display: grid; align-items: center; }
 .pitch-in { position: relative; z-index: 2; display: grid; gap: 18px; justify-items: start; max-width: 540px; }
 .pitch h2 { font: 800 var(--fs-4xl)/.92 var(--font-display); font-stretch: 76%; letter-spacing: -.025em; text-transform: uppercase; }

@@ -13,6 +13,7 @@ import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
+import { freeTrendingOrder } from '../catalog';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { currentPicks } from '../rankings';
 import { checkIn, sessionStartStmt } from '../play-clock';
@@ -147,10 +148,12 @@ async function listGames(c: Ctx, o: ListOpts) {
   if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
   if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
   const w = where.join(' AND ');
+  // among free games, those that share their Open Implementation get a moderate lift (src/catalog.ts)
+  const order = sort === 'trending' && o.price === 'free' ? freeTrendingOrder((await getSettings(c.env)).open_impl_free_boost_percent) : ORDER[sort];
   const [rows, total] = await Promise.all([
     c.env.DB.prepare(
       // recent and playing are columns kept fresh by cron (src/catalog.ts), so the sort can use an index
-      `SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${ORDER[sort]} LIMIT ? OFFSET ?`).bind(...args, limit, offset).all(),
+      `SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...args, limit, offset).all(),
     c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${w}`).bind(...args).first<{ n: number }>(),
   ]);
   const games = rows.results.map((r) => card(c.get('origin'), r)), n = total?.n || 0;
@@ -402,6 +405,7 @@ api.post('/games/:slug/reviews', async (c) => {
   return c.json({ ok: true });
 });
 
+const MEDIA_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 api.get('/media/*', async (c) => {
   const key = decodeURIComponent(new URL(c.req.url).pathname.replace(/^\/api\/media\//, ''));
   // shots/<project>/<version>[-play-i].ext and covers/<project>-<time>.ext
@@ -415,9 +419,16 @@ api.get('/media/*', async (c) => {
   const published = p.status === 'live' && (key === p.cover_key || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
   const u = c.get('user');
   if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
+  // Only pictures, typed by their name, never by what was stored with them: this is the platform's own origin, so an
+  // object stored as HTML or SVG must never render here as a page.
+  const type = MEDIA_TYPES[(key.match(/\.([a-z0-9]+)$/) || [])[1] || ''];
+  if (!type) throw notFound();
   const obj = await c.env.FILES.get(key);
   if (!obj) throw notFound();
-  return new Response(obj.body, { headers: { 'content-type': obj.httpMetadata?.contentType || 'image/png', 'cache-control': published ? 'public, max-age=3600' : 'private, no-store', etag: obj.httpEtag } });
+  return new Response(obj.body, { headers: {
+    'content-type': type, 'cache-control': published ? 'public, max-age=3600' : 'private, no-store', etag: obj.httpEtag,
+    'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
+  } });
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------
@@ -545,7 +556,7 @@ async function applySession(env: Env, session: any): Promise<string> {
     const p = await getProject(env, m.project_id);
     if (!p) return 'missing_project';
     const sale = { userId: m.user_id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: session.amount_total || p.price_cents, provider: 'stripe' as const, providerRef: session.id, paymentIntent: pi };
-    try { await recordPurchase(env, await getSettings(env), sale); }
+    try { await recordPurchase(env, await getSettings(env), { ...sale, openImplementation: !!p.open_implementation }); }
     catch (e) {
       // The buyer already owns the game (two checkouts open at once, or paid in two tabs): the second payment is given
       // back at once and kept on record as refunded, instead of failing and leaving the money taken.
@@ -685,7 +696,7 @@ api.get('/console/projects/:id', async (c) => {
     versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
-    split: p.price_cents > 0 ? splitSale(p.price_cents, s) : null,
+    split: p.price_cents > 0 ? splitSale(p.price_cents, s, !!p.open_implementation) : null,
     trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },
     online: await onlineNow(c.env, p.id),
     implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
@@ -757,7 +768,7 @@ api.get('/console/earnings', async (c) => {
     db.prepare("SELECT p.title, p.slug, COUNT(*) AS n, SUM(x.price_cents) AS gross, SUM(x.fee_cents) AS fees, SUM(x.net_cents) AS net FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid' GROUP BY x.project_id ORDER BY net DESC").bind(u.id).all(),
   ]);
   return c.json({
-    balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: s.earnings_hold_days, fee_percent: s.platform_fee_percent,
+    balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: s.earnings_hold_days, fee_percent: s.platform_fee_percent, fee_open_percent: s.platform_fee_open_percent,
     payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, auto: !!s.auto_payouts, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
   });
 });
