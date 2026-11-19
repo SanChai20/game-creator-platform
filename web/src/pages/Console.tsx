@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ago, api, artStyle, date, Fail, GameTile, navigate, num, price, query, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Button, Card, Code, ListRow, Notice, PageHeader, Section, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
+import { ago, api, artStyle, date, Fail, navigate, num, price, query, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
+import { Badge, Button, Card, Code, ListRow, Notice, PageHeader, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
 import { ConsoleSkeleton } from '../skeletons';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { ConnectAgent, starterPrompt } from './Creators';
@@ -90,7 +90,6 @@ export function Console() {
                 <div className="pad stack"><b>{t('No games yet', '还没有游戏')}</b><p className="mute">{t('Games are made by your agent, not in this console. Connect it, then ask for a game. The platform hosts web games only: games that run in a browser page, not native, mobile, console or desktop builds.', '游戏由你的智能体创作，而不是在控制台里手动创建。先连接智能体，再让它为你做一款游戏。平台仅托管网页游戏，即在浏览器页面中运行的游戏，不接受原生、移动端、主机或桌面端构建。')}</p><Code text={starterPrompt()} /></div>
               )}
             </Card>
-            {!!data.library.length && <Section title={t('Games you bought', '已购游戏')}><div className="grid" style={{ paddingTop: 0 }}>{data.library.map((g: any) => <GameTile key={g.id} g={g} />)}</div></Section>}
           </div>
 
           <div className="stack l">

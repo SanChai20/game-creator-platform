@@ -1579,5 +1579,15 @@
  "No recovery codes either? Contact us from the email on your account and we will help you get back in.": "復原碼也沒有了？請用帳戶電子郵件聯絡我們，我們會協助你恢復存取。",
  "Your new password is saved.": "新密碼已儲存。",
  "Protect your creator account": "保護你的創作者帳戶",
- "Your games, earnings and connected agents are behind your password. Two-factor sign-in adds a code from your phone.": "你的遊戲、收益和已連接的智慧代理目前只受密碼保護。兩步驟驗證登入會再加上一組手機驗證碼。"
+ "Your games, earnings and connected agents are behind your password. Two-factor sign-in adds a code from your phone.": "你的遊戲、收益和已連接的智慧代理目前只受密碼保護。兩步驟驗證登入會再加上一組手機驗證碼。",
+ "Removed from your library. Your progress is kept.": "已從遊戲庫移除，進度會保留。",
+ "Added to your library.": "已加入遊戲庫。",
+ "In your library": "已在你的遊戲庫中",
+ "Add to library": "加入遊戲庫",
+ "Open library": "開啟遊戲庫",
+ "The games you bought, the free games you added, and everything you played. Continue opens a game where you left off, on any device.": "你購買的遊戲、你加入的免費遊戲，以及你玩過的所有遊戲。點「繼續遊戲」即可在任何裝置上從上次離開的地方繼續。",
+ "Games you buy are added here automatically. Add free games from their page, and games you play show up here with where you left off.": "你購買的遊戲會自動出現在這裡。免費遊戲可以在遊戲頁面加入遊戲庫，玩過的遊戲也會出現在這裡，並記錄你上次玩到哪裡。",
+ "Collection": "收藏",
+ "Bought games are added automatically. Free games stay until you remove them.": "購買的遊戲會自動加入。免費遊戲會一直保留，直到你移除。",
+ "Show": "顯示"
 }

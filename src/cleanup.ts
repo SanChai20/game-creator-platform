@@ -82,6 +82,7 @@ export async function purgeRemovedGameData(env: Env, max = 20): Promise<string[]
     // live data is scoped "<id>", preview data "<id>:preview"
     await env.DB.batch([
       ...['saves', 'player_stats', 'player_games', 'scores', 'match_ratings'].map((tb) => env.DB.prepare(`DELETE FROM ${tb} WHERE project_id IN (?1, ?1 || ':preview')`).bind(id)),
+      env.DB.prepare('DELETE FROM library_games WHERE project_id = ?').bind(id),
       env.DB.prepare('UPDATE projects SET data_purged_at = ? WHERE id = ?').bind(t, id),
     ]);
   }
