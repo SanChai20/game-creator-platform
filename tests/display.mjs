@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-function loadSdk() {
+function loadSdk(extra = {}) {
   const noop = () => {}, listeners = {}, docListeners = {}, posted = [], props = {}, classes = new Set(), styles = [], timers = [];
   const parent = { postMessage: (m) => posted.push(m) };
   const win = { addEventListener: (k, f) => { (listeners[k] ||= []).push(f); }, requestAnimationFrame: () => 0, location: { search: '', pathname: '/', hash: '' }, history: { replaceState: noop }, parent };
@@ -13,16 +13,26 @@ function loadSdk() {
     window: win, location: win.location, history: win.history, URLSearchParams, console: { ...console, error: noop }, navigator: {}, parent,
     addEventListener: win.addEventListener, matchMedia: () => ({ matches: false }),
     document: { addEventListener: (k, f) => { (docListeners[k] ||= []).push(f); }, getElementById: () => null, createElement: () => ({ getContext: () => null, style: {} }), documentElement: html, head: { appendChild: (el) => styles.push(el) }, body: null, querySelector: () => null },
+    getComputedStyle: (el) => el.style || {},
     performance: { now: () => 0, timeOrigin: 1.7e12 }, setTimeout: (f) => { timers.push(f); return 0; }, clearTimeout: noop, setInterval: () => 0, clearInterval: noop,
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop }, fetch: () => Promise.reject(new Error('offline')), Promise, JSON, Math, Object, Array, Date, Number, String, isFinite, Error, Blob: class {}, Uint8Array, Float32Array,
   };
+  Object.assign(ctx, extra);
   win.window = win; Object.assign(win, ctx);
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(new URL('../web/public/sdk/gcp.js', import.meta.url), 'utf8'), ctx);
   const send = (d) => (listeners.message || []).forEach((f) => f({ source: parent, data: d }));
   const key = (k, game, mods = {}) => { const e = { key: k, repeat: false, ...mods, prevented: false, get defaultPrevented() { return this.prevented; }, preventDefault() { this.prevented = true; } }; (listeners.keydown || []).forEach((f) => f(e)); if (game) game(e); timers.splice(0).forEach((f) => f()); return e; };
   const gesture = () => { const e = { cancelable: true, prevented: false, preventDefault() { this.prevented = true; } }; (docListeners.gesturestart || []).forEach((f) => f(e)); return e; };
-  return { GCP: win.GCP, posted, props, send, key, classes, styles, gesture };
+  // A one-finger move that starts on target (two fingers with pinch), as the browser sends it.
+  const swipe = (target, { pinch = false, game } = {}) => {
+    const touches = pinch ? [{}, {}] : [{}];
+    const ev = () => ({ target, touches, cancelable: true, prevented: false, get defaultPrevented() { return this.prevented; }, preventDefault() { this.prevented = true; } });
+    (docListeners.touchstart || []).forEach((f) => f(ev()));
+    const e = ev(); if (game) game(e); (docListeners.touchmove || []).forEach((f) => f(e)); return e;
+  };
+  const fire = (type) => (listeners[type] || []).forEach((f) => f({ type }));
+  return { GCP: win.GCP, win, posted, props, send, key, classes, styles, gesture, swipe, fire };
 }
 
 test('setDisplay passes edgeToEdge to the platform page', () => {
@@ -103,11 +113,45 @@ test('on a touch screen in the player, the game cannot be pinched or overscrolle
   assert.equal(gesture().prevented, false);
   send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: true });
   assert.ok(classes.has('gcp-guard'));
-  assert.match(styles[0].textContent, /touch-action:pan-x pan-y/);
+  assert.match(styles[0].textContent, /overscroll-behavior:none/);
   assert.equal(gesture().prevented, true);
   send({ gcp: 'display', fullscreen: false, mode: 'inline', touch: true });
   assert.ok(!classes.has('gcp-guard'));
   assert.equal(gesture().prevented, false);
+});
+
+test('the guard never loosens the game\'s own touch-action', () => {
+  const { send, styles } = loadSdk();
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: true });
+  const css = styles[0].textContent;
+  // pan-only sits on <html> alone, with no specificity, so a game's touch-action:none on html or body wins
+  assert.match(css, /:where\(html\.gcp-guard\)\{touch-action:pan-x pan-y\}/);
+  assert.doesNotMatch(css.replace(/:where\(html\.gcp-guard\)\{[^}]*\}/, ''), /touch-action/);
+});
+
+test('in fullscreen on a computer, overscroll (a trackpad swipe) stays in the game too', () => {
+  const { send, classes } = loadSdk();
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: false });
+  assert.ok(classes.has('gcp-guard'));
+});
+
+test('a swipe over the game is cancelled for the browser; a swipe in a scrolling list is not', () => {
+  const { send, swipe } = loadSdk();
+  const html = { nodeType: 1, tagName: 'HTML' };
+  const canvas = { nodeType: 1, tagName: 'CANVAS', style: { overflowX: 'visible', overflowY: 'visible' }, parentNode: html };
+  const list = { nodeType: 1, tagName: 'DIV', style: { overflowX: 'hidden', overflowY: 'auto' }, scrollHeight: 900, clientHeight: 300, scrollWidth: 200, clientWidth: 200, parentNode: html };
+  const row = { nodeType: 1, tagName: 'DIV', style: { overflowX: 'visible', overflowY: 'visible' }, parentNode: list };
+  const slider = { nodeType: 1, tagName: 'INPUT', style: {}, parentNode: html };
+  assert.equal(swipe(canvas).prevented, false, 'outside fullscreen the page is the game\'s own');
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: true });
+  assert.equal(swipe(canvas).prevented, true);
+  assert.equal(swipe(row).prevented, false, 'the game\'s scrolling list still scrolls');
+  assert.equal(swipe(slider).prevented, false);
+  assert.equal(swipe(row, { pinch: true }).prevented, true, 'never a pinch');
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: false });
+  assert.equal(swipe(canvas).prevented, true, 'a computer\'s touch screen too');
+  send({ gcp: 'display', fullscreen: false, mode: 'inline', touch: false });
+  assert.equal(swipe(canvas).prevented, false);
 });
 
 test('the watchdog: the SDK answers the player\'s ping with its frame count', () => {
@@ -141,4 +185,54 @@ test('a platform language switch updates GCP.lang and calls onLang, without relo
   off(); send({ gcp: 'lang', lang: 'es' });
   assert.equal(GCP.lang, 'es');
   assert.equal(heard.length, 2);
+});
+
+// A stand-in for the browser's AudioContext: resume() only works inside a gesture the browser counts.
+function fakeAudio() {
+  const gate = { open: false };
+  class AudioContext {
+    constructor() { this.state = gate.open ? 'running' : 'suspended'; this.fns = []; }
+    addEventListener(k, f) { if (k === 'statechange') this.fns.push(f); }
+    set(st) { this.state = st; this.fns.forEach((f) => f()); }
+    resume() { if (gate.open && this.state !== 'closed') this.set('running'); return Promise.resolve(); }
+    suspend() { this.set('suspended'); return Promise.resolve(); }
+    close() { this.set('closed'); return Promise.resolve(); }
+  }
+  return { AudioContext, gate };
+}
+const gestureEnd = (sdk, gate, type = 'touchend') => { gate.open = true; sdk.fire(type); gate.open = false; };
+
+test('sound made on pointerdown starts on the same tap (iPhone and iPad only unlock audio on touchend)', () => {
+  const { AudioContext, gate } = fakeAudio();
+  const sdk = loadSdk({ AudioContext });
+  const ctx = new sdk.win.AudioContext();     // the game, in its pointerdown handler: not a gesture on iOS
+  ctx.resume();
+  assert.equal(ctx.state, 'suspended');
+  gestureEnd(sdk, gate);
+  assert.equal(ctx.state, 'running');
+});
+
+test('a context the game suspended itself stays suspended until the game resumes it', () => {
+  const { AudioContext, gate } = fakeAudio();
+  const sdk = loadSdk({ AudioContext });
+  gate.open = true; const ctx = new sdk.win.AudioContext(); gate.open = false;
+  ctx.suspend();
+  gestureEnd(sdk, gate, 'click');
+  assert.equal(ctx.state, 'suspended', 'the game paused its sound');
+  ctx.resume();                                // the game resumes outside a gesture (tab shown again): refused
+  assert.equal(ctx.state, 'suspended');
+  gestureEnd(sdk, gate, 'pointerup');
+  assert.equal(ctx.state, 'running', 'the next tap finishes the game\'s resume');
+  ctx.set('interrupted');                      // iOS: a call or the lock screen
+  gestureEnd(sdk, gate, 'keydown');
+  assert.equal(ctx.state, 'running');
+});
+
+test('subclasses of AudioContext keep their own class', () => {
+  const { AudioContext } = fakeAudio();
+  const sdk = loadSdk({ AudioContext });
+  const Sub = class extends sdk.win.AudioContext { hi() { return 'hi'; } };
+  const c = new Sub();
+  assert.equal(c.hi(), 'hi');
+  assert.ok(c instanceof Sub); assert.ok(c instanceof AudioContext); assert.ok(new sdk.win.AudioContext() instanceof AudioContext);
 });

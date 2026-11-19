@@ -101,6 +101,48 @@
     EventTarget.prototype.addEventListener = function (type) { if (watch[type]) P.listeners[type] = (P.listeners[type] || 0) + 1; return add.apply(this, arguments); };
   })();
 
+  // ---- Sound that starts on the first tap, for every game. Browsers only let a page start sound inside a user gesture,
+  // and on iPhone and iPad only some events count: touchend, pointerup, click and keydown do, but pointerdown and
+  // touchstart from a finger do not. A game that creates or resumes its AudioContext on pointerdown (a common choice that
+  // works on computers) stays silent there until something else happens to resume it in the right event. So every audio
+  // context the game makes is noted, and on each such gesture any that is not running is resumed, unless the game itself
+  // suspended it (a pause, a hidden tab): its own resume() hands it back. Interrupted contexts (a call, the lock screen)
+  // come back the same way on the next tap. Subclasses (Tone.js and the like) keep working: the context is built with
+  // the subclass as its constructor.
+  (function () {
+    var live = [], held = typeof WeakSet === 'function' ? new WeakSet() : null;
+    if (!held || typeof Reflect !== 'object') return;
+    ['AudioContext', 'webkitAudioContext'].forEach(function (n) {
+      var A = window[n]; if (typeof A !== 'function' || A.__gcpUnlock) return;
+      var W = function AudioContext() {
+        var nt = this instanceof W && typeof this.constructor === 'function' ? this.constructor : A;   // a subclass's own constructor
+        var c = Reflect.construct(A, arguments, nt);
+        try { if (c.state !== 'running') live.push(c); c.addEventListener('statechange', function () { if (c.state === 'closed') { var i = live.indexOf(c); if (i >= 0) live.splice(i, 1); } else if (c.state !== 'running' && live.indexOf(c) < 0) live.push(c); }); } catch (e) { /* not a real context */ }
+        return c;
+      };
+      W.prototype = A.prototype; W.__gcpUnlock = 1;
+      try { Object.setPrototypeOf(W, A); } catch (e) { /* old browser */ }
+      var P0 = A.prototype;
+      if (P0 && typeof P0.suspend === 'function' && typeof P0.resume === 'function' && !P0.__gcpUnlock) {
+        var sus = P0.suspend, res = P0.resume;
+        P0.suspend = function () { held.add(this); return sus.apply(this, arguments); };
+        P0.resume = function () { held.delete(this); return res.apply(this, arguments); };
+        P0.__gcpUnlock = 1;
+      }
+      try { window[n] = W; } catch (e) { /* read-only */ }
+    });
+    var unlock = function () {
+      for (var i = live.length - 1; i >= 0; i--) {
+        var c = live[i];
+        if (c.state === 'closed') { live.splice(i, 1); continue; }
+        if (c.state === 'running') { live.splice(i, 1); continue; }
+        if (held.has(c)) continue;
+        try { var r = c.resume(); if (r && r.catch) r.catch(function () { }); } catch (e) { /* not now */ }
+      }
+    };
+    ['pointerup', 'touchend', 'click', 'keydown', 'mousedown'].forEach(function (t) { window.addEventListener(t, unlock, { capture: true, passive: true }); });
+  })();
+
   // Count frames for any engine by wrapping requestAnimationFrame. Frames are what "alive" means.
   var raf0 = window.requestAnimationFrame.bind(window), lastT = -1, lastFrameAt = 0;
   // In the portrait pass frames are paced: a full-quality frame on a CPU renderer takes far longer to draw than to submit,
@@ -561,17 +603,40 @@
     ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
   }
   markDisplay();
-  // In the platform's player, swipes and pinches must reach the game and never the page: a pinch or an overscroll can
-  // otherwise zoom the game or drop the browser out of fullscreen on phones and tablets. Panning stays allowed, so a game's
-  // own scrolling lists keep working.
-  var guardCss = 'html.gcp-guard,html.gcp-guard body{overscroll-behavior:none;touch-action:pan-x pan-y;-webkit-touch-callout:none;-webkit-text-size-adjust:100%}';
+  // In the platform's player, swipes and pinches must reach the game and never the browser: a pinch, an overscroll or a
+  // swipe the page did not use can otherwise zoom the game, navigate back, or (iPad, Android) drop the browser out of
+  // fullscreen. It holds in fullscreen on every device (a trackpad swipe on a computer is an overscroll too), and it never
+  // loosens what the game asked for: the pan-only touch-action sits on <html> with no specificity, so a game's own
+  // touch-action (none, say) wins, and the browser combines it with every element under it.
+  var guardCss = 'html.gcp-guard,html.gcp-guard body{overscroll-behavior:none;-webkit-touch-callout:none;-webkit-text-size-adjust:100%}:where(html.gcp-guard){touch-action:pan-x pan-y}';
   function guard() {
-    var on = display.fullscreen && display.touch, h = document.documentElement; if (!h || !h.classList) return;
+    var on = display.fullscreen, h = document.documentElement; if (!h || !h.classList) return;
     h.classList.toggle('gcp-guard', on);
     if (on && document.head && !document.getElementById('gcp-guard')) { var st = document.createElement('style'); st.id = 'gcp-guard'; st.textContent = guardCss; document.head.appendChild(st); }
   }
   var noPinch = function (e) { if (display.fullscreen && display.touch && e.cancelable) e.preventDefault(); };
   try { document.addEventListener('gesturestart', noPinch, { passive: false }); document.addEventListener('gesturechange', noPinch, { passive: false }); } catch (e) { /* old browser */ }
+  // A finger that moves over something that cannot scroll is the game's, whatever the game did with it: the move is
+  // cancelled, so the browser never turns it into a gesture of its own (iPad's swipe down that closes fullscreen, a pan
+  // that steals a drag with pointercancel, a pinch). Pointer and touch events still reach the game. A move inside a list
+  // that scrolls, or over a text field or slider, is left to the browser.
+  var scrolls = function (el) {
+    for (; el && el.nodeType === 1 && el !== document.body && el !== document.documentElement; el = el.parentNode) {
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return true;
+      var st = getComputedStyle(el), oy = st.overflowY, ox = st.overflowX;
+      if ((/auto|scroll/.test(oy) && el.scrollHeight > el.clientHeight + 1) || (/auto|scroll/.test(ox) && el.scrollWidth > el.clientWidth + 1)) return true;
+    }
+    return false;
+  };
+  var free = false;   // whether the finger went down on something that scrolls (decided once per touch)
+  var keepTouch = function (e) {
+    if (!display.fullscreen || !e.cancelable || e.defaultPrevented) return;   // a touch screen on a computer too
+    if ((e.touches && e.touches.length > 1) || !free) e.preventDefault();
+  };
+  try {
+    document.addEventListener('touchstart', function (e) { if (e.touches && e.touches.length === 1) free = display.fullscreen && scrolls(e.target); }, { passive: true, capture: true });
+    document.addEventListener('touchmove', keepTouch, { passive: false });
+  } catch (e) { /* old browser */ }
   function toParent(msg) { if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } } }
   var escFn = null;
   function runEscape(e) {
