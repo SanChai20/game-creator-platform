@@ -382,7 +382,9 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 .stage .poster { position: absolute; inset: 0; background-size: cover; background-position: center; }
 .stage .over { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: #fff; background: linear-gradient(to top, rgb(23 21 28 / .86), rgb(23 21 28 / .3)); }
 .stage:fullscreen { border-radius: 0; }
-.stage-bar { margin-top: 12px; }
+/* the line under a game: its buttons move onto a second line rather than run off a narrow stage */
+.stage-bar { margin-top: 12px; flex-wrap: wrap; row-gap: 8px; }
+.stage-bar > .right { flex-wrap: wrap; justify-content: flex-end; }
 .play-btn { display: inline-flex; align-items: center; gap: 16px; height: 72px; padding: 0 46px 0 26px; color: var(--on-accent); font: 800 24px/1 var(--font-display); font-stretch: 84%; letter-spacing: .04em; text-transform: uppercase; clip-path: polygon(18px 0, 100% 0, calc(100% - 18px) 100%, 0 100%); background: var(--accent) linear-gradient(105deg, transparent 0 49.8%, rgb(0 0 0 / .16) 50% 100%) 22% 0 / 300% 100% no-repeat; transition: transform var(--dur) var(--ease), background-position var(--dur) var(--ease); }
 .play-btn:hover:not(:disabled) { transform: scale(1.045); background-position: 62% 0; }
 .play-btn:active:not(:disabled) { transform: scale(.98); }

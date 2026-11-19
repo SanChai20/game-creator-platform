@@ -210,8 +210,10 @@ export const Spinner = () => <div className="spinner" role="status" aria-label={
 /**
  * A dialog over the page. `game`: it holds a running game (the preview). Esc and a click beside it then do not close it,
  * since both happen all the time while playing and would end the game; its Close button does. Nothing around the game
- * is blurred, faded in or moved either: a game's frame under a backdrop-filter or an animated layer is drawn through
- * extra GPU surfaces, which on some systems tore and smeared the game's picture.
+ * is blurred, faded in or moved either, and the page under it is not drawn (html.game-open): the browser then puts the
+ * game's frame on screen just as on the game's own page. Anything more around the frame (a backdrop-filter, an animated
+ * or see-through layer, the page drawing beneath, the dialog's own scrolling clip) makes it go through extra GPU work,
+ * which on some systems left torn, smeared copies of the game's picture on screen.
  */
 export function Modal({ children, onClose, wide, game }: { children: ReactNode; onClose: () => void; wide?: boolean; game?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
@@ -221,8 +223,9 @@ export function Modal({ children, onClose, wide, game }: { children: ReactNode; 
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null, html = document.documentElement, was = html.style.overflow;
     html.style.overflow = 'hidden'; box.current?.focus({ preventScroll: true });
-    return () => { html.style.overflow = was; back?.focus?.({ preventScroll: true }); };
-  }, []);
+    if (game) html.classList.add('game-open');
+    return () => { html.style.overflow = was; if (game) html.classList.remove('game-open'); back?.focus?.({ preventScroll: true }); };
+  }, [game]);
   // Rendered into <body> so no transformed or filtered ancestor can capture its position: fixed.
   return createPortal(<div className={game ? 'modal modal-game' : 'modal'} onMouseDown={(e) => { if (!game && e.target === e.currentTarget) onClose(); }}><div role="dialog" aria-modal="true" tabIndex={-1} ref={box} className={wide ? 'wide' : ''}>{children}</div></div>, document.body);
 }
