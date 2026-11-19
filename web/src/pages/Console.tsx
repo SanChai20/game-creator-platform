@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ago, api, artStyle, date, Fail, navigate, num, price, query, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Button, Card, Code, ListRow, Notice, PageHeader, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
+import { ago, api, artStyle, date, Fail, GameTile, num, price, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
+import { Button, Card, Code, ListRow, Notice, PageHeader, Section, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
 import { ConsoleSkeleton } from '../skeletons';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { ConnectAgent, starterPrompt } from './Creators';
+import { LicensePass } from './License';
 import { Pager } from '../store';
 
 const PER = 20;
@@ -13,15 +14,9 @@ export function ConsoleTabs({ on }: { on: 'games' | 'earnings' }) {
 }
 
 export function Console() {
-  const { config, refresh, toast, user: me } = useApp(), { busy, act } = useAct(), s = config.settings;
+  const { user: me } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>('/console/overview');
   const agents = useData<{ agents: any[] }>('/console/agents');
-
-  useEffect(() => {
-    const paid = query().get('paid'); if (!paid) return;
-    navigate('/console', true);
-    api('/billing/confirm', { body: { session_id: paid } }).then(async () => { toast(t('Creator license active. You can publish now.', '创作者许可已生效，现在可以发布了。')); await refresh(); await reload(); }, (e) => toast((e as Error).message, true));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A creator can have thousands of games: the list is searchable, filterable and paged.
   const [q, setQ] = useState(''), [st, setSt] = useState('all'), [order, setOrder] = useState('updated'), [page, setPage] = useState(1);
@@ -35,25 +30,15 @@ export function Console() {
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <ConsoleSkeleton />;
   const u = data.user, projects = all, pages = Math.max(1, Math.ceil(shown.length / PER)), slice = shown.slice((page - 1) * PER, page * PER);
-  const buyLicense = () => act('fee', async () => { const r = await api<{ url?: string }>('/billing/creator-fee', { method: 'POST' }); if (r.url) location.href = r.url; else { await refresh(); await reload(); } });
   const revoke = (id: string) => act('rv' + id, async () => { await api(`/console/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }); await agents.reload(); }, t('Access revoked.', '已撤销访问权限。'));
-  const needsFee = !u.creator && s.creator_fee_required;
 
   return (
     <div className="wrap page">
       <PageHeader eyebrow={t('Console', '控制台')} title={<>{t('Hello', '你好')}, {u.name}</>}
-        actions={u.creator ? <Badge tone="good">{t('Creator license', '创作者许可')}</Badge> : <Badge>{t('No creator license', '未获得创作者许可')}</Badge>} />
+        actions={<LicensePass license={u.license} name={u.name} />} />
       <ConsoleTabs on="games" />
 
       <div className="stack l">
-        {needsFee && (
-          <Notice title={t('Publishing needs a creator license', '发布需要创作者许可')}
-            actions={<><Button variant="primary" onClick={buyLicense} disabled={busy === 'fee' || (data.fee_cents > 0 && !config.payments)}>{data.fee_cents > 0 ? `${t('Get the license', '获取许可')} · ${usd(data.fee_cents)}` : t('Activate', '激活')}</Button>
-              {data.fee_cents > 0 && !config.payments && <span className="dim fs-sm">{t('Payments are not set up on this platform yet.', '平台尚未开通支付。')}</span>}</>}>
-            {t('Build and preview for free. Pay {fee} once to publish as many games as you like.', '创作与预览免费。一次性支付 {fee}，即可发布任意数量的游戏。', { fee: usd(data.fee_cents) })}
-          </Notice>
-        )}
-
         {u.creator && !me?.two_factor && (
           <Notice tone="info" title={t('Protect your creator account', '保护你的创作者账户')} actions={<Button to="/account">{t('Turn on two-factor sign-in', '开启两步验证登录')}</Button>}>
             {t('Your games, earnings and connected agents are behind your password. Two-factor sign-in adds a code from your phone.', '你的游戏、收益和已连接的智能体目前只受密码保护。两步验证登录会再增加一个手机验证码。')}

@@ -125,6 +125,10 @@ function useSearch(base: string) {
   return { q, setQ, pager, ...d };
 }
 
+/** An account's creator license as the users table shows it. */
+const lic = (u: { creator: number; creator_plan: string | null; creator_until: number | null }) =>
+  !u.creator ? 'none' : u.creator_plan !== 'term' ? 'lifetime' : (u.creator_until || 0) > Date.now() ? 'term' : 'expired';
+
 function Users() {
   const { user: me } = useApp(), { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/users');
   const patch = (id: string, body: Record<string, unknown>, msg: string) => act(id, async () => { await api(`/admin/users/${id}`, { method: 'PATCH', body }); await reload(); }, msg);
@@ -142,11 +146,13 @@ function Users() {
           <tbody>{data.users.map((u: any) => (
             <tr key={u.id}>
               <td><b>{u.name}</b><div className="mute fs-sm">{u.email}</div></td>
-              <td><div className="row wrapx" style={{ gap: 6 }}><StatusBadge status={u.status} />{u.role === 'admin' && <Badge tone="accent" dot={false}>admin</Badge>}{!!u.creator && <Badge dot={false}>{t('creator', '创作者')}</Badge>}{!!u.stripe_payouts_enabled && <Badge dot={false}>{t('payouts', '可收款')} {u.payout_country}</Badge>}{!!u.two_factor && <Badge dot={false}>{t('2FA', '两步验证')}</Badge>}</div></td>
+              <td><div className="row wrapx" style={{ gap: 6 }}><StatusBadge status={u.status} />{u.role === 'admin' && <Badge tone="accent" dot={false}>admin</Badge>}{lic(u) === 'lifetime' && <Badge tone="good" dot={false}>{t('lifetime license', '永久许可')}</Badge>}{lic(u) === 'term' && <Badge tone="good" dot={false}>{t('license until {date}', '许可至 {date}', { date: date(u.creator_until) })}</Badge>}{lic(u) === 'expired' && <Badge dot={false}>{t('license ended {date}', '许可已于 {date} 到期', { date: date(u.creator_until) })}</Badge>}{!!u.stripe_payouts_enabled && <Badge dot={false}>{t('payouts', '可收款')} {u.payout_country}</Badge>}{!!u.two_factor && <Badge dot={false}>{t('2FA', '两步验证')}</Badge>}</div></td>
               <td className="n">{u.live}/{u.projects}</td><td className="n">{usd(u.balance)}</td><td className="n">{u.bought}</td><td className="n">{playTime(u.played)}</td>
               <td className="mute">{date(u.created_at)}</td><td className="mute">{ago(u.last_seen_at)}</td>
               <td><RowMenu label={t('Actions for {name}', '{name} 的操作', { name: u.email })} disabled={busy === u.id} actions={[
-                { label: u.creator ? t('Remove license', '取消许可') : t('Grant license', '授予许可'), onClick: () => patch(u.id, { creator: !u.creator }, t('Updated.', '已更新。')) },
+                lic(u) !== 'lifetime' && { label: t('Grant lifetime license', '授予永久许可'), onClick: () => patch(u.id, { license: 'lifetime' }, t('Updated.', '已更新。')) },
+                lic(u) !== 'term' && { label: t('Grant time-limited license', '授予限时许可'), onClick: () => patch(u.id, { license: 'term' }, t('Updated.', '已更新。')) },
+                (lic(u) === 'term' || lic(u) === 'lifetime') && { label: t('Remove license', '取消许可'), danger: true, onClick: () => patch(u.id, { license: 'none' }, t('Updated.', '已更新。')) },
                 { label: t('Adjust', '调整余额'), onClick: () => adjust(u) },
                 u.id !== me!.id && { label: u.role === 'admin' ? t('Remove admin', '取消管理员') : t('Make admin', '设为管理员'), onClick: () => patch(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }, t('Updated.', '已更新。')) },
                 !!u.two_factor && { label: t('Turn off two-factor', '关闭两步验证'), danger: true, onClick: () => { if (confirm(t('Turn off two-factor sign-in for {email}? Do this only after confirming it is really them, for example from their account email. They can then sign in with their password alone.', '要为 {email} 关闭两步验证登录吗？请先确认确实是本人（例如通过其账户邮箱），再执行此操作。之后对方仅需密码即可登录。', { email: u.email }))) void patch(u.id, { two_factor: false }, t('Two-factor sign-in turned off.', '已关闭两步验证登录。')); } },

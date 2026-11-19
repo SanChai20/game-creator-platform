@@ -121,5 +121,11 @@
  "Longest a debug browser stays open (minutes, 1 to 10; it also closes after 3 idle minutes)": "调试浏览器最长保持打开的时间（分钟，1 至 10；闲置 3 分钟也会关闭）",
  "Let creators send annotated screenshots of their preview to their agent (creator feedback queue)": "允许创作者把带标注的预览截图发送给他们的智能体（创作者反馈队列）",
  "Feedback items waiting per game before the creator must remove some or the agent read them": "每款游戏可排队的反馈条数（达到后需创作者移除或智能体读取）",
- "Days an unread feedback item is kept": "未读反馈保留的天数"
+ "Days an unread feedback item is kept": "未读反馈保留的天数",
+ "Price of the time-limited creator license (one-time payment, not a subscription)": "限时创作者许可的价格（一次性付款，不是订阅）",
+ "Days a time-limited creator license stays valid": "限时创作者许可的有效天数",
+ "Price of the lifetime creator license (one-time payment, never expires)": "永久创作者许可的价格（一次性付款，永不过期）",
+ "Require a valid creator license to publish (preview stays free)": "发布前须持有有效的创作者许可（预览仍免费）",
+ "Require a valid creator license before creating projects at all": "创建项目前就须持有有效的创作者许可",
+ "Creator license": "创作者许可"
 }

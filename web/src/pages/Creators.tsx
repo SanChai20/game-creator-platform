@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { t, usd, useApp } from '../lib';
+import { price, t, usd, useApp } from '../lib';
 import { Button, Card, CelScene, Code, Eyebrow, Segmented, Steps } from '../ui';
 
 /** How to add the MCP server in each agent. The server uses OAuth, so no key is ever pasted anywhere. */
@@ -46,7 +46,7 @@ export function Creators() {
           <h1>{t('Describe a game.', '描述一款游戏，')} <mark>{t('Your agent ships it.', '智能体帮你上线。')}</mark></h1>
           <p>{t('Use the agent you already have. We deploy every version, test it in a real browser and put it in front of players.', '用你已有的智能体。我们负责部署每个版本、在真实浏览器中测试，并把它送到玩家面前。')}</p>
           <div className="row wrapx lead-actions">
-            <Button to={user ? '/console' : '/signup?next=%2Fconsole'} variant="primary" size="lg">{user ? t('Open your console', '打开控制台') : t('Start creating', '开始创作')} <em aria-hidden="true">→</em></Button>
+            <Button to={!user ? '/signup?next=%2Fconsole' : user.creator ? '/console' : '/license'} variant="primary" size="lg">{!user ? t('Start creating', '开始创作') : user.creator ? t('Open your console', '打开控制台') : t('Get License', '获取许可')} <em aria-hidden="true">→</em></Button>
             <Button to="/docs" variant="ghost" size="lg">{t('Read the docs', '阅读文档')}</Button>
           </div>
           <div className="web-only">{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。')}</div>
@@ -68,7 +68,7 @@ export function Creators() {
         <div className="keys">
           <div><b>1</b><span>{t('prompt from an idea to a live game', '句话，从想法到上线')}</span></div>
           <div><b>0</b><span>{t('human review queues. Verified means live.', '人工审核排队。验证通过即上线。')}</span></div>
-          <div><b>{s.paid_games_enabled ? `${keep}%` : s.creator_fee_cents > 0 ? usd(s.creator_fee_cents) : t('Free', '免费')}</b><span>{s.paid_games_enabled ? t('of every sale is yours', '的销售收入归你') : s.creator_fee_cents > 0 ? t('once, for unlimited games', '一次性，游戏数量不限') : t('to build, preview and publish', '创作、预览与发布')}</span></div>
+          <div><b>{s.paid_games_enabled ? `${keep}%` : price(s.license_lifetime_cents)}</b><span>{s.paid_games_enabled ? t('of every sale is yours', '的销售收入归你') : t('once, for unlimited games', '一次性，游戏数量不限')}</span></div>
         </div>
 
         <section className="stack l">

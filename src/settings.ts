@@ -9,9 +9,12 @@ export const SETTING_DEFS = {
   signups_open: { v: true, type: 'bool', group: 'Access', label: 'Allow new sign-ups', public: true },
   require_login_to_play: { v: true, type: 'bool', group: 'Access', label: 'Require login to play', public: true },
 
-  creator_fee_cents: { v: 3000, type: 'cents', group: 'Creator fee', label: 'One-time creator fee', public: true },
-  creator_fee_required: { v: true, type: 'bool', group: 'Creator fee', label: 'Require the fee before publishing (preview stays free)', public: true },
-  creator_fee_for_projects: { v: false, type: 'bool', group: 'Creator fee', label: 'Require the fee before creating projects at all', public: true },
+  // Creator licenses (src/license.ts): both one-time payments. 0 makes that license free: it is granted at once.
+  license_term_cents: { v: 1000, type: 'cents', group: 'Creator license', label: 'Price of the time-limited creator license (one-time payment, not a subscription)', public: true },
+  license_term_days: { v: 365, type: 'int', group: 'Creator license', label: 'Days a time-limited creator license stays valid', public: true },
+  license_lifetime_cents: { v: 5000, type: 'cents', group: 'Creator license', label: 'Price of the lifetime creator license (one-time payment, never expires)', public: true },
+  creator_fee_required: { v: true, type: 'bool', group: 'Creator license', label: 'Require a valid creator license to publish (preview stays free)', public: true },
+  creator_fee_for_projects: { v: false, type: 'bool', group: 'Creator license', label: 'Require a valid creator license before creating projects at all', public: true },
 
   auto_payouts: { v: true, type: 'bool', group: 'Withdrawals', label: 'Pay creators automatically each day once their available balance reaches the minimum (Stripe payout accounts only)', public: true },
   withdraw_min_cents: { v: 5000, type: 'cents', group: 'Withdrawals', label: 'Minimum balance to withdraw', public: true },
