@@ -1409,5 +1409,22 @@
  "for finding bugs; not used in any number above": "用於排查問題；不計入上面的任何數字",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "這些來自遊戲本身的心跳，平台無法核實：遊戲是否呼叫了 GCP.ready，以及它捕獲到的錯誤。",
  "Never started": "未能啟動",
- "no GCP.ready before the player left": "玩家離開前未呼叫 GCP.ready"
+ "no GCP.ready before the player left": "玩家離開前未呼叫 GCP.ready",
+ "Playing now counts": "線上人數統計",
+ "Trending scores": "熱門分數",
+ "Today's picks": "今日推薦",
+ "Stripe transfer retries": "Stripe 轉帳重試",
+ "Game runtime rollout": "遊戲執行環境更新",
+ "Age rating backfill": "年齡分級補全",
+ "Automatic payouts": "自動提領",
+ "Expired data cleanup": "過期資料清理",
+ "Originality fingerprint backfill": "原創性指紋補全",
+ "Scheduled jobs": "排程任務",
+ "They run on their own; nothing here needs doing": "自動執行，無需手動操作",
+ "Last ran {when}": "上次執行：{when}",
+ "Not run yet": "尚未執行",
+ "Chosen every day from play numbers and ratings": "每天依遊玩數據與評分自動選出",
+ "Chosen at the next run, within 10 minutes.": "將在下次執行時選出（10 分鐘內）。",
+ "Rising fast": "人氣飆升",
+ "Hidden gem": "寶藏佳作"
 }

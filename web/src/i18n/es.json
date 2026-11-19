@@ -1387,5 +1387,22 @@
  "for finding bugs; not used in any number above": "para encontrar errores; no se usa en ninguna cifra de arriba",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "Esto lo envía el propio juego con su latido, así que la plataforma no puede confirmarlo: si llegó a GCP.ready y los errores que capturó.",
  "Never started": "Nunca empezó",
- "no GCP.ready before the player left": "sin GCP.ready antes de que el jugador se fuera"
+ "no GCP.ready before the player left": "sin GCP.ready antes de que el jugador se fuera",
+ "Playing now counts": "Jugadores en este momento",
+ "Trending scores": "Puntuaciones de tendencia",
+ "Today's picks": "Selección del día",
+ "Stripe transfer retries": "Reintentos de transferencias de Stripe",
+ "Game runtime rollout": "Actualización del entorno de los juegos",
+ "Age rating backfill": "Completar clasificaciones por edad",
+ "Automatic payouts": "Pagos automáticos",
+ "Expired data cleanup": "Limpieza de datos caducados",
+ "Originality fingerprint backfill": "Completar huellas de originalidad",
+ "Scheduled jobs": "Tareas programadas",
+ "They run on their own; nothing here needs doing": "Se ejecutan solas; no hace falta hacer nada",
+ "Last ran {when}": "Última ejecución: {when}",
+ "Not run yet": "Aún no se ha ejecutado",
+ "Chosen every day from play numbers and ratings": "Se elige cada día a partir de partidas y valoraciones",
+ "Chosen at the next run, within 10 minutes.": "Se elegirá en la próxima ejecución, en menos de 10 minutos.",
+ "Rising fast": "En alza",
+ "Hidden gem": "Joya oculta"
 }

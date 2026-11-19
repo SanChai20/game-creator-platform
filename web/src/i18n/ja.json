@@ -1388,5 +1388,22 @@
  "for finding bugs; not used in any number above": "不具合の調査用。上の数字には使われません",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "これらはゲーム自身がハートビートで送ったもので、プラットフォームは確認できません。GCP.ready に到達したかどうかと、ゲームが捕捉したエラーです。",
  "Never started": "起動しなかった",
- "no GCP.ready before the player left": "プレイヤーが離れる前に GCP.ready なし"
+ "no GCP.ready before the player left": "プレイヤーが離れる前に GCP.ready なし",
+ "Playing now counts": "プレイ中の人数",
+ "Trending scores": "トレンドスコア",
+ "Today's picks": "今日のおすすめ",
+ "Stripe transfer retries": "Stripe 送金の再試行",
+ "Game runtime rollout": "ゲームランタイムの更新",
+ "Age rating backfill": "年齢区分の補完",
+ "Automatic payouts": "自動出金",
+ "Expired data cleanup": "期限切れデータの削除",
+ "Originality fingerprint backfill": "オリジナリティ指紋の補完",
+ "Scheduled jobs": "定期タスク",
+ "They run on their own; nothing here needs doing": "自動で実行されます。操作は不要です",
+ "Last ran {when}": "前回の実行：{when}",
+ "Not run yet": "まだ実行されていません",
+ "Chosen every day from play numbers and ratings": "プレイ数と評価から毎日自動で選ばれます",
+ "Chosen at the next run, within 10 minutes.": "次回の実行時（10 分以内）に選ばれます。",
+ "Rising fast": "急上昇",
+ "Hidden gem": "隠れた名作"
 }

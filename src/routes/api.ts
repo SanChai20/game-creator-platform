@@ -14,6 +14,7 @@ import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, log
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
+import { currentPicks } from '../rankings';
 import { checkIn, sessionStartStmt } from '../play-clock';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../stripe';
@@ -42,6 +43,8 @@ function card(origin: string, r: Record<string, any>) {
     author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
     // adults-only games: the store blurs the cover and labels it 18+ (sexual, violence, other)
     age: r.age || null, mature: matureList(r),
+    // on today's picks: why the game was picked (featured, trending, rising, new, gem, free, more)
+    ...(r.pick ? { pick: r.pick } : {}),
     // the title and tagline in other platform languages, when the creator translated the listing
     ...(r.listing_i18n && r.listing_i18n !== '{}' ? { i18n: Object.fromEntries(Object.entries(parseJson<Record<string, { title?: string; tagline?: string }>>(r.listing_i18n, {})).map(([k, v]) => [k, { title: v.title, tagline: v.tagline }])) } : {}),
   };
@@ -129,7 +132,8 @@ const ORDER: Record<string, string> = {
   top: '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC',
   played: 'p.plays DESC',
   playing: 'p.playing DESC, p.recent DESC, p.plays DESC',
-  trending: 'p.featured DESC, p.recent DESC, p.plays DESC, p.published_at DESC',
+  // the trending score (src/rankings.ts); admin-featured games go into today's picks instead of being pinned here
+  trending: 'p.recent DESC, p.plays DESC, p.published_at DESC',
 };
 async function listGames(c: Ctx, o: ListOpts) {
   const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
@@ -211,7 +215,8 @@ async function edgeCached(c: Ctx, seconds: number, make: () => Promise<Response>
 api.get('/home', (c) => edgeCached(c, 20, () => homeData(c)));
 async function homeData(c: Ctx): Promise<Response> {
   const t = now(), weekAgo = t - 7 * 86400000;
-  const [trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+  const [picks, trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+    currentPicks(c.env.DB, t),
     listGames(c, { sort: 'trending', limit: 16 }),
     listGames(c, { sort: 'playing', limit: 12 }),
     listGames(c, { sort: 'new', limit: 12 }),
@@ -228,6 +233,8 @@ async function homeData(c: Ctx): Promise<Response> {
   return c.json({
     stats: { games: stats?.games || 0, new_week: stats?.new_week || 0, playing: stats?.playing || 0, creators: stats?.creators || 0 },
     shelves: {
+      // today's picks lead the page (chosen each day by the schedule, src/rankings.ts)
+      picks: picks.map((r) => card(c.get('origin'), r)),
       trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
     },
     genres,

@@ -32,7 +32,8 @@ import { idleGuestCleanupStmts, verifierCleanupStmts } from './player-data.js';
 // @ts-ignore plain JS module
 import { claimedGuestCleanupStmts } from './session-binding.js';
 
-import { refreshCatalog } from './catalog';
+import { recentStmt, refreshCatalog } from './catalog';
+import { ensurePicks, oldPicksStmt, runJob } from './rankings';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
 export { Pipeline } from './pipeline';
@@ -293,18 +294,23 @@ export default {
     return isolated(res);
   },
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    // every minute: who is playing what; every 10 minutes also the week's trending numbers
-    if (event.cron === MINUTE_CRON) { ctx.waitUntil(refreshCatalog(env, false).catch((e) => console.error('catalog refresh failed', e))); return; }
-    ctx.waitUntil(refreshCatalog(env, true).catch((e) => console.error('catalog refresh failed', e)));
-    ctx.waitUntil(retryTransfers(env).catch((e) => console.error('transfer retry failed', e)));
-    // every few minutes: bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
-    ctx.waitUntil(rolloutRuntime(env).catch((e) => console.error('runtime rollout failed', e)));
+    // Everything the store keeps in order runs from here, so no admin has to look after it (src/rankings.ts lists it);
+    // each job records its last run for the admin overview.
+    const job = (name: string, fn: () => Promise<unknown>) => ctx.waitUntil(runJob(env, name, fn));
+    // every minute: who is playing what
+    job('playing', () => refreshCatalog(env, false));
+    if (event.cron === MINUTE_CRON) return;
+    // every 10 minutes: trending scores, then today's picks (chosen at the first run of each UTC day, from those scores)
+    job('trending', async () => { await env.DB.batch([recentStmt(env.DB)]); await runJob(env, 'picks', () => ensurePicks(env)); });
+    job('transfers', () => retryTransfers(env));
+    // bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
+    job('rollout', () => rolloutRuntime(env));
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
-    ctx.waitUntil(backfillMature(env, 20).catch((e) => console.error('mature backfill failed', e)));
+    job('mature', () => backfillMature(env, 20));
     if (event.cron !== DAILY_CRON) return;
-    ctx.waitUntil(autoPayouts(env).catch((e) => console.error('automatic payouts failed', e)));
+    job('payouts', () => autoPayouts(env));
     const t = now();
-    ctx.waitUntil(env.DB.batch([
+    job('cleanup', () => env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM uploads WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
@@ -312,11 +318,12 @@ export default {
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
       env.DB.prepare('DELETE FROM matches WHERE created_at < ?').bind(t - 30 * 86400000),   // ratings stay; the match log is a month
+      oldPicksStmt(env.DB, t),
       ...verifierCleanupStmts(env.DB, t - 86400000),
       ...claimedGuestCleanupStmts(env.DB, t - 30 * 86400000),
       ...idleGuestCleanupStmts(env.DB, t - 180 * 86400000),   // guests who never came back keep nothing forever
     ]));
     // games published before the duplication check existed get their fingerprints a few at a time
-    ctx.waitUntil(backfill(env, 20).catch((e) => console.error('fingerprint backfill failed', e)));
+    job('fingerprints', () => backfill(env, 20));
   },
 } satisfies ExportedHandler<Env>;
