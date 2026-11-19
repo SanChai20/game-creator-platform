@@ -1,15 +1,15 @@
 // Categories: the index of every genre (as cartridges, then A to Z), and one page per genre with its own colour,
 // its numbers, the genres it is often paired with, its top and newest games, and its whole catalogue in pages.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { api, genreHue, genreName, Link, num, t, tagGroupName, useData, type GameCard } from '../lib';
+import { api, genreHue, genreName, Link, num, t, tagGroupName, useData, useLang, type GameCard } from '../lib';
 import { SkShelf, SkTiles } from '../skeletons';
 import { Sk } from '../ui/skeleton';
 import { Cartridge, Shelf, useGenres } from '../store';
 import { Catalogue } from './Browse';
 
 export function Categories() {
-  const genres = useGenres(), [q, setQ] = useState('');
-  const list = useMemo(() => { const f = q.trim().toLowerCase(); return genres.filter((g) => !f || g.tag.includes(f) || genreName(g.tag).toLowerCase().includes(f)); }, [genres, q]);
+  const genres = useGenres(), [q, setQ] = useState(''), lang = useLang();   // names follow the platform language when it changes
+  const list = useMemo(() => { const f = q.trim().toLowerCase(); return genres.filter((g) => !f || g.tag.includes(f) || genreName(g.tag).toLowerCase().includes(f)); }, [genres, q, lang]); // eslint-disable-line react-hooks/exhaustive-deps
   // every genre and tag in use, by the platform's groups, each group by name
   const az = useMemo(() => ['genre', 'theme', 'mood', 'gameplay', 'players', 'style'].map((k) => [k, list.filter((g) => (g.group || 'genre') === k).sort((a, b) => genreName(a.tag).localeCompare(genreName(b.tag)))] as const).filter(([, l]) => l.length), [list]);
   return (

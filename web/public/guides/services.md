@@ -35,7 +35,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Game storage | available | none | `game_storage`, `list_files`, `upload_files`, `list_projects` | storage |
 | Hosted libraries and import map | available | `import 'three'`, `@gcp/…` | `get_started` (`import_map`) | contract |
 | SDK and game lifecycle | available | `GCP.ready`, `GCP.progress`, `GCP.fatal` | `get_started` | contract |
-| Player accounts and play sessions | available | `GCP.player`, `GCP.lang` | none | saves |
+| Player accounts and play sessions | available | `GCP.player`, `GCP.lang`, `GCP.onLang` | none | saves |
 | Cloud saves | available | `GCP.save` | `game_data` (summary) | saves |
 | Player stats | available | `GCP.playerStats` | `game_data` (summary) | saves |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
@@ -112,6 +112,8 @@ The SDK also records uncaught errors, failed file loads and `console.error` for 
 ## Player accounts and play sessions
 
 Games open with no login of their own. `GCP.player` is `{ id, name, guest }`: for a signed-in player, a stable account id and the display name the player chose. Every game, free ones included, needs a platform account to play ("Require login to play" is on); a signed-out visitor who presses Play signs in first and comes back to the game. Only if the platform's administrators switch that setting off can free games be played without an account: `GCP.player.guest` is then `true`, the id is kept per browser, and the session token lasts an hour (renewed while the player keeps playing). When a guest signs in, the platform offers to move their progress to the account; a game then starts a new session as the account and finds its saves there. Paid games, reviews and progress on the game page always need an account. The rule is enforced by the server, which signs play sessions and checks the setting on every service call. `GCP.lang` is the player's platform language (en, zh, zh-TW, ja, ko, es), for games that declare `languages.follows_platform`. Pressing Play signs a play session (valid six hours and renewed by the SDK while the player stays signed in; for a free trial, only as long as the trial has left) that names the game, the environment and the player. The SDK keeps the token away from your page's scripts and attaches it to every service call. A session is bound to the player's platform sign-in: if they sign out or switch accounts, the platform refuses the session, the SDK pauses the game and the game page closes it. Your game never has to handle accounts or sign-in itself; save as you go, and the next session (as whichever player is signed in) loads its own saves.
+
+The player's platform language is `GCP.lang` (`en`, `zh`, `zh-TW`, `ja`, `ko` or `es`). When the player switches it on the page while the game runs, the game keeps running and is told: `GCP.lang` changes and `GCP.onLang(fn)` handlers are called with `(lang, previous)`. A game that can switch its text live does it there; one that cannot just keeps going (details in the game-metadata guide).
 
 Accounts, sign-in, purchases and the store page belong to the platform. A game never handles passwords or emails and must not ask for anything personal.
 

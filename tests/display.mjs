@@ -125,3 +125,20 @@ test('Alt+Enter pressed in the game asks the player to toggle fullscreen', () =>
   key('Enter');
   assert.equal(posted.filter((x) => x.gcp === 'fullscreen').length, 1, 'plain Enter is the game\'s');
 });
+
+test('a platform language switch updates GCP.lang and calls onLang, without reloading the game', () => {
+  const { GCP, send } = loadSdk();
+  const before = GCP.lang, heard = [];
+  const off = GCP.onLang((l, was) => heard.push([l, was]));
+  send({ gcp: 'lang', lang: 'ja' });
+  assert.equal(GCP.lang, 'ja');
+  assert.deepEqual(heard, [['ja', before]]);
+  send({ gcp: 'lang', lang: 'ja' });             // the same language again (the frame is told on load too): no call
+  send({ gcp: 'lang', lang: '<script>' });       // not a language tag: ignored
+  assert.equal(heard.length, 1);
+  send({ gcp: 'lang', lang: 'zh-TW' });
+  assert.deepEqual(heard[1], ['zh-TW', 'ja']);
+  off(); send({ gcp: 'lang', lang: 'es' });
+  assert.equal(GCP.lang, 'es');
+  assert.equal(heard.length, 2);
+});

@@ -192,7 +192,10 @@ function linkOperator(text: string) {
 }
 
 function App() {
-  const lang = useLang(), bare = isBare(useLocation().split('?')[0]);
+  // A new platform language re-renders the whole app in place. Nothing is remounted, so a running game keeps running
+  // (its frame is told the new language through the SDK: GCP.lang, GCP.onLang), and forms and scroll positions stay as they were.
+  useLang();
+  const bare = isBare(useLocation().split('?')[0]);
   const [state, setState] = useState<{ user: Me | null; config: Config } | null>(null), [failed, setFailed] = useState(false);
   const [toastMsg, setToast] = useState<{ msg: string; bad: boolean } | null>(null), timer = useRef(0);
   const refresh = useCallback(async () => {
@@ -208,7 +211,7 @@ function App() {
   const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); announceAuth(); await refresh(); navigate('/'); };
   const brand = state.config.settings.brand_name as string;
   return (
-    <AppCtx.Provider value={{ ...state, refresh, toast }} key={lang}>
+    <AppCtx.Provider value={{ ...state, refresh, toast }}>
       {!bare && <><Nav user={state.user} brand={brand} onLogout={logout} />
       <StoreBarSlot /></>}
       <main><RouteFrame><Routes user={state.user} /></RouteFrame></main>

@@ -700,12 +700,31 @@
   }
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && resumeNext) resumeFlush(); });
 
+  // The platform language can change while the game runs (the player picks another one on the page around it): GCP.lang
+  // follows, the address keeps it (a game that reloads itself opens in it), and GCP.onLang handlers hear about it.
+  var langFns = [];
+  function setLang(raw) {
+    var l = String(raw || '').slice(0, 20);
+    if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(l) || l === GCP.lang) return;
+    var was = GCP.lang; GCP.lang = l;
+    try { var u = new URLSearchParams(location.search); u.set('gcp_lang', l); history.replaceState(history.state, '', location.pathname + '?' + u + location.hash); } catch (e) { /* sandboxed */ }
+    langFns.slice().forEach(function (fn) { try { fn(l, was); } catch (err) { console.error(err); } });
+  }
   var GCP = window.GCP = {
     sdk: 1,
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
     /** The player's platform language as a BCP 47 tag (en, zh, zh-TW, ja, ko, es), from ?gcp_lang or the browser. A game that
         declares languages.follows_platform in gcp.json opens in this language when it has it, and otherwise in its default. */
     lang: String(q.get('gcp_lang') || (navigator.language || 'en')).slice(0, 20),
+    /** fn(lang, previous) when the player switches the platform language while the game is running (same codes as GCP.lang,
+        which is already updated when fn runs). The game keeps running either way: a game that can switch its text live
+        does it here; a game that cannot ignores it and picks up the new language the next time it is opened. Returns a
+        function that stops listening. */
+    onLang: function (fn) {
+      if (typeof fn !== 'function') return function () { };
+      langFns.push(fn);
+      return function () { var i = langFns.indexOf(fn); if (i >= 0) langFns.splice(i, 1); };
+    },
     /** Loading progress, 0..1, shown in verification reports. Called again after ready() (loading a world or a level), it
         tells the platform the game is on a loading screen until it reaches 1, so the version's picture waits for play. */
     progress: function (f, label) { P.progress++; S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); if (S.ready) S.busy = S.progress < 1; },
@@ -861,6 +880,7 @@
     // and the player then offers Wait or Quit game.
     if (e.source === window.parent && d && d.gcp === 'ping') { toParent({ gcp: 'pong', n: d.n, frames: S.frames }); return; }
     if (e.source === window.parent && d && d.gcp === 'escape_key' && escFn) { runEscape(null); return; }
+    if (e.source === window.parent && d && d.gcp === 'lang') { setLang(d.lang); return; }
     if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
