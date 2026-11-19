@@ -1506,5 +1506,7 @@
  "Longest a debug browser stays open (minutes, 1 to 10; it also closes after 3 idle minutes)": "Tiempo máximo que un navegador de depuración sigue abierto (minutos, de 1 a 10; también se cierra tras 3 minutos inactivo)",
  "Let creators send annotated screenshots of their preview to their agent (creator feedback queue)": "Permitir que los creadores envíen a su agente capturas anotadas de su vista previa (cola de comentarios del creador)",
  "Feedback items waiting per game before the creator must remove some or the agent read them": "Comentarios en espera por juego antes de que el creador deba quitar alguno o el agente leerlos",
- "Days an unread feedback item is kept": "Días que se guarda un comentario sin leer"
+ "Days an unread feedback item is kept": "Días que se guarda un comentario sin leer",
+ "Actions": "Acciones",
+ "Actions for {name}": "Acciones para {name}"
 }

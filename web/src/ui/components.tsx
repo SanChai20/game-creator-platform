@@ -1,6 +1,6 @@
 // The component kit. Pages compose these instead of writing their own markup and inline styles, so a change
 // to how a button, card, stat or table looks is made once, here and in ui.css.
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, t } from '../lib';
 import { CountUp } from './count';
@@ -112,8 +112,58 @@ export const KeyValue = ({ items }: { items: ([ReactNode, ReactNode] | [ReactNod
   <dl className="kv">{items.filter(Boolean).map((it, i) => { const [k, v, cls] = it as [ReactNode, ReactNode, string?]; return <div key={i}><dt>{k}</dt><dd className={cls}>{v}</dd></div>; })}</dl>
 );
 
-/** A table that scrolls sideways on narrow screens. Use className="n" on numeric cells. */
-export const Table = ({ children, className }: { children: ReactNode; className?: string }) => <div className={cx('tbl-wrap', className)}><table className="tbl">{children}</table></div>;
+/** A table that scrolls sideways when it is wider than its box. Use className="n" on numeric cells. When it does scroll,
+ *  a shadow on the edge that hides columns says there is more. `stickyEnd` pins the last column (a row's actions) to the
+ *  right edge so it stays in view while the rest scrolls under it; `dense` narrows the cell padding for wide tables. */
+export function Table({ children, className, stickyEnd, dense }: { children: ReactNode; className?: string; stickyEnd?: boolean; dense?: boolean }) {
+  const box = useRef<HTMLDivElement>(null), [more, setMore] = useState({ l: false, r: false });
+  useEffect(() => {
+    const el = box.current; if (!el) return;
+    const check = () => { const l = el.scrollLeft > 1, r = el.scrollLeft + el.clientWidth < el.scrollWidth - 1; setMore((m) => (m.l === l && m.r === r ? m : { l, r })); };
+    check(); el.addEventListener('scroll', check, { passive: true });
+    const ro = new ResizeObserver(check); ro.observe(el); if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => { el.removeEventListener('scroll', check); ro.disconnect(); };
+  }, []);
+  return <div ref={box} className={cx('tbl-wrap', stickyEnd && 'sticky-end', dense && 'dense', more.l && 'more-l', more.r && 'more-r', className)}><table className="tbl">{children}</table></div>;
+}
+
+export type RowAction = { label: ReactNode; onClick: () => void; danger?: boolean } | false | null | undefined;
+/** A row's actions behind one compact button, so a table keeps its width however many actions a row has. The list opens
+ *  in <body> with position: fixed, so the table's sideways scrolling cannot clip it; it closes on Escape, a click
+ *  elsewhere, scrolling or resizing. Arrow keys move between the actions. */
+export function RowMenu({ actions, disabled, label }: { actions: RowAction[]; disabled?: boolean; label?: string }) {
+  const items = actions.filter(Boolean) as Exclude<RowAction, false | null | undefined>[];
+  const [pos, setPos] = useState<{ top: number; right: number; up: boolean } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null), list = useRef<HTMLDivElement>(null);
+  const close = (refocus?: boolean) => { setPos(null); if (refocus) btn.current?.focus(); };
+  const open = () => {
+    const r = btn.current!.getBoundingClientRect(), up = r.bottom + 44 * items.length + 24 > innerHeight && r.top > innerHeight / 2;
+    setPos({ top: up ? r.top - 6 : r.bottom + 6, right: Math.max(8, document.documentElement.clientWidth - r.right), up });
+  };
+  useEffect(() => {
+    if (!pos) return;
+    (list.current?.querySelector('button') as HTMLButtonElement | null)?.focus({ preventScroll: true });
+    const away = (e: Event) => { if (!list.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) close(); };
+    const shut = (e: Event) => { if (!list.current?.contains(e.target as Node)) close(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); close(true); } };
+    document.addEventListener('mousedown', away); document.addEventListener('touchstart', away); addEventListener('scroll', shut, true); addEventListener('resize', shut); addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('touchstart', away); removeEventListener('scroll', shut, true); removeEventListener('resize', shut); removeEventListener('keydown', key); };
+  }, [pos]);
+  const move = (e: ReactKeyboardEvent) => {
+    const all = [...(list.current?.querySelectorAll('button') || [])] as HTMLButtonElement[], i = all.indexOf(document.activeElement as HTMLButtonElement);
+    const to = e.key === 'ArrowDown' ? (i + 1) % all.length : e.key === 'ArrowUp' ? (i - 1 + all.length) % all.length : e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : -1;
+    if (to >= 0) { e.preventDefault(); all[to].focus(); } else if (e.key === 'Tab') close();
+  };
+  if (!items.length) return null;
+  return <>
+    <button ref={btn} type="button" className={cx('btn btn-secondary btn-sm row-menu-btn', pos && 'on')} disabled={disabled} aria-haspopup="menu" aria-expanded={!!pos} aria-label={label} onClick={() => (pos ? close() : open())}>
+      {t('Actions', '操作')}<span className="row-menu-caret" aria-hidden="true" />
+    </button>
+    {pos && createPortal(<div ref={list} className="pop row-menu" role="menu" onKeyDown={move} style={{ position: 'fixed', right: pos.right, ...(pos.up ? { top: 'auto', bottom: innerHeight - pos.top } : { top: pos.top }) }}>
+      {items.map((a, i) => <button key={i} type="button" role="menuitem" className={a.danger ? 'bad' : undefined} onClick={() => { close(true); a.onClick(); }}>{a.label}</button>)}
+    </div>, document.body)}
+  </>;
+}
 
 /** A bar per value, newest on the right, with the value on hover. Used for daily series. */
 export function Bars({ data, tip, height }: { data: { label: string; value: number }[]; tip: (d: { label: string; value: number }) => string; height?: number }) {

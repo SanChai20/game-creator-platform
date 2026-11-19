@@ -1507,5 +1507,7 @@
  "Longest a debug browser stays open (minutes, 1 to 10; it also closes after 3 idle minutes)": "디버그 브라우저가 열려 있는 최대 시간(분, 1~10. 3분 동안 사용하지 않아도 닫힙니다)",
  "Let creators send annotated screenshots of their preview to their agent (creator feedback queue)": "제작자가 표시한 미리보기 스크린샷을 에이전트에게 보낼 수 있게 합니다(제작자 피드백 대기열)",
  "Feedback items waiting per game before the creator must remove some or the agent read them": "게임당 대기할 수 있는 피드백 수(넘으면 제작자가 삭제하거나 에이전트가 읽어야 합니다)",
- "Days an unread feedback item is kept": "읽지 않은 피드백을 보관하는 일수"
+ "Days an unread feedback item is kept": "읽지 않은 피드백을 보관하는 일수",
+ "Actions": "작업",
+ "Actions for {name}": "{name} 작업"
 }

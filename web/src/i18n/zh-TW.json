@@ -1528,5 +1528,7 @@
  "Longest a debug browser stays open (minutes, 1 to 10; it also closes after 3 idle minutes)": "除錯瀏覽器最長保持開啟的時間（分鐘，1 至 10；閒置 3 分鐘也會關閉）",
  "Let creators send annotated screenshots of their preview to their agent (creator feedback queue)": "允許創作者把帶標註的預覽截圖傳送給他們的智慧代理（創作者回饋佇列）",
  "Feedback items waiting per game before the creator must remove some or the agent read them": "每款遊戲可排隊的回饋則數（達到後需創作者移除或智慧代理讀取）",
- "Days an unread feedback item is kept": "未讀回饋保留的天數"
+ "Days an unread feedback item is kept": "未讀回饋保留的天數",
+ "Actions": "操作",
+ "Actions for {name}": "{name} 的操作"
 }

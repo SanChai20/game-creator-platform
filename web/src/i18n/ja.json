@@ -1507,5 +1507,7 @@
  "Longest a debug browser stays open (minutes, 1 to 10; it also closes after 3 idle minutes)": "デバッグ用ブラウザを開いておける最長時間（分、1〜10。3分間操作がなくても閉じます）",
  "Let creators send annotated screenshots of their preview to their agent (creator feedback queue)": "クリエイターがプレビューの印付きスクリーンショットをエージェントに送れるようにする（クリエイターフィードバックキュー）",
  "Feedback items waiting per game before the creator must remove some or the agent read them": "1ゲームあたり待機できるフィードバックの数（超えたらクリエイターが削除するかエージェントが読む必要があります）",
- "Days an unread feedback item is kept": "未読のフィードバックを保持する日数"
+ "Days an unread feedback item is kept": "未読のフィードバックを保持する日数",
+ "Actions": "操作",
+ "Actions for {name}": "{name} の操作"
 }
