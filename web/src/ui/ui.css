@@ -338,8 +338,15 @@ a.gtag:hover { color: var(--text); background: rgb(var(--text-rgb) / .06); box-s
    pixels where the browser can round, so a 16:9 game gets a whole number of pixels both ways. */
 .modal > div.wide .stage { width: min(100%, calc((100dvh - 230px) * 16 / 9)); margin-inline: auto; }
 @supports (width: round(down, 100px, 16px)) { .modal > div.wide .stage { width: round(down, min(100%, calc((100dvh - 230px) * 16 / 9)), 16px); } }
-/* a dialog holding a running game (see Modal): no blur, fade or movement anywhere above the game's frame */
-.modal.modal-game { backdrop-filter: none; -webkit-backdrop-filter: none; animation: none; background: rgb(14 12 18 / .86); }
+/* a dialog holding a running game (see Modal). The game's frame is put on screen the way the game page does it: no blur,
+   fade or movement above it, nothing of the page drawn behind it, and only the frame's own rounded edge clipping it. The
+   backdrop is opaque and the page under it is not painted at all, the dialog itself neither scrolls nor clips (the
+   backdrop scrolls when the dialog is taller than the window), and auto margins centre it without ever pushing its top
+   out of reach. */
+.modal.modal-game { backdrop-filter: none; -webkit-backdrop-filter: none; animation: none; background: rgb(14 12 18); place-items: start center; }
+.modal.modal-game > div { max-height: none; overflow: visible; margin-block: auto; scrollbar-gutter: auto; }
+html.game-open #root { visibility: hidden; }
+html.game-open #root .toast { visibility: visible; }
 /* a toast arrives like an unlock banner: a slanted ink plate with a lit diamond */
 .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: var(--z-toast); display: flex; align-items: center; gap: 12px; width: max-content; max-width: calc(100vw - 32px); padding: 14px 30px 14px 24px; background: #17151c; color: #fff; font: 600 14.5px/1.3 var(--font-sans); clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); box-shadow: inset 6px 0 0 var(--accent); animation: toast-in var(--dur-slow) var(--ease) both; }
 .toast::before { content: ""; width: 9px; height: 9px; flex: none; margin-left: 6px; background: var(--accent); transform: rotate(45deg); }
