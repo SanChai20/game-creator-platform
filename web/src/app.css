@@ -119,11 +119,11 @@
 /* ---- creators ----------------------------------------------------------------------------------- */
 .creators { padding-block: clamp(40px, 5vw, 72px) 0; }
 .keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.keys > div { display: grid; gap: 14px; align-content: start; padding: 4px clamp(16px, 3vw, 40px) 8px; border-left: 1.5px solid var(--line-2); }
-.keys > div:first-child { border-left: 0; padding-left: 0; }
+.keys > div { display: grid; gap: 14px; align-content: start; justify-items: center; text-align: center; padding: 4px clamp(16px, 3vw, 40px) 8px; border-left: 1.5px solid var(--line-2); }
+.keys > div:first-child { border-left: 0; }
 .keys b { font: 800 clamp(64px, 10vw, 148px)/.82 var(--font-display); font-stretch: 75%; letter-spacing: -.05em; }
 .keys > div:first-child b { color: var(--accent-text); }
-.keys span { color: var(--text-2); font-size: var(--fs-lg); max-width: 24ch; }
+.keys span { color: var(--text-2); font-size: var(--fs-lg); max-width: 24ch; text-wrap: balance; }
 .rule { position: relative; padding-bottom: 16px; border-bottom: 1.5px solid var(--line-2); font: 800 var(--fs-3xl)/1 var(--font-display); font-stretch: 78%; letter-spacing: -.015em; text-transform: uppercase; }
 .rule::after { content: ""; position: absolute; left: 0; bottom: -1.5px; width: 96px; height: 5px; background: var(--accent); clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .track { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(16px, 2.4vw, 32px); counter-reset: track; }
@@ -131,7 +131,13 @@
 .track > div::before { content: "0" counter(track); justify-self: start; padding: 5px 14px; background: var(--text); color: var(--paper); font: 800 13px/1 var(--font-display); letter-spacing: .08em; margin-bottom: 6px; clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .track h3 { font: 800 var(--fs-xl)/1.1 var(--font-display); font-stretch: 84%; text-transform: uppercase; letter-spacing: .01em; }
 .track p { color: var(--text-2); }
-@media (max-width: 760px) { .keys, .track { grid-template-columns: minmax(0, 1fr); gap: 28px; } .keys > div { border-left: 0; padding: 0; grid-template-columns: minmax(90px, auto) 1fr; align-items: center; gap: 20px; } .keys b { font-size: 76px; } }
+@media (max-width: 760px) {
+  .keys, .track { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  /* One row per stat; the numbers share a column (subgrid) so every caption starts on the same line. */
+  .keys { grid-template-columns: max-content minmax(0, 1fr); column-gap: 20px; }
+  .keys > div { grid-column: 1 / -1; grid-template-columns: subgrid; border-left: 0; padding: 0; align-items: center; justify-items: start; text-align: start; }
+  .keys b { font-size: 76px; justify-self: center; }
+}
 .pitch { margin-top: clamp(56px, 7vw, 96px); padding: clamp(32px, 5vw, 72px); min-height: 340px; display: grid; align-items: center; }
 .pitch-in { position: relative; z-index: 2; display: grid; gap: 18px; justify-items: start; max-width: 540px; }
 .pitch h2 { font: 800 var(--fs-4xl)/.92 var(--font-display); font-stretch: 76%; letter-spacing: -.025em; text-transform: uppercase; }
