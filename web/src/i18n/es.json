@@ -1463,5 +1463,15 @@
  "Rising fast": "En alza",
  "Hidden gem": "Joya oculta",
  "Actions": "Acciones",
- "Actions for {name}": "Acciones para {name}"
+ "Actions for {name}": "Acciones para {name}",
+ "Removed from your library. Your progress is kept.": "Se quitó de tu biblioteca. Tu progreso se conserva.",
+ "Added to your library.": "Añadido a tu biblioteca.",
+ "In your library": "En tu biblioteca",
+ "Add to library": "Añadir a la biblioteca",
+ "Open library": "Abrir biblioteca",
+ "The games you bought, the free games you added, and everything you played. Continue opens a game where you left off, on any device.": "Los juegos que compraste, los gratuitos que añadiste y todo lo que jugaste. Continuar abre un juego donde lo dejaste, en cualquier dispositivo.",
+ "Games you buy are added here automatically. Add free games from their page, and games you play show up here with where you left off.": "Los juegos que compras se añaden aquí automáticamente. Añade juegos gratuitos desde su página; los que juegues aparecen aquí con el punto donde lo dejaste.",
+ "Collection": "Colección",
+ "Bought games are added automatically. Free games stay until you remove them.": "Los juegos comprados se añaden automáticamente. Los gratuitos se quedan hasta que los quites.",
+ "Show": "Mostrar"
 }

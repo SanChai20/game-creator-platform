@@ -32,6 +32,7 @@ import { signPlayToken } from '../runtime/game-worker.js';
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
+import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
@@ -61,7 +62,14 @@ api.get('/config', async (c) => {
   return c.json({ settings: out, payments: stripeReady(c.env), mcp_url: `${c.get('origin')}/mcp`, origin: c.get('origin') });
 });
 
-api.get('/me', (c) => { const u = c.get('user'); return c.json({ user: u ? pubUser(u) : null }); });
+// makes_games: this account is also a creator (a creator license, or games of its own on the platform). Everyone is a
+// player; only then does the web app show the creator console in its main navigation.
+api.get('/me', async (c) => {
+  const u = c.get('user');
+  if (!u) return c.json({ user: null });
+  const makes = !!u.creator || !!(await c.env.DB.prepare("SELECT 1 FROM projects WHERE owner_id = ? AND status != 'removed' LIMIT 1").bind(u.id).first());
+  return c.json({ user: { ...pubUser(u), makes_games: makes } });
+});
 
 api.post('/auth/signup', async (c) => {
   const b = await c.req.json<{ email?: string; name?: string; password?: string }>().catch(() => ({} as any)), s = await getSettings(c.env);
@@ -344,11 +352,12 @@ api.get('/games/:slug', async (c) => {
   const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
   const reviews = await c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 50').bind(p.id).all<Record<string, any>>();
   const dist = await c.env.DB.prepare('SELECT rating, COUNT(*) AS n FROM reviews WHERE project_id = ? AND hidden = 0 GROUP BY rating').bind(p.id).all<{ rating: number; n: number }>();
-  let mine = null, played = false, owned = p.price_cents === 0, resume: { last_played: number; saved_at: number | null; resume: unknown } | null = null;
+  let mine = null, played = false, owned = p.price_cents === 0, library: string | null = null, resume: { last_played: number; saved_at: number | null; resume: unknown } | null = null;
   if (u) {
     mine = await c.env.DB.prepare('SELECT rating, body FROM reviews WHERE project_id = ? AND user_id = ?').bind(p.id, u.id).first();
     played = !!(await c.env.DB.prepare("SELECT 1 FROM plays WHERE project_id = ? AND user_id = ? AND env = 'live' AND counted = 1 LIMIT 1").bind(p.id, u.id).first());
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
+    library = await libraryState(c.env.DB, u.id, p.id);
     // Played before: the page offers Continue (with where the game says the player is) instead of Play.
     const pg = await c.env.DB.prepare('SELECT last_at, resume, (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = ?1 AND s.user_id = ?2) AS saved_at FROM player_games WHERE project_id = ?1 AND user_id = ?2').bind(p.id, u.id).first<{ last_at: number; resume: string | null; saved_at: number | null }>();
     if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
@@ -364,6 +373,8 @@ api.get('/games/:slug', async (c) => {
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // whether the game is in this player's library: 'bought' (a paid game, from its purchase), 'added' (a free game they added) or null
+    library,
     // where this player left off (null when they have nothing saved here): the page's Continue button
     continue: resume,
     // Until when this buyer can still refund the game themselves (null once the window has passed or it was refunded before).
@@ -463,17 +474,39 @@ api.delete('/me/continue/:slug', async (c) => {
   if (!p) throw notFound('No such game.');
   return c.json(await hideContinue(c.env.DB, scopeOf(p.id, 'live'), u.id, now()));
 });
-// The library: games played (as on the Continue row, paged) and games bought but never opened.
+// ---- the game library (players' side; the creator console never lists games a person bought or added) ---------------
+// What the library shows: the games played (the Continue row, paged), and the games the player owns or keeps: every paid
+// game they bought (in it from the moment the payment succeeds, out again on a refund) and the free games they added.
+const libraryErr = (e: unknown): never => { if (e instanceof LibraryError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+async function libraryCards(c: Ctx, userId: string, offset: number, filter: string) {
+  const { list, more } = await libraryList(c.env.DB, userId, { limit: 24, offset, filter });
+  if (!list.length) return { games: [], more: false };
+  const ids = list.map((x: { game_id: string }) => x.game_id), origin = c.get('origin');
+  const rows = await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>();
+  const byId = new Map(rows.results.map((r) => [r.id, r]));
+  return { games: list.filter((x: { game_id: string }) => byId.has(x.game_id)).map(({ game_id, ...x }: Record<string, any>) => ({ ...card(origin, byId.get(game_id)!), library: x })), more };
+}
 api.get('/me/library', async (c) => {
-  const u = requireUser(c), origin = c.get('origin'), offset = num(c.req.query('offset')) || 0;
+  const u = requireUser(c), offset = num(c.req.query('offset')) || 0;
   c.header('cache-control', 'private, no-store');
-  const [played, bought] = await Promise.all([
-    continueCards(c, u.id, 24, offset),
-    offset ? null : c.env.DB.prepare(`SELECT p.*, u.name AS author, b.created_at AS bought_at FROM purchases b JOIN projects p ON p.id = b.project_id JOIN users u ON u.id = p.owner_id
-        WHERE b.user_id = ?1 AND b.status = 'paid' AND p.status = 'live' AND NOT EXISTS (SELECT 1 FROM player_games pg WHERE pg.project_id = p.id AND pg.user_id = ?1)
-        ORDER BY b.created_at DESC LIMIT 60`).bind(u.id).all<Record<string, any>>(),
-  ]);
-  return c.json({ ...played, unplayed: bought ? bought.results.map((r) => ({ ...card(origin, r), bought_at: r.bought_at })) : null });
+  const [played, owned, counts] = await Promise.all([continueCards(c, u.id, 24, offset), offset ? null : libraryCards(c, u.id, 0, 'all'), offset ? null : libraryCounts(c.env.DB, u.id)]);
+  return c.json({ ...played, owned, counts });
+});
+// More of the owned part, or one filter of it: all, bought or added.
+api.get('/me/library/games', async (c) => {
+  const u = requireUser(c);
+  c.header('cache-control', 'private, no-store');
+  return c.json(await libraryCards(c, u.id, num(c.req.query('offset')) || 0, String(c.req.query('filter') || 'all')));
+});
+api.post('/me/library/:slug', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id, status, price_cents FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string; status: string; price_cents: number }>();
+  await rateLimit(c.env, 'library:' + u.id, 120, 3600);
+  return c.json(await addToLibrary(c.env.DB, u.id, p, now()).catch(libraryErr));
+});
+api.delete('/me/library/:slug', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('No such game.');
+  return c.json(await removeFromLibrary(c.env.DB, u.id, p.id));
 });
 
 // A player tells the platform something is wrong with a live game: it asks for passwords or payment, behaves differently
@@ -771,11 +804,9 @@ api.get('/console/overview', async (c) => {
   const u = requireUser(c), origin = c.get('origin'), s = await getSettings(c.env);
   const projects = await c.env.DB.prepare("SELECT p.*, ? AS author FROM projects p WHERE p.owner_id = ? AND p.status != 'removed' ORDER BY p.updated_at DESC").bind(u.name, u.id).all<Record<string, any>>();
   const sales = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>();
-  const library = await c.env.DB.prepare("SELECT p.*, u.name AS author FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users u ON u.id = p.owner_id WHERE x.user_id = ? AND x.status = 'paid' ORDER BY x.created_at DESC LIMIT 60").bind(u.id).all<Record<string, any>>();
   return c.json({
     user: pubUser(u), balance: await balanceOf(c.env, u.id), sales: sales || { n: 0, net: 0 }, fee_cents: s.creator_fee_cents,
     projects: projects.results.map((p) => ({ ...card(origin, p), live_version: p.live_version, preview_version: p.preview_version, sales: p.sales, updated_at: p.updated_at })),
-    library: library.results.map((p) => card(origin, p)),
   });
 });
 

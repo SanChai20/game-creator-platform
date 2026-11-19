@@ -1464,5 +1464,15 @@
  "Rising fast": "急上昇",
  "Hidden gem": "隠れた名作",
  "Actions": "操作",
- "Actions for {name}": "{name} の操作"
+ "Actions for {name}": "{name} の操作",
+ "Removed from your library. Your progress is kept.": "ライブラリから削除しました。進行状況は残ります。",
+ "Added to your library.": "ライブラリに追加しました。",
+ "In your library": "ライブラリにあります",
+ "Add to library": "ライブラリに追加",
+ "Open library": "ライブラリを開く",
+ "The games you bought, the free games you added, and everything you played. Continue opens a game where you left off, on any device.": "購入したゲーム、追加した無料ゲーム、遊んだすべてのゲーム。「続きから」で、どのデバイスでも前回の続きから遊べます。",
+ "Games you buy are added here automatically. Add free games from their page, and games you play show up here with where you left off.": "購入したゲームは自動でここに追加されます。無料ゲームはゲームのページから追加でき、遊んだゲームも前回の続きとともにここに表示されます。",
+ "Collection": "コレクション",
+ "Bought games are added automatically. Free games stay until you remove them.": "購入したゲームは自動で追加されます。無料ゲームは削除するまで残ります。",
+ "Show": "表示"
 }

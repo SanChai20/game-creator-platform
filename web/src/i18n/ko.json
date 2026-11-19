@@ -1464,5 +1464,15 @@
  "Rising fast": "급상승",
  "Hidden gem": "숨은 명작",
  "Actions": "작업",
- "Actions for {name}": "{name} 작업"
+ "Actions for {name}": "{name} 작업",
+ "Removed from your library. Your progress is kept.": "라이브러리에서 제거했습니다. 진행 상황은 유지됩니다.",
+ "Added to your library.": "라이브러리에 추가했습니다.",
+ "In your library": "라이브러리에 있음",
+ "Add to library": "라이브러리에 추가",
+ "Open library": "라이브러리 열기",
+ "The games you bought, the free games you added, and everything you played. Continue opens a game where you left off, on any device.": "구매한 게임, 추가한 무료 게임, 플레이한 모든 게임. 이어하기를 누르면 어떤 기기에서든 마지막으로 멈춘 곳부터 계속합니다.",
+ "Games you buy are added here automatically. Add free games from their page, and games you play show up here with where you left off.": "구매한 게임은 자동으로 여기에 추가됩니다. 무료 게임은 게임 페이지에서 추가할 수 있고, 플레이한 게임도 마지막 진행 위치와 함께 여기에 표시됩니다.",
+ "Collection": "컬렉션",
+ "Bought games are added automatically. Free games stay until you remove them.": "구매한 게임은 자동으로 추가됩니다. 무료 게임은 직접 제거할 때까지 남아 있습니다.",
+ "Show": "표시"
 }

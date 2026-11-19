@@ -115,7 +115,8 @@ export function Link({ to, className, children, onClick, title, scroll, ...rest 
 }
 
 // ---- session ----------------------------------------------------------------------------------
-export interface Me { id: string; email: string; name: string; role: string; creator: boolean; payouts_enabled: boolean; has_payout_account: boolean; payout_country: string | null }
+/** makes_games: also a creator (a creator license or games of their own). Every account is a player; only creators see the console in the main navigation. */
+export interface Me { id: string; email: string; name: string; role: string; creator: boolean; makes_games?: boolean; payouts_enabled: boolean; has_payout_account: boolean; payout_country: string | null }
 export interface Config { settings: Record<string, any>; payments: boolean; mcp_url: string; origin: string }
 export interface AppState { user: Me | null; config: Config; refresh: () => Promise<void>; toast: (msg: string, bad?: boolean) => void }
 export const AppCtx = createContext<AppState>(null as unknown as AppState);
