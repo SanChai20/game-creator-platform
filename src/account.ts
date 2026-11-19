@@ -36,9 +36,11 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     db.prepare('DELETE FROM match_ratings WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM device_codes WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM login_challenges WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
     // the address is freed for a new account; the row stays so purchases and the ledger keep their owner
-    db.prepare(`UPDATE users SET email = ?1, name = 'Deleted account', pw_hash = '!', status = 'deleted', role = 'user', stripe_customer = NULL, last_seen_at = ?2 WHERE id = ?3`)
+    db.prepare(`UPDATE users SET email = ?1, name = 'Deleted account', pw_hash = '!', status = 'deleted', role = 'user', stripe_customer = NULL, totp_secret = NULL, totp_enabled_at = NULL, totp_pending = NULL, last_seen_at = ?2 WHERE id = ?3`)
       .bind(`deleted-${userId}@deleted.invalid`, t, userId),
   ]);
   // MCP agents the person connected lose their access too

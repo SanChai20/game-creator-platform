@@ -38,6 +38,7 @@ export interface User {
   id: string; email: string; name: string; role: 'user' | 'admin'; status: 'active' | 'suspended';
   creator: number; creator_since: number | null; stripe_account: string | null; stripe_payouts_enabled: number;
   payout_country: string | null; created_at: number;
+  totp_enabled_at: number | null;               // two-factor sign-in on since then (src/two-factor.ts); null while off
 }
 
 export interface Project {

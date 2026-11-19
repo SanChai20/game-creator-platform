@@ -316,6 +316,7 @@ export default {
       env.DB.prepare('DELETE FROM uploads WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
+      env.DB.prepare('DELETE FROM login_challenges WHERE expires_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
       env.DB.prepare('DELETE FROM matches WHERE created_at < ?').bind(t - 30 * 86400000),   // ratings stay; the match log is a month
