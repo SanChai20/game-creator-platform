@@ -29,8 +29,16 @@ import { languageName, parseLanguages, type Languages } from '../../web/src/lang
 import { OPERATOR } from '../../web/src/operator';
 import type { Project } from '../env';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
+import { actDebug, closeDebug, openDebug, type DebugResult } from '../debug';
+import { feedbackProject, pendingFeedback, takeFeedback } from '../feedback';
+// @ts-ignore plain JS module
+import { DEBUG_LIMITS, VIEWPORTS } from '../debug-core.js';
+// @ts-ignore plain JS module
+import { FEEDBACK_LIMITS } from '../feedback-rules.js';
 
 export interface ToolCtx { env: Env; user: User; origin: string; client: string }
+/** A tool answer with pictures: the JSON part is sent as text, each image as an MCP image block after it. */
+export class WithImages { constructor(public data: unknown, public images: { data: Uint8Array; type: string }[]) {} }
 interface Tool {
   name: string; title: string; description: string; inputSchema: Record<string, unknown>;
   annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean };
@@ -105,10 +113,48 @@ async function versionReport(c: ToolCtx, p: Project, n: number, v: Awaited<Retur
     ...rest, can_publish: el.ok, eligibility: el.reason, compatibility: compatSummary(compat), metadata: meta ? metaSummary(p, compat, meta).build : null,
     ...(meta && compat && true ? (() => { const m = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]')); return m.length ? { metadata_missing: m, metadata_next: 'Publishing needs these. game_metadata {project} walks through each with allowed values and suggestions.' } : {}; })() : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
+    ...(await feedbackHint(c, p)),
     next: running ? `Still ${v.status} (${v.stage}). Call list_versions {project, version: ${n}}; it waits up to 40 seconds for the report.`
       : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
         : `Verified. A person can play it on the preview page first. To make it live: publish {project, version: ${n}}.`,
   };
+}
+
+/** Tells the agent when its creator left feedback on the preview: annotated screenshots it should read and act on. */
+async function feedbackHint(c: ToolCtx, p: Project): Promise<Record<string, string>> {
+  if (p.owner_id !== c.user.id) return {};
+  const n = await pendingFeedback(c.env, p.id);
+  return n ? { creator_feedback: `${n} feedback item${n === 1 ? '' : 's'} from the creator ${n === 1 ? 'is' : 'are'} waiting: annotated screenshots of the preview with notes. Call creator_feedback {project: "${p.id}"} to read ${n === 1 ? 'it' : 'them'} and fix what they point at.` } : {};
+}
+
+const STEP_SCHEMA = {
+  type: 'array', maxItems: DEBUG_LIMITS.steps,
+  description: `Steps run in order, then a screenshot of the result is returned. Coordinates are CSS pixels of the viewport, (0, 0) top left; read them off the last screenshot (same size as the viewport). Each step is an object with "do":
+- {do: "click", x, y, button?: "left"|"right"|"middle", count?: 1|2}, {do: "double_click", x, y}, {do: "right_click", x, y}
+- {do: "move", x, y} (hover), {do: "down", x?, y?, button?}, {do: "up", x?, y?, button?} (press and release separately, e.g. to hold the mouse)
+- {do: "drag", x, y, to_x, to_y, ms?} (press, move over ms milliseconds, release; default 300)
+- {do: "tap", x, y} (a touch tap; use a phone viewport for touch games)
+- {do: "scroll", x?, y?, dx?, dy} (mouse wheel)
+- {do: "key", key, hold_ms?} (press one key, or hold it hold_ms to move a character), {do: "key_down", key}, {do: "key_up", key}. key is one character or a name: Enter, Space, Escape, Tab, Backspace, ArrowLeft/Right/Up/Down, KeyW, ShiftLeft, F1…
+- {do: "type", text} (types characters, up to ${DEBUG_LIMITS.text_chars})
+- {do: "wait", ms} (up to 10000)
+- {do: "wait_for", until: "ready"|"text"|"frames", text?, frames?, timeout_ms?} (until GCP.ready(), until text appears on the page, or until the game drew that many more frames; stops the call if not met)
+- {do: "screenshot", label?, clip?: {x, y, width, height}} (an extra picture in the middle of the steps, or a close-up of one area; up to ${DEBUG_LIMITS.shots - 1} per call plus the final one)
+- {do: "eval", js} (an expression or statements ending in return, evaluated in the game page; the JSON result comes back in the log. For reading the game's state, not for playing it)
+All waits of one call add up to at most ${DEBUG_LIMITS.wait_ms / 1000} seconds.`,
+  items: { type: 'object' },
+};
+function debugAnswer(r: DebugResult, next: string) {
+  const left = Math.max(0, Math.round((r.expires_at - now()) / 1000));
+  return new WithImages({
+    session: r.session, preview_version: r.version, viewport: `${r.viewport.width} × ${r.viewport.height}${r.viewport.touch ? ' (touch)' : ''}`,
+    ...(r.opened ? { opened: r.opened.started ? `The game called GCP.ready() after ${r.opened.ms} ms.` : `The game did not call GCP.ready() within ${Math.round(r.opened.ms / 1000)} seconds (see state.errors).` } : {}),
+    steps: r.log, ...(r.stopped ? { stopped_at_step: r.stopped } : {}),
+    state: r.state,
+    screenshots: r.shots.map((s, i) => `image ${i + 1}: ${s.label}`),
+    closes_in_seconds: left,
+    next,
+  }, r.shots.map((s) => ({ data: s.bytes, type: 'image/jpeg' })));
 }
 
 /** The requirements block an agent writes: only what differs from nothing, so it reads like something a person would write. */
@@ -285,7 +331,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
-    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms, server-run matches). Pass topic to read one platform guide in full: "contract", "versions", "storage", "saves", "multiplayer", "matches" or "services". Every game has a storage limit (see storage in the answer): tell the developer about it before planning large assets. platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
+    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms, server-run matches). Pass topic to read one platform guide in full: "contract", "versions", "storage", "saves", "multiplayer", "matches" or "services". Every game has a storage limit (see storage in the answer): tell the developer about it before planning large assets. debugging explains debug_preview (drive the preview in a browser and screenshot it) and creator_feedback (the creator's annotated screenshots, to read every session). platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
     inputSchema: obj({ topic: { type: 'string', enum: PLATFORM_GUIDES.map((g) => g.topic), description: 'Optional. Returns that platform guide as Markdown instead of the overview.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (a.topic) {
@@ -321,6 +367,7 @@ export const TOOLS: Tool[] = [
           '2b. game_metadata: define what players see on the store page: genre, languages (interface, voice, subtitles; GCP.lang is the player\'s platform language; GCP.onLang(fn) hears when the player switches it mid-game, which never restarts the game), players and modes, session length, accessibility, content descriptors (the age rating) and the browser requirements. check shows what the code reveals and what is missing; declare saves it. Publishing a new version needs genre, requirements, languages, players and content.',
           '3. deploy_preview: static checks, then a new numbered version deployed to its own preview address and checked in a real browser. With dry_run: true it runs only the static checks.',
           '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
+          '4b. Look at the game and listen to the creator: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game\'s state), and creator_feedback returns the annotated screenshots and notes the creator left while playing the preview. Read creator_feedback at the start of every session and whenever an answer carries creator_feedback; each item is removed once you read it.',
           '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover; game_data and game_room manage the game\'s data and multiplayer rooms.',
         ],
         services: {
@@ -334,6 +381,11 @@ export const TOOLS: Tool[] = [
           open_implementations: `Learn how other developers' live games were built, when they chose to share it: find_implementations searches them by kind of game, engine or technique and shows the patterns across them; get_implementation {game} returns one card (engine, rendering, input, audio, assets, platform services, loop and performance techniques, structure, verified play-through, summary). ${NEVER_SHARED} To share your own, ask the user, then update_project {open_implementation: true} or publish {open_implementation: true}. ${openPerks(s)}`,
           compatibility: 'Each version carries its requirements: declared in gcp.json "requirements" (compatibility {action: "declare"} writes it), merged with what the platform detects in the code, frozen at deploy_preview. The store page lists them in a Compatibility section and checks the player\'s browser against them before launch. compatibility {action: "check"} shows what was detected and suggests a block.',
           verification_hooks: 'GCP.test.onPlaythrough(fn) lets the verifier play your rules to the end; GCP.test.onTwoPlayers(fn) checks a two-player session (two verifier players meet on GCP.test.twoPlayers.code through GCP.room or GCP.match.find). Both optional. get_started {topic: "contract"}.',
+        },
+        debugging: {
+          see_the_game: 'debug_preview {project, action: "open"} opens the current preview in a real browser and returns a screenshot; {action: "act", steps: [...]} clicks, taps, drags, presses or holds keys, types, waits and returns screenshots after; {action: "close"} ends it. Each answer has state (ready, frames, uncaught errors, console errors, missing files, and what GCP.test.onState(fn) returns). Use it to reproduce a bug, check a layout on a phone viewport, or confirm a fix after deploy_preview. One browser per account, a few minutes each, no GPU.',
+          creator_feedback: 'While playing the preview in the console, the creator can take a screenshot, circle or point at what is wrong, write a note and add it to a queue. creator_feedback {project} returns the oldest items with their annotated pictures and takes them off the queue (peek: true only lists them). deploy_preview, list_versions and list_projects {project} say when items are waiting. Treat each item as a request from the creator: fix it, redeploy, and tell them what you changed.',
+          game_state: 'GCP.test.onState(fn): register a function that returns where the game is (level, scene, player position, open menu). It is attached to every feedback screenshot and returned by debug_preview, so you can tell what a picture shows. Never called for players.',
         },
         account: await account(c),
         session: `The access token lasts ${Math.round(Math.max(60, s.oauth_access_ttl_s) / 60)} minutes. When a call answers 401, do not sign in again: POST ${c.origin}/oauth/token with grant_type=refresh_token, refresh_token and client_id, keep the new access_token and refresh_token from the answer, and repeat the call. The whole authorization ends after ${Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400))} days or when the user revokes it. Projects, files and versions stay as they are across all of that.`,
@@ -679,6 +731,46 @@ export const TOOLS: Tool[] = [
       if (a.version) return versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), 40000));
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
       return { live_version: p.live_version, preview_version: p.preview_version, status: p.status, versions: rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage, can_publish: versionEligible(v, s.verify_browser_required).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' })) };
+    },
+  },
+  {
+    name: 'debug_preview', title: 'Open, play and screenshot the preview in a browser',
+    description: `A real browser on the game's current preview that you drive step by step, to see what the game looks like and reproduce a bug: take screenshots, click, tap, drag, press and hold keys, type, wait, and read the game's state. action "open" starts a browser on the preview (deploy_preview first) and returns a screenshot; "act" runs steps in it and returns screenshots; "screenshot" takes one; "close" ends it. Every answer includes state: whether the game is ready, frames drawn, uncaught errors and console errors the SDK saw, missing files, and what the game's GCP.test.onState(fn) returns. The game runs as a throwaway test player (empty save, never the creator's data). One browser per account at a time; it closes after 3 idle minutes and at most a few minutes after opening. The browser has no GPU: heavy 3D runs slowly and WebGPU is not available, so judge layout, UI and logic here, not frame rate. Also read creator_feedback: the creator may already have marked what is wrong.`,
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['open', 'act', 'screenshot', 'close'], description: 'open: a new browser on the preview (replaces your open one). act: run steps. screenshot: just a picture. close: end the session.' },
+      steps: STEP_SCHEMA,
+      viewport: { description: `open only. A preset (${Object.keys(VIEWPORTS).join(', ')}; default desktop, ${VIEWPORTS.desktop.width} × ${VIEWPORTS.desktop.height}, the verifier's size; the phone and tablet presets have touch) or {width, height, touch}.`, type: ['string', 'object'] },
+      autostart: { type: 'boolean', description: 'open only. Open with ?gcp_autostart=1, so GCP.test.onAutostart skips menus as in verification. Default false: the game starts as a player sees it.' },
+      session: { type: 'string', description: 'Optional: the session id from open (your latest one is used otherwise).' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      if (a.action === 'close') return closeDebug(c.env, c.user, a.session ? String(a.session) : undefined);
+      if (a.action === 'open') {
+        const r = await openDebug(c.env, c.origin, c.user, p, { viewport: a.viewport, autostart: a.autostart === true, steps: a.steps }, c.client);
+        return debugAnswer(r, 'Look at the screenshot, then call debug_preview {action: "act", steps: [...]} to play. Close the session when you are done.');
+      }
+      if (a.steps !== undefined && a.action === 'screenshot') throw bad('screenshot takes no steps.', 'Use action "act" to run steps; it returns a screenshot after them.');
+      const r = await actDebug(c.env, c.user, p, a.session ? String(a.session) : undefined, a.action === 'act' ? (a.steps ?? []) : []);
+      return debugAnswer(r, 'Fix what you found, upload, deploy_preview, then open a new session on the new version to check it.');
+    },
+  },
+  {
+    name: 'creator_feedback', title: 'Read the creator\'s annotated screenshots',
+    description: `The creator's feedback queue: while playing the preview in the console, the creator takes screenshots, circles or points at what is wrong, writes a note and adds it to this queue. Returns the oldest items (up to ${FEEDBACK_LIMITS.read_max}), each with its note, its marks numbered as drawn on the picture (in picture pixels), the preview version, the screen size, errors the game had and what GCP.test.onState(fn) returned, followed by the annotated pictures as images. Each item is removed from the queue as it is returned, so read it carefully and act on it: it will not come back. peek: true lists what is waiting (notes only, no pictures) without removing anything. Check it at the start of a session and after each deploy_preview (deploy_preview and list_versions say when items are waiting). Only the game's creator's own account can read it.`,
+    inputSchema: obj({ project: PROJECT, limit: { type: 'integer', description: `Items to take, 1 to ${FEEDBACK_LIMITS.read_max} (default 3).` }, peek: { type: 'boolean', description: 'List what is waiting without taking anything (no pictures).' } }, ['project']),
+    run: async (a, c) => {
+      const p = await feedbackProject(c.env, c.user, a.project);
+      const r = await takeFeedback(c.env, p, Number(a.limit ?? 3), a.peek === true, c.client);
+      const data = {
+        ...(a.peek ? { waiting: r.pending } : { taken: r.items.length, still_waiting: r.pending }),
+        items: r.items,
+        next: !r.items.length ? 'Nothing waiting. The creator adds items from the preview in the console (Capture feedback).'
+          : a.peek ? 'Call creator_feedback without peek to take them with their pictures.'
+            : `These items are now off the queue. Fix what they point at, deploy_preview, and tell the creator what you changed for each.${r.pending ? ` ${r.pending} more waiting: call creator_feedback again.` : ''} debug_preview lets you reproduce what a picture shows.`,
+      };
+      return r.images.length ? new WithImages(data, r.images) : data;
     },
   },
   {
