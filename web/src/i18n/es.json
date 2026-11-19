@@ -1380,5 +1380,6 @@
  "Find a game": "Buscar un juego",
  "Games you play show up here, with where you left off.": "Los juegos que juegues aparecen aquí, con el punto donde lo dejaste.",
  "Show more": "Mostrar más",
- "Bought, not played yet": "Comprados, sin jugar todavía"
+ "Bought, not played yet": "Comprados, sin jugar todavía",
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "Dejar de guardar datos de juego (partidas, estadísticas, puntuaciones, almacén del servidor) cuando la base de datos supere estos GB, para que el inicio de sesión y las compras sigan funcionando (D1 se detiene en 10 GB; 0: nunca)"
 }

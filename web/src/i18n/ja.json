@@ -1381,5 +1381,6 @@
  "Find a game": "ゲームを探す",
  "Games you play show up here, with where you left off.": "プレイしたゲームが、どこまで進んだかと一緒にここに表示されます。",
  "Show more": "もっと見る",
- "Bought, not played yet": "購入済み・未プレイ"
+ "Bought, not played yet": "購入済み・未プレイ",
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "データベースがこの GB 数を超えたらゲームデータ（セーブ、統計、スコア、サーバーストア）の保存を止め、サインインと購入が動き続けるようにします（D1 の上限は 10 GB、0：止めない）"
 }

@@ -17,13 +17,21 @@ export const MAX_STATS = 64;
 // quota is what one visitor can make the platform store per game they open (and play starts are rate-limited per address).
 export const MAX_PLAYER_BYTES = 2 * 1024 * 1024;
 export const MAX_GUEST_BYTES = 512 * 1024;
+// All of one player's saves in every game together, so one account (or one guest) cannot fill the database by opening
+// game after game: per-game quotas alone put no bound on that.
+export const MAX_ACCOUNT_BYTES = 20 * 1024 * 1024;
+export const MAX_GUEST_TOTAL_BYTES = 2 * 1024 * 1024;
 // What game server code may keep in one game and environment (shared data and per-player data it writes for players).
+// Counted over the rows server code (or the creator, with game_data) wrote, marked by_server = 1, never over what players
+// saved for themselves: a popular game's own players must not use up its server code's room.
 export const MAX_SERVER_KEYS = 10000;
 export const MAX_SERVER_BYTES = 50 * 1024 * 1024;
+export const MAX_SERVER_BYTES_PREVIEW = 10 * 1024 * 1024;
 const utf8 = new TextEncoder();
 export const byteLength = (s) => utf8.encode(String(s)).byteLength;
 const isGuest = (id) => String(id || '').startsWith('guest_');
 export const playerQuota = (owner) => (isGuest(owner) ? MAX_GUEST_BYTES : MAX_PLAYER_BYTES);
+export const accountQuota = (owner) => (isGuest(owner) ? MAX_GUEST_TOTAL_BYTES : MAX_ACCOUNT_BYTES);
 
 export class DataError extends Error {
   constructor(status, message, code) { super(message); this.status = status; this.code = code; }
@@ -59,19 +67,21 @@ async function getSave(db, scope, owner, key) {
   const r = await db.prepare('SELECT v FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, key).first();
   return r ? parse(r.v) : null;
 }
-async function putSave(db, scope, owner, key, v, t) {
-  await db.prepare('INSERT INTO saves (project_id, user_id, k, v, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at').bind(scope, owner, key, v, t).run();
+async function putServerSave(db, scope, owner, key, v, t) {
+  await db.prepare('INSERT INTO saves (project_id, user_id, k, v, updated_at, by_server) VALUES (?, ?, ?, ?, ?, 1) ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at, by_server = 1').bind(scope, owner, key, v, t).run();
 }
 /**
- * Writes one value only if the owner stays within maxKeys keys and maxBytes bytes in this scope, in ONE statement, so
- * parallel writes cannot each pass a separate check. Returns true when written.
+ * Writes one value only if the owner stays within maxKeys keys and maxBytes bytes in this scope, and within
+ * totalBytes over every game, in ONE statement, so parallel writes cannot each pass a separate check. Returns true when
+ * written. A key the player writes is the player's own from then on (by_server = 0).
  */
-async function putSaveWithin(db, scope, owner, key, v, t, maxKeys, maxBytes) {
-  const r = await db.prepare(`INSERT INTO saves (project_id, user_id, k, v, updated_at)
-      SELECT ?1, ?2, ?3, ?4, ?5
+async function putSaveWithin(db, scope, owner, key, v, t, maxKeys, maxBytes, totalBytes) {
+  const r = await db.prepare(`INSERT INTO saves (project_id, user_id, k, v, updated_at, by_server)
+      SELECT ?1, ?2, ?3, ?4, ?5, 0
       WHERE (SELECT COUNT(*) FROM saves WHERE project_id = ?1 AND user_id = ?2 AND k != ?3) < ?6
         AND (SELECT COALESCE(SUM(LENGTH(CAST(v AS BLOB))), 0) FROM saves WHERE project_id = ?1 AND user_id = ?2 AND k != ?3) + LENGTH(CAST(?4 AS BLOB)) <= ?7
-      ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at`).bind(scope, owner, key, v, t, maxKeys, maxBytes).run();
+        AND (SELECT COALESCE(SUM(LENGTH(CAST(v AS BLOB))), 0) FROM saves WHERE user_id = ?2 AND by_server = 0 AND NOT (project_id = ?1 AND k = ?3)) + LENGTH(CAST(?4 AS BLOB)) <= ?8
+      ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at, by_server = 0`).bind(scope, owner, key, v, t, maxKeys, maxBytes, totalBytes).run();
   return (r?.meta?.changes || 0) > 0;
 }
 
@@ -87,9 +97,11 @@ export async function saveOp(db, tok, b, t = Date.now()) {
   if (b.shared) throw new DataError(403, 'Shared data is written by game server code only.', 'forbidden');
   if (b.op === 'set') {
     const v = encode(b.value), quota = playerQuota(owner);
-    if (!(await putSaveWithin(db, scope, owner, b.key, v, t, MAX_SAVE_KEYS, quota))) {
+    if (!(await putSaveWithin(db, scope, owner, b.key, v, t, MAX_SAVE_KEYS, quota, accountQuota(owner)))) {
       const n = await db.prepare('SELECT COUNT(*) AS n FROM saves WHERE project_id = ? AND user_id = ? AND k != ?').bind(scope, owner, b.key).first();
       if ((n?.n || 0) >= MAX_SAVE_KEYS) throw bad(`Too many save keys (${MAX_SAVE_KEYS} max per player).`);
+      const here = await db.prepare('SELECT COALESCE(SUM(LENGTH(CAST(v AS BLOB))), 0) AS b FROM saves WHERE project_id = ? AND user_id = ? AND k != ?').bind(scope, owner, b.key).first();
+      if ((here?.b || 0) + byteLength(v) <= quota) throw bad(`Saves full: a ${isGuest(owner) ? 'guest' : 'player'} may keep ${Math.round(accountQuota(owner) / 1024 / 1024)} MB over all games together. Delete saves in other games or keep less.`);
       throw bad(`Saves full: a ${isGuest(owner) ? 'guest' : 'player'} may keep ${Math.round(quota / 1024)} KB in one game, all keys together. Delete keys or keep less.`);
     }
     return { ok: true };
@@ -233,18 +245,19 @@ export async function serverStoreOp(db, game, envName, b, t = Date.now()) {
   if (!keyOk(b.key)) throw bad('key must be a string of 1–120 characters.');
   if (b.op === 'get') return { value: await getSave(db, scope, owner, b.key) };
   if (b.op === 'set') {
-    // Server code has its own, larger allowance per game and environment (all owners together), checked in one statement.
-    const v = encode(b.value);
-    const r = await db.prepare(`INSERT INTO saves (project_id, user_id, k, v, updated_at)
-        SELECT ?1, ?2, ?3, ?4, ?5
-        WHERE (SELECT COUNT(*) FROM saves WHERE project_id = ?1) < ?6
-          AND (SELECT COALESCE(SUM(LENGTH(CAST(v AS BLOB))), 0) FROM saves WHERE project_id = ?1) + LENGTH(CAST(?4 AS BLOB)) <= ?7
-        ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at`).bind(scope, owner, b.key, v, t, MAX_SERVER_KEYS, MAX_SERVER_BYTES).run();
+    // Server code has its own, larger allowance per game and environment, over the rows it wrote (by_server = 1), checked
+    // in one statement. Players' own saves are not counted: they have their own quotas.
+    const v = encode(b.value), maxBytes = scope.endsWith(':preview') ? MAX_SERVER_BYTES_PREVIEW : MAX_SERVER_BYTES;
+    const r = await db.prepare(`INSERT INTO saves (project_id, user_id, k, v, updated_at, by_server)
+        SELECT ?1, ?2, ?3, ?4, ?5, 1
+        WHERE (SELECT COUNT(*) FROM saves WHERE project_id = ?1 AND by_server = 1 AND NOT (user_id = ?2 AND k = ?3)) < ?6
+          AND (SELECT COALESCE(SUM(LENGTH(CAST(v AS BLOB))), 0) FROM saves WHERE project_id = ?1 AND by_server = 1 AND NOT (user_id = ?2 AND k = ?3)) + LENGTH(CAST(?4 AS BLOB)) <= ?7
+        ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at, by_server = 1`).bind(scope, owner, b.key, v, t, MAX_SERVER_KEYS, maxBytes).run();
     if (!(r?.meta?.changes)) {
       // an existing key may still be overwritten when the new value is not larger
       const old = await db.prepare('SELECT LENGTH(CAST(v AS BLOB)) AS b FROM saves WHERE project_id = ? AND user_id = ? AND k = ?').bind(scope, owner, b.key).first();
-      if (old && byteLength(v) <= old.b) { await putSave(db, scope, owner, b.key, v, t); return { ok: true }; }
-      throw bad(`Game data full: this game may keep ${MAX_SERVER_KEYS} keys and ${MAX_SERVER_BYTES / 1024 / 1024} MB per environment. Delete keys you no longer need.`);
+      if (old && byteLength(v) <= old.b) { await putServerSave(db, scope, owner, b.key, v, t); return { ok: true }; }
+      throw bad(`Game data full: this game may keep ${MAX_SERVER_KEYS} keys and ${maxBytes / 1024 / 1024} MB in this environment. Delete keys you no longer need.`);
     }
     return { ok: true };
   }

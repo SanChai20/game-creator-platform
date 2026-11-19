@@ -1381,5 +1381,6 @@
  "Find a game": "게임 찾기",
  "Games you play show up here, with where you left off.": "플레이한 게임이 멈춘 위치와 함께 여기에 표시됩니다.",
  "Show more": "더 보기",
- "Bought, not played yet": "구매함, 아직 플레이 안 함"
+ "Bought, not played yet": "구매함, 아직 플레이 안 함",
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "데이터베이스가 이 GB를 넘으면 게임 데이터(저장, 통계, 점수, 서버 저장소) 저장을 멈춰 로그인과 구매가 계속 작동하도록 합니다(D1 한도는 10 GB, 0: 멈추지 않음)"
 }

@@ -1402,5 +1402,6 @@
  "Find a game": "去找遊戲",
  "Games you play show up here, with where you left off.": "你玩過的遊戲會出現在這裡，並記錄你上次玩到哪裡。",
  "Show more": "顯示更多",
- "Bought, not played yet": "已購買，尚未遊玩"
+ "Bought, not played yet": "已購買，尚未遊玩",
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "資料庫超過這麼多 GB 後停止儲存遊戲資料（存檔、統計、分數、伺服器儲存），以確保登入和購買仍可正常運作（D1 上限為 10 GB；0：永不停止）"
 }
