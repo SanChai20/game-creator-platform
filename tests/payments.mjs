@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { register } from 'node:module';
 
 register('./ts-hook.mjs', import.meta.url);
-const { recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns, refundablePurchase, holdMs } = await import('../src/earnings.ts');
+const { recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns, refundablePurchase, holdMs, playedSeconds } = await import('../src/earnings.ts');
 const { verifyWebhook, STRIPE_API_VERSION } = await import('../src/stripe.ts');
 const { hmacHex } = await import('../src/util.ts');
 
@@ -153,14 +153,24 @@ test('a buyer can refund within the window, under the play limit, and once per g
   assert.equal(await refundablePurchase(env, { ...R, refund_window_hours: 0 }, 'u_buyer', 'g1'), null);   // switched off
   // 29 minutes of play (a trial before buying counts too) still qualifies; 30 does not
   const t = Date.now();
-  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl1', 'g1', 1, 'live', 'u_buyer', ?, ?, 0)").run(t - 3600000, t - 3600000 + 1740000);
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl1', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 3600000, t - 3600000, t - 3600000 + 1740000);
   assert.ok(await refundablePurchase(env, R, 'u_buyer', 'g1'));
-  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl2', 'g1', 1, 'live', 'u_buyer', ?, ?, 60)").run(t - 60000, t);
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl2', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 60)").run(t - 60000, t - 60000, t);
   assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
   db.exec("DELETE FROM plays");
   // a game reporting a huge play time of its own changes nothing: only the platform's clock counts
   db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl4', 'g1', 1, 'live', 'u_buyer', ?, ?, 99999)").run(t - 120000, t - 60000);
   assert.ok(await refundablePurchase(env, R, 'u_buyer', 'g1'));
+  db.exec("DELETE FROM plays");
+  // heartbeats never add play time; when they run well past the page's last check-in (a buyer blocking the check-ins,
+  // or a game running on after the player left) the play time cannot be confirmed and the refund goes to support
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl5', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 2400000, t, t - 2340000);
+  assert.equal(await playedSeconds(env, 'u_buyer', 'g1'), 60);
+  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  db.exec("DELETE FROM plays");
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl6', 'g1', 1, 'live', 'u_buyer', ?, ?, 0)").run(t - 2400000, t);
+  assert.equal(await playedSeconds(env, 'u_buyer', 'g1'), 0);
+  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null, 'check-ins blocked for a whole play-through: no self-serve refund');
   db.exec("DELETE FROM plays");
   // the platform's own clock: a session whose game sent no heartbeats but stayed open on the store page for 31 minutes
   db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl3', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 1860000, t - 1860000, t);

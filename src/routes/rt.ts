@@ -1,23 +1,23 @@
 // Runtime API called from inside games (cross-origin, authenticated by the signed play token):
-// heartbeats that measure play time, cloud saves, leaderboards, realtime rooms, and the store used by game server code.
+// the game's heartbeat (started, errors), cloud saves, leaderboards, realtime rooms, and the store used by game server code.
 import { Hono } from 'hono';
 import { AppError, bad, type Env } from '../env';
 import { isGuestId } from '../auth';
 import { playKey, runtimeHash, storeKey } from '../deploy';
 import { getSettings } from '../settings';
 import { owns } from '../earnings';
-import { TRIAL_MIN_CHARGE_S, trialCharge } from '../trials';
-import { clamp, dayOf, now, safeEqual } from '../util';
+import { TRIAL_MIN_CHARGE_S, trialOpenStmts } from '../trials';
+import { clamp, now, safeEqual } from '../util';
 import { regionHint } from '../placement';
 import { eloChanges, matchRequest } from '../match-making';
-import { getProject, getVersion } from '../projects';
+import { getProject, getVersion, verKey } from '../projects';
 import type { Seat } from '../matchmaker';
 // @ts-ignore plain JS module
-import { DataError, authToken, playRecordStmt, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
+import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
 import { bindingProblem } from '../session-binding.js';
 // @ts-ignore plain JS module
-import { signPlayToken } from '../runtime/game-worker.js';
+import { isServerPath, signPlayToken } from '../runtime/game-worker.js';
 
 export const PLAY_SESSION_S = 6 * 3600;   // an account's play token; renewed while the sign-in lasts
 export const GUEST_SESSION_S = 3600;      // a guest's, short so switching "Require login to play" on ends guest play within the hour
@@ -25,13 +25,6 @@ interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'play
 
 // The token names its own game and environment; the signature is checked against that game's key.
 // Every per-player read and write below takes the game, environment and player from this token, never from the request body.
-/** Notes that a play session is still open: every game service call counts, not only heartbeats, so play time measured
- *  by the platform (self-serve refunds) does not depend on the game reporting it. At most one write per 30 seconds. */
-export async function seen(env: Env, session: string | undefined, t = now()): Promise<void> {
-  if (!session) return;
-  await env.DB.prepare('UPDATE plays SET seen_at = ?1 WHERE id = ?2 AND (seen_at IS NULL OR seen_at < ?1 - 30000)').bind(t, session).run();
-}
-
 async function authAny(env: Env, token: unknown): Promise<Tok> {
   const tok = await guard(() => authToken(token, (g: string) => playKey(env, g))) as Tok;
   // Guest sessions exist only while "Require login to play" is off; switching it on ends them for every service at once.
@@ -40,7 +33,6 @@ async function authAny(env: Env, token: unknown): Promise<Tok> {
   // switched to another account in this browser), an unclaimed guest id for a guest. Checked on every call.
   const problem = await bindingProblem(env.DB, tok, now());
   if (problem) throw new AppError(401, problem.message, problem.code, problem.reason);
-  await seen(env, tok.s);
   return tok;
 }
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -79,17 +71,17 @@ const MAX_ERROR_KINDS = 200;
 const MAX_BOARDS = 50, MAX_SCORE = 1e15;
 const body = async (c: { req: { text(): Promise<string> } }) => { try { return JSON.parse(await c.req.text()) as Record<string, any>; } catch { throw bad('Body must be JSON.'); } };
 
+// The game's heartbeat. It reports what only the game knows: that it started (GCP.ready), its frame count and the errors
+// it hit, which the creator's analytics show as reported by the game. It moves no play number: sessions, counted plays,
+// play time, players online and the player's record come from the platform's own clock (src/play-clock.ts).
 rt.post('/beat', async (c) => {
   const b = await body(c), env = c.env, tok = await authAny(env, b.t), s = await getSettings(env), t = now();
-  const play = await env.DB.prepare('SELECT * FROM plays WHERE id = ?').bind(tok.s).first<{ id: string; project_id: string; version: number; env: string; user_id: string; kind: string; last_beat_at: number; seconds: number; counted: number; ready: number; errors: number; trial: number; trial_seconds: number; started_at: number }>();
+  const play = await env.DB.prepare('SELECT * FROM plays WHERE id = ?').bind(tok.s).first<{ id: string; project_id: string; version: number; env: string; user_id: string; kind: string; last_beat_at: number; seconds: number; counted: number; ready: number; errors: number; trial: number; trial_seconds: number; trial_until: number | null; started_at: number }>();
   if (!play || play.project_id !== tok.g) throw new AppError(401, 'Unknown play session.', 'bad_token');
-  const delta = b.active ? Math.round(clamp((t - play.last_beat_at) / 1000, 0, 20)) : 0;
-  // a session starts once: only the first heartbeat of a play (before it was marked ready) counts it, whatever b.first says
-  const first = !!b.first && !play.ready;
   const errs: string[] = Array.isArray(b.errors) ? b.errors.slice(0, 5).map((e: unknown) => String(e).slice(0, 500)) : [];
-  const total = play.seconds + delta, nerr = play.errors + errs.length + (b.fatal ? 1 : 0);
+  const nerr = play.errors + errs.length + (b.fatal ? 1 : 0);
   const stmts: D1PreparedStatement[] = [
-    env.DB.prepare('UPDATE plays SET last_beat_at = ?, seconds = ?, frames = ?, ready = 1, errors = ?, ua = COALESCE(ua, ?) WHERE id = ?').bind(t, total, Number(b.frames) || 0, nerr, (c.req.header('user-agent') || '').slice(0, 200), play.id),
+    env.DB.prepare('UPDATE plays SET last_beat_at = ?, frames = ?, ready = 1, errors = ? WHERE id = ?').bind(t, Number(b.frames) || 0, nerr, play.id),
   ];
   if (play.kind !== 'verify') for (const m of errs) {
     // at most MAX_ERROR_KINDS different messages per version: a game (or a script) cannot fill the table with unique strings
@@ -98,39 +90,26 @@ rt.post('/beat', async (c) => {
          OR EXISTS (SELECT 1 FROM client_errors WHERE project_id = ?1 AND version = ?2 AND env = ?3 AND message = ?4)
       ON CONFLICT(project_id, version, env, message) DO UPDATE SET count = count + 1, last_at = excluded.last_at`).bind(play.project_id, play.version, play.env, m, t, MAX_ERROR_KINDS));
   }
-  if (play.kind === 'player' && play.env === 'live') {
-    const day = dayOf(t);
-    const becameCounted = !play.counted && total >= s.play_min_seconds;
-    stmts.push(
-      env.DB.prepare('INSERT INTO game_daily (project_id, day, sessions, plays, seconds) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, day) DO UPDATE SET sessions = sessions + excluded.sessions, plays = plays + excluded.plays, seconds = seconds + excluded.seconds')
-        .bind(play.project_id, day, first ? 1 : 0, becameCounted ? 1 : 0, delta),
-      env.DB.prepare('UPDATE projects SET seconds = seconds + ?, plays = plays + ? WHERE id = ?').bind(delta, becameCounted ? 1 : 0, play.project_id),
-    );
-    if (becameCounted) stmts.push(env.DB.prepare('UPDATE plays SET counted = 1 WHERE id = ?').bind(play.id));
-  }
-  const rec = playRecordStmt(env.DB, play, delta, first, t);   // the player's own record for this game (none for the verifier)
-  if (rec) stmts.push(rec);
   // A creator playing their own preview cleanly, in a real browser, qualifies the version when the automated browser cannot.
-  if (play.kind === 'owner' && play.env === 'preview' && total >= s.verify_human_min_seconds && nerr === 0) {
+  // How long it has been open is the server's clock since the platform started the session, not a figure from the game.
+  if (play.kind === 'owner' && play.env === 'preview' && (t - play.started_at) / 1000 >= s.verify_human_min_seconds && nerr === 0) {
     stmts.push(env.DB.prepare('UPDATE versions SET human_ok = 1 WHERE project_id = ? AND n = ? AND human_ok = 0').bind(play.project_id, play.version));
   }
-  // A free-trial session uses up the player's trial by wall-clock time while the game is open, visible or not.
-  let trial: { remaining_seconds: number; over: boolean; bought: boolean } | undefined, open = 0;
-  if (play.trial) {
-    // Measured from the start of the session, so a slow start and gaps between heartbeats are counted too; the token caps it.
-    open = Math.max(play.trial_seconds, Math.round(clamp(t / 1000, play.started_at / 1000, Math.max(play.started_at / 1000, tok.x - 20)) - play.started_at / 1000));
-    const extra = trialCharge(play.trial_seconds, open);
-    stmts.push(env.DB.prepare('UPDATE plays SET trial_seconds = ? WHERE id = ?').bind(open, play.id));
-    if (extra) stmts.push(env.DB.prepare('UPDATE trials SET seconds = seconds + ?, last_at = ? WHERE project_id = ? AND user_id = ?').bind(extra, t, play.project_id, play.user_id));
-  }
+  // A free-trial session uses up the player's trial by wall-clock time while the game is open, visible or not, by the
+  // server's clock from the start of the session (a slow start and gaps between heartbeats count too); the token caps it.
+  let trial: { remaining_seconds: number; over: boolean; bought: boolean } | undefined;
+  const until = play.trial_until ?? (tok.x - 20) * 1000;
+  if (play.trial) stmts.push(...trialOpenStmts(env.DB, play, t, until));
   await env.DB.batch(stmts);
   if (play.trial) {
+    const open = Math.max(play.trial_seconds, Math.round((Math.max(play.started_at, Math.min(t, until)) - play.started_at) / 1000));
     const left = (await trialLeft(env, tok))!, bought = left <= 0 && await owns(env, play.user_id, play.project_id);
     // The up-front minimum charge is time this session has paid for but not used yet, so it is still this session's to play.
-    const mine = t / 1000 >= tok.x - 20 ? 0 : left + Math.max(0, TRIAL_MIN_CHARGE_S - open);   // past the session's own end, nothing is left
+    const mine = t >= until ? 0 : left + Math.max(0, TRIAL_MIN_CHARGE_S - open);   // past the session's own end, nothing is left
     trial = { remaining_seconds: mine, over: mine <= 0 && !bought, bought };
   }
-  return c.json({ ok: true, seconds: total, ...(trial ? { trial } : {}) });
+  // seconds: the play time the platform has measured for this session so far (from the page's check-ins)
+  return c.json({ ok: true, seconds: play.seconds, ...(trial ? { trial } : {}) });
 });
 
 // Is this play token still good? The game Worker asks before it serves a game page from the token it kept in a cookie
@@ -226,6 +205,30 @@ rt.post('/server-store', async (c) => {
   const { g, e } = await gameWorker(c, true);
   const b = await body(c);
   return c.json(await guard(() => serverStoreOp(c.env.DB, g, e, b, now())));
+});
+
+// The bundle of a version, read by the game's own Worker. A game Worker has no bucket binding (its server code shares the
+// isolate with the runtime, so a binding would be the creator's too): it reads its files here with its store key, which
+// opens only this game's versions, never another game's files, covers or anything else in the bucket.
+rt.get('/file/:n/*', async (c) => {
+  const { g } = await gameWorker(c);
+  const n = Number(c.req.param('n'));
+  const raw = new URL(c.req.url).pathname.replace(/^\/api\/rt\/file\/[^/]+\//, '');
+  let path: string;
+  try { path = raw.split('/').map((s) => decodeURIComponent(s)).join('/'); } catch { throw bad('Bad path.'); }
+  if (!Number.isInteger(n) || n < 1 || !path || path.includes('..') || path.includes('\0') || path.startsWith('/') || isServerPath(path)) throw new AppError(404, 'Not found.', 'not_found');
+  const obj = await c.env.FILES.get(verKey(g, n, path), { range: c.req.raw.headers, onlyIf: c.req.raw.headers });
+  if (!obj) throw new AppError(404, 'Not found.', 'not_found');
+  const headers = new Headers({ etag: obj.httpEtag, 'x-gcp-size': String(obj.size), 'cache-control': 'no-store' });
+  if (obj.httpMetadata?.contentType) headers.set('x-gcp-type', obj.httpMetadata.contentType);
+  if (!('body' in obj) || !(obj as R2ObjectBody).body) return new Response(null, { status: 304, headers });
+  const body = (obj as R2ObjectBody).body, range = obj.range as { offset?: number; length?: number } | undefined;
+  if (range && c.req.header('range')) {
+    const off = range.offset ?? 0, len = range.length ?? obj.size - off;
+    headers.set('content-range', `bytes ${off}-${off + len - 1}/${obj.size}`);
+    return new Response(body, { status: 206, headers });
+  }
+  return new Response(body, { headers });
 });
 
 rt.get('/room', async (c) => {

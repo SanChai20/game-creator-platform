@@ -92,9 +92,9 @@ test('a game script gets the match class once: the migration only when the scrip
   assert.deepEqual(matchSetup('other', true).migrations, { old_tag: 'other', new_tag: MATCH_MIGRATION_TAG, new_sqlite_classes: [MATCH_CLASS] });
   assert.deepEqual(matchSetup(MATCH_MIGRATION_TAG, true), { binding: true });
   assert.deepEqual(matchSetup(MATCH_MIGRATION_TAG, false), { binding: true }, 'a script that has the class keeps its binding');
-  const b = scriptBindings({ PLAY_KEY: 'k' }, 'bucket', true);
+  const b = scriptBindings({ PLAY_KEY: 'k' }, true);
   assert.ok(b.some((x) => x.type === 'durable_object_namespace' && x.name === 'MATCH' && x.class_name === MATCH_CLASS));
-  assert.ok(!scriptBindings({}, 'bucket').some((x) => x.name === 'MATCH'));
+  assert.ok(!scriptBindings({}).some((x) => x.name === 'MATCH'));
   const m = scriptMetadata('workers', { bindings: b, tags: [], limits: { cpuMs: 1000, subRequests: 10 }, migrations: { new_tag: 't' } });
   assert.deepEqual(m.migrations, { new_tag: 't' });
   assert.equal('migrations' in scriptMetadata('workers', { bindings: b, tags: [], limits: { cpuMs: 1000, subRequests: 10 } }), false);

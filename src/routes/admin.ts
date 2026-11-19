@@ -6,7 +6,8 @@ import { balanceOf, recordPurchase, refundPurchase } from '../earnings';
 import { getProject, logEvent } from '../projects';
 import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
-import { undeployGame } from '../deploy';
+import { rolloutRuntime, undeployGame } from '../deploy';
+import { auditFiles } from '../audit';
 import { enqueue } from '../pipeline';
 import { hostId, hostingProblems } from '../hosting';
 import { decideRequest, setGameStorage, MB } from '../storage';
@@ -15,6 +16,16 @@ import { grantCreator, reverseWithdrawal, takeOffline } from './api';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
+
+// Brings game Workers up to this build's runtime now, instead of waiting for the scheduled rollout (16 every 10 minutes).
+// Run it again while `remaining` is above 0. A security fix to the runtime reaches every game this way.
+admin.post('/hosting/rollout', async (c) => c.json(await rolloutRuntime(c.env, 25)));
+
+// One page of the games bucket checked against the database (src/audit.ts). Pass the returned cursor to go on.
+admin.post('/audit/files', async (c) => {
+  const b = await c.req.json<{ cursor?: string; limit?: number }>().catch(() => ({} as { cursor?: string; limit?: number }));
+  return c.json(await auditFiles(c.env, typeof b.cursor === 'string' && b.cursor ? b.cursor : undefined, Number(b.limit) || 500));
+});
 
 admin.get('/overview', async (c) => {
   const db = c.env.DB, since = addDays(dayOf(now()), -29), t30 = now() - 30 * 86400000;
