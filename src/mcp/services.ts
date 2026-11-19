@@ -76,7 +76,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'lifecycle', name: 'SDK and game lifecycle', category: 'runtime', status: 'available',
       what: 'window.GCP, injected at the top of every game page before any game code runs.',
-      how_it_works: 'The SDK reports loading progress, readiness and fatal errors; records uncaught errors, failed file loads and console.error; sends a heartbeat every 15 seconds that measures active play time (tab visible, frames advancing); and gives the game the signed-in player. It also warms the GPU while the game loads: every WebGL context gets KHR_parallel_shader_compile, and three.js draws to the screen wait until their new materials are compiled in small batches and textures uploaded, so a cold start does not freeze the browser and the platform page (all tabs share one GPU process). Outside the platform (a local file or dev server) it runs standalone with a local player and offline fallbacks, so the same code runs everywhere.',
+      how_it_works: 'The SDK reports loading progress, readiness and fatal errors; records uncaught errors, failed file loads and console.error; sends a heartbeat every 15 seconds that tells the platform the game is running and passes on its errors (shown to the creator as reported by the game; play time, plays and players online are measured by the platform itself, from the page that shows the game, never from the heartbeat); and gives the game the signed-in player. It also warms the GPU while the game loads: every WebGL context gets KHR_parallel_shader_compile, and three.js draws to the screen wait until their new materials are compiled in small batches and textures uploaded, so a cold start does not freeze the browser and the platform page (all tabs share one GPU process). Outside the platform (a local file or dev server) it runs standalone with a local player and offline fallbacks, so the same code runs everywhere.',
       use_for: ['Telling the platform when the game is playable', 'A loading bar the verification report can show', 'Reporting why a game could not start'],
       sdk: ['GCP.ready(info)', 'GCP.progress(f, label)', 'GCP.fatal(err)', 'GCP.stats(obj)', 'GCP.standalone', 'GCP.sdk', 'GCP.portrait', 'GCP.gpu.warmup(renderer, scenes, camera)', 'GCP.gpu.upload(renderer, textures)', 'GCP.gpu.auto'],
       mcp_tools: ['get_started'],
@@ -120,7 +120,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'play_record', name: 'Play record', category: 'player data', status: 'automatic',
       what: 'What the platform records by itself for each player in each game, with no game code.',
-      how_it_works: 'Built from the heartbeats: sessions, active play seconds, first and last played, last version played, plus the player\'s stats, best leaderboard scores and save totals.',
+      how_it_works: 'Measured by the platform, not the game: sessions it started, play seconds from check-ins of the page that shows the game (time the game was on screen), first and last played, last version played. Alongside them, what the game itself saved: the player\'s stats, best leaderboard scores and save totals.',
       use_for: ['A "welcome back" message', 'Skipping the tutorial for returning players', 'A total-time line on a stats screen'],
       sdk: ['GCP.playRecord()'],
       mcp_tools: ['game_data'],
@@ -283,7 +283,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'analytics', name: 'Analytics and runtime errors', category: 'insight', status: 'automatic',
       what: 'Players online now, room occupancy, sessions, unique, new and returning players, play time, session lengths, devices, browsers, versions, trials, sales, ratings and the errors real players hit.',
-      how_it_works: 'Computed from the SDK\'s heartbeats, room presence and the errors players\' browsers report. Only real players of the live game count in the history; the creator\'s own plays and the verifier do not.',
+      how_it_works: 'Every play number is the platform\'s own observation, never the game\'s word: sessions are started by the platform when a player presses Play, play time and players online come from check-ins of the page that shows the game (on the platform\'s origin, every 15 seconds), the device from that page\'s request, rooms from the room servers, and sales and ratings from the platform\'s own records. What the game reports about itself through the SDK (whether it reached GCP.ready, the errors it caught) is shown apart, under reported_by_game, and feeds no other number. Only real players of the live game count in the history; the creator\'s own plays and the verifier do not.',
       use_for: ['Finding where players drop off', 'Catching errors that only happen on some devices', 'Checking a release'],
       sdk: [], mcp_tools: ['get_stats', 'game_data'],
       limits: { window_days: '1 to 90', online_window_seconds: 60 },

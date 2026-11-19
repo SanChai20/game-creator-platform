@@ -577,7 +577,7 @@
  "One-time creator fee": "Tarifa de creador de pago único",
  "One-time prices and free trials handled by the platform on Stripe. The game itself never takes payments.": "Los precios únicos y las pruebas gratuitas los gestiona la plataforma con Stripe. El juego nunca cobra por sí mismo.",
  "Online co-op": "Cooperativo en línea",
- "Online means the game sent a heartbeat in the last minute. Rooms count players connected to GCP.room now.": "En línea significa que el juego envió un latido en el último minuto. Las salas cuentan a los jugadores conectados ahora a GCP.room.",
+ "Online means the page showing the game checked in with the platform in the last minute; the game's own heartbeats do not count. Rooms count players connected to GCP.room now.": "En línea significa que la página que muestra el juego avisó a la plataforma en el último minuto; los latidos del propio juego no cuentan. Las salas cuentan a los jugadores conectados ahora a GCP.room.",
  "Online now": "En línea ahora",
  "Online rooms": "Salas en línea",
  "Online versus": "Versus en línea",
@@ -1380,5 +1380,12 @@
  "Find a game": "Buscar un juego",
  "Games you play show up here, with where you left off.": "Los juegos que juegues aparecen aquí, con el punto donde lo dejaste.",
  "Show more": "Mostrar más",
- "Bought, not played yet": "Comprados, sin jugar todavía"
+ "Bought, not played yet": "Comprados, sin jugar todavía",
+ "{returning_players} of {players} players": "{returning_players} de {players} jugadores",
+ "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 15 seconds while the game is on screen. Nothing the game reports about itself changes them.": "Las sesiones, el tiempo de juego y los jugadores los mide la plataforma: desde que un jugador pulsa Jugar y con los avisos que la página del juego envía cada 15 segundos mientras el juego está en pantalla. Nada de lo que el juego informa sobre sí mismo los cambia.",
+ "Reported by the game": "Informado por el juego",
+ "for finding bugs; not used in any number above": "para encontrar errores; no se usa en ninguna cifra de arriba",
+ "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "Esto lo envía el propio juego con su latido, así que la plataforma no puede confirmarlo: si llegó a GCP.ready y los errores que capturó.",
+ "Never started": "Nunca empezó",
+ "no GCP.ready before the player left": "sin GCP.ready antes de que el jugador se fuera"
 }

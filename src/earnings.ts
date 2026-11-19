@@ -18,11 +18,20 @@ export function holdMs(s: Pick<Settings, 'earnings_hold_days' | 'refund_window_h
 }
 
 /** Seconds this player has spent in a game's live sessions, free trial included, measured by the platform alone: each
- *  session counts from the moment the platform started it (server clock) to the last time the platform's server heard
- *  from it (a heartbeat, any game service call, or the store page that shows the game). Nothing the game reports about
- *  its own play time is used, so a game cannot make itself refundable by under-reporting. */
+ *  session counts from the moment the platform started it (server clock) to the last check-in of the page that showed
+ *  the game (src/play-clock.ts), on the platform's own origin. Nothing the game sends (its heartbeats, its own service
+ *  calls, what it says about its play time) is used, so a game can neither make itself refundable by under-reporting nor
+ *  block a refund by keeping a session alive after the player left. */
 export async function playedSeconds(env: Env, userId: string, projectId: string): Promise<number> {
-  const r = await env.DB.prepare("SELECT COALESCE(SUM((MAX(last_beat_at, COALESCE(seen_at, 0)) - started_at) / 1000), 0) AS s FROM plays WHERE user_id = ? AND project_id = ? AND env = 'live'")
+  const r = await env.DB.prepare("SELECT COALESCE(SUM((COALESCE(seen_at, started_at) - started_at) / 1000), 0) AS s FROM plays WHERE user_id = ? AND project_id = ? AND env = 'live'")
+    .bind(userId, projectId).first<{ s: number }>();
+  return Math.round(r?.s || 0);
+}
+
+/** Seconds the game's heartbeats say its sessions ran past the page's last check-in (see refundablePurchase). */
+export const UNCONFIRMED_PLAY_S = 120;
+export async function unconfirmedSeconds(env: Env, userId: string, projectId: string): Promise<number> {
+  const r = await env.DB.prepare("SELECT COALESCE(SUM(MAX(0, last_beat_at - COALESCE(seen_at, started_at)) / 1000), 0) AS s FROM plays WHERE user_id = ? AND project_id = ? AND env = 'live'")
     .bind(userId, projectId).first<{ s: number }>();
   return Math.round(r?.s || 0);
 }
@@ -38,6 +47,10 @@ export async function refundablePurchase(env: Env, s: Pick<Settings, 'refund_win
   if (!p) return null;
   const played = await playedSeconds(env, userId, projectId);
   if (played >= s.refund_max_play_minutes * 60) return null;
+  // The page's check-ins can be blocked by the buyer. If the game's own heartbeats say it kept running well past the
+  // page's last check-in, the platform cannot confirm the play time, so the refund is not automatic: support decides.
+  // (The heartbeats never add play time: a game that sends them after the player left only sends the buyer to support.)
+  if (await unconfirmedSeconds(env, userId, projectId) > UNCONFIRMED_PLAY_S) return null;
   return { ...p, until: p.created_at + win, played_seconds: played };
 }
 

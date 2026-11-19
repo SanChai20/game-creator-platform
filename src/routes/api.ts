@@ -14,6 +14,7 @@ import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, log
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
+import { checkIn, sessionStartStmt } from '../play-clock';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../stripe';
 import { startWithdrawal } from '../payouts';
@@ -121,7 +122,7 @@ api.post('/auth/logout', async (c) => {
 // ----- marketplace -----------------------------------------------------------------------------
 // ---- the catalogue -------------------------------------------------------------------------------
 // Built for tens of thousands of games: every list is paged (limit and offset, with the total), and the home
-// page gets all of its shelves in one request. "Playing now" counts players with a heartbeat in the last minute.
+// page gets all of its shelves in one request. "Playing now" counts players whose game page checked in during the last minute (src/play-clock.ts).
 type ListOpts = { sort?: string; q?: string; tag?: string; price?: string; limit?: number; offset?: number; newSince?: number; by?: string; minRating?: number };
 const ORDER: Record<string, string> = {
   new: 'p.published_at DESC',
@@ -220,7 +221,7 @@ async function homeData(c: Ctx): Promise<Response> {
     c.env.DB.prepare(`SELECT
         (SELECT COUNT(*) FROM projects WHERE status = 'live') AS games,
         (SELECT COUNT(*) FROM projects WHERE status = 'live' AND published_at > ?) AS new_week,
-        (SELECT COUNT(DISTINCT user_id) FROM plays WHERE env = 'live' AND last_beat_at > ? AND kind != 'verify') AS playing,
+        (SELECT COUNT(DISTINCT user_id) FROM plays WHERE env = 'live' AND seen_at > ? AND kind != 'verify') AS playing,
         (SELECT COUNT(DISTINCT owner_id) FROM projects WHERE status = 'live') AS creators`).bind(weekAgo, t - ONLINE_WINDOW_MS).first<{ games: number; new_week: number; playing: number; creators: number }>(),
   ]);
   c.header('cache-control', 'public, max-age=20');
@@ -257,7 +258,7 @@ api.get('/games/:slug', async (c) => {
   const refundable = u && p.price_cents > 0 ? await refundablePurchase(c.env, s, u.id, p.id) : null;
   const [v, on] = await Promise.all([
     p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
-    c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND last_beat_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
+    c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND seen_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
   ]);
   return c.json({
     game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: parseJson(p.listing_i18n, {}), version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
@@ -286,7 +287,11 @@ async function startPlay(c: Ctx, p: Project, envName: 'live' | 'preview', versio
   const kind = u.id === p.owner_id || u.role === 'admin' ? 'owner' : 'player', sid = 'ps_' + rid(16), t = now(), trial = trialSeconds !== undefined;
   // An account's session is bound to the sign-in that started it (session-binding.js): it ends when that sign-in does.
   const login = isGuestId(u.id) ? null : await loginIdOf(c.req.raw);
-  await c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at, trial, login_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(sid, p.id, version, envName, u.id, kind, t, t, trial ? 1 : 0, login).run();
+  // The session, its start time, its device (this request's User-Agent) and a trial's end are all the platform's own record.
+  const insert = c.env.DB.prepare('INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at, trial, trial_until, login_id, ua) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(sid, p.id, version, envName, u.id, kind, t, t, trial ? 1 : 0, trial ? t + trialSeconds * 1000 : null, login, (c.req.header('user-agent') || '').slice(0, 200) || null);
+  if (kind === 'player' && envName === 'live') await c.env.DB.batch([insert, sessionStartStmt(c.env.DB, p.id, t)]);
+  else await insert.run();
   // A trial token lasts only as long as the trial time left (plus a little slack for the last heartbeat); a full one six hours.
   const life = trial ? trialSeconds + 20 : lifeS;
   const token = await signPlayToken({ g: p.id, e: envName, u: u.id, n: u.name, k: kind, s: sid, x: Math.floor(t / 1000) + life, ...(trial ? { tr: 1 } : {}) }, await playKey(c.env, p.id));
@@ -446,13 +451,16 @@ api.post('/games/:slug/buy', async (c) => {
   return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`, true);
 });
 
-// The store page showing a game tells the platform, once a minute, that the player's session is still open. This is the
-// platform's own clock for play time, kept by its page rather than by the game (see playedSeconds).
+// The page showing a game (the store page, or the console's preview) checks in every 15 seconds while the game is open,
+// saying how long the game was on screen since the last check-in. This is the platform's play clock (src/play-clock.ts):
+// it runs on the platform's own origin with the player's sign-in, so the game, on another origin, cannot send it. Every
+// play number (counted plays, play time, players online, the player's record, trial time, refund play time) comes from it.
 api.post('/plays/:sid/seen', async (c) => {
-  const u = requireUser(c), t = now();
-  await c.env.DB.prepare("UPDATE plays SET seen_at = ?1 WHERE id = ?2 AND user_id = ?3 AND env = 'live' AND started_at > ?4 AND (seen_at IS NULL OR seen_at < ?1 - 30000)")
-    .bind(t, c.req.param('sid'), u.id, t - PLAY_SESSION_S * 1000).run();
-  return c.json({ ok: true });
+  const u = c.get('user'), player = u?.id || await existingGuestId(c.env, c.req.raw);
+  if (!player) throw new AppError(401, 'Sign in first.', 'unauthenticated');
+  const b = await c.req.json<{ visible_ms?: number }>().catch(() => ({} as { visible_ms?: number }));
+  const r = await checkIn(c.env, await getSettings(c.env), c.req.param('sid'), player, b.visible_ms, now());
+  return c.json(r);
 });
 
 // A buyer refunds a game themselves within the refund window (refund_window_hours after paying), once per game. The money
