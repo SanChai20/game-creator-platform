@@ -272,6 +272,25 @@ a.gtag:hover { color: var(--text); background: rgb(var(--text-rgb) / .06); box-s
 .tbl tbody tr { transition: background-color var(--dur-fast); }
 .tbl tbody tr:hover { background: rgb(var(--text-rgb) / .035); }
 .tbl .n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* a table wider than its box: a shadow on each edge that hides columns, so it reads as "scroll for more" */
+.tbl-wrap { position: relative; }
+.tbl-wrap.more-l { box-shadow: inset 14px 0 12px -12px rgb(0 0 0 / .28); }
+.tbl-wrap.more-r { box-shadow: inset -14px 0 12px -12px rgb(0 0 0 / .28); }
+.tbl-wrap.more-l.more-r { box-shadow: inset 14px 0 12px -12px rgb(0 0 0 / .28), inset -14px 0 12px -12px rgb(0 0 0 / .28); }
+.tbl-wrap.dense .tbl th, .tbl-wrap.dense .tbl td { padding-inline: 14px; }
+.tbl-wrap.dense .tbl th:first-child, .tbl-wrap.dense .tbl td:first-child { padding-left: 22px; }
+/* the last column (a row's actions) stays pinned to the right edge while the other columns scroll under it */
+.tbl-wrap.sticky-end .tbl tr > :last-child { position: sticky; right: 0; z-index: 1; background: var(--surface); text-align: right; white-space: nowrap; }
+.tbl-wrap.sticky-end .tbl tbody tr:hover > :last-child { background-image: linear-gradient(rgb(var(--text-rgb) / .035), rgb(var(--text-rgb) / .035)); }
+.tbl-wrap.sticky-end.more-r { box-shadow: none; }
+.tbl-wrap.sticky-end.more-l { box-shadow: inset 14px 0 12px -12px rgb(0 0 0 / .28); }
+.tbl-wrap.sticky-end.more-r .tbl tr > :last-child { box-shadow: -12px 0 12px -12px rgb(0 0 0 / .32); clip-path: inset(0 0 0 -24px); }
+.row-menu-btn { gap: 8px; }
+.row-menu-caret { width: 0; height: 0; border-inline: 4px solid transparent; border-top: 5px solid currentColor; transition: transform var(--dur-fast); }
+.row-menu-btn.on .row-menu-caret { transform: rotate(180deg); }
+.pop.row-menu { z-index: var(--z-modal); min-width: 190px; }
+.pop.row-menu button { text-align: left; white-space: nowrap; }
+.pop.row-menu button:focus-visible { outline: none; background: rgb(var(--text-rgb) / .07); }
 .bars { display: flex; align-items: flex-end; gap: 3px; height: 128px; }
 .bars > div { position: relative; flex: 1; min-width: 2px; background: var(--accent); border-radius: 1px 1px 0 0; transition: background-color var(--dur-fast); }
 .bars > div.zero { background: var(--line-2); }

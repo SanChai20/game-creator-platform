@@ -1462,5 +1462,7 @@
  "Chosen every day from play numbers and ratings": "プレイ数と評価から毎日自動で選ばれます",
  "Chosen at the next run, within 10 minutes.": "次回の実行時（10 分以内）に選ばれます。",
  "Rising fast": "急上昇",
- "Hidden gem": "隠れた名作"
+ "Hidden gem": "隠れた名作",
+ "Actions": "操作",
+ "Actions for {name}": "{name} の操作"
 }
