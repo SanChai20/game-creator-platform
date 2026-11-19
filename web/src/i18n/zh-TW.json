@@ -1497,7 +1497,6 @@
  "Drawing tool": "繪製工具",
  "Undo": "復原",
  "Screenshot of the game. Drag on it to circle or point at something.": "遊戲截圖。在上面拖曳即可圈出或指向某處。",
- "This picture shows what the game draws. Menus made of page elements are not in it.": "這張圖只包含遊戲繪製的畫面，不包含由網頁元素構成的選單。",
  "What about it? (optional)": "具體說明（選填）",
  "Note for mark {n}": "標記 {n} 的說明",
  "What should your agent fix or change? For example: the score overlaps the health bar on small screens.": "希望智慧代理修正或修改什麼？例如：在小螢幕上分數和血條重疊了。",
@@ -1637,5 +1636,7 @@
  "Price of the lifetime creator license (one-time payment, never expires)": "永久創作者許可的價格（一次性付款，永不過期）",
  "Require a valid creator license to publish (preview stays free)": "發布前須持有有效的創作者許可（預覽仍免費）",
  "Require a valid creator license before creating projects at all": "建立專案前就須持有有效的創作者許可",
- "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "控制台與發布需要創作者許可，一次付清：{term} 有效 {len}，或 {life} 永久有效。透過智能體創作與預覽免費。"
+ "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "控制台與發布需要創作者許可，一次付清：{term} 有效 {len}，或 {life} 永久有效。透過智能體創作與預覽免費。",
+ "This browser could not draw the page elements over the game (menus, panels), so only the game's canvas is in this picture.": "此瀏覽器無法繪製遊戲上方的網頁元素（選單、面板），因此這張圖只包含遊戲畫布。",
+ "Capture tab includes them.": "「擷取分頁」會包含它們。"
 }

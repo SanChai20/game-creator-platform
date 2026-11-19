@@ -1476,7 +1476,6 @@
  "Drawing tool": "描画ツール",
  "Undo": "元に戻す",
  "Screenshot of the game. Drag on it to circle or point at something.": "ゲームのスクリーンショット。ドラッグして囲んだり指し示したりできます。",
- "This picture shows what the game draws. Menus made of page elements are not in it.": "この画像はゲームが描画した内容です。ページ要素で作られたメニューは含まれません。",
  "What about it? (optional)": "内容（任意）",
  "Note for mark {n}": "印 {n} のメモ",
  "What should your agent fix or change? For example: the score overlaps the health bar on small screens.": "エージェントに何を直してほしいですか？例：小さい画面でスコアが体力バーに重なる。",
@@ -1616,5 +1615,7 @@
  "Price of the lifetime creator license (one-time payment, never expires)": "永久クリエイターライセンスの価格（買い切り、期限なし）",
  "Require a valid creator license to publish (preview stays free)": "公開には有効なクリエイターライセンスを必須にする（プレビューは無料のまま）",
  "Require a valid creator license before creating projects at all": "プロジェクト作成の時点で有効なクリエイターライセンスを必須にする",
- "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "コンソールと公開にはクリエイターライセンスが必要です（買い切り）：{len} で {term}、または永久で {life}。エージェントでの制作とプレビューは無料です。"
+ "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "コンソールと公開にはクリエイターライセンスが必要です（買い切り）：{len} で {term}、または永久で {life}。エージェントでの制作とプレビューは無料です。",
+ "This browser could not draw the page elements over the game (menus, panels), so only the game's canvas is in this picture.": "このブラウザではゲーム上のページ要素（メニューやパネル）を描画できなかったため、この画像にはゲームのキャンバスだけが含まれています。",
+ "Capture tab includes them.": "「タブをキャプチャ」なら含まれます。"
 }

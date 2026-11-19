@@ -1476,7 +1476,6 @@
  "Drawing tool": "그리기 도구",
  "Undo": "실행 취소",
  "Screenshot of the game. Drag on it to circle or point at something.": "게임 스크린샷입니다. 드래그해서 원을 그리거나 가리킬 수 있습니다.",
- "This picture shows what the game draws. Menus made of page elements are not in it.": "이 이미지는 게임이 그린 화면입니다. 페이지 요소로 만든 메뉴는 포함되지 않습니다.",
  "What about it? (optional)": "무엇이 문제인가요? (선택)",
  "Note for mark {n}": "표시 {n} 메모",
  "What should your agent fix or change? For example: the score overlaps the health bar on small screens.": "에이전트가 무엇을 고치거나 바꿔야 하나요? 예: 작은 화면에서 점수가 체력 바와 겹칩니다.",
@@ -1616,5 +1615,7 @@
  "Price of the lifetime creator license (one-time payment, never expires)": "평생 크리에이터 라이선스 가격(일회성 결제, 만료 없음)",
  "Require a valid creator license to publish (preview stays free)": "출시하려면 유효한 크리에이터 라이선스 필요(미리보기는 계속 무료)",
  "Require a valid creator license before creating projects at all": "프로젝트를 만들 때부터 유효한 크리에이터 라이선스 필요",
- "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "콘솔과 출시에는 크리에이터 라이선스가 필요합니다(일회성 결제): {len} 동안 {term}, 또는 평생 {life}. 에이전트로 만들고 미리보는 것은 무료입니다."
+ "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "콘솔과 출시에는 크리에이터 라이선스가 필요합니다(일회성 결제): {len} 동안 {term}, 또는 평생 {life}. 에이전트로 만들고 미리보는 것은 무료입니다.",
+ "This browser could not draw the page elements over the game (menus, panels), so only the game's canvas is in this picture.": "이 브라우저에서는 게임 위의 페이지 요소(메뉴, 패널)를 그릴 수 없어 이 이미지에는 게임 캔버스만 담겼습니다.",
+ "Capture tab includes them.": "'탭 캡처'를 사용하면 포함됩니다."
 }

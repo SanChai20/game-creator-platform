@@ -12,7 +12,7 @@ import type { GameCapture } from './player';
 
 export type Tool = 'circle' | 'arrow' | 'box' | 'pen';
 export interface Mark { type: Tool; x?: number; y?: number; w?: number; h?: number; x1?: number; y1?: number; x2?: number; y2?: number; points?: [number, number][]; label?: string }
-export interface Shot { image: string; method: 'game' | 'screen'; capture: Partial<GameCapture>; fullscreen: boolean; version: number | null }
+export interface Shot { image: string; method: 'game' | 'page' | 'screen'; capture: Partial<GameCapture>; fullscreen: boolean; version: number | null; partial?: boolean }
 
 const COLOR = '#ff3b5c', HALO = 'rgba(0,0,0,.55)';
 const MAX_SIDE = 1600, MAX_BYTES = 1_400_000;
@@ -145,7 +145,7 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel }: { projectI
       </div>
       <canvas ref={canvas} className="fb-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { start.current = null; setDraft(null); }}
         aria-label={t('Screenshot of the game. Drag on it to circle or point at something.', '游戏截图。在上面拖动即可圈出或指向某处。')} />
-      {shot.method === 'game' && <p className="dim fs-sm">{t('This picture shows what the game draws. Menus made of page elements are not in it.', '这张图只包含游戏绘制的画面，不包含由网页元素构成的菜单。')}</p>}
+      {shot.partial && <p className="dim fs-sm">{t('This browser could not draw the page elements over the game (menus, panels), so only the game\'s canvas is in this picture.', '此浏览器无法绘制游戏上方的网页元素（菜单、面板），因此这张图只包含游戏画布。')}{canCaptureTab() ? ' ' + t('Capture tab includes them.', '“截取标签页”会包含它们。') : ''}</p>}
       {!!marks.length && <div className="stack s">{marks.map((m, i) => (
         <div className="row fb-mark" key={i}>
           <span className="fb-num">{i + 1}</span><span className="mute fs-sm">{toolName(m.type)}</span>
@@ -173,20 +173,23 @@ export function CaptureButtons({ onShot, capture, frame, version, fullscreen, di
   const fromGame = () => act('cap', async () => {
     const c = await capture();
     if (c.error === 'not_allowed') throw new Error(t('Only the preview can be captured, by the game\'s creator.', '只有游戏创作者才能截取预览画面。'));
-    if (c.error || !c.image) {
+    if ((c.error && c.error !== 'page_elements_missing') || !c.image) {
       if (canCaptureTab()) throw new Error(t('The game has no canvas this can capture (or it draws pictures from another site). Use Capture tab instead.', '游戏没有可截取的画布（或使用了其他网站的图片）。请改用“截取标签页”。'));
       throw new Error(t('The game has no canvas this can capture (or it draws pictures from another site).', '游戏没有可截取的画布（或使用了其他网站的图片）。'));
     }
-    onShot({ image: c.image, method: 'game', capture: c, fullscreen: fullscreen(), version });
+    onShot({ image: c.image, method: c.method === 'page' ? 'page' : 'game', capture: c, fullscreen: fullscreen(), version, partial: c.error === 'page_elements_missing' });
   });
   const fromTab = () => act('cap', async () => {
     const c = await capture().catch(() => ({} as Partial<GameCapture>));   // the game's own state, if it answers
     const image = await captureTab(frame());
     onShot({ image, method: 'screen', capture: { ...c, image: '' }, fullscreen: false, version });
   });
+  // Pressing a button would move the focus out of the game, and many games close an open menu or pause when they lose
+  // it: the picture would no longer show what the creator saw. The press keeps the focus where it is.
+  const keepFocus = (e: { preventDefault(): void }) => e.preventDefault();
   return <>
-    <Button size="sm" onClick={fromGame} disabled={disabled || busy === 'cap'} title={t('Take a screenshot to mark up and send to your agent', '截图、标注并发送给你的智能体')}>{t('Capture feedback', '截图反馈')}</Button>
-    {!compact && canCaptureTab() && <Button size="sm" variant="ghost" onClick={fromTab} disabled={disabled || busy === 'cap'} title={t('Capture the whole tab, menus made of page elements included (the browser asks first)', '截取整个标签页，包括由网页元素构成的菜单（浏览器会先询问）')}>{t('Capture tab', '截取标签页')}</Button>}
+    <Button size="sm" onMouseDown={keepFocus} onClick={fromGame} disabled={disabled || busy === 'cap'} title={t('Take a screenshot to mark up and send to your agent', '截图、标注并发送给你的智能体')}>{t('Capture feedback', '截图反馈')}</Button>
+    {!compact && canCaptureTab() && <Button size="sm" variant="ghost" onMouseDown={keepFocus} onClick={fromTab} disabled={disabled || busy === 'cap'} title={t('Capture the whole tab, menus made of page elements included (the browser asks first)', '截取整个标签页，包括由网页元素构成的菜单（浏览器会先询问）')}>{t('Capture tab', '截取标签页')}</Button>}
   </>;
 }
 

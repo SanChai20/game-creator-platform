@@ -1475,7 +1475,6 @@
  "Drawing tool": "Herramienta de dibujo",
  "Undo": "Deshacer",
  "Screenshot of the game. Drag on it to circle or point at something.": "Captura del juego. Arrastra sobre ella para rodear o señalar algo.",
- "This picture shows what the game draws. Menus made of page elements are not in it.": "Esta imagen muestra lo que dibuja el juego. Los menús hechos con elementos de la página no aparecen.",
  "What about it? (optional)": "¿Qué pasa aquí? (opcional)",
  "Note for mark {n}": "Nota de la marca {n}",
  "What should your agent fix or change? For example: the score overlaps the health bar on small screens.": "¿Qué debe arreglar o cambiar tu agente? Por ejemplo: la puntuación tapa la barra de vida en pantallas pequeñas.",
@@ -1615,5 +1614,7 @@
  "Price of the lifetime creator license (one-time payment, never expires)": "Precio de la licencia vitalicia de creador (pago único, nunca vence)",
  "Require a valid creator license to publish (preview stays free)": "Exigir una licencia de creador válida para publicar (la vista previa sigue siendo gratis)",
  "Require a valid creator license before creating projects at all": "Exigir una licencia de creador válida incluso antes de crear proyectos",
- "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "La consola y la publicación requieren una licencia de creador de pago único: {term} durante {len}, o {life} para siempre. Crear y previsualizar con tu agente es gratis."
+ "The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.": "La consola y la publicación requieren una licencia de creador de pago único: {term} durante {len}, o {life} para siempre. Crear y previsualizar con tu agente es gratis.",
+ "This browser could not draw the page elements over the game (menus, panels), so only the game's canvas is in this picture.": "Este navegador no pudo dibujar los elementos de la página sobre el juego (menús, paneles), así que la imagen solo muestra el lienzo del juego.",
+ "Capture tab includes them.": "Capturar pestaña sí los incluye."
 }
