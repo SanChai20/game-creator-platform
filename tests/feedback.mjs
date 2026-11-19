@@ -49,5 +49,7 @@ test('notes and context are cut to size and never keep the page address', () => 
   assert.deepEqual(Object.keys(c).sort(), ['browser', 'errors', 'fps', 'frames', 'method', 'ready', 'state', 'viewport']);
   assert.equal(c.errors.length, FEEDBACK_LIMITS.errors); assert.equal(c.fps, 60); assert.equal(c.state, '{"level":3,"player":{"x":1}}');
   assert.equal(cleanContext({ method: 'anything' }).method, 'game');
+  assert.equal(cleanContext({ method: 'upload' }).method, 'upload');
+  assert.equal(cleanContext({ method: 'page' }).method, 'page');
   assert.equal(cleanContext({ state: 'y'.repeat(9000) }).state.length, FEEDBACK_LIMITS.state_chars);
 });

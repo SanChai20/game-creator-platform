@@ -35,7 +35,8 @@ export interface StageCtl {
   /** enter(), but only on a phone or tablet. Call it from the click that starts the game. */
   enterOnPhone(): void;
   /** A picture of the game as it is now, taken by the SDK inside the game page (preview only, for the game's owner). */
-  capture(): Promise<GameCapture>;
+  /** picture false: only the game's state, no picture (the console takes it from the tab). */
+  capture(picture?: boolean): Promise<GameCapture>;
   /** Whether the stage fills the screen right now. */
   isActive(): boolean;
 }
@@ -174,7 +175,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const resume = useCallback(() => { setMenu(false); frame.current?.focus(); }, []);
   const activeRef = useRef(false); activeRef.current = active;
   // A capture asks the game page and waits for its answer (only that frame's answers count).
-  const capture = useCallback(() => new Promise<GameCapture>((resolve, reject) => {
+  const capture = useCallback((picture = true) => new Promise<GameCapture>((resolve, reject) => {
     const win = frame.current?.contentWindow, src = urlRef.current;
     if (!win || !src) { reject(new Error(t('The game is not running.', '游戏未在运行。'))); return; }
     const id = Math.random().toString(36).slice(2, 12);
@@ -182,9 +183,9 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       if (e.source !== frame.current?.contentWindow || e.data?.gcp !== 'capture_result' || e.data.id !== id) return;
       clearTimeout(timer); removeEventListener('message', done); resolve(e.data as GameCapture);
     };
-    const timer = setTimeout(() => { removeEventListener('message', done); reject(new Error(t('The game did not answer. It may be busy; try again.', '游戏没有响应，可能正忙，请重试。'))); }, 4000);
+    const timer = setTimeout(() => { removeEventListener('message', done); reject(new Error(t('The game did not answer. It may be busy; try again.', '游戏没有响应，可能正忙，请重试。'))); }, 12000);
     addEventListener('message', done);
-    win.postMessage({ gcp: 'capture', id }, new URL(src, location.href).origin);
+    win.postMessage({ gcp: 'capture', id, picture }, new URL(src, location.href).origin);
   }), []);
   useImperativeHandle(ctl, () => ({ enter, exit, toggle, quit, enterOnPhone: () => { if (isHandheld()) enter(); }, capture, isActive: () => activeRef.current }), [enter, exit, toggle, quit, capture]);
   // Alt+Enter toggles fullscreen, the shortcut PC games use. Pressed in the game, the SDK passes it on (the key press
