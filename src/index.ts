@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
 import { sessionToken, userFromRequest } from './auth';
 import { gameBindings, rolloutRuntime } from './deploy';
+import { purgeOldVersions, retireIdlePreviews } from './cleanup';
 import { dispatchGame, type Namespace } from './dispatch';
 import { hostKind, matchGameRequest } from './hosting';
 
@@ -318,5 +319,8 @@ export default {
     ]));
     // games published before the duplication check existed get their fingerprints a few at a time
     ctx.waitUntil(backfill(env, 20).catch((e) => console.error('fingerprint backfill failed', e)));
+    // hosting within its limits: idle preview Workers and old versions' files (src/cleanup.ts)
+    ctx.waitUntil(retireIdlePreviews(env).catch((e) => console.error('idle preview cleanup failed', e)));
+    ctx.waitUntil(purgeOldVersions(env).catch((e) => console.error('version cleanup failed', e)));
   },
 } satisfies ExportedHandler<Env>;

@@ -237,6 +237,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
     v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
   }
   if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
+  if (v.purged_at) throw bad(`Version ${v.n} is older than the platform keeps files for, so it can no longer be published.`, 'Call deploy_preview to make a new version from the workspace, then publish that.');
   // Input is checked before the license, so a wrong version number is reported as such for any account.
   if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
   // A rollback only goes back to a version that was live before; anything else is a new publish and meets every gate.
