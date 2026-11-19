@@ -272,6 +272,10 @@
 }
 
 /* creator feedback (web/src/feedback.tsx) */
+/* the feedback editor over the preview: both in one grid cell, so the game's frame keeps its size and stays on screen */
+.fb-stack { display: grid; }
+.fb-stack > * { grid-area: 1 / 1; min-width: 0; }
+.fb-over { position: relative; z-index: 2; background: var(--surface); }
 .fb-canvas { width: auto; height: auto; max-width: 100%; max-height: 64vh; margin: 0 auto; object-fit: contain; border-radius: 6px; cursor: crosshair; touch-action: none; background: #000; display: block; }
 .fb-mark { gap: 8px; }
 .fb-num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #ff3b5c; color: #fff; font: 700 12px/1 system-ui, sans-serif; flex: none; }
