@@ -1401,5 +1401,12 @@
  "It does not work": "작동하지 않음",
  "Something else": "기타",
  "What happened? (optional)": "무슨 일이 있었나요? (선택)",
- "Send report": "신고 보내기"
+ "Send report": "신고 보내기",
+ "Requested {when} from around {place}.": "{when} {place} 근처에서 요청되었습니다.",
+ "Requested {when}.": "{when} 요청되었습니다.",
+ "This request came from another country than the one you are in. If you are not running an agent there, choose Deny.": "이 요청은 현재 계신 곳과 다른 국가에서 왔습니다. 그곳에서 에이전트를 실행하고 있지 않다면 거부를 선택하세요.",
+ "I started this sign-in myself, from my own agent, just now.": "이 로그인은 방금 제 에이전트에서 제가 직접 시작했습니다.",
+ "A creator counts as new for this many days after signing up (0: nobody is new)": "가입 후 이 기간(일) 동안 크리에이터를 신규로 봅니다(0: 신규 없음)",
+ "Days a new creator's sales are held before they can be withdrawn (card disputes can arrive weeks later)": "신규 크리에이터의 판매 대금을 출금 가능해지기 전까지 보류하는 일수(카드 분쟁은 몇 주 뒤에 들어올 수 있음)",
+ "During a creator’s first {new_days} days on the Service, the money from each sale becomes available {new_hold} days after the buyer paid instead.": "크리에이터가 서비스를 이용한 첫 {new_days}일 동안에는 각 판매 대금을 구매자 결제 후 {new_hold}일이 지나야 출금할 수 있습니다."
 }

@@ -1401,5 +1401,12 @@
  "It does not work": "動作しない",
  "Something else": "その他",
  "What happened? (optional)": "何が起きましたか？（任意）",
- "Send report": "報告を送信"
+ "Send report": "報告を送信",
+ "Requested {when} from around {place}.": "{when}、{place}付近からリクエストされました。",
+ "Requested {when}.": "{when}にリクエストされました。",
+ "This request came from another country than the one you are in. If you are not running an agent there, choose Deny.": "このリクエストは、あなたが今いる国とは別の国から来ています。そこでエージェントを動かしていないなら、拒否を選んでください。",
+ "I started this sign-in myself, from my own agent, just now.": "このサインインは、たった今自分のエージェントから自分で始めたものです。",
+ "A creator counts as new for this many days after signing up (0: nobody is new)": "登録後この日数の間、クリエイターを新規として扱います（0：新規扱いなし）",
+ "Days a new creator's sales are held before they can be withdrawn (card disputes can arrive weeks later)": "新規クリエイターの売上を引き出し可能になるまで保留する日数（カードの異議申し立ては数週間後に届くことがあります）",
+ "During a creator’s first {new_days} days on the Service, the money from each sale becomes available {new_hold} days after the buyer paid instead.": "クリエイターが本サービスを利用して最初の {new_days} 日間は、各販売の代金は購入者の支払いから {new_hold} 日後に引き出せるようになります。"
 }

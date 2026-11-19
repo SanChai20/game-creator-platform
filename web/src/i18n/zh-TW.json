@@ -1422,5 +1422,12 @@
  "It does not work": "無法正常運作",
  "Something else": "其他問題",
  "What happened? (optional)": "發生了什麼？（選填）",
- "Send report": "送出檢舉"
+ "Send report": "送出檢舉",
+ "Requested {when} from around {place}.": "{when}從{place}附近發起。",
+ "Requested {when}.": "{when}發起。",
+ "This request came from another country than the one you are in. If you are not running an agent there, choose Deny.": "此請求來自與你目前所在不同的國家或地區。如果你沒有在那裡執行智慧體，請選擇拒絕。",
+ "I started this sign-in myself, from my own agent, just now.": "這個登入是我自己剛剛從我的智慧體發起的。",
+ "A creator counts as new for this many days after signing up (0: nobody is new)": "創作者註冊後這麼多天內視為新創作者（0：沒有人算新創作者）",
+ "Days a new creator's sales are held before they can be withdrawn (card disputes can arrive weeks later)": "新創作者的銷售款在可提領前保留的天數（信用卡爭議可能在數週後才出現）",
+ "During a creator’s first {new_days} days on the Service, the money from each sale becomes available {new_hold} days after the buyer paid instead.": "創作者在本服務的前 {new_days} 天內，每筆銷售的款項改為在買家付款 {new_hold} 天後可提領。"
 }

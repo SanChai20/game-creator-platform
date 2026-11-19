@@ -1400,5 +1400,12 @@
  "It does not work": "No funciona",
  "Something else": "Otra cosa",
  "What happened? (optional)": "¿Qué pasó? (opcional)",
- "Send report": "Enviar denuncia"
+ "Send report": "Enviar denuncia",
+ "Requested {when} from around {place}.": "Solicitado {when} desde cerca de {place}.",
+ "Requested {when}.": "Solicitado {when}.",
+ "This request came from another country than the one you are in. If you are not running an agent there, choose Deny.": "Esta solicitud viene de un país distinto al tuyo. Si no tienes un agente funcionando allí, elige Denegar.",
+ "I started this sign-in myself, from my own agent, just now.": "Inicié yo mismo este acceso, desde mi propio agente, hace un momento.",
+ "A creator counts as new for this many days after signing up (0: nobody is new)": "Un creador se considera nuevo durante estos días tras registrarse (0: nadie es nuevo)",
+ "Days a new creator's sales are held before they can be withdrawn (card disputes can arrive weeks later)": "Días que se retienen las ventas de un creador nuevo antes de poder retirarlas (las disputas de tarjeta pueden llegar semanas después)",
+ "During a creator’s first {new_days} days on the Service, the money from each sale becomes available {new_hold} days after the buyer paid instead.": "Durante los primeros {new_days} días de un creador en el Servicio, el dinero de cada venta pasa a estar disponible {new_hold} días después de que pague el comprador."
 }

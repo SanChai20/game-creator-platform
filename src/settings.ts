@@ -26,6 +26,8 @@ export const SETTING_DEFS = {
   paid_games_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to sell games', public: true },
   trials_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to offer a free trial of a paid game (minutes of play before buying)', public: true },
   trial_max_minutes: { v: 120, type: 'int', group: 'Paid games', label: 'Longest free trial a creator can offer (minutes)', public: true },
+  new_creator_days: { v: 90, type: 'int', group: 'Paid games', label: 'A creator counts as new for this many days after signing up (0: nobody is new)', public: true },
+  new_creator_hold_days: { v: 30, type: 'int', group: 'Paid games', label: 'Days a new creator\'s sales are held before they can be withdrawn (card disputes can arrive weeks later)', public: true },
   earnings_hold_days: { v: 3, type: 'int', group: 'Paid games', label: 'Days a sale is held before the creator can withdraw it (never shorter than the refund window)', public: true },
   refund_window_hours: { v: 24, type: 'int', group: 'Paid games', label: 'Hours after paying that a buyer can refund a game themselves, once per game (0 turns self-serve refunds off)', public: true },
   refund_max_play_minutes: { v: 30, type: 'int', group: 'Paid games', label: 'Most minutes a buyer can have played a game (trial included) and still refund it themselves', public: true },

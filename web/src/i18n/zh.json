@@ -79,5 +79,7 @@
  "Days a sale is held before the creator can withdraw it (never shorter than the refund window)": "销售款项在创作者可提取前的保留天数（不会短于退款期限）",
  "Hours after paying that a buyer can refund a game themselves, once per game (0 turns self-serve refunds off)": "买家付款后可自行退款的小时数，每款游戏限一次（0 表示关闭自助退款）",
  "Most minutes a buyer can have played a game (trial included) and still refund it themselves": "买家仍可自行退款时，游戏最多可已游玩的分钟数（含试玩）",
- "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "数据库超过这么多 GB 后停止保存游戏数据（存档、统计、分数、服务器存储），以保证登录和购买仍可正常进行（D1 上限为 10 GB；0：从不停止）"
+ "Stop saving game data (saves, stats, scores, server store) once the database passes this many GB, so sign-in and purchases keep working (D1 stops at 10 GB; 0: never)": "数据库超过这么多 GB 后停止保存游戏数据（存档、统计、分数、服务器存储），以保证登录和购买仍可正常进行（D1 上限为 10 GB；0：从不停止）",
+ "A creator counts as new for this many days after signing up (0: nobody is new)": "创作者注册后这么多天内视为新创作者（0：没有人算新创作者）",
+ "Days a new creator's sales are held before they can be withdrawn (card disputes can arrive weeks later)": "新创作者的销售款在可提现前保留的天数（信用卡争议可能在数周后才出现）"
 }

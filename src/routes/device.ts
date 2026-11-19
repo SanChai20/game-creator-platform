@@ -13,7 +13,14 @@ export const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 const TTL_S = 900, INTERVAL_S = 5, ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';   // no vowels: codes never spell words
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
-type Row = { id: string; user_code: string; client_name: string; status: string; user_id: string | null; created_at: number; expires_at: number; last_poll_at: number };
+type Row = { id: string; user_code: string; client_name: string; status: string; user_id: string | null; created_at: number; expires_at: number; last_poll_at: number; req_place: string | null; req_country: string | null };
+/** Where a request came from, roughly, as Cloudflare places it: shown to the person approving it. */
+function placeOf(req: Request): { place: string | null; country: string | null } {
+  const cf = (req as unknown as { cf?: { city?: string; country?: string } }).cf || {};
+  const country = typeof cf.country === 'string' ? cf.country.slice(0, 2) : null;
+  const city = typeof cf.city === 'string' ? cf.city.replace(/[\u0000-\u001f<>]/g, '').slice(0, 60) : '';
+  return { place: [city, country].filter(Boolean).join(', ') || null, country };
+}
 /** Runs a token request against this server's own token endpoint. Supplied by index.ts, which owns the provider. */
 export type TokenExchange = (env: Env, ctx: ExecutionContext, origin: string, form: URLSearchParams) => Promise<Response>;
 
@@ -50,7 +57,8 @@ export function deviceOAuth(exchange: TokenExchange) {
     let userCode = '';
     for (let i = 0; i < 5 && !userCode; i++) {
       const candidate = newUserCode();
-      const ins = await c.env.DB.prepare('INSERT OR IGNORE INTO device_codes (id, user_code, client_name, created_at, expires_at) VALUES (?, ?, ?, ?, ?)').bind(await sha256(deviceCode), candidate, name, t, t + TTL_S * 1000).run();
+      const from = placeOf(c.req.raw);
+      const ins = await c.env.DB.prepare('INSERT OR IGNORE INTO device_codes (id, user_code, client_name, created_at, expires_at, req_place, req_country) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(await sha256(deviceCode), candidate, name, t, t + TTL_S * 1000, from.place, from.country).run();
       if (ins.meta.changes) userCode = candidate;
     }
     if (!userCode) throw new AppError(503, 'Could not create a sign-in code. Try again.', 'busy');
@@ -115,7 +123,9 @@ async function pendingByUserCode(c: Context<App>): Promise<Row> {
 }
 deviceApi.get('/:code', async (c) => {
   const row = await pendingByUserCode(c), s = await getSettings(c.env);
-  return c.json({ user_code: row.user_code, client_name: row.client_name, created_at: row.created_at, expires_at: row.expires_at, grant_days: Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)) });
+  // Someone who was sent a link by an attacker is usually somewhere else than the attacker's agent: say so.
+  const here = placeOf(c.req.raw).country, elsewhere = !!(row.req_country && here && row.req_country !== here);
+  return c.json({ user_code: row.user_code, client_name: row.client_name, created_at: row.created_at, expires_at: row.expires_at, grant_days: Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)), from: row.req_place, elsewhere });
 });
 deviceApi.post('/:code', async (c) => {
   const row = await pendingByUserCode(c), u = requireUser(c as any);

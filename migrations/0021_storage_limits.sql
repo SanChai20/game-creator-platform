@@ -11,3 +11,7 @@ CREATE INDEX IF NOT EXISTS saves_user ON saves (user_id, by_server);
 -- deployed again the next time the creator opens the preview; old versions' files are deleted (purged_at set).
 ALTER TABLE game_workers ADD COLUMN idle_at INTEGER;
 ALTER TABLE versions ADD COLUMN purged_at INTEGER;
+
+-- Device sign-in (security review, finding 9): where the request came from, shown to the person approving it.
+ALTER TABLE device_codes ADD COLUMN req_place TEXT;
+ALTER TABLE device_codes ADD COLUMN req_country TEXT;

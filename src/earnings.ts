@@ -13,8 +13,12 @@ export function splitSale(priceCents: number, s: Settings): { fee: number; net: 
 
 /** How long a sale's credit waits before the creator can withdraw it: the hold period, and never less than the window in
  *  which the buyer can still refund it themselves, so a self-serve refund never has to claw back money already paid out. */
-export function holdMs(s: Pick<Settings, 'earnings_hold_days' | 'refund_window_hours'>): number {
-  return Math.max(s.earnings_hold_days * 86400000, s.refund_window_hours * 3600000);
+export function holdMs(s: Pick<Settings, 'earnings_hold_days' | 'refund_window_hours'> & Partial<Pick<Settings, 'new_creator_hold_days' | 'new_creator_days'>>, creatorAgeMs = Infinity): number {
+  const base = Math.max(s.earnings_hold_days * 86400000, s.refund_window_hours * 3600000);
+  // A new creator's sales wait longer: card disputes arrive weeks after a sale, and a creator who sells to themselves
+  // with stolen cards would otherwise be paid out and gone before the first one lands.
+  const young = (s.new_creator_days || 0) > 0 && creatorAgeMs < (s.new_creator_days || 0) * 86400000;
+  return young ? Math.max(base, (s.new_creator_hold_days || 0) * 86400000) : base;
 }
 
 /** Seconds this player has spent in a game's live sessions, free trial included, measured by the platform alone: each
@@ -67,11 +71,13 @@ export async function recordPurchase(env: Env, s: Settings, a: { userId: string;
   if (await env.DB.prepare('SELECT 1 FROM purchases WHERE provider_ref = ?').bind(a.providerRef).first()) return false;
   const { fee, net } = splitSale(a.priceCents, s);
   const t = now(), id = 'pur_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+  const owner = await env.DB.prepare('SELECT created_at FROM users WHERE id = ?').bind(a.ownerId).first<{ created_at: number }>();
+  const hold = holdMs(s, owner ? t - owner.created_at : Infinity);
   await env.DB.batch([
     env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)")
       .bind(id, a.userId, a.projectId, a.ownerId, a.priceCents, fee, net, a.provider, a.providerRef, a.paymentIntent || null, t),
     env.DB.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) VALUES (?, 'sale', ?, ?, ?, ?, ?)")
-      .bind(a.ownerId, net, id, `Sale of ${a.title}`, t + holdMs(s), t),
+      .bind(a.ownerId, net, id, `Sale of ${a.title}`, t + hold, t),
     env.DB.prepare('UPDATE projects SET sales = sales + 1 WHERE id = ?').bind(a.projectId),
   ]);
   return true;

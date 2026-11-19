@@ -30,6 +30,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
   const { config } = useApp(), s = config.settings, brand = String(s.brand_name || DEFAULT_BRAND);
   const hours = Number(s.refund_window_hours ?? 24), minutes = Number(s.refund_max_play_minutes ?? 30), cut = Number(s.platform_fee_percent ?? 10);
   const days = Math.max(Number(s.earnings_hold_days ?? 3), Math.ceil(hours / 24));
+  const newDays = Number(s.new_creator_days ?? 90), newHold = Math.max(days, Number(s.new_creator_hold_days ?? 30));
   const op = OPERATOR.name, legal = OPERATOR.legalEmail, support = String(s.support_email || OPERATOR.supportEmail), state = OPERATOR.jurisdiction;
   const body: Record<LegalDoc, ReactNode> = {
     terms: <>
@@ -47,6 +48,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         <P>{t('You keep the rights to what you make or upload: games, their files, listings, screenshots, reviews and your display name (“your content”).', '你保留对自己制作或上传的内容的权利，包括游戏及其文件、商店信息、截图、评价和显示名称（“你的内容”）。')}</P>
         <P>{t('You give {op} a worldwide, non-exclusive, royalty-free licence to host, store, copy, run, verify, scan, display, distribute and promote your content, as needed to operate, improve and promote the Service. The licence lasts while your content is on the Service, and afterwards for backups and for players who already bought a game.', '你授予 {op} 一项全球范围、非独占、免版税的许可，可在运营、改进和推广本服务所需的范围内托管、存储、复制、运行、验证、扫描、展示、分发和推广你的内容。该许可在你的内容留存于本服务期间有效，之后在备份范围内及对已购买游戏的玩家继续有效。', { op })}</P>
         <P>{t('Creators who sell games receive each sale’s price minus the platform’s share ({cut}%). The money becomes available {days} days after the buyer paid, and is paid out through Stripe once the creator has set up a payout account. If a sale is later refunded or disputed with the buyer’s bank, the creator’s share is taken back, from future earnings if it was already paid out.', '出售游戏的创作者可获得每笔销售额扣除平台分成（{cut}%）后的部分。该款项在买家付款 {days} 天后可提取，并在创作者设置收款账户后通过 Stripe 支付。如果某笔销售之后被退款或买家向银行发起争议，创作者的分成将被收回；若已支付，则从其之后的收益中扣回。', { cut, days })}</P>
+        {newDays > 0 && newHold > days && <P>{t('During a creator’s first {new_days} days on the Service, the money from each sale becomes available {new_hold} days after the buyer paid instead.', '创作者在本服务的前 {new_days} 天内，每笔销售的款项改为在买家付款 {new_hold} 天后可提取。', { new_days: newDays, new_hold: newHold })}</P>}
         <P>{t('Creators confirm they own or have permission for everything in a game, and that it follows these Terms. Only web games are accepted. Games for adults must declare that content. A game may be refused, hidden or taken offline if it breaks these Terms or the law.', '创作者确认自己拥有或已获授权使用游戏中的全部内容，且游戏符合本条款。平台仅接受网页游戏。面向成人的游戏必须声明相关内容。违反本条款或法律的游戏可能会被拒绝、隐藏或下线。')}</P>
       </S>
       <S h={t('Purchases and virtual items', '购买与虚拟物品')}>
