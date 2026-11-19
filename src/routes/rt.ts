@@ -10,14 +10,14 @@ import { TRIAL_MIN_CHARGE_S, trialCharge } from '../trials';
 import { clamp, dayOf, now, safeEqual } from '../util';
 import { regionHint } from '../placement';
 import { eloChanges, matchRequest } from '../match-making';
-import { getProject, getVersion } from '../projects';
+import { getProject, getVersion, verKey } from '../projects';
 import type { Seat } from '../matchmaker';
 // @ts-ignore plain JS module
 import { DataError, authToken, playRecordStmt, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
 import { bindingProblem } from '../session-binding.js';
 // @ts-ignore plain JS module
-import { signPlayToken } from '../runtime/game-worker.js';
+import { isServerPath, signPlayToken } from '../runtime/game-worker.js';
 
 export const PLAY_SESSION_S = 6 * 3600;   // an account's play token; renewed while the sign-in lasts
 export const GUEST_SESSION_S = 3600;      // a guest's, short so switching "Require login to play" on ends guest play within the hour
@@ -226,6 +226,30 @@ rt.post('/server-store', async (c) => {
   const { g, e } = await gameWorker(c, true);
   const b = await body(c);
   return c.json(await guard(() => serverStoreOp(c.env.DB, g, e, b, now())));
+});
+
+// The bundle of a version, read by the game's own Worker. A game Worker has no bucket binding (its server code shares the
+// isolate with the runtime, so a binding would be the creator's too): it reads its files here with its store key, which
+// opens only this game's versions, never another game's files, covers or anything else in the bucket.
+rt.get('/file/:n/*', async (c) => {
+  const { g } = await gameWorker(c);
+  const n = Number(c.req.param('n'));
+  const raw = new URL(c.req.url).pathname.replace(/^\/api\/rt\/file\/[^/]+\//, '');
+  let path: string;
+  try { path = raw.split('/').map((s) => decodeURIComponent(s)).join('/'); } catch { throw bad('Bad path.'); }
+  if (!Number.isInteger(n) || n < 1 || !path || path.includes('..') || path.includes('\0') || path.startsWith('/') || isServerPath(path)) throw new AppError(404, 'Not found.', 'not_found');
+  const obj = await c.env.FILES.get(verKey(g, n, path), { range: c.req.raw.headers, onlyIf: c.req.raw.headers });
+  if (!obj) throw new AppError(404, 'Not found.', 'not_found');
+  const headers = new Headers({ etag: obj.httpEtag, 'x-gcp-size': String(obj.size), 'cache-control': 'no-store' });
+  if (obj.httpMetadata?.contentType) headers.set('x-gcp-type', obj.httpMetadata.contentType);
+  if (!('body' in obj) || !(obj as R2ObjectBody).body) return new Response(null, { status: 304, headers });
+  const body = (obj as R2ObjectBody).body, range = obj.range as { offset?: number; length?: number } | undefined;
+  if (range && c.req.header('range')) {
+    const off = range.offset ?? 0, len = range.length ?? obj.size - off;
+    headers.set('content-range', `bytes ${off}-${off + len - 1}/${obj.size}`);
+    return new Response(body, { status: 206, headers });
+  }
+  return new Response(body, { headers });
 });
 
 rt.get('/room', async (c) => {

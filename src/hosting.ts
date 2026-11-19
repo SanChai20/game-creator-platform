@@ -94,12 +94,14 @@ export function metadataLimits(l: GameLimits): { cpu_ms?: number; subrequests?: 
   return { ...(l.cpuMs ? { cpu_ms: l.cpuMs } : {}), ...(l.subRequests ? { subrequests: l.subRequests } : {}) };
 }
 
-export type Binding = { type: 'plain_text' | 'secret_text'; name: string; text: string } | { type: 'r2_bucket'; name: string; bucket_name: string }
+export type Binding = { type: 'plain_text' | 'secret_text'; name: string; text: string }
   | { type: 'durable_object_namespace'; name: string; class_name: string };
-/** The bindings of a game script. Plain text, secret text, one R2 bucket, and (for games with server-run matches) the
-    script's own GameMatch Durable Object class: all supported on user Workers too. */
-export function scriptBindings(vars: Record<string, string>, bucket: string, matches = false): Binding[] {
-  const out: Binding[] = [{ type: 'r2_bucket', name: 'FILES', bucket_name: bucket }];
+/** The bindings of a game script: plain text, secret text, and (for games with server-run matches) the script's own
+    GameMatch Durable Object class, all supported on user Workers too. Never a bucket: the game's server code shares
+    the isolate with the runtime, so anything bound here is within reach of the creator's code. The runtime reads the
+    bundle through the platform (/api/rt/file), which opens only this game's own files. */
+export function scriptBindings(vars: Record<string, string>, matches = false): Binding[] {
+  const out: Binding[] = [];
   for (const [name, text] of Object.entries(vars)) out.push({ type: name === 'PLAY_KEY' || name === 'STORE_KEY' ? 'secret_text' : 'plain_text', name, text });
   if (matches) out.push({ type: 'durable_object_namespace', name: 'MATCH', class_name: MATCH_CLASS });
   return out;

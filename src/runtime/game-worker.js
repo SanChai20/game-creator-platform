@@ -1,12 +1,18 @@
 // Entry module of every game Worker. The platform uploads this file unchanged for each game and
-// binds: FILES (R2 bucket), PREFIX (where this version's files live), PLATFORM (platform origin),
-// GAME_ID, SLUG, TITLE, VERSION, ENV ("preview" | "live"), MANIFEST (JSON), PLAY_KEY (secret), STORE_KEY (secret),
-// and MATCH (the GameMatch Durable Object namespace of this script).
+// binds: PREFIX (where this version's files live), PLATFORM (platform origin), GAME_ID, SLUG, TITLE, VERSION,
+// ENV ("preview" | "live"), MANIFEST (JSON), PLAY_KEY (secret), STORE_KEY (secret), and MATCH (the GameMatch Durable
+// Object namespace of this script).
 // It gates the game document behind a platform play token, injects the SDK, serves the bundle,
 // forwards /api/* to the game's optional server module, and runs server-run matches (server/match.js) in GameMatch.
 // The same script runs as a standard Worker or as a user Worker in a Workers for Platforms dispatch namespace (src/hosting.ts):
 // it reads nothing host-specific (no request.cf, no Cache API), and it is deployed with disallow_importable_env so the
 // game's server modules only ever see the narrow env handed to them below, never these bindings.
+//
+// The game's server modules share this isolate, so nothing bound here may reach beyond this one game: a game Worker
+// has no bucket binding (the bundle is read through the platform's /api/rt/file route with this game's store key, which
+// only opens this game's own versions), and both keys are derived for this game alone. If the game's code ever got hold
+// of this env, it would get nothing its creator does not already control. Only the local driver and tests hand in a
+// FILES binding of their own.
 // gcp-intrinsics.js must stay the FIRST import: modules are evaluated in import order, so it captures the built-ins
 // before the game's server modules (imported next) can replace them.
 import { I } from './gcp-intrinsics.js';
@@ -44,8 +50,34 @@ export async function signPlayToken(payload, key) {
 }
 
 // Calls to the platform use the fetch captured before the game's code ran. Tests hand in their own through env (the env
-// object belongs to the runtime; game code never receives it, so it cannot set this).
-const platformFetch = (env) => (typeof env.__testFetch === 'function' ? env.__testFetch : I.fetch);
+// object belongs to the runtime; game code never receives it, so it cannot set this). Only an own property counts: a
+// getter the game's code put on Object.prototype must never run with `this` set to the runtime's env.
+const platformFetch = (env) => (I.hasOwn(env, '__testFetch') && typeof env.__testFetch === 'function' ? env.__testFetch : I.fetch);
+
+// The request headers a file read passes on, so ranges and revalidation work the same through the platform.
+const READ_HEADERS = ['range', 'if-none-match', 'if-match', 'if-modified-since', 'if-unmodified-since'];
+/**
+ * Reads one file of this version's bundle (path relative to the bundle root). Returns an object shaped like an R2
+ * object (body, size, httpEtag, httpMetadata, range, text()), an object without a body for a conditional request that
+ * matched (304), or null when there is no such file. A FILES binding is only ever present in the local driver and tests;
+ * a deployed game Worker reads through the platform, which only opens this game's own files.
+ */
+async function readFile(env, path, request) {
+  if (I.hasOwn(env, 'FILES') && env.FILES) {
+    return request ? env.FILES.get(env.PREFIX + path, { range: request.headers, onlyIf: request.headers }) : env.FILES.get(env.PREFIX + path);
+  }
+  const headers = { 'x-gcp-game': env.GAME_ID, 'x-gcp-env': env.ENV, 'x-gcp-key': env.STORE_KEY || '' };
+  if (request) for (const h of READ_HEADERS) { const v = request.headers.get(h); if (v) headers[h] = v; }
+  const enc = path.split('/').map((s) => encodeURIComponent(s)).join('/');
+  const r = await platformFetch(env)(`${env.PLATFORM}/api/rt/file/${encodeURIComponent(env.VERSION)}/${enc}`, { headers });
+  if (r.status === 404) return null;
+  const etag = r.headers.get('etag') || '', size = Number(r.headers.get('x-gcp-size')) || 0;
+  const base = { size, httpEtag: etag, httpMetadata: { contentType: r.headers.get('x-gcp-type') || undefined } };
+  if (r.status === 304 || r.status === 412) return base;
+  if (!r.ok) throw new Error(`file read failed: ${r.status}`);
+  const cr = /^bytes (\d+)-(\d+)\//.exec(r.headers.get('content-range') || '');
+  return { ...base, body: r.body, range: cr ? { offset: Number(cr[1]), length: Number(cr[2]) - Number(cr[1]) + 1 } : undefined, text: () => r.text() };
+}
 
 function cookie(request, name) {
   const m = (request.headers.get('cookie') || '').match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
@@ -149,6 +181,7 @@ export function isServerPath(path) {
 }
 
 export async function handle(request, env, ctx, base = '') {
+  env = I.own(env);
   const url = new URL(request.url);
   let path;
   try { path = decodeURIComponent(url.pathname.slice(base.length)) || '/'; } catch { return new Response('Bad path', { status: 400 }); }
@@ -182,7 +215,7 @@ export async function handle(request, env, ctx, base = '') {
   if (isServerPath(path)) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   if (path.endsWith('/')) path += 'index.html';
   const ext = (path.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
-  const key = env.PREFIX + path.slice(1);
+  const rel = path.slice(1);
 
   if (ext === 'html') {
     const auth = await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV);
@@ -193,8 +226,8 @@ export async function handle(request, env, ctx, base = '') {
     // allows it, and a link handed out before "Require login to play" was switched on must not open the game.
     const guest = String(auth.u).startsWith('guest_');
     if ((guest || !fromUrl) && auth.k !== 'verify' && !(await stillBound(env, token))) return gate(env);
-    const obj = await env.FILES.get(key);
-    if (!obj) return new Response('Not found', { status: 404 });
+    const obj = await readFile(env, rel);
+    if (!obj || typeof obj.text !== 'function') return new Response('Not found', { status: 404 });
     const secure = url.protocol === 'https:';
     const headers = new Headers({
       'content-type': TYPES.html, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
@@ -212,7 +245,7 @@ export async function handle(request, env, ctx, base = '') {
   // Every other file needs the same play token as the page (the page's cookie comes along with its own requests), so a
   // paid game's code and assets cannot be fetched without a session, and a trial that ended stops loading them.
   if (!(await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV))) return new Response('A play session is needed.', { status: 401, headers: { 'cache-control': 'no-store' } });
-  const obj = await env.FILES.get(key, { range: request.headers, onlyIf: request.headers });
+  const obj = await readFile(env, rel, request);
   if (!obj) return new Response('Not found: ' + path, { status: 404 });
   const headers = new Headers({
     'content-type': TYPES[ext] || obj.httpMetadata?.contentType || 'application/octet-stream', etag: obj.httpEtag,
@@ -260,7 +293,7 @@ async function matchRoute(request, env, url) {
 /** One server-run match. Plain Durable Object class (no imports), so the runtime stays loadable in Node for tests. */
 export class GameMatch {
   constructor(state, env) {
-    this.state = state; this.env = env; this.core = null; this.sockets = new Map(); this.timer = 0; this.checkTimer = 0;
+    this.state = state; this.env = I.own(env); this.core = null; this.sockets = new Map(); this.timer = 0; this.checkTimer = 0;
     this.banned = new Set(); this.ended = false;
   }
 

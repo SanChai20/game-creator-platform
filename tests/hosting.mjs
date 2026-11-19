@@ -44,9 +44,10 @@ test('tags fit Workers for Platforms rules', () => {
 });
 
 test('upload metadata: same script and bindings for both hosts, limits where each host takes them', () => {
-  const bindings = scriptBindings({ PREFIX: 'p/', PLAY_KEY: 'secret' }, 'gcp-games');
+  const bindings = scriptBindings({ PREFIX: 'p/', PLAY_KEY: 'secret' });
+  // never a bucket: the game's server code shares the isolate, so a bucket binding would be the creator's
+  assert.ok(!bindings.some((b) => b.type === 'r2_bucket'));
   assert.deepEqual(bindings, [
-    { type: 'r2_bucket', name: 'FILES', bucket_name: 'gcp-games' },
     { type: 'plain_text', name: 'PREFIX', text: 'p/' },
     { type: 'secret_text', name: 'PLAY_KEY', text: 'secret' },
   ]);
