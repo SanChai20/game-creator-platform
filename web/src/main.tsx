@@ -81,7 +81,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
             {user && <Link to="/library" className={on('/library')}>{t('Library', '游戏库')}</Link>}
             <Link to="/create" className={on('/create')}>{t('For creators', '创作者')}</Link>
             <Link to="/docs" className={on('/docs')}>{t('Docs', '文档')}</Link>
-            {user && <Link to="/console" className={on('/console')}>{t('Console', '控制台')}</Link>}
+            {user?.makes_games && <Link to="/console" className={on('/console')}>{t('Console', '控制台')}</Link>}
             {user?.role === 'admin' && <Link to="/admin" className={on('/admin')}>{t('Admin', '管理')}</Link>}
           </nav>
           <div className="nav-search"><SearchBox hotkey /></div>
@@ -94,9 +94,9 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                 {open && (
                   <div className="pop" role="menu">
                     <div className="who"><b className="clip">{user.name}</b><div className="mute clip fs-sm">{user.email}</div></div>
-                    <Link to="/library">{t('Your games', '我的游戏')}</Link>
-                    <Link to="/console">{t('Console', '控制台')}</Link>
-                    <Link to="/console/earnings">{t('Earnings', '收益')}</Link>
+                    <Link to="/library">{t('Library', '游戏库')}</Link>
+                    {/* the creator's side, only for creators: a player-only account has no console or earnings to look at */}
+                    {user.makes_games && <><Link to="/console">{t('Console', '控制台')}</Link><Link to="/console/earnings">{t('Earnings', '收益')}</Link></>}
                     <Link to="/docs">{t('Docs', '文档')}</Link>
                     <Link to="/account">{t('Account', '账户')}</Link>
                     {user.role === 'admin' && <Link to="/admin">{t('Admin', '管理后台')}</Link>}
@@ -119,7 +119,8 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
         <Link to="/categories" className={path === '/categories' || path === '/browse' || path.startsWith('/c/') ? 'on' : ''}><Icon kind="grid" /><span>{t('Categories', '分类')}</span></Link>
         {user && <Link to="/library" className={path === '/library' ? 'on' : ''}><Icon kind="shelf" /><span>{t('Library', '游戏库')}</span></Link>}
         <Link to="/create" className={path.startsWith('/create') || path.startsWith('/docs') ? 'on' : ''}><Icon kind="spark" /><span>{t('Creators', '创作者')}</span></Link>
-        {user ? <Link to="/console" className={path.startsWith('/console') || path.startsWith('/admin') ? 'on' : ''}><Icon kind="desk" /><span>{t('Console', '控制台')}</span></Link>
+        {user?.makes_games ? <Link to="/console" className={path.startsWith('/console') || path.startsWith('/admin') ? 'on' : ''}><Icon kind="desk" /><span>{t('Console', '控制台')}</span></Link>
+          : user ? <Link to="/account" className={path === '/account' ? 'on' : ''}><Icon kind="user" /><span>{t('Account', '账户')}</span></Link>
           : <Link to={onAuth ? '/login' + keep : loginUrl()} className={onAuth ? 'on' : ''}><Icon kind="user" /><span>{t('Sign in', '登录')}</span></Link>}
       </nav>
     </>

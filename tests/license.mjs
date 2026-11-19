@@ -62,10 +62,10 @@ test('grants add up: lifetime wins, otherwise the term that ends last', () => {
 });
 
 test('the migration turns every existing license into lifetime', () => {
-  const DB = d1('0022_storage_limits.sql');
+  const DB = d1('0025_library.sql');
   DB.sql.prepare("INSERT INTO users (id, email, name, pw_hash, creator, creator_since, created_at) VALUES ('old', 'o@x.y', 'O', '', 1, 5, 0)").run();
   DB.sql.prepare("INSERT INTO payments (id, user_id, kind, amount_cents, provider, provider_ref, status, created_at) VALUES ('p', 'old', 'creator_fee', 3000, 'stripe', 'cs_old', 'paid', 5)").run();
-  DB.run('0023_creator_licenses.sql');
+  DB.run('0026_creator_licenses.sql');
   assert.deepEqual({ ...DB.sql.prepare("SELECT creator, creator_plan, creator_until FROM users").get() }, { creator: 1, creator_plan: 'lifetime', creator_until: null });
   assert.equal(DB.sql.prepare("SELECT plan FROM payments").get().plan, 'lifetime');
 });

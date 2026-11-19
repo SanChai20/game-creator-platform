@@ -6,6 +6,8 @@ import { AppError, type Env, type User } from './env';
 import { sessionToken, userFromRequest } from './auth';
 import { gameBindings, rolloutRuntime } from './deploy';
 import { purgeOldVersions, purgeRemovedGameData, retireIdlePreviews } from './cleanup';
+import { reapDebugSessions } from './debug';
+import { purgeOldFeedback } from './feedback';
 import { dispatchGame, type Namespace } from './dispatch';
 import { hostKind, matchGameRequest } from './hosting';
 
@@ -308,6 +310,8 @@ export default {
     job('rollout', () => rolloutRuntime(env));
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
     job('mature', () => backfillMature(env, 20));
+    // debug browsers past their lifetime are closed (src/debug.ts)
+    job('debug sessions', () => reapDebugSessions(env));
     if (event.cron !== DAILY_CRON) return;
     job('payouts', () => autoPayouts(env));
     const t = now();
@@ -316,6 +320,7 @@ export default {
       env.DB.prepare('DELETE FROM uploads WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
+      env.DB.prepare('DELETE FROM login_challenges WHERE expires_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
       env.DB.prepare('DELETE FROM matches WHERE created_at < ?').bind(t - 30 * 86400000),   // ratings stay; the match log is a month
@@ -330,5 +335,6 @@ export default {
     job('idle previews', () => retireIdlePreviews(env));
     job('old versions', () => purgeOldVersions(env));
     job('removed game data', () => purgeRemovedGameData(env));
+    job('old feedback', () => purgeOldFeedback(env));
   },
 } satisfies ExportedHandler<Env>;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ago, api, artStyle, date, Fail, GameTile, num, price, Stars, t, usd, useAct, useData, count } from '../lib';
-import { Button, Card, Code, ListRow, PageHeader, Section, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
+import { ago, api, artStyle, date, Fail, GameTile, num, price, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
+import { Button, Card, Code, ListRow, Notice, PageHeader, Section, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
 import { ConsoleSkeleton } from '../skeletons';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { ConnectAgent, starterPrompt } from './Creators';
@@ -14,7 +14,7 @@ export function ConsoleTabs({ on }: { on: 'games' | 'earnings' }) {
 }
 
 export function Console() {
-  const { busy, act } = useAct();
+  const { user: me } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>('/console/overview');
   const agents = useData<{ agents: any[] }>('/console/agents');
 
@@ -39,6 +39,12 @@ export function Console() {
       <ConsoleTabs on="games" />
 
       <div className="stack l">
+        {u.creator && !me?.two_factor && (
+          <Notice tone="info" title={t('Protect your creator account', '保护你的创作者账户')} actions={<Button to="/account">{t('Turn on two-factor sign-in', '开启两步验证登录')}</Button>}>
+            {t('Your games, earnings and connected agents are behind your password. Two-factor sign-in adds a code from your phone.', '你的游戏、收益和已连接的智能体目前只受密码保护。两步验证登录会再增加一个手机验证码。')}
+          </Notice>
+        )}
+
         <StatGrid>
           <Stat label={t('Games', '游戏')} value={projects.length} sub={`${projects.filter((p) => p.status === 'live').length} ${t('live', '款已上线')}`} />
           <Stat label={t('Plays', '游玩次数')} value={num(projects.reduce((a, p) => a + p.plays, 0))} sub={`${num(projects.reduce((a, p) => a + p.minutes, 0))} ${t('minutes played', '分钟游玩时长')}`} />
@@ -69,7 +75,6 @@ export function Console() {
                 <div className="pad stack"><b>{t('No games yet', '还没有游戏')}</b><p className="mute">{t('Games are made by your agent, not in this console. Connect it, then ask for a game. The platform hosts web games only: games that run in a browser page, not native, mobile, console or desktop builds.', '游戏由你的智能体创作，而不是在控制台里手动创建。先连接智能体，再让它为你做一款游戏。平台仅托管网页游戏，即在浏览器页面中运行的游戏，不接受原生、移动端、主机或桌面端构建。')}</p><Code text={starterPrompt()} /></div>
               )}
             </Card>
-            {!!data.library.length && <Section title={t('Games you bought', '已购游戏')}><div className="grid" style={{ paddingTop: 0 }}>{data.library.map((g: any) => <GameTile key={g.id} g={g} />)}</div></Section>}
           </div>
 
           <div className="stack l">

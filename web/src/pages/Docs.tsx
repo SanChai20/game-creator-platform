@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { bytes, t, usd, useApp } from '../lib';
+import { bytes, price, t, usd, useApp } from '../lib';
+import { termLength } from './License';
 import { Card, Code, PageHeader, Ticks } from '../ui';
 import { ConnectAgent, starterPrompt } from './Creators';
 
@@ -156,9 +157,7 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
           <section id="money">
             <h2>{t('Pricing and payouts', '费用与收益')}</h2>
             <Ticks items={[
-              s.creator_fee_cents > 0
-                ? (s.creator_fee_required ? t('Building and previewing are free. A one-time creator license of {fee} is needed when you publish your first game, for unlimited games.', '创作与预览完全免费。发布第一款游戏时需一次性购买 {fee} 的创作者许可，游戏数量不限。', { fee: usd(s.creator_fee_cents) }) : t('The creator license is {fee}, once, for unlimited games.', '创作者许可为 {fee}，一次性，游戏数量不限。', { fee: usd(s.creator_fee_cents) }))
-                : t('Building, previewing and publishing are free for every account.', '创作、预览与发布对所有账户免费开放。'),
+              t('The console and publishing need a creator license, paid once: {term} for {len}, or {life} for life. Building and previewing through your agent are free.', '控制台与发布需要创作者许可，一次付清：{term} 有效 {len}，或 {life} 永久有效。通过智能体创作与预览免费。', { term: price(s.license_term_cents), len: termLength(s.license_term_days), life: price(s.license_lifetime_cents) }),
               ...(s.paid_games_enabled ? [
                 t('Publish free, or set a price.', '可以免费发布，也可以自行定价。'),
                 t('On paid games you keep {share}% of each sale.', '付费游戏每笔销售你可获得 {share}%。', { share: 100 - s.platform_fee_percent }),

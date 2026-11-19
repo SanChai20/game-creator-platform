@@ -7,6 +7,7 @@ import { gameUrl, playKey, undeployGame } from '../deploy';
 import { ensurePreview } from '../cleanup';
 import { deleteAccount, deleteBlocker, newResetToken, takeResetToken } from '../account';
 import { passwordResetMail } from '../mail';
+import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
 import { holdMs, balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
@@ -22,6 +23,7 @@ import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { currentPicks } from '../rankings';
 import { checkIn, sessionStartStmt } from '../play-clock';
 import { implementationCard, setOpenImplementation } from '../implementations';
+import { addFeedback, feedbackImage, feedbackProject, listFeedback, removeFeedback } from '../feedback';
 import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../stripe';
 import { startWithdrawal } from '../payouts';
 export { autoPayouts, retryTransfers, reverseWithdrawal, sendTransfer } from '../payouts';
@@ -33,13 +35,14 @@ import { signPlayToken } from '../runtime/game-worker.js';
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
+import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
 
 const media = (origin: string, key: string | null) => (key ? `${origin}/api/media/${key}` : null);
 const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.role, creator: !!u.creator, creator_since: u.creator_since,
-  license: licenseOf({ ...u, creator: u.creator_licensed ?? u.creator }), payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country });
+  license: licenseOf({ ...u, creator: u.creator_licensed ?? u.creator }), payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country, two_factor: !!u.totp_enabled_at });
 
 function card(origin: string, r: Record<string, any>) {
   return {
@@ -63,7 +66,14 @@ api.get('/config', async (c) => {
   return c.json({ settings: out, payments: stripeReady(c.env), mcp_url: `${c.get('origin')}/mcp`, origin: c.get('origin') });
 });
 
-api.get('/me', (c) => { const u = c.get('user'); return c.json({ user: u ? pubUser(u) : null }); });
+// makes_games: this account is also a creator (a creator license, or games of its own on the platform). Everyone is a
+// player; only then does the web app show the creator console in its main navigation.
+api.get('/me', async (c) => {
+  const u = c.get('user');
+  if (!u) return c.json({ user: null });
+  const makes = !!u.creator || !!u.creator_licensed || !!(await c.env.DB.prepare("SELECT 1 FROM projects WHERE owner_id = ? AND status != 'removed' LIMIT 1").bind(u.id).first());
+  return c.json({ user: { ...pubUser(u), makes_games: makes } });
+});
 
 api.post('/auth/signup', async (c) => {
   const b = await c.req.json<{ email?: string; name?: string; password?: string }>().catch(() => ({} as any)), s = await getSettings(c.env);
@@ -96,12 +106,34 @@ api.post('/auth/login', async (c) => {
   const good = await checkPassword(String(b.password || ''), u?.pw_hash || DUMMY_HASH);
   if (!u || !good) throw new AppError(401, 'Wrong email or password.', 'bad_login');
   if (u.status !== 'active') throw forbidden('This account is suspended.');
-  await c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now(), u.id).run();
+  // With two-factor on, the right password only opens the second step: nothing is signed in until the code follows.
+  if (await twoFactorOn(c.env, u.id)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, u.id) });
+  return c.json(await signIn(c, u.id));
+});
+
+/** Signs this browser in as the account (the password, and the code when two-factor is on, were checked). */
+async function signIn(c: Ctx, userId: string) {
+  await c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now(), userId).run();
   // Signing in replaces this browser's earlier sign-in, whoever it was: games still open on it (another tab, a reload)
   // stop at their next call instead of carrying on as the previous account.
   await endPreviousLogin(c.env, c.req.raw);
-  c.header('set-cookie', await createSession(c.env, c.req.raw, u.id));
-  return c.json({ ok: true });
+  c.header('set-cookie', await createSession(c.env, c.req.raw, userId));
+  return { ok: true as const };
+}
+
+// The second step of a sign-in with two-factor on: the challenge from the password step and a code from the
+// authenticator app, or one of the recovery codes (src/two-factor.ts). Five wrong codes and the password is asked again.
+api.post('/auth/login/code', async (c) => {
+  const b = await c.req.json<{ challenge?: string; code?: string }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'login2fa:' + clientNet(c.req.raw), 30, 900);
+  const r = await answerChallenge(c.env, String(b.challenge || ''), String(b.code || ''));
+  if (!r.ok) throw r.reason === 'expired'
+    ? new AppError(401, 'This sign-in timed out or had too many wrong codes. Enter your password again.', 'challenge_expired')
+    : new AppError(401, 'That code is not right. Check the time on your phone, or use a recovery code.', 'bad_code');
+  const u = await c.env.DB.prepare('SELECT status FROM users WHERE id = ?').bind(r.userId).first<{ status: string }>();
+  if (u?.status !== 'active') throw forbidden('This account is suspended.');
+  await signIn(c, r.userId);
+  return c.json({ ok: true, used_recovery: r.kind === 'recovery', recovery_left: r.kind === 'recovery' ? (await twoFactorState(c.env, r.userId)).recovery_left : undefined });
 });
 
 // Progress this browser made as a guest, offered to the signed-in account. Nothing moves until the player says so
@@ -148,7 +180,47 @@ api.get('/account', async (c) => {
     user: pubUser(u), created_at: u.created_at,
     sessions: rows.results.map((r) => ({ created_at: r.created_at, ua: r.ua || '', current: r.id === mine })),
     delete_blocker: await deleteBlocker(c.env, u),
+    two_factor: await twoFactorState(c.env, u.id),
   });
+});
+
+// ----- two-factor sign-in (src/two-factor.ts): the same for every account, players and creators alike ---------------
+/** A code from the authenticator or a recovery code, for changing two-factor itself. Used up when it is good. */
+async function requireCode(c: Ctx, u: User, code: unknown) {
+  await rateLimit(c.env, '2facheck:' + u.id, 10, 900);
+  if (!(await useCode(c.env, u.id, String(code || '')))) throw new AppError(401, 'That code is not right. Check the time on your phone, or use a recovery code.', 'bad_code');
+}
+// 1. the password again, then a new secret to put in the authenticator app (a QR code of `uri`, or `secret` typed in)
+api.post('/account/2fa/setup', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ password?: string }>().catch(() => ({} as any));
+  if (u.totp_enabled_at) throw new AppError(409, 'Two-factor sign-in is already on.', 'already_on');
+  await requirePassword(c, u, b.password);
+  return c.json(await beginSetup(c.env, u, (await getSettings(c.env)).brand_name || DEFAULT_BRAND));
+});
+// 2. a code from the app proves it has the secret: two-factor is on, the recovery codes are shown once, and every other
+//    sign-in (which never gave a code) ends
+api.post('/account/2fa/enable', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ code?: string }>().catch(() => ({} as any));
+  if (u.totp_enabled_at) throw new AppError(409, 'Two-factor sign-in is already on.', 'already_on');
+  await rateLimit(c.env, '2facheck:' + u.id, 10, 900);
+  const codes = await confirmSetup(c.env, u.id, String(b.code || '').replace(/\s/g, ''));
+  if (!codes) throw new AppError(400, 'That code is not right, or the setup expired. Check the time on your phone, or start again.', 'bad_code');
+  return c.json({ ok: true, recovery_codes: codes, ended: await endOtherSessions(c, u.id) });
+});
+api.post('/account/2fa/disable', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ password?: string; code?: string }>().catch(() => ({} as any));
+  if (!u.totp_enabled_at) return c.json({ ok: true });
+  await requirePassword(c, u, b.password);
+  await requireCode(c, u, b.code);
+  await disableTwoFactor(c.env, u.id);
+  return c.json({ ok: true });
+});
+api.post('/account/2fa/recovery-codes', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ password?: string; code?: string }>().catch(() => ({} as any));
+  if (!u.totp_enabled_at) throw new AppError(409, 'Turn on two-factor sign-in first.', 'not_on');
+  await requirePassword(c, u, b.password);
+  await requireCode(c, u, b.code);
+  return c.json({ ok: true, recovery_codes: await replaceRecoveryCodes(c.env, u.id) });
 });
 
 api.post('/auth/password', async (c) => {
@@ -199,9 +271,9 @@ api.post('/auth/reset', async (c) => {
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
     c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.id),
   ]);
-  await endPreviousLogin(c.env, c.req.raw);
-  c.header('set-cookie', await createSession(c.env, c.req.raw, u.id));
-  return c.json({ ok: true });
+  // A reset link proves the email, not the second factor: with two-factor on, the code is still asked before signing in.
+  if (await twoFactorOn(c.env, u.id)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, u.id) });
+  return c.json(await signIn(c, u.id));
 });
 
 api.post('/account/delete', async (c) => {
@@ -346,11 +418,12 @@ api.get('/games/:slug', async (c) => {
   const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
   const reviews = await c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 50').bind(p.id).all<Record<string, any>>();
   const dist = await c.env.DB.prepare('SELECT rating, COUNT(*) AS n FROM reviews WHERE project_id = ? AND hidden = 0 GROUP BY rating').bind(p.id).all<{ rating: number; n: number }>();
-  let mine = null, played = false, owned = p.price_cents === 0, resume: { last_played: number; saved_at: number | null; resume: unknown } | null = null;
+  let mine = null, played = false, owned = p.price_cents === 0, library: string | null = null, resume: { last_played: number; saved_at: number | null; resume: unknown } | null = null;
   if (u) {
     mine = await c.env.DB.prepare('SELECT rating, body FROM reviews WHERE project_id = ? AND user_id = ?').bind(p.id, u.id).first();
     played = !!(await c.env.DB.prepare("SELECT 1 FROM plays WHERE project_id = ? AND user_id = ? AND env = 'live' AND counted = 1 LIMIT 1").bind(p.id, u.id).first());
     owned = owned || u.id === p.owner_id || u.role === 'admin' || await owns(c.env, u.id, p.id);
+    library = await libraryState(c.env.DB, u.id, p.id);
     // Played before: the page offers Continue (with where the game says the player is) instead of Play.
     const pg = await c.env.DB.prepare('SELECT last_at, resume, (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = ?1 AND s.user_id = ?2) AS saved_at FROM player_games WHERE project_id = ?1 AND user_id = ?2').bind(p.id, u.id).first<{ last_at: number; resume: string | null; saved_at: number | null }>();
     if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
@@ -366,6 +439,8 @@ api.get('/games/:slug', async (c) => {
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // whether the game is in this player's library: 'bought' (a paid game, from its purchase), 'added' (a free game they added) or null
+    library,
     // where this player left off (null when they have nothing saved here): the page's Continue button
     continue: resume,
     // Until when this buyer can still refund the game themselves (null once the window has passed or it was refunded before).
@@ -465,17 +540,39 @@ api.delete('/me/continue/:slug', async (c) => {
   if (!p) throw notFound('No such game.');
   return c.json(await hideContinue(c.env.DB, scopeOf(p.id, 'live'), u.id, now()));
 });
-// The library: games played (as on the Continue row, paged) and games bought but never opened.
+// ---- the game library (players' side; the creator console never lists games a person bought or added) ---------------
+// What the library shows: the games played (the Continue row, paged), and the games the player owns or keeps: every paid
+// game they bought (in it from the moment the payment succeeds, out again on a refund) and the free games they added.
+const libraryErr = (e: unknown): never => { if (e instanceof LibraryError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+async function libraryCards(c: Ctx, userId: string, offset: number, filter: string) {
+  const { list, more } = await libraryList(c.env.DB, userId, { limit: 24, offset, filter });
+  if (!list.length) return { games: [], more: false };
+  const ids = list.map((x: { game_id: string }) => x.game_id), origin = c.get('origin');
+  const rows = await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>();
+  const byId = new Map(rows.results.map((r) => [r.id, r]));
+  return { games: list.filter((x: { game_id: string }) => byId.has(x.game_id)).map(({ game_id, ...x }: Record<string, any>) => ({ ...card(origin, byId.get(game_id)!), library: x })), more };
+}
 api.get('/me/library', async (c) => {
-  const u = requireUser(c), origin = c.get('origin'), offset = num(c.req.query('offset')) || 0;
+  const u = requireUser(c), offset = num(c.req.query('offset')) || 0;
   c.header('cache-control', 'private, no-store');
-  const [played, bought] = await Promise.all([
-    continueCards(c, u.id, 24, offset),
-    offset ? null : c.env.DB.prepare(`SELECT p.*, u.name AS author, b.created_at AS bought_at FROM purchases b JOIN projects p ON p.id = b.project_id JOIN users u ON u.id = p.owner_id
-        WHERE b.user_id = ?1 AND b.status = 'paid' AND p.status = 'live' AND NOT EXISTS (SELECT 1 FROM player_games pg WHERE pg.project_id = p.id AND pg.user_id = ?1)
-        ORDER BY b.created_at DESC LIMIT 60`).bind(u.id).all<Record<string, any>>(),
-  ]);
-  return c.json({ ...played, unplayed: bought ? bought.results.map((r) => ({ ...card(origin, r), bought_at: r.bought_at })) : null });
+  const [played, owned, counts] = await Promise.all([continueCards(c, u.id, 24, offset), offset ? null : libraryCards(c, u.id, 0, 'all'), offset ? null : libraryCounts(c.env.DB, u.id)]);
+  return c.json({ ...played, owned, counts });
+});
+// More of the owned part, or one filter of it: all, bought or added.
+api.get('/me/library/games', async (c) => {
+  const u = requireUser(c);
+  c.header('cache-control', 'private, no-store');
+  return c.json(await libraryCards(c, u.id, num(c.req.query('offset')) || 0, String(c.req.query('filter') || 'all')));
+});
+api.post('/me/library/:slug', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id, status, price_cents FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string; status: string; price_cents: number }>();
+  await rateLimit(c.env, 'library:' + u.id, 120, 3600);
+  return c.json(await addToLibrary(c.env.DB, u.id, p, now()).catch(libraryErr));
+});
+api.delete('/me/library/:slug', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('No such game.');
+  return c.json(await removeFromLibrary(c.env.DB, u.id, p.id));
 });
 
 // A player tells the platform something is wrong with a live game: it asks for passwords or payment, behaves differently
@@ -783,11 +880,9 @@ api.get('/console/overview', async (c) => {
   const u = requireUser(c), origin = c.get('origin'), s = await getSettings(c.env);
   const projects = await c.env.DB.prepare("SELECT p.*, ? AS author FROM projects p WHERE p.owner_id = ? AND p.status != 'removed' ORDER BY p.updated_at DESC").bind(u.name, u.id).all<Record<string, any>>();
   const sales = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>();
-  const library = await c.env.DB.prepare("SELECT p.*, u.name AS author FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users u ON u.id = p.owner_id WHERE x.user_id = ? AND x.status = 'paid' ORDER BY x.created_at DESC LIMIT 60").bind(u.id).all<Record<string, any>>();
   return c.json({
     user: pubUser(u), balance: await balanceOf(c.env, u.id), sales: sales || { n: 0, net: 0 },
     projects: projects.results.map((p) => ({ ...card(origin, p), live_version: p.live_version, preview_version: p.preview_version, sales: p.sales, updated_at: p.updated_at })),
-    library: library.results.map((p) => card(origin, p)),
   });
 });
 
@@ -839,6 +934,31 @@ api.post('/console/projects/:id/preview', async (c) => {
   if (!p.preview_version) throw new AppError(409, 'No preview has been deployed yet. Ask your agent to run deploy_preview.', 'no_preview');
   await ensurePreview(c.env, c.get('origin'), p);   // removed after two idle weeks: deployed again first
   return c.json(await startPlay(c, p, 'preview', p.preview_version, u));
+});
+
+// The creator feedback queue (src/feedback.ts): annotated screenshots of the preview, waiting for the creator's agent.
+// Owner only, never an admin looking at someone else's game.
+api.get('/console/projects/:id/feedback', async (c) => {
+  const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
+  return c.json(await listFeedback(c.env, p));
+});
+api.post('/console/projects/:id/feedback', async (c) => {
+  const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
+  // the picture travels as a data URL: refuse an oversized body before reading it
+  if (Number(c.req.header('content-length') || 0) > 2_200_000) throw new AppError(413, 'The screenshot is too large.', 'too_large');
+  const text = await c.req.text();
+  if (text.length > 2_200_000) throw new AppError(413, 'The screenshot is too large.', 'too_large');
+  const b = parseJson<Record<string, unknown> | null>(text, null);
+  if (!b || typeof b !== 'object') throw bad('Send the feedback as JSON.');
+  return c.json(await addFeedback(c.env, u, p, b));
+});
+api.get('/console/projects/:id/feedback/:fid/image', async (c) => {
+  const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
+  return feedbackImage(c.env, p, c.req.param('fid'));
+});
+api.delete('/console/projects/:id/feedback/:fid', async (c) => {
+  const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
+  return c.json(await removeFeedback(c.env, p, c.req.param('fid')));
 });
 
 api.post('/console/projects/:id/offline', async (c) => {

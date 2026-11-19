@@ -39,7 +39,7 @@ export async function createSession(env: Env, req: Request, userId: string): Pro
   return sessionCookie(req, t, SESSION_DAYS * 86400);
 }
 
-const USER_COLS = 'u.id, u.email, u.name, u.role, u.status, u.creator, u.creator_since, u.creator_plan, u.creator_until, u.stripe_account, u.stripe_payouts_enabled, u.payout_country, u.created_at';
+const USER_COLS = 'u.id, u.email, u.name, u.role, u.status, u.creator, u.creator_since, u.creator_plan, u.creator_until, u.stripe_account, u.stripe_payouts_enabled, u.payout_country, u.created_at, u.totp_enabled_at';
 
 export async function userFromRequest(env: Env, req: Request): Promise<User | null> {
   const t = sessionToken(req);

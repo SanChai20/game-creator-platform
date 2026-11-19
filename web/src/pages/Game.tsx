@@ -163,6 +163,10 @@ export function Game({ slug }: { slug: string }) {
     if (!confirm(t('Refund {title}? The money goes back to how you paid, and the game leaves your library. Each game can be refunded once.', '确定为 {title} 退款吗？款项将原路退回，该游戏会从你的游戏库中移除。每款游戏只能退款一次。', { title: local(g, 'title') }))) return;
     void act('refund', async () => { await api(`/games/${slug}/refund`, { method: 'POST' }); await reload(); }, t('Refunded. The money is on its way back to you.', '已退款，款项正在退回给你。'));
   };
+  // The library: a free game is added (or removed) here; a paid one is in it from the moment it is bought.
+  const inLibrary = data.library as 'bought' | 'added' | null;
+  const toggleLibrary = () => act('lib', async () => { await api(`/me/library/${slug}`, { method: inLibrary ? 'DELETE' : 'POST' }); await reload(); },
+    inLibrary ? t('Removed from your library. Your progress is kept.', '已从游戏库移除，进度会保留。') : t('Added to your library.', '已加入游戏库。'));
   const review = () => act('review', async () => { await api(`/games/${slug}/reviews`, { body: { rating, body } }); await reload(); }, t('Thanks. Your review is saved.', '感谢，评价已保存。'));
   const total = data.rating_dist.reduce((a: number, b: number) => a + b, 0);
   const canReview = !!user && !data.is_owner && (data.played || !config.settings.review_requires_play);
@@ -232,6 +236,8 @@ export function Game({ slug }: { slug: string }) {
                 <span className="gp-buy-h">{locked ? t('Buy {title}', '购买 {title}', { title }) : t('Play {title}', '游玩 {title}', { title })}</span>
                 <div className="gp-price-row"><b className="gp-price">{price(g.price_cents)}</b>{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 <div className="gp-buy-act">{cta}</div>
+                {user && (inLibrary === 'bought' ? <p className="gp-buy-note gp-lib"><Link to="/library">{t('In your library', '已在你的游戏库中')} →</Link></p>
+                  : !paid ? <div className="gp-lib"><Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>{inLibrary && <Link to="/library" className="fs-sm">{t('Open library', '打开游戏库')}</Link>}</div> : null)}
                 <p className="gp-buy-note">{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
                 {data.refund_until && <p className="gp-buy-note">{t('Not what you hoped? You can refund it until {time}, while you have played less than {minutes} minutes.', '不满意？在 {time} 前且游玩不足 {minutes} 分钟时，你可以申请退款。', { time: dateTime(data.refund_until), minutes: Number(config.settings.refund_max_play_minutes ?? 30) })} <Button size="sm" variant="ghost" onClick={refund} disabled={busy === 'refund'}>{t('Refund', '退款')}</Button></p>}
                 {data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}

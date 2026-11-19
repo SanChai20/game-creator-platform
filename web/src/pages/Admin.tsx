@@ -146,7 +146,7 @@ function Users() {
           <tbody>{data.users.map((u: any) => (
             <tr key={u.id}>
               <td><b>{u.name}</b><div className="mute fs-sm">{u.email}</div></td>
-              <td><div className="row wrapx" style={{ gap: 6 }}><StatusBadge status={u.status} />{u.role === 'admin' && <Badge tone="accent" dot={false}>admin</Badge>}{lic(u) === 'lifetime' && <Badge tone="good" dot={false}>{t('lifetime license', '永久许可')}</Badge>}{lic(u) === 'term' && <Badge tone="good" dot={false}>{t('license until {date}', '许可至 {date}', { date: date(u.creator_until) })}</Badge>}{lic(u) === 'expired' && <Badge dot={false}>{t('license ended {date}', '许可已于 {date} 到期', { date: date(u.creator_until) })}</Badge>}{!!u.stripe_payouts_enabled && <Badge dot={false}>{t('payouts', '可收款')} {u.payout_country}</Badge>}</div></td>
+              <td><div className="row wrapx" style={{ gap: 6 }}><StatusBadge status={u.status} />{u.role === 'admin' && <Badge tone="accent" dot={false}>admin</Badge>}{lic(u) === 'lifetime' && <Badge tone="good" dot={false}>{t('lifetime license', '永久许可')}</Badge>}{lic(u) === 'term' && <Badge tone="good" dot={false}>{t('license until {date}', '许可至 {date}', { date: date(u.creator_until) })}</Badge>}{lic(u) === 'expired' && <Badge dot={false}>{t('license ended {date}', '许可已于 {date} 到期', { date: date(u.creator_until) })}</Badge>}{!!u.stripe_payouts_enabled && <Badge dot={false}>{t('payouts', '可收款')} {u.payout_country}</Badge>}{!!u.two_factor && <Badge dot={false}>{t('2FA', '两步验证')}</Badge>}</div></td>
               <td className="n">{u.live}/{u.projects}</td><td className="n">{usd(u.balance)}</td><td className="n">{u.bought}</td><td className="n">{playTime(u.played)}</td>
               <td className="mute">{date(u.created_at)}</td><td className="mute">{ago(u.last_seen_at)}</td>
               <td><RowMenu label={t('Actions for {name}', '{name} 的操作', { name: u.email })} disabled={busy === u.id} actions={[
@@ -155,6 +155,7 @@ function Users() {
                 (lic(u) === 'term' || lic(u) === 'lifetime') && { label: t('Remove license', '取消许可'), danger: true, onClick: () => patch(u.id, { license: 'none' }, t('Updated.', '已更新。')) },
                 { label: t('Adjust', '调整余额'), onClick: () => adjust(u) },
                 u.id !== me!.id && { label: u.role === 'admin' ? t('Remove admin', '取消管理员') : t('Make admin', '设为管理员'), onClick: () => patch(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }, t('Updated.', '已更新。')) },
+                !!u.two_factor && { label: t('Turn off two-factor', '关闭两步验证'), danger: true, onClick: () => { if (confirm(t('Turn off two-factor sign-in for {email}? Do this only after confirming it is really them, for example from their account email. They can then sign in with their password alone.', '要为 {email} 关闭两步验证登录吗？请先确认确实是本人（例如通过其账户邮箱），再执行此操作。之后对方仅需密码即可登录。', { email: u.email }))) void patch(u.id, { two_factor: false }, t('Two-factor sign-in turned off.', '已关闭两步验证登录。')); } },
                 u.id !== me!.id && { label: u.status === 'active' ? t('Suspend', '停用') : t('Restore', '恢复'), danger: u.status === 'active', onClick: () => patch(u.id, { status: u.status === 'active' ? 'suspended' : 'active' }, t('Updated.', '已更新。')) },
               ]} /></td>
             </tr>))}</tbody>

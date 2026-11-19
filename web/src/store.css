@@ -573,3 +573,13 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .linkish:hover { color: var(--text); }
 .stage-resume { max-width: 46ch; text-align: center; }
 .library > section:first-child .sh { margin-top: 8px; }
+
+/* the library's collection: each tile says how the game got there, free ones can be removed */
+.lib-filter { margin: 0 0 14px; }
+.lib-tile { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.lib-tile-f { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 2px; }
+.grid[aria-busy="true"] { opacity: .6; transition: opacity .15s; }
+/* the game page's Add to library */
+.gp-lib { display: grid; gap: 6px; justify-items: center; width: 100%; margin-top: 8px; }
+.gp-lib a { color: var(--text-3); }
+.gp-lib a:hover { color: var(--text); }

@@ -43,6 +43,7 @@ const MB = 1024 * 1024;
 const mb = (n: number) => `${Math.round((n / MB) * 10) / 10} MB`;
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
 const on = (b: boolean): Availability => (b ? 'available' : 'disabled');
+const FEEDBACK_MAX_READ = 5;   // feedback-rules.js FEEDBACK_LIMITS.read_max
 
 /** Every service the platform offers to games and the agents that build them, with this platform's live limits. */
 export function platformServices(s: Settings, origin: string): Service[] {
@@ -258,10 +259,33 @@ export function platformServices(s: Settings, origin: string): Service[] {
       what: 'Every preview is opened in a real browser (Cloudflare Browser Rendering) and must boot, keep rendering, show a picture, survive keyboard, mouse and touch, load every file and throw no uncaught errors. Only a verified version can be published.',
       how_it_works: 'deploy_preview runs static checks (syntax, imports, missing files, web-only content), deploys, then the browser check. A game can register a play-through that plays its own rules to the end, and a two-player check that the verifier runs in two pages, two different players, that meet on one code: a room (GCP.room) or a private server-run match (GCP.match.find({ code })). The report and a screenshot are stored with the version. WebGPU-only games are verified by a short clean play of the preview by their creator.',
       use_for: ['Proof that the game is playable before it goes live', 'Automated end-to-end tests of your own rules'],
-      sdk: ['GCP.test.onAutostart(fn)', 'GCP.test.onStart(fn)', 'GCP.test.onPlaythrough(fn)', 'GCP.test.onTwoPlayers(fn)', 'GCP.test.twoPlayers', 'GCP.test.autostart', 'GCP.test.seed', 'GCP.test.param(name)'],
-      mcp_tools: ['deploy_preview', 'list_versions'],
+      sdk: ['GCP.test.onAutostart(fn)', 'GCP.test.onStart(fn)', 'GCP.test.onPlaythrough(fn)', 'GCP.test.onTwoPlayers(fn)', 'GCP.test.twoPlayers', 'GCP.test.autostart', 'GCP.test.seed', 'GCP.test.param(name)', 'GCP.test.onState(fn)'],
+      mcp_tools: ['deploy_preview', 'list_versions', 'debug_preview'],
       limits: { ready_timeout_seconds: s.verify_ready_timeout_s, min_frames: s.verify_min_frames, observe_seconds: s.verify_observe_s, playthrough_seconds: Math.min(45, Math.max(3, s.verify_playthrough_s)), playthrough_steps: 60, human_preview_seconds: s.verify_human_min_seconds },
       guidelines: ['deploy_preview {dry_run: true} runs only the static checks.', 'The verification browser has no GPU: keep the first scene light or adapt quality.', 'Register onPlaythrough; without it the report says only start-up, rendering and input were checked.'],
+      guide: 'versions',
+    },
+    {
+      id: 'debugging', name: 'Preview debugging in a browser', category: 'quality', status: on(s.debug_enabled),
+      what: 'A real browser on the game\'s current preview that the agent drives step by step: screenshots, clicks, taps, drags, key presses and holds, typing, waits, and the game\'s state after each call.',
+      how_it_works: `debug_preview {action: "open"} opens the preview in Cloudflare Browser Rendering (the browser verification uses) under a throwaway test player and returns a screenshot. {action: "act", steps} runs up to 40 steps and returns up to 4 screenshots with state: ready, frames, uncaught and console errors, missing files and what GCP.test.onState(fn) returns. The browser stays open between calls; one per account, closed after 3 idle minutes and at most ${Math.min(10, Math.max(1, s.debug_session_minutes))} minutes after it opened.`,
+      use_for: ['Seeing what the game looks like before and after a change', 'Reproducing a bug the creator reported, step by step', 'Checking a layout or touch controls at a phone size'],
+      not_for: ['Measuring frame rate or testing WebGPU: the browser has no GPU', 'Load or multiplayer tests with many players'],
+      sdk: ['GCP.test.onState(fn)'],
+      mcp_tools: ['debug_preview', 'deploy_preview'],
+      limits: { browsers_per_account: 1, browsers_on_the_platform: s.debug_max_sessions, sessions_per_day: s.debug_sessions_per_day, session_minutes: Math.min(10, Math.max(1, s.debug_session_minutes)), idle_minutes: 3, steps_per_call: 40, waits_per_call_seconds: 20, screenshots_per_call: 4, viewports: 'desktop 960×540, hd 1280×720, phone-landscape 844×390, phone-portrait 390×844, tablet 1024×768, or custom' },
+      guidelines: ['Read coordinates off the last screenshot: it is the viewport\'s size, in CSS pixels.', 'Use wait_for {until: "text"} or {until: "frames"} instead of long fixed waits.', 'Register GCP.test.onState(fn) so every answer says where the game is.', 'Close the session when you are done; the platform has only a few of these browsers.'],
+      guide: 'versions',
+    },
+    {
+      id: 'creator_feedback', name: 'Creator feedback queue', category: 'quality', status: on(s.feedback_enabled),
+      what: 'Annotated screenshots of the preview from the game\'s creator: while playing it in the console they capture the game, circle or point at what is wrong, add a note and queue it for their agent.',
+      how_it_works: `The console captures every canvas of the game right after a frame (or, on desktop browsers that can share a tab, the whole tab). The creator draws numbered circles, arrows, boxes or freehand marks, labels them and writes a note. creator_feedback returns the oldest items (up to ${FEEDBACK_MAX_READ}) with the note, each mark in picture pixels, the version, screen size, the game\'s errors and GCP.test.onState(fn), and the pictures as images, and removes them from the queue. The creator can remove items too.`,
+      use_for: ['Knowing exactly what the creator wants changed, with a picture', 'Bugs that are easier to show than to describe: layout, overlap, art, wrong text'],
+      sdk: ['GCP.test.onState(fn)'],
+      mcp_tools: ['creator_feedback'],
+      limits: { waiting_per_game: s.feedback_max_pending, kept_days: s.feedback_keep_days, items_per_read: FEEDBACK_MAX_READ, picture_mb: 1.5, note_characters: 2000, marks_per_picture: 30, read_by: 'the game\'s creator\'s account only' },
+      guidelines: ['Read creator_feedback at the start of each session and whenever deploy_preview or list_versions says items are waiting.', 'An item is gone once read: act on it, and tell the creator what you changed for each.', 'peek: true lists what is waiting without taking it.'],
       guide: 'versions',
     },
     {

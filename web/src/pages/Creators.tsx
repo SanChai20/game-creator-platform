@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { t, usd, useApp } from '../lib';
+import { price, t, usd, useApp } from '../lib';
 import { Button, Card, CelScene, Code, Eyebrow, Segmented, Steps } from '../ui';
 
 /** How to add the MCP server in each agent. The server uses OAuth, so no key is ever pasted anywhere. */
@@ -68,7 +68,7 @@ export function Creators() {
         <div className="keys">
           <div><b>1</b><span>{t('prompt from an idea to a live game', '句话，从想法到上线')}</span></div>
           <div><b>0</b><span>{t('human review queues. Verified means live.', '人工审核排队。验证通过即上线。')}</span></div>
-          <div><b>{s.paid_games_enabled ? `${keep}%` : s.creator_fee_cents > 0 ? usd(s.creator_fee_cents) : t('Free', '免费')}</b><span>{s.paid_games_enabled ? t('of every sale is yours', '的销售收入归你') : s.creator_fee_cents > 0 ? t('once, for unlimited games', '一次性，游戏数量不限') : t('to build, preview and publish', '创作、预览与发布')}</span></div>
+          <div><b>{s.paid_games_enabled ? `${keep}%` : price(s.license_lifetime_cents)}</b><span>{s.paid_games_enabled ? t('of every sale is yours', '的销售收入归你') : t('once, for unlimited games', '一次性，游戏数量不限')}</span></div>
         </div>
 
         <section className="stack l">

@@ -41,6 +41,7 @@ export interface User {
   creator_plan: string | null; creator_until: number | null; creator_licensed?: number;
   stripe_account: string | null; stripe_payouts_enabled: number;
   payout_country: string | null; created_at: number;
+  totp_enabled_at: number | null;               // two-factor sign-in on since then (src/two-factor.ts); null while off
 }
 
 export interface Project {
