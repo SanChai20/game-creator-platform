@@ -1461,5 +1461,7 @@
  "Chosen every day from play numbers and ratings": "Se elige cada día a partir de partidas y valoraciones",
  "Chosen at the next run, within 10 minutes.": "Se elegirá en la próxima ejecución, en menos de 10 minutos.",
  "Rising fast": "En alza",
- "Hidden gem": "Joya oculta"
+ "Hidden gem": "Joya oculta",
+ "Actions": "Acciones",
+ "Actions for {name}": "Acciones para {name}"
 }

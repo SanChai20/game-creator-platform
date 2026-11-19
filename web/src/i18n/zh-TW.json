@@ -1483,5 +1483,7 @@
  "Chosen every day from play numbers and ratings": "每天依遊玩數據與評分自動選出",
  "Chosen at the next run, within 10 minutes.": "將在下次執行時選出（10 分鐘內）。",
  "Rising fast": "人氣飆升",
- "Hidden gem": "寶藏佳作"
+ "Hidden gem": "寶藏佳作",
+ "Actions": "操作",
+ "Actions for {name}": "{name} 的操作"
 }

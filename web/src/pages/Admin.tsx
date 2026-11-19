@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pager } from '../store';
 import { ago, api, bytes, date, dateTime, Fail, Link, num, playTime, series, t, tr, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, Table, Tabs } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, RowMenu, Table, Tabs } from '../ui';
 import { AdminSkeleton } from '../skeletons';
 
 const MB = 1024 * 1024;
@@ -137,7 +137,7 @@ function Users() {
     <div className="stack l">
       <div className="admin-tools"><SearchInput placeholder={t('Search by email or name', '按邮箱或名称搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : (
-        <Card><Table>
+        <Card><Table dense stickyEnd>
           <thead><tr><th>{t('User', '用户')}</th><th>{t('Status', '状态')}</th><th className="n">{t('Games', '游戏')}</th><th className="n">{t('Balance', '余额')}</th><th className="n">{t('Bought', '已购')}</th><th className="n">{t('Played', '游玩')}</th><th>{t('Joined', '注册')}</th><th>{t('Seen', '最近活跃')}</th><th /></tr></thead>
           <tbody>{data.users.map((u: any) => (
             <tr key={u.id}>
@@ -145,12 +145,12 @@ function Users() {
               <td><div className="row wrapx" style={{ gap: 6 }}><StatusBadge status={u.status} />{u.role === 'admin' && <Badge tone="accent" dot={false}>admin</Badge>}{!!u.creator && <Badge dot={false}>{t('creator', '创作者')}</Badge>}{!!u.stripe_payouts_enabled && <Badge dot={false}>{t('payouts', '可收款')} {u.payout_country}</Badge>}</div></td>
               <td className="n">{u.live}/{u.projects}</td><td className="n">{usd(u.balance)}</td><td className="n">{u.bought}</td><td className="n">{playTime(u.played)}</td>
               <td className="mute">{date(u.created_at)}</td><td className="mute">{ago(u.last_seen_at)}</td>
-              <td><div className="row-actions">
-                <Button size="sm" disabled={busy === u.id} onClick={() => patch(u.id, { creator: !u.creator }, t('Updated.', '已更新。'))}>{u.creator ? t('Remove license', '取消许可') : t('Grant license', '授予许可')}</Button>
-                <Button size="sm" disabled={busy === u.id} onClick={() => adjust(u)}>{t('Adjust', '调整余额')}</Button>
-                {u.id !== me!.id && <Button size="sm" disabled={busy === u.id} onClick={() => patch(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }, t('Updated.', '已更新。'))}>{u.role === 'admin' ? t('Remove admin', '取消管理员') : t('Make admin', '设为管理员')}</Button>}
-                {u.id !== me!.id && <Button size="sm" variant="danger" disabled={busy === u.id} onClick={() => patch(u.id, { status: u.status === 'active' ? 'suspended' : 'active' }, t('Updated.', '已更新。'))}>{u.status === 'active' ? t('Suspend', '停用') : t('Restore', '恢复')}</Button>}
-              </div></td>
+              <td><RowMenu label={t('Actions for {name}', '{name} 的操作', { name: u.email })} disabled={busy === u.id} actions={[
+                { label: u.creator ? t('Remove license', '取消许可') : t('Grant license', '授予许可'), onClick: () => patch(u.id, { creator: !u.creator }, t('Updated.', '已更新。')) },
+                { label: t('Adjust', '调整余额'), onClick: () => adjust(u) },
+                u.id !== me!.id && { label: u.role === 'admin' ? t('Remove admin', '取消管理员') : t('Make admin', '设为管理员'), onClick: () => patch(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }, t('Updated.', '已更新。')) },
+                u.id !== me!.id && { label: u.status === 'active' ? t('Suspend', '停用') : t('Restore', '恢复'), danger: u.status === 'active', onClick: () => patch(u.id, { status: u.status === 'active' ? 'suspended' : 'active' }, t('Updated.', '已更新。')) },
+              ]} /></td>
             </tr>))}</tbody>
         </Table>{!data.users.length && <div className="pad mute">{t('No users match.', '没有匹配的用户。')}</div>}{pager}</Card>
       )}
@@ -172,7 +172,7 @@ function StorageRequests({ onChange }: { onChange: () => void }) {
   const waiting = data.requests.filter((r: any) => r.status === 'pending').length;
   return (
     <Card title={t('Storage requests', '存储空间申请')} aside={t('creators asking for more storage for one game', '创作者为单款游戏申请更多存储空间')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
-      <Table><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Asked for', '申请')}</th><th className="n">{t('Has', '现有')}</th><th className="n">{t('Used', '已用')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
+      <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Asked for', '申请')}</th><th className="n">{t('Has', '现有')}</th><th className="n">{t('Used', '已用')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
         <tbody>{data.requests.map((r: any) => <tr key={r.id}>
           <td><b>{r.title}</b><div className="mute fs-sm">{r.author} · {r.author_email}</div><div className="dim fs-xs">{ago(r.created_at)}</div></td>
           <td className="n">{bytes(r.bytes)}</td><td className="n">{bytes(r.storage_bytes ?? data.default_bytes)}</td><td className="n">{bytes(r.used_now)}</td>
@@ -198,7 +198,7 @@ function Reviews({ onChange }: { onChange: () => void }) {
   const why = (w: string) => (w === 'webgpu' ? t('Needs WebGPU', '需要 WebGPU') : w === 'no_browser' ? t('Browser unavailable', '浏览器不可用') : t('Other', '其他'));
   return (
     <Card title={t('Version reviews', '版本审核')} aside={t('versions the verification browser could not run, checked by a person before they go live', '验证浏览器无法运行的版本，上线前需人工检查')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
-      <Table><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Version', '版本')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
+      <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Version', '版本')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
         <tbody>{data.reviews.map((r: any) => { const key = `${r.project_id}:${r.n}`; return <tr key={key}>
           <td><b>{r.title}</b> <a className="fs-sm" href={`/console/p/${r.project_id}`} target="_blank" rel="noreferrer">{t('Open project', '打开项目')}</a><div className="mute fs-sm">{r.author} · {r.author_email}</div><div className="dim fs-xs">{ago(r.created_at)}</div></td>
           <td className="n">{r.n}</td>
@@ -227,7 +227,7 @@ function Games() {
       <StorageRequests onChange={reload} />
       <div className="admin-tools"><SearchInput placeholder={t('Search by title, address or creator email', '按标题、地址或创作者邮箱搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : (
-        <Card><Table>
+        <Card><Table dense stickyEnd>
           <thead><tr><th>{t('Game', '游戏')}</th><th>{t('Status', '状态')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Plays', '游玩')}</th><th className="n">{t('7 days', '近 7 天')}</th><th className="n">{t('Time', '时长')}</th><th className="n">{t('Rating', '评分')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('Fees', '平台分成')}</th><th className="n">{t('Errors', '错误')}</th><th className="n">{t('Storage', '存储空间')}</th><th /></tr></thead>
           <tbody>{data.games.map((g: any) => (
             <tr key={g.id}>
@@ -237,12 +237,12 @@ function Games() {
               <td className="n">{g.rating_count ? (g.rating_sum / g.rating_count).toFixed(1) : '—'} <span className="dim">({g.rating_count})</span></td>
               <td className="n">{g.sales}</td><td className="n">{usd(g.fees)}</td><td className={'n' + (g.errors > 0 ? ' bad' : '')}>{num(g.errors)}</td>
               <td className={'n' + (g.used_bytes > (g.storage_bytes ?? defaultStorage) ? ' bad' : '')}>{bytes(g.used_bytes)}<div className="dim fs-xs">{t('of {size}', '共 {size}', { size: bytes(g.storage_bytes ?? defaultStorage) })}{g.storage_bytes != null && ` · ${t('set for this game', '单独设置')}`}</div></td>
-              <td><div className="row-actions">
-                <Button size="sm" disabled={busy === g.id} onClick={() => storage(g)}>{t('Storage', '存储空间')}</Button>
-                {g.status === 'live' && <Button size="sm" disabled={busy === g.id} onClick={() => patch(g.id, { featured: !g.featured }, t('Updated.', '已更新。'))}>{g.featured ? t('Unfeature', '取消精选') : t('Feature', '设为精选')}</Button>}
-                {g.status === 'live' && <Button size="sm" disabled={busy === g.id} onClick={() => patch(g.id, { action: 'offline' }, t('Game taken offline.', '游戏已下线。'))}>{t('Take offline', '下线')}</Button>}
-                {g.status === 'removed' ? <Button size="sm" disabled={busy === g.id} onClick={() => patch(g.id, { action: 'restore' }, t('Game restored.', '游戏已恢复。'))}>{t('Restore', '恢复')}</Button> : <Button size="sm" variant="danger" disabled={busy === g.id} onClick={() => remove(g)}>{t('Remove', '移除')}</Button>}
-              </div></td>
+              <td><RowMenu label={t('Actions for {name}', '{name} 的操作', { name: g.title })} disabled={busy === g.id} actions={[
+                { label: t('Storage', '存储空间'), onClick: () => storage(g) },
+                g.status === 'live' && { label: g.featured ? t('Unfeature', '取消精选') : t('Feature', '设为精选'), onClick: () => patch(g.id, { featured: !g.featured }, t('Updated.', '已更新。')) },
+                g.status === 'live' && { label: t('Take offline', '下线'), onClick: () => patch(g.id, { action: 'offline' }, t('Game taken offline.', '游戏已下线。')) },
+                g.status === 'removed' ? { label: t('Restore', '恢复'), onClick: () => patch(g.id, { action: 'restore' }, t('Game restored.', '游戏已恢复。')) } : { label: t('Remove', '移除'), danger: true, onClick: () => remove(g) },
+              ]} /></td>
             </tr>))}</tbody>
         </Table>{!data.games.length && <div className="pad mute">{t('No games match.', '没有匹配的游戏。')}</div>}{pager}</Card>
       )}
@@ -265,7 +265,7 @@ function Money() {
   return (
     <div className="stack l">
       <Card title={t('Withdrawals', '提现')} actions={<>{waiting.length > 0 && <Badge tone="accent">{waiting.length} {t('waiting', '笔待处理')}</Badge>}</>}>
-        {data.withdrawals.length ? <Table><thead><tr><th>{t('Creator', '创作者')}</th><th className="n">{t('Amount', '金额')}</th><th>{t('Method', '方式')}</th><th>{t('Status', '状态')}</th><th>{t('Requested', '申请时间')}</th><th /></tr></thead>
+        {data.withdrawals.length ? <Table stickyEnd><thead><tr><th>{t('Creator', '创作者')}</th><th className="n">{t('Amount', '金额')}</th><th>{t('Method', '方式')}</th><th>{t('Status', '状态')}</th><th>{t('Requested', '申请时间')}</th><th /></tr></thead>
           <tbody>{data.withdrawals.map((w: any) => <tr key={w.id}>
             <td><b>{w.name}</b><div className="mute fs-sm">{w.email}</div></td><td className="n">{usd(w.amount_cents)}</td>
             <td>{w.method === 'stripe' ? 'Stripe' : t('Manual', '人工')}{w.details && <div className="mute fs-sm" style={{ maxWidth: 320, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{w.details}</div>}{w.provider_ref && <div className="dim mono fs-xs">{w.provider_ref}</div>}{w.error && <div className="bad fs-sm">{w.error}</div>}</td>
@@ -274,7 +274,7 @@ function Money() {
           </tr>)}</tbody></Table> : <div className="pad mute">{t('No withdrawals yet.', '暂无提现。')}</div>}
       </Card>
       <Card title={t('Game sales', '游戏销售')}>
-        {data.purchases.length ? <Table><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th>{t('Creator', '创作者')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Platform', '平台')}</th><th className="n">{t('Creator', '创作者')}</th><th>{t('Status', '状态')}</th><th>{t('When', '时间')}</th><th /></tr></thead>
+        {data.purchases.length ? <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th>{t('Creator', '创作者')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Platform', '平台')}</th><th className="n">{t('Creator', '创作者')}</th><th>{t('Status', '状态')}</th><th>{t('When', '时间')}</th><th /></tr></thead>
           <tbody>{data.purchases.map((x: any) => <tr key={x.id}><td><Link to={`/g/${x.slug}`}>{x.title}</Link></td><td className="mute">{x.buyer}</td><td className="mute">{x.creator}</td><td className="n">{usd(x.price_cents)}</td><td className="n">{usd(x.fee_cents)}</td><td className="n">{usd(x.net_cents)}</td><td><StatusBadge status={x.status} />{x.provider === 'admin' && <Badge dot={false}>{t('granted', '赠送')}</Badge>}</td><td className="mute">{dateTime(x.created_at)}</td>
             <td style={{ textAlign: 'right' }}>{x.status === 'paid' && <Button size="sm" variant="danger" disabled={busy === x.id} onClick={() => refund(x)}>{x.provider === 'admin' ? t('Revoke', '撤销') : t('Refund', '退款')}</Button>}</td></tr>)}</tbody></Table> : <div className="pad mute">{t('No sales yet.', '暂无销售。')}</div>}
       </Card>

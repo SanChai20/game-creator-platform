@@ -1462,5 +1462,7 @@
  "Chosen every day from play numbers and ratings": "플레이 수와 평점으로 매일 자동 선정",
  "Chosen at the next run, within 10 minutes.": "다음 실행 때(10분 이내) 선정됩니다.",
  "Rising fast": "급상승",
- "Hidden gem": "숨은 명작"
+ "Hidden gem": "숨은 명작",
+ "Actions": "작업",
+ "Actions for {name}": "{name} 작업"
 }
