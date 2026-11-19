@@ -7,7 +7,8 @@ export function createAudio({ volume = 0.5 } = {}) {
     if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
     try { ctx = new (window.AudioContext || window.webkitAudioContext)(); master = ctx.createGain(); master.gain.value = muted ? 0 : volume; master.connect(ctx.destination); } catch { ctx = null; }
   };
-  addEventListener('pointerdown', unlock, { passive: true }); addEventListener('keydown', unlock);
+  // iPhone and iPad only unlock sound on touchend, pointerup, click or keydown, not on a finger's pointerdown
+  ['pointerdown', 'pointerup', 'touchend', 'click'].forEach((t) => addEventListener(t, unlock, { passive: true })); addEventListener('keydown', unlock);
   const env = (g, t, dur, vol, attack = 0.005) => { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, vol), t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); };
   return {
     unlock,

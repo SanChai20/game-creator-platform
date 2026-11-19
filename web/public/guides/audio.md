@@ -6,11 +6,15 @@ Sound is optional for verification and important for feel. Synthesised sound nee
 
 Audio cannot start until the player has pressed a key, clicked or tapped. Create or resume the `AudioContext` inside that first gesture. Calling `play()` earlier does nothing, or throws a rejection that would count as an error in verification if you leave it unhandled.
 
+Which events count differs: on iPhone and iPad a finger's `pointerdown` and `touchstart` do not unlock sound; `pointerup`, `touchend`, `click` and `keydown` do. Listen for those as well as `pointerdown`:
+
 ```js
 let ctx;
-const unlock = () => { ctx = ctx || new AudioContext(); if (ctx.state === 'suspended') ctx.resume(); };
-addEventListener('pointerdown', unlock); addEventListener('keydown', unlock);
+const unlock = () => { ctx = ctx || new AudioContext(); if (ctx.state !== 'running') ctx.resume(); };
+['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach((t) => addEventListener(t, unlock, true));
 ```
+
+The SDK backs this up for every game: an `AudioContext` that is not running is resumed on the player's next tap, click or key (unless the game suspended it itself with `suspend()`, which its own `resume()` undoes), so sound made on `pointerdown` still starts on the first tap on iPad, and sound cut by a phone call comes back on the next one.
 
 ## Synthesised effects
 
