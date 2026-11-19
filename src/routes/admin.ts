@@ -8,6 +8,7 @@ import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
 import { rolloutRuntime, undeployGame } from '../deploy';
 import { auditFiles } from '../audit';
+import { disableTwoFactor } from '../two-factor';
 import { dbSize } from '../db-guard';
 import { enqueue } from '../pipeline';
 import { hostId, hostingProblems } from '../hosting';
@@ -67,7 +68,7 @@ const pageOf = (c: { req: { query: (k: string) => string | undefined } }) => Mat
 admin.get('/users', async (c) => {
   const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%', off = pageOf(c);
   const rows = await c.env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, u.status, u.creator, u.created_at, u.last_seen_at, u.stripe_payouts_enabled, u.payout_country,
+    `SELECT u.id, u.email, u.name, u.role, u.status, u.creator, u.created_at, u.last_seen_at, u.stripe_payouts_enabled, u.payout_country, (u.totp_enabled_at IS NOT NULL) AS two_factor,
        (SELECT COUNT(*) FROM projects p WHERE p.owner_id = u.id AND p.status != 'removed') AS projects,
        (SELECT COUNT(*) FROM projects p WHERE p.owner_id = u.id AND p.status = 'live') AS live,
        (SELECT COALESCE(SUM(amount_cents), 0) FROM ledger l WHERE l.user_id = u.id) AS balance,
@@ -89,6 +90,12 @@ admin.patch('/users/:id', async (c) => {
     if (id === me.id) throw bad('You cannot suspend yourself.');
     await c.env.DB.prepare('UPDATE users SET status = ? WHERE id = ?').bind(b.status, id).run();
     if (b.status === 'suspended') await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id).run();
+  }
+  // For someone who lost both their authenticator and their recovery codes: after checking it is really them, an admin
+  // turns two-factor off and they sign in with the password alone (and can turn it on again from their account).
+  if (b.two_factor === false) {
+    await disableTwoFactor(c.env, id);
+    console.log(JSON.stringify({ event: 'two_factor_reset', user: id, by: me.id }));
   }
   if (b.role === 'admin' || b.role === 'user') { if (id === me.id) throw bad('You cannot change your own role.'); await c.env.DB.prepare('UPDATE users SET role = ? WHERE id = ?').bind(b.role, id).run(); }
   if (typeof b.adjust_cents === 'number' && Number.isFinite(b.adjust_cents) && b.adjust_cents !== 0) {

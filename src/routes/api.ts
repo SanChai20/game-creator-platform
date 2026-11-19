@@ -7,6 +7,7 @@ import { gameUrl, playKey, undeployGame } from '../deploy';
 import { ensurePreview } from '../cleanup';
 import { deleteAccount, deleteBlocker, newResetToken, takeResetToken } from '../account';
 import { passwordResetMail } from '../mail';
+import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
 import { holdMs, balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
@@ -38,7 +39,7 @@ type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
 
 const media = (origin: string, key: string | null) => (key ? `${origin}/api/media/${key}` : null);
-const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.role, creator: !!u.creator, creator_since: u.creator_since, payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country });
+const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.role, creator: !!u.creator, creator_since: u.creator_since, payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country, two_factor: !!u.totp_enabled_at });
 
 function card(origin: string, r: Record<string, any>) {
   return {
@@ -95,12 +96,34 @@ api.post('/auth/login', async (c) => {
   const good = await checkPassword(String(b.password || ''), u?.pw_hash || DUMMY_HASH);
   if (!u || !good) throw new AppError(401, 'Wrong email or password.', 'bad_login');
   if (u.status !== 'active') throw forbidden('This account is suspended.');
-  await c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now(), u.id).run();
+  // With two-factor on, the right password only opens the second step: nothing is signed in until the code follows.
+  if (await twoFactorOn(c.env, u.id)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, u.id) });
+  return c.json(await signIn(c, u.id));
+});
+
+/** Signs this browser in as the account (the password, and the code when two-factor is on, were checked). */
+async function signIn(c: Ctx, userId: string) {
+  await c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now(), userId).run();
   // Signing in replaces this browser's earlier sign-in, whoever it was: games still open on it (another tab, a reload)
   // stop at their next call instead of carrying on as the previous account.
   await endPreviousLogin(c.env, c.req.raw);
-  c.header('set-cookie', await createSession(c.env, c.req.raw, u.id));
-  return c.json({ ok: true });
+  c.header('set-cookie', await createSession(c.env, c.req.raw, userId));
+  return { ok: true as const };
+}
+
+// The second step of a sign-in with two-factor on: the challenge from the password step and a code from the
+// authenticator app, or one of the recovery codes (src/two-factor.ts). Five wrong codes and the password is asked again.
+api.post('/auth/login/code', async (c) => {
+  const b = await c.req.json<{ challenge?: string; code?: string }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'login2fa:' + clientNet(c.req.raw), 30, 900);
+  const r = await answerChallenge(c.env, String(b.challenge || ''), String(b.code || ''));
+  if (!r.ok) throw r.reason === 'expired'
+    ? new AppError(401, 'This sign-in timed out or had too many wrong codes. Enter your password again.', 'challenge_expired')
+    : new AppError(401, 'That code is not right. Check the time on your phone, or use a recovery code.', 'bad_code');
+  const u = await c.env.DB.prepare('SELECT status FROM users WHERE id = ?').bind(r.userId).first<{ status: string }>();
+  if (u?.status !== 'active') throw forbidden('This account is suspended.');
+  await signIn(c, r.userId);
+  return c.json({ ok: true, used_recovery: r.kind === 'recovery', recovery_left: r.kind === 'recovery' ? (await twoFactorState(c.env, r.userId)).recovery_left : undefined });
 });
 
 // Progress this browser made as a guest, offered to the signed-in account. Nothing moves until the player says so
@@ -147,7 +170,47 @@ api.get('/account', async (c) => {
     user: pubUser(u), created_at: u.created_at,
     sessions: rows.results.map((r) => ({ created_at: r.created_at, ua: r.ua || '', current: r.id === mine })),
     delete_blocker: await deleteBlocker(c.env, u),
+    two_factor: await twoFactorState(c.env, u.id),
   });
+});
+
+// ----- two-factor sign-in (src/two-factor.ts): the same for every account, players and creators alike ---------------
+/** A code from the authenticator or a recovery code, for changing two-factor itself. Used up when it is good. */
+async function requireCode(c: Ctx, u: User, code: unknown) {
+  await rateLimit(c.env, '2facheck:' + u.id, 10, 900);
+  if (!(await useCode(c.env, u.id, String(code || '')))) throw new AppError(401, 'That code is not right. Check the time on your phone, or use a recovery code.', 'bad_code');
+}
+// 1. the password again, then a new secret to put in the authenticator app (a QR code of `uri`, or `secret` typed in)
+api.post('/account/2fa/setup', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ password?: string }>().catch(() => ({} as any));
+  if (u.totp_enabled_at) throw new AppError(409, 'Two-factor sign-in is already on.', 'already_on');
+  await requirePassword(c, u, b.password);
+  return c.json(await beginSetup(c.env, u, (await getSettings(c.env)).brand_name || DEFAULT_BRAND));
+});
+// 2. a code from the app proves it has the secret: two-factor is on, the recovery codes are shown once, and every other
+//    sign-in (which never gave a code) ends
+api.post('/account/2fa/enable', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ code?: string }>().catch(() => ({} as any));
+  if (u.totp_enabled_at) throw new AppError(409, 'Two-factor sign-in is already on.', 'already_on');
+  await rateLimit(c.env, '2facheck:' + u.id, 10, 900);
+  const codes = await confirmSetup(c.env, u.id, String(b.code || '').replace(/\s/g, ''));
+  if (!codes) throw new AppError(400, 'That code is not right, or the setup expired. Check the time on your phone, or start again.', 'bad_code');
+  return c.json({ ok: true, recovery_codes: codes, ended: await endOtherSessions(c, u.id) });
+});
+api.post('/account/2fa/disable', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ password?: string; code?: string }>().catch(() => ({} as any));
+  if (!u.totp_enabled_at) return c.json({ ok: true });
+  await requirePassword(c, u, b.password);
+  await requireCode(c, u, b.code);
+  await disableTwoFactor(c.env, u.id);
+  return c.json({ ok: true });
+});
+api.post('/account/2fa/recovery-codes', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ password?: string; code?: string }>().catch(() => ({} as any));
+  if (!u.totp_enabled_at) throw new AppError(409, 'Turn on two-factor sign-in first.', 'not_on');
+  await requirePassword(c, u, b.password);
+  await requireCode(c, u, b.code);
+  return c.json({ ok: true, recovery_codes: await replaceRecoveryCodes(c.env, u.id) });
 });
 
 api.post('/auth/password', async (c) => {
@@ -198,9 +261,9 @@ api.post('/auth/reset', async (c) => {
     c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
     c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.id),
   ]);
-  await endPreviousLogin(c.env, c.req.raw);
-  c.header('set-cookie', await createSession(c.env, c.req.raw, u.id));
-  return c.json({ ok: true });
+  // A reset link proves the email, not the second factor: with two-factor on, the code is still asked before signing in.
+  if (await twoFactorOn(c.env, u.id)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, u.id) });
+  return c.json(await signIn(c, u.id));
 });
 
 api.post('/account/delete', async (c) => {
