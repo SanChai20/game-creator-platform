@@ -28,9 +28,14 @@ export class GameRoom extends DurableObject<Env> {
   }
   private host(): string | null { return this.peers()[0]?.p.id ?? null; }
   private send(ws: WebSocket, m: unknown) { try { ws.send(JSON.stringify(m)); } catch { /* closing */ } }
-  /** Keeps room_presence in step with who is connected, so the console can show room occupancy. Never fails a join or leave. */
-  private async presence(p: Peer | null | undefined, players: number) {
+  /** Keeps room_presence in step with who is connected, so the console can show room occupancy. Never fails a join or leave.
+      A room opening or emptying is written at once; joins and leaves in between are caught up by the next alarm (at most
+      RECHECK_MS later), so a busy room does not write to the database on every join. */
+  private written = -1;   // the player count room_presence last got from this instance (-1: not known, e.g. after waking)
+  private async presence(p: Peer | null | undefined, players: number, catchUp = false) {
     if (!p?.g || !p.e || !p.r) return;
+    if (!catchUp && players > 0 && this.written > 0) return;
+    this.written = players;
     try {
       if (players > 0) await this.env.DB.prepare('INSERT INTO room_presence (project_id, env, room, players, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, env, room) DO UPDATE SET players = excluded.players, updated_at = excluded.updated_at').bind(p.g, p.e, p.r, players, Date.now()).run();
       else await this.env.DB.prepare('DELETE FROM room_presence WHERE project_id = ? AND env = ? AND room = ?').bind(p.g, p.e, p.r).run();
@@ -79,7 +84,9 @@ export class GameRoom extends DurableObject<Env> {
       }
       if (reason) { this.send(ws, { t: 'error', code: 'session_ended', message: reason }); try { ws.close(4001, 'Session ended'); } catch { /* closing */ } await this.left(ws); }
     }
-    if (this.peers().length) await this.ctx.storage.setAlarm(Date.now() + RECHECK_MS);
+    const open = this.peers();
+    if (open.length && open.length !== this.written) await this.presence(open[0].p, open.length, true);
+    if (open.length) await this.ctx.storage.setAlarm(Date.now() + RECHECK_MS);
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {

@@ -9,6 +9,8 @@ export interface Env {
   MATCHMAKER: DurableObjectNamespace;
   PIPELINE: DurableObjectNamespace;
   BROWSER?: Fetcher;
+  PLAY_RL?: RateLimit;               // game service calls per play session (wrangler.jsonc ratelimits)
+  SERVER_RL?: RateLimit;             // game server code's store calls per game and environment
   // Cloudflare Email Service (send_email binding): payout emails to creators (src/mail.ts)
   EMAIL?: { send(m: { from: { email: string; name: string }; to: string; subject: string; text: string; html: string }): Promise<{ messageId: string }> };
   AI?: Ai;                          // Workers AI: plain-language summaries of open implementations

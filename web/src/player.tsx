@@ -17,6 +17,11 @@ import { artStyle, t } from './lib';
 import { Button } from './ui';
 import './player.css';
 
+// What a game may do inside the player. Never allow-top-navigation: a game must not be able to replace the platform's page
+// (with a lookalike sign-in, say). Games run on their own site (GAME_HOST), so allow-same-origin only gives a game its own
+// storage and cookies, never the platform's. Links a game opens go to a new tab, where the address bar shows where they lead.
+const GAME_SANDBOX = 'allow-scripts allow-same-origin allow-pointer-lock allow-forms allow-modals allow-downloads allow-orientation-lock allow-popups allow-popups-to-escape-sandbox allow-storage-access-by-user-activation';
+
 export type Orientation = 'any' | 'landscape' | 'portrait';
 type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none';
 export interface StageCtl {
@@ -267,7 +272,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   return (
     <div>
       <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '')} ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} inert={menu || hung} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
+        {url ? <iframe ref={frame} src={url} title="Game" onLoad={post} inert={menu || hung} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
         {active && url && !menu && !hung && (corner !== 'none' || badge) && (

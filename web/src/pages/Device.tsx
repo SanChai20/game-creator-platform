@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, navigate, query, t, useApp } from '../lib';
+import { ago, api, navigate, query, t, useApp } from '../lib';
 import { Button, Eyebrow, Field, Input, Notice, Ticks } from '../ui';
 
-interface Pending { user_code: string; client_name: string; created_at: number; expires_at: number; grant_days: number }
+interface Pending { user_code: string; client_name: string; created_at: number; expires_at: number; grant_days: number; from?: string | null; elsewhere?: boolean }
 const tidy = (raw: string) => { const s = raw.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 8); return s.length > 4 ? s.slice(0, 4) + '-' + s.slice(4) : s; };
 
 /** Where a creator approves an agent that cannot open a browser itself. The agent showed them a link here and a code. */
@@ -10,6 +10,9 @@ export function Device() {
   const { user, config } = useApp();
   const [code, setCode] = useState(tidy(query().get('code') || '')), [req, setReq] = useState<Pending | null>(null);
   const [err, setErr] = useState(''), [busy, setBusy] = useState(false), [done, setDone] = useState<'approved' | 'denied' | null>(null);
+  // Opened from a link with the code already in it: the person confirms the agent is theirs before Allow is offered,
+  // since a link is exactly what someone phishing for access would send.
+  const linked = !!query().get('code'), [mine, setMine] = useState(false);
   const look = async (c: string) => {
     setErr(''); setBusy(true);
     try { setReq(await api<Pending>('/device/' + encodeURIComponent(c))); } catch (e) { setReq(null); setErr((e as Error).message); }
@@ -42,12 +45,15 @@ export function Device() {
         <h1>{t('Let “{client_name}” make games for you?', '允许“{client_name}”为你制作游戏吗？', { client_name: req.client_name })}</h1>
         <p className="mute">{t('Signed in as', '当前登录账户')} <b style={{ color: 'var(--text)' }}>{user!.name}</b> ({user!.email}). {t('Code', '验证码')} <b className="mono" style={{ color: 'var(--text)' }}>{req.user_code}</b>.</p>
         <Notice tone="bad">{t('Allow this only if your own agent just showed you this code. The agent chose its own name, so the name proves nothing. If someone else sent you this link, choose Deny.', '仅当这个验证码是你自己的智能体刚刚显示给你的，才可以允许。名称由智能体自行填写，不能作为凭据。如果链接是别人发给你的，请选择拒绝。')}</Notice>
+        <p className="mute fs-sm">{req.from ? t('Requested {when} from around {place}.', '{when}从{place}附近发起。', { when: ago(req.created_at), place: req.from }) : t('Requested {when}.', '{when}发起。', { when: ago(req.created_at) })}</p>
+        {req.elsewhere && <Notice tone="bad" role="alert">{t('This request came from another country than the one you are in. If you are not running an agent there, choose Deny.', '该请求来自与你当前所在不同的国家或地区。如果你没有在那里运行智能体，请选择拒绝。')}</Notice>}
+        {linked && <label className="row fs-sm"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> {t('I started this sign-in myself, from my own agent, just now.', '这个登录是我自己刚刚从我的智能体发起的。')}</label>}
         <Ticks items={[t('Create and edit your game projects', '创建并编辑你的游戏项目'), t('Deploy previews and run verification', '部署预览并运行验证'), t('Publish, roll back and take games offline', '发布、回滚与下线游戏'), t('Set listing details and prices, and read your game stats', '设置上架信息与价格，查看游戏数据')]} />
         <p className="mute">{t('It cannot withdraw money, change your password or see payment details.', '它无法提现、修改密码或查看支付信息。')}</p>
         {err && <Notice tone="bad" role="alert">{err}</Notice>}
         <div className="row">
           <Button type="button" size="lg" className="grow" disabled={busy} onClick={() => decide('deny')}>{t('Deny', '拒绝')}</Button>
-          <Button type="button" variant="primary" size="lg" className="grow" disabled={busy} onClick={() => decide('approve')}>{t('Allow', '允许')}</Button>
+          <Button type="button" variant="primary" size="lg" className="grow" disabled={busy || (linked && !mine)} onClick={() => decide('approve')}>{t('Allow', '允许')}</Button>
         </div>
         <p className="dim fs-sm">{(req.grant_days === 1 ? t('Access expires after 1 day; you can revoke it sooner from your console.', '访问权限将在 1 天后过期，你也可以随时在控制台提前撤销。') : t('Access expires after {n} days; you can revoke it sooner from your console.', '访问权限将在 {n} 天后过期，你也可以随时在控制台提前撤销。', { n: req.grant_days }))}</p>
       </>

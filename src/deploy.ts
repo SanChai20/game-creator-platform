@@ -184,7 +184,7 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
   }
   await env.DB.prepare(`INSERT INTO game_workers (project_id, env, version, runtime, origin, deployed_at, host, script, retired_host, retired_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(project_id, env) DO UPDATE SET version = excluded.version, runtime = excluded.runtime, origin = excluded.origin, deployed_at = excluded.deployed_at,
-      host = excluded.host, script = excluded.script, retired_host = excluded.retired_host, retired_at = excluded.retired_at`)
+      host = excluded.host, script = excluded.script, retired_host = excluded.retired_host, retired_at = excluded.retired_at, idle_at = NULL`)
     .bind(p.id, e, v.n, await fingerprint(env), origin, now(), h.id, script, retiredHost, retiredAt).run();
   return url;
 }
@@ -207,7 +207,8 @@ export async function rolloutRuntime(env: Env, max = 16): Promise<{ updated: str
   const stale = `FROM projects p CROSS JOIN (SELECT 'live' AS env UNION ALL SELECT 'preview') e
     LEFT JOIN game_workers w ON w.project_id = p.id AND w.env = e.env
     WHERE p.status != 'removed' AND (CASE e.env WHEN 'live' THEN p.status = 'live' AND p.live_version IS NOT NULL ELSE p.preview_version IS NOT NULL END)
-      AND (w.runtime IS NULL OR w.runtime != ?1 OR w.host IS NULL OR w.host != ?2)`;
+      AND (w.runtime IS NULL OR w.runtime != ?1 OR w.host IS NULL OR w.host != ?2)
+      AND w.idle_at IS NULL`;   // a preview removed for being idle is deployed again when it is next opened (src/cleanup.ts)
   const rows = await env.DB.prepare(`SELECT p.id, e.env AS env, CASE e.env WHEN 'live' THEN p.live_version ELSE p.preview_version END AS n, w.origin AS origin, w.host AS host ${stale} ORDER BY e.env = 'live' DESC, p.updated_at DESC LIMIT ?3`)
     .bind(fp, hid, max).all<{ id: string; env: GameEnv; n: number; origin: string | null; host: string | null }>();
   for (const r of rows.results) {

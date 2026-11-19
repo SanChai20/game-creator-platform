@@ -5,6 +5,7 @@ import { AppError, bad, type Env } from '../env';
 import { isGuestId } from '../auth';
 import { playKey, runtimeHash, storeKey } from '../deploy';
 import { getSettings } from '../settings';
+import { assertGameDataRoom } from '../db-guard';
 import { owns } from '../earnings';
 import { TRIAL_MIN_CHARGE_S, trialOpenStmts } from '../trials';
 import { clamp, now, safeEqual } from '../util';
@@ -25,6 +26,16 @@ interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'play
 
 // The token names its own game and environment; the signature is checked against that game's key.
 // Every per-player read and write below takes the game, environment and player from this token, never from the request body.
+/** One call against a rate limit binding; a platform without the binding (local, tests) is not limited. */
+async function throttle(rl: RateLimit | undefined, key: string): Promise<void> {
+  if (!rl) return;
+  const { success } = await rl.limit({ key });
+  if (!success) throw new AppError(429, 'Too many calls to the game services. Slow down and try again in a minute.', 'rate_limited');
+}
+/** Game data is written only while the database has room for it (src/db-guard.ts). */
+const roomForGameData = async (env: Env) => assertGameDataRoom(env, Number((await getSettings(env)).game_data_max_db_gb) || 0);
+const READ_OPS = new Set(['get', 'list', 'all', 'top']);
+
 async function authAny(env: Env, token: unknown): Promise<Tok> {
   const tok = await guard(() => authToken(token, (g: string) => playKey(env, g))) as Tok;
   // Guest sessions exist only while "Require login to play" is off; switching it on ends them for every service at once.
@@ -33,6 +44,7 @@ async function authAny(env: Env, token: unknown): Promise<Tok> {
   // switched to another account in this browser), an unclaimed guest id for a guest. Checked on every call.
   const problem = await bindingProblem(env.DB, tok, now());
   if (problem) throw new AppError(401, problem.message, problem.code, problem.reason);
+  await throttle(env.PLAY_RL, 'play:' + tok.s);
   return tok;
 }
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -139,12 +151,14 @@ rt.post('/renew', async (c) => {
 
 rt.post('/save', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
+  if (b.op === 'set') await roomForGameData(c.env);
   return c.json(await guard(() => saveOp(c.env.DB, tok, b, now())));
 });
 
 // GCP.playerStats: named numbers per player and game.
 rt.post('/stats', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
+  if (!READ_OPS.has(b.op)) await roomForGameData(c.env);
   return c.json(await guard(() => statOp(c.env.DB, tok, b, now())));
 });
 
@@ -157,6 +171,7 @@ rt.post('/record', async (c) => {
 // GCP.resume: where the player left off, shown on their Continue row ("Act 2, Floor 14").
 rt.post('/resume', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
+  if (b.op === 'set') await roomForGameData(c.env);
   return c.json(await guard(() => resumeOp(c.env.DB, tok, b, now())));
 });
 
@@ -168,6 +183,7 @@ rt.post('/score', async (c) => {
   const fixed = await db.prepare('SELECT asc FROM boards WHERE project_id = ? AND board = ?').bind(scope, board).first<{ asc: number }>();
   let asc = fixed ? !!fixed.asc : b.order === 'asc';
   if (b.op === 'submit') {
+    await roomForGameData(c.env);
     const score = Number(b.score);
     if (!Number.isFinite(score) || Math.abs(score) > MAX_SCORE) throw bad(`score must be a number between -${MAX_SCORE} and ${MAX_SCORE}.`);
     if (!fixed && tok.k !== 'verify') {
@@ -203,7 +219,9 @@ async function gameWorker(c: { env: Env; req: { header(n: string): string | unde
 
 rt.post('/server-store', async (c) => {
   const { g, e } = await gameWorker(c, true);
+  await throttle(c.env.SERVER_RL, `store:${g}:${e}`);
   const b = await body(c);
+  if (b.op === 'set') await roomForGameData(c.env);
   return c.json(await guard(() => serverStoreOp(c.env.DB, g, e, b, now())));
 });
 

@@ -8,6 +8,7 @@ import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
 import { rolloutRuntime, undeployGame } from '../deploy';
 import { auditFiles } from '../audit';
+import { dbSize } from '../db-guard';
 import { enqueue } from '../pipeline';
 import { hostId, hostingProblems } from '../hosting';
 import { decideRequest, setGameStorage, MB } from '../storage';
@@ -41,7 +42,7 @@ admin.get('/overview', async (c) => {
     db.prepare('SELECT day, SUM(sessions) AS sessions, SUM(plays) AS plays, SUM(seconds) AS seconds FROM game_daily WHERE day >= ? GROUP BY day ORDER BY day').bind(since).all(),
     db.prepare("SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS n FROM users WHERE created_at >= ? GROUP BY day ORDER BY day").bind(t30).all(),
     db.prepare("SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS n, SUM(price_cents) AS gross, SUM(fee_cents) AS fees FROM purchases WHERE status = 'paid' AND created_at >= ? GROUP BY day ORDER BY day").bind(t30).all(),
-    db.prepare("SELECT e.kind, e.detail, e.version, e.created_at, p.id, p.title, p.slug, u.email FROM events e JOIN projects p ON p.id = e.project_id JOIN users u ON u.id = p.owner_id WHERE e.kind IN ('copy_flagged', 'not_game_flagged') ORDER BY e.id DESC LIMIT 20").all(),
+    db.prepare("SELECT e.kind, e.detail, e.version, e.created_at, p.id, p.title, p.slug, u.email FROM events e JOIN projects p ON p.id = e.project_id JOIN users u ON u.id = p.owner_id WHERE e.kind IN ('copy_flagged', 'not_game_flagged', 'player_report') ORDER BY e.id DESC LIMIT 30").all(),
     db.prepare("SELECT purpose, SUM(calls) AS calls FROM ai_usage WHERE day >= ? GROUP BY purpose").bind(since).all(),
     db.prepare('SELECT job, last_run_at, last_ok_at, last_error, last_error_at, runs FROM job_runs').all<Record<string, any>>(),
     currentPicks(db),
@@ -52,7 +53,7 @@ admin.get('/overview', async (c) => {
   return c.json({
     users, games, plays, sales, creator_fees: fees, owed_cents: owed?.c || 0, pending_withdrawals: pendingW, daily: daily.results, signups: signups.results, sales_daily: salesDaily.results, flags: flags.results, ai_calls_30d: ai.results,
     jobs, picks: picks.map((p) => ({ id: p.id, slug: p.slug, title: p.title, reason: p.pick })),
-    health: { payments: stripeReady(c.env), webhook: !!c.env.STRIPE_WEBHOOK_SECRET, accounts_webhook: !!c.env.STRIPE_ACCOUNTS_WEBHOOK_SECRET, deploy: (!!(c.env.CF_API_TOKEN && c.env.CF_ACCOUNT_ID) && !hostingProblems(c.env).length) || c.env.DEPLOY_DRIVER === 'local', hosting: hostId(c.env), hosting_problems: hostingProblems(c.env), browser: !!c.env.BROWSER || !!(c.env as any).VERIFIER_URL, driver: c.env.DEPLOY_DRIVER },
+    health: { payments: stripeReady(c.env), webhook: !!c.env.STRIPE_WEBHOOK_SECRET, accounts_webhook: !!c.env.STRIPE_ACCOUNTS_WEBHOOK_SECRET, deploy: (!!(c.env.CF_API_TOKEN && c.env.CF_ACCOUNT_ID) && !hostingProblems(c.env).length) || c.env.DEPLOY_DRIVER === 'local', hosting: hostId(c.env), hosting_problems: hostingProblems(c.env), browser: !!c.env.BROWSER || !!(c.env as any).VERIFIER_URL, driver: c.env.DEPLOY_DRIVER, db_bytes: await dbSize(c.env) },
   });
 });
 
@@ -79,8 +80,9 @@ admin.get('/users', async (c) => {
 
 admin.patch('/users/:id', async (c) => {
   const me = requireAdmin(c as any), id = c.req.param('id'), b = await c.req.json<Record<string, any>>().catch(() => ({} as Record<string, any>));
-  const u = await c.env.DB.prepare('SELECT id, role FROM users WHERE id = ?').bind(id).first<{ id: string; role: string }>();
+  const u = await c.env.DB.prepare('SELECT id, role, status FROM users WHERE id = ?').bind(id).first<{ id: string; role: string; status: string }>();
   if (!u) throw notFound();
+  if (u.status === 'deleted') throw bad('This account was deleted by its owner.');
   if (b.creator === true) await grantCreator(c.env, id, 'admin', 'grant:' + id + ':' + rid(6), 0);
   if (b.creator === false) await c.env.DB.prepare('UPDATE users SET creator = 0 WHERE id = ?').bind(id).run();
   if (b.status === 'active' || b.status === 'suspended') {

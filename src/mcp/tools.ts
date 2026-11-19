@@ -15,6 +15,9 @@ import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
 import { gameAnalytics, onlineNow } from '../analytics';
+// @ts-ignore plain JS module
+import { DataError, serverStoreOp } from '../player-data.js';
+import { assertGameDataRoom } from '../db-guard';
 import { publishGate } from '../originality-check';
 import { DISCOVERY, NOT_PROVIDED, openPerks, platformServices } from './services';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
@@ -234,6 +237,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
     v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
   }
   if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
+  if (v.purged_at) throw bad(`Version ${v.n} is older than the platform keeps files for, so it can no longer be published.`, 'Call deploy_preview to make a new version from the workspace, then publish that.');
   // Input is checked before the license, so a wrong version number is reported as such for any account.
   if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
   // A rollback only goes back to a version that was live before; anything else is a new publish and meets every gate.
@@ -726,7 +730,7 @@ export const TOOLS: Tool[] = [
             env, shared_data: shared, player_saves: saves, leaderboards: boards.results.map((b) => ({ board: b.board, entries: b.entries, last_submit: new Date(b.last_at).toISOString() })),
             player_records: records, player_stats: stats.results,
             note: 'Player saves, stats and records are counted and aggregated here, never shown per player.',
-            limits: { value_bytes: 256 * 1024, save_bytes_per_player: 2 * 1024 * 1024, save_bytes_per_guest: 512 * 1024, save_keys_per_player: 64, stats_per_player: 64 },
+            limits: { value_bytes: 256 * 1024, save_bytes_per_player: 2 * 1024 * 1024, save_bytes_per_guest: 512 * 1024, save_bytes_per_player_all_games: 20 * 1024 * 1024, save_keys_per_player: 64, stats_per_player: 64, shared_and_server_data: '10,000 keys; 50 MB live, 10 MB preview' },
           };
         }
         case 'list': {
@@ -742,8 +746,10 @@ export const TOOLS: Tool[] = [
           needKey();
           if (a.value === undefined) throw bad('value is required for set (any JSON value).');
           const v = JSON.stringify(a.value);
-          if (v.length > 256 * 1024) throw bad('Value too large (256 KB max per key).');
-          await db.prepare("INSERT INTO saves (project_id, user_id, k, v, updated_at) VALUES (?, '', ?, ?, ?) ON CONFLICT(project_id, user_id, k) DO UPDATE SET v = excluded.v, updated_at = excluded.updated_at").bind(scope, key, v, now()).run();
+          // the same store and allowance as the game's server code (keys and MB per environment), so shared data has a bound
+          await assertGameDataRoom(c.env, Number((await getSettings(c.env)).game_data_max_db_gb) || 0);
+          try { await serverStoreOp(db, p.id, env, { op: 'set', key, value: a.value, player: '' }, now()); }
+          catch (e) { if (e instanceof DataError) throw bad(e.message); throw e; }
           await logEvent(c.env, p.id, 'data_set', `${env}: ${key}`, null, c.client);
           return { ok: true, env, key, bytes: v.length, read_it_with: `await GCP.shared.get(${JSON.stringify(key)})` };
         }

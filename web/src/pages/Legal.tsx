@@ -14,7 +14,7 @@ export const legalTitle = (d: LegalDoc) => ({
 }[d]);
 
 /** The date each text takes effect. Change it whenever that text changes in a meaningful way. */
-const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-19', privacy: '2026-11-18', cookies: '2026-11-18', refunds: '2026-11-19' };
+const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-19', privacy: '2026-11-19', cookies: '2026-11-19', refunds: '2026-11-19' };
 
 const S = ({ h, children }: { h: string; children: ReactNode }) => <section><h2>{h}</h2>{children}</section>;
 
@@ -30,6 +30,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
   const { config } = useApp(), s = config.settings, brand = String(s.brand_name || DEFAULT_BRAND);
   const hours = Number(s.refund_window_hours ?? 24), minutes = Number(s.refund_max_play_minutes ?? 30), cut = Number(s.platform_fee_percent ?? 10), openCut = Number(s.platform_fee_open_percent ?? cut);
   const days = Math.max(Number(s.earnings_hold_days ?? 3), Math.ceil(hours / 24));
+  const newDays = Number(s.new_creator_days ?? 90), newHold = Math.max(days, Number(s.new_creator_hold_days ?? 30));
   const op = OPERATOR.name, legal = OPERATOR.legalEmail, support = String(s.support_email || OPERATOR.supportEmail), state = OPERATOR.jurisdiction;
   const body: Record<LegalDoc, ReactNode> = {
     terms: <>
@@ -48,6 +49,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         <P>{t('You give {op} a worldwide, non-exclusive, royalty-free licence to host, store, copy, run, verify, scan, display, distribute and promote your content, as needed to operate, improve and promote the Service. The licence lasts while your content is on the Service, and afterwards for backups and for players who already bought a game.', '你授予 {op} 一项全球范围、非独占、免版税的许可，可在运营、改进和推广本服务所需的范围内托管、存储、复制、运行、验证、扫描、展示、分发和推广你的内容。该许可在你的内容留存于本服务期间有效，之后在备份范围内及对已购买游戏的玩家继续有效。', { op })}</P>
         <P>{t('Creators who sell games receive each sale’s price minus the platform’s share ({cut}%). The money becomes available {days} days after the buyer paid, and is paid out through Stripe once the creator has set up a payout account. If a sale is later refunded or disputed with the buyer’s bank, the creator’s share is taken back, from future earnings if it was already paid out.', '出售游戏的创作者可获得每笔销售额扣除平台分成（{cut}%）后的部分。该款项在买家付款 {days} 天后可提取，并在创作者设置收款账户后通过 Stripe 支付。如果某笔销售之后被退款或买家向银行发起争议，创作者的分成将被收回；若已支付，则从其之后的收益中扣回。', { cut, days })}</P>
         {openCut < cut && <P>{t('For a game that shares its Open Implementation, the platform’s share is {open}% instead, on sales made while sharing is turned on.', '对开放实现的游戏，在开放期间产生的销售中，平台分成改为 {open}%。', { open: openCut })}</P>}
+        {newDays > 0 && newHold > days && <P>{t('During a creator’s first {new_days} days on the Service, the money from each sale becomes available {new_hold} days after the buyer paid instead.', '创作者在本服务的前 {new_days} 天内，每笔销售的款项改为在买家付款 {new_hold} 天后可提取。', { new_days: newDays, new_hold: newHold })}</P>}
         <P>{t('Creators confirm they own or have permission for everything in a game, and that it follows these Terms. Only web games are accepted. Games for adults must declare that content. A game may be refused, hidden or taken offline if it breaks these Terms or the law.', '创作者确认自己拥有或已获授权使用游戏中的全部内容，且游戏符合本条款。平台仅接受网页游戏。面向成人的游戏必须声明相关内容。违反本条款或法律的游戏可能会被拒绝、隐藏或下线。')}</P>
       </S>
       <S h={t('Purchases and virtual items', '购买与虚拟物品')}>
@@ -109,10 +111,10 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         </ul>
       </S>
       <S h={t('How long we keep it', '保存期限')}>
-        <P>{t('We keep account and gameplay data while your account is open, and delete it within 30 days after you close it. Payment and tax records are kept as long as the law requires, usually up to 7 years. Security logs are kept for a short time. A game’s saves and stats are deleted with the game or your account.', '账户和游玩数据在你的账户存续期间保留，并在你注销后 30 天内删除。支付和税务记录按法律要求保留，通常最长 7 年。安全日志仅短期保留。游戏的存档和统计会随游戏或你的账户一并删除。')}</P>
+        <P>{t('We keep account and gameplay data while your account is open. When you delete your account on your Account page, your email, name, password, saves, stats, scores and reviews are deleted at once. Purchase, payment and tax records are kept, no longer linked to your name or email, as long as the law requires, usually up to 7 years. Security logs are kept for a short time. When a game is removed from the Service, its players’ saves, stats and scores are deleted within 30 days.', '账户和游玩数据在你的账户存续期间保留。你在“账户”页面删除账户后，你的邮箱、名称、密码、存档、统计、分数和评价会立即删除。购买、支付和税务记录会保留，但不再与你的名称或邮箱关联，保留期限按法律要求，通常最长 7 年。安全日志仅短期保留。游戏从本服务中移除后，其玩家的存档、统计和分数会在 30 天内删除。')}</P>
       </S>
       <S h={t('Your rights', '你的权利')}>
-        <P>{t('Depending on where you live, you can ask to see, correct, export or delete your information, or object to how we use it. Send privacy requests to {email}. We may need to confirm it is you, and we will answer within the time the law sets. You can also complain to your local data protection authority.', '根据你所在地区的法律，你可以要求查看、更正、导出或删除你的信息，或反对我们使用这些信息的方式。隐私请求请发送至 {email}。我们可能需要核实你的身份，并会在法律规定的期限内答复。你也可以向当地的数据保护机构投诉。', { email: legal })}</P>
+        <P>{t('Depending on where you live, you can ask to see, correct, export or delete your information, or object to how we use it. You can delete your account yourself on your Account page. Send other privacy requests to {email}. We may need to confirm it is you, and we will answer within the time the law sets. You can also complain to your local data protection authority.', '根据你所在地区的法律，你可以要求查看、更正、导出或删除你的信息，或反对我们使用这些信息的方式。你可以在“账户”页面自行删除账户。其他隐私请求请发送至 {email}。我们可能需要核实你的身份，并会在法律规定的期限内答复。你也可以向当地的数据保护机构投诉。', { email: legal })}</P>
       </S>
       <S h={t('Children’s privacy', '儿童隐私')}>
         <P>{t('The Service is not directed to children under 13, and we do not knowingly collect personal information from them. If we learn that a child under 13 has an account, we delete it and its data. A parent or guardian who believes this has happened can write to {email}.', '本服务并非面向 13 岁以下儿童，我们不会在知情的情况下收集其个人信息。如果我们得知有 13 岁以下儿童注册了账户，将删除该账户及其数据。父母或监护人如认为发生了此类情况，可发送邮件至 {email}。', { email: legal })}</P>
@@ -126,12 +128,11 @@ export function Legal({ doc }: { doc: LegalDoc }) {
     </>,
     cookies: <>
       <S h={t('Cookies', 'Cookie')}>
-        <P>{t('{brand} is operated by {op}. We use only the cookies the site needs to work: one that keeps you signed in, one that remembers your language, and one that lets a game you opened know it may run for you. There are no advertising or tracking cookies.', '{brand} 由 {op} 运营。我们只使用网站运行所必需的 Cookie：一个用于保持登录状态，一个用于记住你的语言，另一个让你打开的游戏确认可以为你运行。没有广告或追踪 Cookie。', { brand, op })}</P>
+        <P>{t('{brand} is operated by {op}. We use only the cookies the site needs to work: one that keeps you signed in, one that remembers your language so pages we send are in it, one that lets a game you opened know it may run for you, and, when you play without an account, one that keeps your guest progress in this browser. There are no advertising or tracking cookies.', '{brand} 由 {op} 运营。我们只使用网站运行所必需的 Cookie：一个用于保持登录状态，一个用于记住你的语言以便我们发送的页面使用该语言，一个让你打开的游戏确认可以为你运行，以及在你不登录游玩时，一个在当前浏览器中保存你的访客进度。没有广告或追踪 Cookie。', { brand, op })}</P>
       </S>
       <S h={t('Stored in your browser', '保存在浏览器中的信息')}>
         <p>{t('Some choices are kept in this browser only and never sent to us:', '有些选择只保存在当前浏览器中，从不发送给我们：')}</p>
         <ul>
-          <li>{t('Your language.', '你选择的语言。')}</li>
           <li>{t('Whether visual effects are on or off, and whether they failed on this device during this visit.', '视觉特效的开关状态，以及本次访问中特效是否在此设备上出错。')}</li>
           <li>{t('Games you played recently, games you have seen in the discovery queue, and when you last visited, so the store can say what is new.', '最近玩过的游戏、在探索队列中看过的游戏，以及你上次来访的时间，以便商店提示新内容。')}</li>
         </ul>

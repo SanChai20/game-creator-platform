@@ -4,7 +4,10 @@ import { AppError, bad, forbidden, notFound, type Env, type Project, type User }
 import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestIdentity, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
 import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
-import { balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale } from '../earnings';
+import { ensurePreview } from '../cleanup';
+import { deleteAccount, deleteBlocker, newResetToken, takeResetToken } from '../account';
+import { passwordResetMail } from '../mail';
+import { holdMs, balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale } from '../earnings';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
@@ -119,6 +122,92 @@ api.post('/guest-progress', async (c) => {
 api.post('/auth/logout', async (c) => {
   const t = sessionToken(c.req.raw);
   if (t) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(await sha256(t)).run();
+  c.header('set-cookie', sessionCookie(c.req.raw, '', 0));
+  return c.json({ ok: true });
+});
+
+// ----- account: password, sign-ins, deletion, reset by email (security review, finding 8) --------------------------
+const checkNewPassword = (pw: string) => { if (pw.length < 8 || pw.length > 200) throw bad('Password must be at least 8 characters.'); };
+const pwHashOf = async (c: Ctx, id: string) => (await c.env.DB.prepare('SELECT pw_hash FROM users WHERE id = ?').bind(id).first<{ pw_hash: string }>())?.pw_hash || '';
+async function requirePassword(c: Ctx, u: User, pw: unknown) {
+  await rateLimit(c.env, 'pwcheck:' + u.id, 10, 900);
+  if (!(await checkPassword(String(pw || ''), await pwHashOf(c, u.id)))) throw new AppError(401, 'That is not your current password.', 'bad_password');
+}
+/** Ends every sign-in of this account except the one making the request. */
+async function endOtherSessions(c: Ctx, userId: string) {
+  const mine = await loginIdOf(c.req.raw);
+  return (await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').bind(userId, mine || '').run()).meta.changes || 0;
+}
+
+api.get('/account', async (c) => {
+  const u = requireUser(c), mine = await loginIdOf(c.req.raw);
+  const rows = await c.env.DB.prepare('SELECT id, created_at, ua FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 50').bind(u.id, now()).all<{ id: string; created_at: number; ua: string }>();
+  return c.json({
+    user: pubUser(u), created_at: u.created_at,
+    sessions: rows.results.map((r) => ({ created_at: r.created_at, ua: r.ua || '', current: r.id === mine })),
+    delete_blocker: await deleteBlocker(c.env, u),
+  });
+});
+
+api.post('/auth/password', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ current?: string; password?: string }>().catch(() => ({} as any));
+  const pw = String(b.password || '');
+  checkNewPassword(pw);
+  await requirePassword(c, u, b.current);
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').bind(await hashPassword(pw), u.id),
+    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.id),
+  ]);
+  // whoever else knew the old password is signed out everywhere; this browser stays signed in
+  return c.json({ ok: true, ended: await endOtherSessions(c, u.id) });
+});
+
+api.post('/auth/sessions/end-others', async (c) => {
+  const u = requireUser(c);
+  return c.json({ ok: true, ended: await endOtherSessions(c, u.id) });
+});
+
+// The answer is the same whether or not the email has an account, so the form cannot be used to find out who has one.
+api.post('/auth/forgot', async (c) => {
+  if (!c.env.EMAIL) throw new AppError(503, 'Password reset by email is not available right now. Contact us to recover your account.', 'no_email');
+  const b = await c.req.json<{ email?: string }>().catch(() => ({} as any));
+  const email = String(b.email || '').trim().toLowerCase().slice(0, 200);
+  await rateLimit(c.env, 'forgotnet:' + clientNet(c.req.raw), 10, 3600);
+  await rateLimit(c.env, 'forgot:' + email, 3, 3600);
+  const u = await c.env.DB.prepare("SELECT id, name, email FROM users WHERE email = ? AND status = 'active'").bind(email).first<{ id: string; name: string; email: string }>();
+  if (u) {
+    const link = `${c.get('origin')}/reset?token=${await newResetToken(c.env, u.id)}`;
+    const send = passwordResetMail(c.env, u.email, u.name, link).then(() => {});
+    // sent after the answer, so how long the answer takes does not tell either
+    try { c.executionCtx.waitUntil(send); } catch { await send; }
+  }
+  return c.json({ ok: true });
+});
+
+api.post('/auth/reset', async (c) => {
+  const b = await c.req.json<{ token?: string; password?: string }>().catch(() => ({} as any));
+  const pw = String(b.password || '');
+  checkNewPassword(pw);
+  await rateLimit(c.env, 'reset:' + clientNet(c.req.raw), 20, 3600);
+  const id = await takeResetToken(c.env, String(b.token || ''));
+  const u = id ? await c.env.DB.prepare('SELECT id, status FROM users WHERE id = ?').bind(id).first<{ id: string; status: string }>() : null;
+  if (!u || u.status !== 'active') throw new AppError(400, 'This reset link has expired or was already used. Ask for a new one.', 'bad_token');
+  await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE users SET pw_hash = ?, last_seen_at = ? WHERE id = ?').bind(await hashPassword(pw), now(), u.id),
+    c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
+    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.id),
+  ]);
+  await endPreviousLogin(c.env, c.req.raw);
+  c.header('set-cookie', await createSession(c.env, c.req.raw, u.id));
+  return c.json({ ok: true });
+});
+
+api.post('/account/delete', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ password?: string }>().catch(() => ({} as any));
+  await requirePassword(c, u, b.password);
+  const blocker = await deleteBlocker(c.env, u);
+  if (blocker) throw new AppError(409, blocker, 'cannot_delete');
+  await deleteAccount(c.env, u.id);
   c.header('set-cookie', sessionCookie(c.req.raw, '', 0));
   return c.json({ ok: true });
 });
@@ -385,6 +474,20 @@ api.get('/me/library', async (c) => {
         ORDER BY b.created_at DESC LIMIT 60`).bind(u.id).all<Record<string, any>>(),
   ]);
   return c.json({ ...played, unplayed: bought ? bought.results.map((r) => ({ ...card(origin, r), bought_at: r.bought_at })) : null });
+});
+
+// A player tells the platform something is wrong with a live game: it asks for passwords or payment, behaves differently
+// than it did in review, uses someone else's work. Each report goes to the admin overview with the game's other flags.
+export const REPORT_REASONS = ['phishing', 'malicious', 'stolen', 'offensive', 'broken', 'other'] as const;
+api.post('/games/:slug/report', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  const b = await c.req.json<{ reason?: string; detail?: string }>().catch(() => ({} as { reason?: string; detail?: string }));
+  const reason = String(b.reason || '');
+  if (!(REPORT_REASONS as readonly string[]).includes(reason)) throw bad(`reason must be one of: ${REPORT_REASONS.join(', ')}.`);
+  await rateLimit(c.env, 'report:' + u.id, 10, 86400);
+  const detail = String(b.detail || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  await logEvent(c.env, p.id, 'player_report', detail ? `${reason}: ${detail}` : reason, p.live_version, 'user:' + u.id);
+  return c.json({ ok: true });
 });
 
 api.post('/games/:slug/reviews', async (c) => {
@@ -722,6 +825,7 @@ api.get('/console/projects/:id/online', async (c) => {
 api.post('/console/projects/:id/preview', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
   if (!p.preview_version) throw new AppError(409, 'No preview has been deployed yet. Ask your agent to run deploy_preview.', 'no_preview');
+  await ensurePreview(c.env, c.get('origin'), p);   // removed after two idle weeks: deployed again first
   return c.json(await startPlay(c, p, 'preview', p.preview_version, u));
 });
 
@@ -768,7 +872,7 @@ api.get('/console/earnings', async (c) => {
     db.prepare("SELECT p.title, p.slug, COUNT(*) AS n, SUM(x.price_cents) AS gross, SUM(x.fee_cents) AS fees, SUM(x.net_cents) AS net FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid' GROUP BY x.project_id ORDER BY net DESC").bind(u.id).all(),
   ]);
   return c.json({
-    balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: s.earnings_hold_days, fee_percent: s.platform_fee_percent, fee_open_percent: s.platform_fee_open_percent,
+    balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: Math.ceil(holdMs(s, now() - u.created_at) / 86400000), fee_percent: s.platform_fee_percent, fee_open_percent: s.platform_fee_open_percent,
     payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, auto: !!s.auto_payouts, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
   });
 });
@@ -794,8 +898,10 @@ api.post('/claim-admin', async (c) => {
   const u = requireUser(c), b = await c.req.json<{ token?: string }>().catch(() => ({} as any));
   await rateLimit(c.env, 'claim:' + clientNet(c.req.raw), 10, 3600);
   if (!c.env.ADMIN_CLAIM_TOKEN || !safeEqual(String(b.token || ''), c.env.ADMIN_CLAIM_TOKEN)) throw forbidden('That claim link is not valid.');
-  // one statement: two people claiming at the same moment cannot both become the first admin
-  const r = await c.env.DB.prepare("UPDATE users SET role = 'admin', creator = 1, creator_since = COALESCE(creator_since, ?1) WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')").bind(now(), u.id).run();
-  if (!r.meta.changes) throw forbidden('An admin already exists. Ask them to promote you.');
+  // one statement: two people claiming at the same moment cannot both become the first admin. The link works once
+  // ever: once used it stays used, even if every admin is later demoted (the _admin_claimed row; getSettings ignores it).
+  const r = await c.env.DB.prepare("UPDATE users SET role = 'admin', creator = 1, creator_since = COALESCE(creator_since, ?1) WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin') AND NOT EXISTS (SELECT 1 FROM settings WHERE key = '_admin_claimed')").bind(now(), u.id).run();
+  if (!r.meta.changes) throw forbidden('This claim link was already used. Ask an admin to promote you.');
+  await c.env.DB.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('_admin_claimed', ?, ?) ON CONFLICT(key) DO NOTHING").bind(JSON.stringify(u.id), now()).run();
   return c.json({ ok: true });
 });

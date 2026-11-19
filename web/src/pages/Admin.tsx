@@ -49,7 +49,7 @@ function Overview() {
       <Jobs jobs={data.jobs || []} picks={data.picks || []} />
       <Card title={t('Flagged uploads', '被标记的上传')} aside={t('copies of other creators\' games and uploads that are not games, caught before publishing', '发布前拦截的抄袭作品与非游戏上传')}>
         {data.flags?.length ? <Table><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Creator', '创作者')}</th><th>{t('Why', '原因')}</th><th className="n">{t('When', '时间')}</th></tr></thead>
-          <tbody>{data.flags.map((f: any, i: number) => <tr key={i}><td><b>{f.title}</b> <span className="dim mono fs-xs">v{f.version}</span></td><td className="mono fs-sm">{f.email}</td><td className="fs-sm"><Badge tone={f.kind === 'copy_flagged' ? 'accent' : 'neutral'} dot={false}>{f.kind === 'copy_flagged' ? t('Copy', '抄袭') : t('Not a game', '非游戏')}</Badge> <span className="mute">{f.detail}</span></td><td className="n fs-sm">{ago(f.created_at)}</td></tr>)}</tbody></Table>
+          <tbody>{data.flags.map((f: any, i: number) => <tr key={i}><td><b>{f.title}</b> <span className="dim mono fs-xs">v{f.version}</span></td><td className="mono fs-sm">{f.email}</td><td className="fs-sm"><Badge tone={f.kind === 'not_game_flagged' ? 'neutral' : 'accent'} dot={false}>{f.kind === 'copy_flagged' ? t('Copy', '抄袭') : f.kind === 'player_report' ? t('Player report', '玩家举报') : t('Not a game', '非游戏')}</Badge> <span className="mute">{f.detail}</span></td><td className="n fs-sm">{ago(f.created_at)}</td></tr>)}</tbody></Table>
           : <div className="pad mute">{t('Nothing flagged.', '暂无标记。')}</div>}
       </Card>
     </div>

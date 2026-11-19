@@ -32,8 +32,11 @@ upload.put('/:token', async (c) => {
 
 upload.post('/:token/zip', async (c) => {
   const { user, project } = await grant(c.env, c.req.param('token')), s = await getSettings(c.env);
+  const room = budgetOf(project, s).bytes, declared = Number(c.req.header('content-length') || 0);
+  // refused before the body is read; unpacking then goes by the sizes in the zip's directory, which importZip checks
+  // first (fflate never writes more than an entry's declared size, so a zip that lies about its sizes cannot grow)
+  if (declared > room) throw new AppError(413, `The zip is ${mb(declared)}; this game has ${mb(room)} of storage in all.`, 'storage_full', storageHint(s.storage_requests_open));
   const buf = new Uint8Array(await c.req.arrayBuffer());
-  const room = budgetOf(project, s).bytes;
   if (buf.byteLength > room) throw new AppError(413, `The zip is ${mb(buf.byteLength)}; this game has ${mb(room)} of storage in all.`, 'storage_full', storageHint(s.storage_requests_open));
   return c.json(await importZip(c.env, user, project.id, buf, c.req.query('clean') === '1'));
 });

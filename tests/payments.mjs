@@ -191,3 +191,11 @@ test('a sale is held at least as long as the buyer can refund it', () => {
   assert.equal(holdMs({ earnings_hold_days: 0, refund_window_hours: 24 }), 86400000);
   assert.equal(holdMs({ earnings_hold_days: 0, refund_window_hours: 0 }), 0);
 });
+
+test('a new creator\'s sales are held longer than an established creator\'s', () => {
+  const s = { earnings_hold_days: 3, refund_window_hours: 24, new_creator_days: 90, new_creator_hold_days: 30 };
+  assert.equal(holdMs(s, 10 * 86400000), 30 * 86400000);
+  assert.equal(holdMs(s, 200 * 86400000), 3 * 86400000);
+  assert.equal(holdMs({ ...s, new_creator_days: 0 }, 10 * 86400000), 3 * 86400000);
+  assert.equal(holdMs(s), 3 * 86400000, 'unknown age: the ordinary hold');
+});

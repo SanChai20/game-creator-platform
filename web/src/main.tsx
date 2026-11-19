@@ -20,7 +20,8 @@ import { onTheme, setTheme, theme } from './ui/theme';
 document.head.insertAdjacentHTML('afterbegin', `<style id="tokens">${TOKENS_CSS}</style>`);
 import { Home } from './pages/Home';
 import { Game } from './pages/Game';
-import { Auth, ClaimAdmin } from './pages/Auth';
+import { Auth, ClaimAdmin, Forgot, Reset } from './pages/Auth';
+import { Account } from './pages/Account';
 import { Creators } from './pages/Creators';
 import { Console } from './pages/Console';
 import { Project } from './pages/Project';
@@ -96,6 +97,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                     <Link to="/console">{t('Console', '控制台')}</Link>
                     <Link to="/console/earnings">{t('Earnings', '收益')}</Link>
                     <Link to="/docs">{t('Docs', '文档')}</Link>
+                    <Link to="/account">{t('Account', '账户')}</Link>
                     {user.role === 'admin' && <Link to="/admin">{t('Admin', '管理后台')}</Link>}
                     <button onClick={onLogout}>{t('Sign out', '退出登录')}</button>
                   </div>
@@ -154,7 +156,7 @@ function NotFound() {
 
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
-  const needUser = path === '/library' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device';
+  const needUser = path === '/library' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account';
   useEffect(() => { if (needUser && !user) navigate(loginUrl(), true); }, [needUser, user, loc]);
   if (needUser && !user) return <RouteSkeleton path={path} />;
   let m: RegExpMatchArray | null;
@@ -165,6 +167,9 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
+  if (path === '/forgot') return <Forgot />;
+  if (path === '/reset') return <Reset />;
+  if (path === '/account') return <Account />;
   if (path === '/library') return <Library />;
   if (path === '/create') return <Creators />;
   if (path === '/docs') return <Docs />;

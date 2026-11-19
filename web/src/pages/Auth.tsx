@@ -38,7 +38,7 @@ export function Auth({ mode, tools }: { mode: 'login' | 'signup'; tools?: ReactN
         {mode === 'signup' && !config.settings.signups_open && <Notice>{t('Sign-ups are closed right now.', '目前暂未开放注册。')}</Notice>}
         {mode === 'signup' && <Field label={t('Display name', '显示名称')}><Input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} maxLength={40} autoComplete="nickname" /></Field>}
         <Field label={t('Email', '邮箱')}><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" autoFocus /></Field>
-        <Field label={t('Password', '密码')} hint={mode === 'signup' ? t('At least 8 characters.', '至少 8 个字符。') : undefined}><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'signup' ? 8 : 1} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></Field>
+        <Field label={t('Password', '密码')} hint={mode === 'signup' ? t('At least 8 characters.', '至少 8 个字符。') : <Link to="/forgot" className="sig">{t('Forgot your password?', '忘记密码？')}</Link>}><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'signup' ? 8 : 1} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></Field>
         {err && <Notice tone="bad" role="alert">{err}</Notice>}
         <Button type="submit" variant="primary" size="lg" block disabled={busy}>{busy ? t('One moment…', '请稍候…') : mode === 'login' ? t('Sign in', '登录') : t('Create account', '创建账户')}</Button>
         {mode === 'signup' && <p className="auth-terms">{t('By creating an account you agree to the {terms} and the {privacy}.', '创建账户即表示你同意{terms}和{privacy}。').split(/(\{terms\}|\{privacy\})/).map((part, i) => part === '{terms}' ? <a key={i} href="/legal/terms" target="_blank" rel="noopener">{legalTitle('terms')}</a> : part === '{privacy}' ? <a key={i} href="/legal/privacy" target="_blank" rel="noopener">{legalTitle('privacy')}</a> : part)}</p>}
@@ -63,6 +63,51 @@ function Showcase() {
         {covers.length > 0 && <div className="auth-wall">{covers.map((g, k) => <span key={g.id} className={'aw' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <img src={g.cover} alt="" loading="lazy" />}</span>)}</div>}
       </div>
     </aside>
+  );
+}
+
+/** Asks for a password reset link by email. The answer is the same whether or not the email has an account. */
+export function Forgot() {
+  const { config } = useApp(), [email, setEmail] = useState(''), [sent, setSent] = useState(false), [err, setErr] = useState(''), [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr(''); setBusy(true);
+    try { await api('/auth/forgot', { body: { email } }); setSent(true); } catch (x) { setErr((x as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <div className="auth"><form onSubmit={submit} className="auth-card">
+      <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
+      <h1>{t('Reset your password', '重置密码')}</h1>
+      {sent ? <p className="mute">{t('If an account uses {email}, we sent it a link to choose a new password. The link works once, for an hour. Check your spam folder if it does not arrive.', '如果有账户使用 {email}，我们已向其发送设置新密码的链接。链接仅可使用一次，有效期一小时。如果没有收到，请检查垃圾邮件。', { email })}</p> : <>
+        <p className="mute">{t('Enter the email you signed up with. We will send you a link to choose a new password.', '输入你注册时使用的邮箱，我们会发送一个设置新密码的链接。')}</p>
+        <Field label={t('Email', '邮箱')}><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" autoFocus /></Field>
+        {err && <Notice tone="bad" role="alert">{err}</Notice>}
+        <Button type="submit" variant="primary" size="lg" block disabled={busy}>{busy ? t('One moment…', '请稍候…') : t('Send the link', '发送链接')}</Button>
+      </>}
+      <p className="mute switch-line"><Link to="/login" className="sig">{t('Back to sign in', '返回登录')}</Link></p>
+    </form></div>
+  );
+}
+
+/** Opened from the emailed link: chooses a new password, which ends every earlier sign-in and signs this browser in. */
+export function Reset() {
+  const { config, refresh } = useApp(), tk = query().get('token') || '';
+  const [pw, setPw] = useState(''), [err, setErr] = useState(''), [busy, setBusy] = useState(false);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr(''); setBusy(true);
+    try { await api('/auth/reset', { body: { token: tk, password: pw } }); announceAuth(); await refresh(); navigate('/', true); }
+    catch (x) { setErr((x as Error).message); setBusy(false); }
+  };
+  return (
+    <div className="auth"><form onSubmit={submit} className="auth-card">
+      <Eyebrow tone="accent">{config.settings.brand_name}</Eyebrow>
+      <h1>{t('Choose a new password', '设置新密码')}</h1>
+      {!tk && <Notice tone="bad">{t('The link is missing its token.', '链接缺少令牌参数。')}</Notice>}
+      <Field label={t('New password', '新密码')} hint={t('At least 8 characters.', '至少 8 个字符。')}><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} required minLength={8} autoComplete="new-password" autoFocus /></Field>
+      {err && <Notice tone="bad" role="alert">{err}</Notice>}
+      <Button type="submit" variant="primary" size="lg" block disabled={busy || !tk}>{busy ? t('One moment…', '请稍候…') : t('Save and sign in', '保存并登录')}</Button>
+      <p className="mute switch-line"><Link to="/forgot" className="sig">{t('Ask for a new link', '重新获取链接')}</Link></p>
+    </form></div>
   );
 }
 

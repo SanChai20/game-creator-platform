@@ -1,0 +1,71 @@
+// Account basics (security review, finding 8): deleting an account, and the password reset link.
+// Deleting keeps what the platform must keep as a record (purchases, payments, the ledger, payouts) under the account's
+// id, and removes or blanks everything that is about the person: email, name, password, sign-ins, saves, stats, scores
+// and reviews. The id stays, so purchase records and the creator's ledger still add up.
+import type { Env } from './env';
+import { balanceOf } from './earnings';
+import { now, sha256, token } from './util';
+
+export const RESET_TTL_MS = 60 * 60 * 1000;
+
+/** Why this account cannot be deleted yet, or null when it can. Each reason is something the person can do first. */
+export async function deleteBlocker(env: Env, u: { id: string; role: string }): Promise<string | null> {
+  if (u.role === 'admin') return 'An admin account cannot be deleted. Ask another admin to remove your admin role first.';
+  const games = await env.DB.prepare("SELECT COUNT(*) AS n FROM projects WHERE owner_id = ? AND status != 'removed'").bind(u.id).first<{ n: number }>();
+  // a creator's games have buyers and players to look after, so deleting a creator account goes through the platform
+  if (games?.n) return `You have ${games.n === 1 ? 'a game' : `${games.n} games`} on the platform. To delete a creator account, write to us, so the players of your games can be looked after.`;
+  const b = await balanceOf(env, u.id);
+  if (b.total !== 0) return 'You still have earnings on your account. Withdraw them first, or contact us.';
+  if (await env.DB.prepare("SELECT 1 FROM withdrawals WHERE user_id = ? AND status = 'pending'").bind(u.id).first()) return 'A withdrawal is still on its way. Wait for it to finish first.';
+  return null;
+}
+
+/** Deletes the account's personal data and ends every sign-in. Call deleteBlocker first. */
+export async function deleteAccount(env: Env, userId: string): Promise<void> {
+  const db = env.DB, t = now();
+  await db.batch([
+    // Reviews leave their games' ratings, unless they were already hidden (a hidden review is not counted).
+    db.prepare(`UPDATE projects SET rating_sum = rating_sum - (SELECT r.rating FROM reviews r WHERE r.project_id = projects.id AND r.user_id = ?1),
+      rating_count = rating_count - 1 WHERE id IN (SELECT project_id FROM reviews WHERE user_id = ?1 AND hidden = 0)`).bind(userId),
+    db.prepare('DELETE FROM reviews WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM saves WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM player_stats WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM player_games WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM scores WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM trials WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM match_ratings WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM device_codes WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+    // the address is freed for a new account; the row stays so purchases and the ledger keep their owner
+    db.prepare(`UPDATE users SET email = ?1, name = 'Deleted account', pw_hash = '!', status = 'deleted', role = 'user', stripe_customer = NULL, last_seen_at = ?2 WHERE id = ?3`)
+      .bind(`deleted-${userId}@deleted.invalid`, t, userId),
+  ]);
+  // MCP agents the person connected lose their access too
+  try {
+    let cursor: string | undefined;
+    do {
+      const r = await env.OAUTH_PROVIDER.listUserGrants(userId, cursor ? { cursor } : undefined);
+      for (const g of r.items) await env.OAUTH_PROVIDER.revokeGrant(g.id, userId);
+      cursor = r.cursor;
+    } while (cursor);
+  } catch (e) { console.error('grants not revoked for deleted account', userId, (e as Error).message); }
+}
+
+/** A new reset link token for this account (the table keeps only its hash). Earlier unused links stop working. */
+export async function newResetToken(env: Env, userId: string): Promise<string> {
+  const tk = token(32), t = now();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId),
+    env.DB.prepare('INSERT INTO password_resets (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(tk), userId, t, t + RESET_TTL_MS),
+  ]);
+  return tk;
+}
+
+/** Uses a reset token once: the account it belongs to, or null if it is unknown, used or expired. */
+export async function takeResetToken(env: Env, tk: string): Promise<string | null> {
+  if (!tk || tk.length > 100) return null;
+  const r = await env.DB.prepare('UPDATE password_resets SET used_at = ?1 WHERE id = ?2 AND used_at IS NULL AND expires_at > ?1 RETURNING user_id')
+    .bind(now(), await sha256(tk)).first<{ user_id: string }>();
+  return r?.user_id || null;
+}

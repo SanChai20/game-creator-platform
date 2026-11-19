@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
 import { sessionToken, userFromRequest } from './auth';
 import { gameBindings, rolloutRuntime } from './deploy';
+import { purgeOldVersions, purgeRemovedGameData, retireIdlePreviews } from './cleanup';
 import { dispatchGame, type Namespace } from './dispatch';
 import { hostKind, matchGameRequest } from './hosting';
 
@@ -325,5 +326,9 @@ export default {
     ]));
     // games published before the duplication check existed get their fingerprints a few at a time
     job('fingerprints', () => backfill(env, 20));
+    // hosting within its limits: idle preview Workers and old versions' files; removed games' player data (src/cleanup.ts)
+    job('idle previews', () => retireIdlePreviews(env));
+    job('old versions', () => purgeOldVersions(env));
+    job('removed game data', () => purgeRemovedGameData(env));
   },
 } satisfies ExportedHandler<Env>;

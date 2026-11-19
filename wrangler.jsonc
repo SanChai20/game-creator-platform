@@ -32,6 +32,12 @@
     ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }, { "tag": "v2", "new_sqlite_classes": ["Matchmaker"] }],
+  // Game service calls (saves, stats, scores, heartbeats, server store) per play session and per game Worker, without a
+  // database write per check (src/routes/rt.ts). Counted per Cloudflare location, so the limits are generous.
+  "ratelimits": [
+    { "name": "PLAY_RL", "namespace_id": "4201", "simple": { "limit": 240, "period": 60 } },
+    { "name": "SERVER_RL", "namespace_id": "4202", "simple": { "limit": 3000, "period": 60 } }
+  ],
   "browser": { "binding": "BROWSER" },
   "ai": { "binding": "AI" },
   // Cloudflare Email Service: payout emails to creators (src/mail.ts). Sends nothing until the domain is onboarded under

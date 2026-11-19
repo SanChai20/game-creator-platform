@@ -173,3 +173,35 @@ test('game server code reaches only its own game', async () => {
   assert.equal((await serverStoreOp(db, 'gamea1', 'preview', { op: 'get', key: 'best', player: 'u_alice' })).value, null);
   assert.equal((await saveOp(db, await auth('gamea1', 'u_alice'), { op: 'get', key: 'best' })).value, 10, 'the same save GCP.save reads');
 });
+
+test('server code\'s room is counted over what it wrote, never over players\' own saves (a popular game keeps working)', async () => {
+  const db = d1();
+  // players fill far more than the server allowance would leave, all with their own saves
+  const big = 'x'.repeat(200 * 1024);
+  for (let i = 0; i < 6; i++) { const p = await auth('gamea1', 'u_p' + i); for (let k = 0; k < 9; k++) await saveOp(db, p, { op: 'set', key: 'k' + k, value: big }); }
+  db.sql.exec(`UPDATE saves SET v = v || '${'y'.repeat(1000)}'`);   // and some more, so the players' rows pass the preview allowance
+  assert.deepEqual(await serverStoreOp(db, 'gamea1', 'preview', { op: 'set', key: 'cfg', value: 1 }), { ok: true });
+  assert.deepEqual(await serverStoreOp(db, 'gamea1', 'live', { op: 'set', key: 'cfg', value: 1 }), { ok: true });
+  // the server allowance itself still holds, preview smaller than live
+  const v = 'z'.repeat(250 * 1024);
+  let n = 0;
+  await assert.rejects(async () => { for (; n < 100; n++) await serverStoreOp(db, 'gamea1', 'preview', { op: 'set', key: 's' + n, value: v }); }, /Game data full/);
+  assert.ok(n >= 38 && n <= 41, `preview stops near 10 MB (${n} values)`);
+});
+
+test('one player cannot fill the database by spreading saves over many games', async () => {
+  const db = d1(), big = 'x'.repeat(250 * 1024);
+  KEYS.gamec3 = 'key-of-game-c';
+  let stored = 0;
+  await assert.rejects(async () => {
+    for (let g = 0; g < 40; g++) {
+      const game = 'gamex' + String(g).padStart(2, '0'); KEYS[game] = 'k-' + game;
+      const tok = await auth(game, 'u_hoarder');
+      for (let k = 0; k < 8; k++) { await saveOp(db, tok, { op: 'set', key: 'k' + k, value: big }); stored += big.length; }
+    }
+  }, /over all games together/);
+  assert.ok(stored <= 20 * 1024 * 1024, `stopped at ${stored} bytes`);
+  // another player is unaffected
+  const other = await auth('gamex00', 'u_other');
+  assert.deepEqual(await saveOp(db, other, { op: 'set', key: 'a', value: 1 }), { ok: true });
+});
