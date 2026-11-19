@@ -100,7 +100,7 @@ export function cleanMarks(v) {
  */
 export function cleanContext(v) {
   const c = v && typeof v === 'object' ? v : {};
-  const out = { method: c.method === 'screen' ? 'screen' : 'game' };
+  const out = { method: c.method === 'screen' || c.method === 'page' ? c.method : 'game' };
   const int = (x, max) => { const n = Math.round(Number(x)); return Number.isFinite(n) && n >= 0 ? Math.min(n, max) : undefined; };
   const vw = int(c.viewport?.width, 10000), vh = int(c.viewport?.height, 10000);
   if (vw && vh) out.viewport = { width: vw, height: vh };

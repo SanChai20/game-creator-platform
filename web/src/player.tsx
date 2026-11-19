@@ -41,7 +41,7 @@ export interface StageCtl {
 }
 /** What the SDK answers a capture with: the picture (a JPEG data URL, '' on error) and what it knew about the game. */
 export interface GameCapture {
-  image: string; error: string; canvases: number; state: string | null; frames: number; fps: number; ready: boolean; label: string;
+  image: string; error: string; canvases: number; method?: 'game' | 'page'; state: string | null; frames: number; fps: number; ready: boolean; label: string;
   errors: string[]; warnings: string[]; viewport: { width: number; height: number };
 }
 

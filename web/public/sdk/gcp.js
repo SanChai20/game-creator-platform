@@ -882,43 +882,122 @@
     setTimeout(function () { if (!e.defaultPrevented) toParent({ gcp: 'menu', on: true }); }, 0);
   });
   // ---- creator feedback: the console asks for a picture of the game while its creator plays the preview. Only on the
-  // preview, only for the game's owner, only when the platform's own page asks. Every canvas on the page is drawn into one
-  // picture right after the game drew a frame (a WebGL canvas is still holding that frame then, whatever its settings),
-  // where each sits on the screen. Page elements over the canvas (HTML menus) are not in it; the console can capture the
-  // whole tab instead.
+  // preview, only for the game's owner, only when the platform's own page asks. The picture is what the creator sees:
+  //   - every canvas is copied right after the game drew a frame (a WebGL canvas still holds that frame then, whatever
+  //     its settings), so the picture is one frame, frozen;
+  //   - when page elements are showing too (an HTML menu, a collection page, a HUD), the page is redrawn with them at
+  //     that same moment: each element with the styles it has right now (animations stopped where they are), each
+  //     canvas replaced by its copy. Where the browser refuses that (some Safari versions) the canvases alone are sent,
+  //     and the console says page elements are missing.
   var platformOrigin = ''; try { platformOrigin = new URL(cfg.api || location.origin, location.href).origin; } catch (e) { /* no platform */ }
   var fpsAt = 0, fpsN = 0, fpsNow = 0;
   frameHooks.push(function () { var t = performance.now(); fpsN++; if (!fpsAt) fpsAt = t; if (t - fpsAt >= 1000) { fpsNow = Math.round(fpsN * 1000 / (t - fpsAt)); fpsN = 0; fpsAt = t; } });
+  var shown = function (el, st) { st = st || getComputedStyle(el); return st.display !== 'none' && st.visibility !== 'hidden' && +st.opacity !== 0; };
+  function onScreen(r, vw, vh) { return r.width >= 2 && r.height >= 2 && r.right > 0 && r.bottom > 0 && r.left < vw && r.top < vh; }
+  /** Whether anything besides the canvases shows on screen: text, pictures, or a painted box that does not hold a canvas. */
+  function pageShowsElements(vw, vh) {
+    var cs = document.querySelectorAll('canvas'), all = document.body ? document.body.getElementsByTagName('*') : [], n = 0;
+    for (var i = 0; i < all.length && n < 3000; i++, n++) {
+      var el = all[i], tag = el.tagName;
+      if (tag === 'CANVAS' || tag === 'SCRIPT' || tag === 'STYLE') continue;
+      var r = el.getBoundingClientRect(); if (!onScreen(r, vw, vh)) continue;
+      var st = getComputedStyle(el); if (!shown(el, st)) continue;
+      if (tag === 'IMG' || tag === 'VIDEO' || tag === 'svg' || tag === 'INPUT' || tag === 'BUTTON') return true;
+      for (var c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 3 && c.nodeValue.trim()) return true;
+      var holds = false; for (var j = 0; j < cs.length; j++) if (el.contains(cs[j])) { holds = true; break; }
+      if (!holds && (!/rgba\(0, 0, 0, 0\)|transparent/.test(st.backgroundColor) || st.backgroundImage !== 'none')) return true;
+    }
+    return false;
+  }
+  /** The page as it is now, drawn through an SVG picture of its elements. snaps: canvas -> data URL of its frozen frame. */
+  function domPicture(snaps, vw, vh, w, h, bg, done) {
+    var doc = document.implementation.createHTMLDocument(''), n = 0, imgs = 0, SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, LINK: 1, META: 1, TEMPLATE: 1, IFRAME: 1, OBJECT: 1, EMBED: 1 };
+    function styleOf(src) {
+      var cs = getComputedStyle(src), out = '';
+      for (var i = 0; i < cs.length; i++) { var k = cs[i]; if (/^(animation|transition)/.test(k)) continue; var v = cs.getPropertyValue(k); if (/url\(/.test(v) && !/url\("?data:/.test(v)) continue; out += k + ':' + v + ';'; }
+      return out + 'animation:none;transition:none;';
+    }
+    function pictureOf(el) {   // an <img> or a <video> frame, as a data URL (same-site files only)
+      if (++imgs > 80) return '';
+      try { var c = document.createElement('canvas'), iw = el.naturalWidth || el.videoWidth, ih = el.naturalHeight || el.videoHeight; if (!iw || !ih) return ''; var k = Math.min(1, 1024 / Math.max(iw, ih)); c.width = Math.max(1, Math.round(iw * k)); c.height = Math.max(1, Math.round(ih * k)); c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); return c.toDataURL('image/png'); } catch (e) { return ''; }
+    }
+    function copy(src) {
+      if (src.nodeType === 3) return doc.createTextNode(src.nodeValue);
+      if (src.nodeType !== 1 || SKIP[src.tagName] || ++n > 4000) return null;
+      var st = getComputedStyle(src); if (st.display === 'none') return null;
+      var tag = src.tagName, el;
+      if (src.namespaceURI === 'http://www.w3.org/2000/svg') { el = doc.importNode(src, true); el.setAttribute('style', styleOf(src)); return el; }
+      if (tag === 'CANVAS' || tag === 'IMG' || tag === 'VIDEO') {
+        el = doc.createElement('img'); var u = tag === 'CANVAS' ? snaps.get(src) || '' : pictureOf(src);
+        if (u) el.setAttribute('src', u); el.setAttribute('style', styleOf(src)); return el;
+      }
+      el = doc.createElement(tag === 'BODY' ? 'div' : tag.toLowerCase());
+      el.setAttribute('style', styleOf(src));
+      if (tag === 'INPUT') { el.setAttribute('value', src.value); if (src.checked) el.setAttribute('checked', ''); }
+      if (tag === 'TEXTAREA') el.textContent = src.value;
+      for (var c = src.firstChild; c; c = c.nextSibling) { var k = copy(c); if (k) el.appendChild(k); }
+      return el;
+    }
+    var root = doc.createElement('div');
+    root.setAttribute('style', 'position:relative;overflow:hidden;width:' + vw + 'px;height:' + vh + 'px;background:' + bg + ';margin-top:' + (-scrollY) + 'px;margin-left:' + (-scrollX) + 'px');
+    var body = copy(document.body); if (body) root.appendChild(body);
+    var xml = new XMLSerializer().serializeToString(root);
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + vw + ' ' + vh + '"><foreignObject x="0" y="0" width="' + vw + '" height="' + vh + '">' + xml + '</foreignObject></svg>';
+    var img = new Image(), over = false, t = setTimeout(function () { if (!over) { over = true; done(null); } }, 4000);
+    img.onload = function () {
+      if (over) return; over = true; clearTimeout(t);
+      try { var c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h); done(c.toDataURL('image/jpeg', 0.86)); } catch (e) { done(null); }
+    };
+    img.onerror = function () { if (!over) { over = true; clearTimeout(t); done(null); } };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  }
   function captureGame(id) {
     var vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight), dpr = window.devicePixelRatio || 1;
     var scale = Math.min(dpr, 1600 / vw, 1600 / vh), out = document.createElement('canvas');
     out.width = Math.round(vw * scale); out.height = Math.round(vh * scale);
-    var g = out.getContext('2d'), drew = 0, done = false, timer = 0;
+    var g = out.getContext('2d'), drew = 0, done = false, timer = 0, copies = [], bg = '#000';
+    try { var b = getComputedStyle(document.body).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; else { b = getComputedStyle(document.documentElement).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; } } catch (e) { /* no body */ }
+    // every canvas on screen, copied as it is at this moment: the composite for the canvas-only picture, and one copy per
+    // canvas for the picture of the whole page
     function compose() {
-      var bg = '#000'; try { var b = getComputedStyle(document.body).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; } catch (e) { /* no body */ }
-      g.fillStyle = bg; g.fillRect(0, 0, out.width, out.height); drew = 0;
+      g.fillStyle = bg; g.fillRect(0, 0, out.width, out.height); drew = 0; copies = [];
       var cs = document.querySelectorAll('canvas');
       for (var i = 0; i < cs.length; i++) {
-        var c = cs[i], r = c.getBoundingClientRect(); if (r.width < 2 || r.height < 2 || !c.width || !c.height || r.right < 0 || r.bottom < 0 || r.left > vw || r.top > vh) continue;
-        var st = getComputedStyle(c); if (st.display === 'none' || st.visibility === 'hidden' || +st.opacity === 0) continue;
-        try { g.globalAlpha = Math.max(0, Math.min(1, +st.opacity || 1)); g.drawImage(c, r.left * scale, r.top * scale, r.width * scale, r.height * scale); drew++; } catch (e) { /* not drawable */ }
+        var c = cs[i], r = c.getBoundingClientRect(); if (!c.width || !c.height || !onScreen(r, vw, vh)) continue;
+        var st = getComputedStyle(c); if (!shown(c, st)) continue;
+        try {
+          g.globalAlpha = Math.max(0, Math.min(1, +st.opacity || 1)); g.drawImage(c, r.left * scale, r.top * scale, r.width * scale, r.height * scale); drew++;
+          var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(c.width, r.width * scale))); k.height = Math.max(1, Math.round(Math.min(c.height, r.height * scale)));
+          k.getContext('2d').drawImage(c, 0, 0, k.width, k.height); copies.push([c, k]);
+        } catch (e) { /* not drawable */ }
       }
       g.globalAlpha = 1;
     }
-    function finish(err) {
-      if (done) return; done = true; afterDraw = null; clearTimeout(timer);
-      var image = '', error = err || '';
-      if (!error && !drew) error = 'no_canvas';
-      if (!error) { try { image = out.toDataURL('image/jpeg', 0.86); } catch (e) { error = 'tainted'; } }
+    function send(image, error, method) {
       var state = null; try { state = S.debugState(); } catch (e) { state = 'onState threw: ' + (e && e.message || e); }
-      toParent({ gcp: 'capture_result', id: id, image: image, error: error, canvases: drew,
+      toParent({ gcp: 'capture_result', id: id, image: image, error: error, canvases: drew, method: method,
         state: state, frames: S.frames, fps: fpsNow, ready: S.ready, label: S.label || '', errors: S.errors.slice(0, 10), warnings: S.warnings.slice(0, 10),
         viewport: { width: vw, height: vh } });
     }
-    // the frame being drawn now: draw after every callback of it, and send once the frame is over
+    function finish() {
+      if (done) return; done = true; afterDraw = null; clearTimeout(timer);
+      var canvasOnly = '', error = '';
+      if (drew) { try { canvasOnly = out.toDataURL('image/jpeg', 0.86); } catch (e) { error = 'tainted'; } }
+      var page = false; try { page = pageShowsElements(vw, vh); } catch (e) { /* keep the canvases */ }
+      if (!page) { send(canvasOnly, error || (drew ? '' : 'no_canvas'), 'game'); return; }
+      var snaps = new Map();
+      for (var i = 0; i < copies.length; i++) { try { snaps.set(copies[i][0], copies[i][1].toDataURL('image/png')); } catch (e) { /* tainted: left blank */ } }
+      try {
+        domPicture(snaps, vw, vh, out.width, out.height, bg, function (full) {
+          if (full) send(full, '', 'page');
+          else send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game');
+        });
+      } catch (e) { send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game'); }
+    }
+    // the frame being drawn now: copy after every callback of it, and finish once the frame is over
     var armed = -1;
-    afterDraw = function (t) { if (armed < 0) { armed = t; setTimeout(function () { finish(); }, 0); } if (t === armed) compose(); };
-    // a game that is not drawing (paused, turn-based): take what the canvases hold now
+    afterDraw = function (t) { if (armed < 0) { armed = t; setTimeout(finish, 0); } if (t === armed) compose(); };
+    // a game that is not drawing (paused, turn-based, a page of elements): take what the canvases hold now
     timer = setTimeout(function () { if (armed < 0) { compose(); finish(); } }, 500);
   }
   window.addEventListener('message', function (e) {
