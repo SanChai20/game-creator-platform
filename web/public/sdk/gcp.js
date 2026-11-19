@@ -1030,7 +1030,10 @@
         return '@font-face{font-family:' + f.family + ';src:url("' + got[f.url] + '")' + (f.format ? ' format("' + f.format + '")' : '') + (f.weight ? ';font-weight:' + f.weight : '') + (f.style ? ';font-style:' + f.style : '') + (f.range ? ';unicode-range:' + f.range : '') + '}';
       }).join('');
       if (css) x = x.replace(/^<div([^>]*)>/, function (all) { return all + '<style>' + esc(css).replace(/&quot;/g, '"') + '</style>'; });
-      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + vw + ' ' + vh + '"><foreignObject x="0" y="0" width="' + vw + '" height="' + vh + '">' + x + '</foreignObject></svg>';
+      // The picture is made at the page's own size in CSS pixels and scaled when it is drawn: a foreignObject scaled by
+      // the SVG itself (a viewBox other than its size, or a transform) is drawn at the wrong size or place by some
+      // engines (WebKit), while drawing an SVG picture larger is something every browser does right.
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + vw + '" height="' + vh + '" viewBox="0 0 ' + vw + ' ' + vh + '"><foreignObject x="0" y="0" width="100%" height="100%">' + x + '</foreignObject></svg>';
       var img = new Image(), fin = false, t = setTimeout(function () { if (!fin) { fin = true; done(null); } }, 5000);
       img.onload = function () {
         if (fin) return; fin = true; clearTimeout(t);
@@ -1039,6 +1042,25 @@
       img.onerror = function () { if (!fin) { fin = true; clearTimeout(t); done(null); } };
       img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
     }
+  }
+  /**
+   * Where a canvas's picture is drawn on screen: inside its border and padding, and inside the bars object-fit leaves
+   * (contain, scale-down) or beyond the box it crops to (cover), at its object-position. A canvas stretched to its box
+   * (the default) fills it.
+   */
+  function canvasBox(c, r, st) {
+    var px = function (v) { return parseFloat(v) || 0; };
+    var x = r.left + px(st.borderLeftWidth) + px(st.paddingLeft), y = r.top + px(st.borderTopWidth) + px(st.paddingTop);
+    var w = Math.max(0, r.width - px(st.borderLeftWidth) - px(st.borderRightWidth) - px(st.paddingLeft) - px(st.paddingRight));
+    var h = Math.max(0, r.height - px(st.borderTopWidth) - px(st.borderBottomWidth) - px(st.paddingTop) - px(st.paddingBottom));
+    var fit = st.objectFit || 'fill', iw = c.width, ih = c.height;
+    if (fit === 'fill' || !iw || !ih || !w || !h) return { x: x, y: y, w: w, h: h };
+    // a transformed canvas (rotate, scale) has a bounding box larger than its layout box: object-fit cannot be placed then
+    if (Math.abs(r.width - c.offsetWidth) > 1 || Math.abs(r.height - c.offsetHeight) > 1) return { x: x, y: y, w: w, h: h };
+    var k = fit === 'cover' ? Math.max(w / iw, h / ih) : fit === 'none' ? 1 : fit === 'scale-down' ? Math.min(1, w / iw, h / ih) : Math.min(w / iw, h / ih);
+    var dw = iw * k, dh = ih * k, pos = (st.objectPosition || '50% 50%').split(/\s+/);
+    var at = function (v, free) { if (/%$/.test(v)) return free * parseFloat(v) / 100; if (v === 'left' || v === 'top') return 0; if (v === 'right' || v === 'bottom') return free; if (v === 'center') return free / 2; return parseFloat(v) || 0; };
+    return { x: x + at(pos[0] || '50%', w - dw), y: y + at(pos[1] || pos[0] || '50%', h - dh), w: dw, h: dh, clip: { x: x, y: y, w: w, h: h } };
   }
   // picture false: only the game's state and counters (the console took the picture itself, from the browser's tab capture)
   function captureGame(id, picture) {
@@ -1056,7 +1078,11 @@
         var c = cs[i], r = c.getBoundingClientRect(); if (!c.width || !c.height || !onScreen(r, vw, vh)) continue;
         var st = getComputedStyle(c); if (!shown(c, st)) continue;
         try {
-          g.globalAlpha = Math.max(0, Math.min(1, +st.opacity || 1)); g.drawImage(c, r.left * scale, r.top * scale, r.width * scale, r.height * scale); drew++;
+          var bx = canvasBox(c, r, st);
+          g.save();
+          if (bx.clip) { g.beginPath(); g.rect(bx.clip.x * scale, bx.clip.y * scale, bx.clip.w * scale, bx.clip.h * scale); g.clip(); }
+          g.globalAlpha = Math.max(0, Math.min(1, +st.opacity || 1)); g.drawImage(c, bx.x * scale, bx.y * scale, bx.w * scale, bx.h * scale); drew++;
+          g.restore();
           var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(c.width, r.width * scale))); k.height = Math.max(1, Math.round(Math.min(c.height, r.height * scale)));
           k.getContext('2d').drawImage(c, 0, 0, k.width, k.height); copies.push([c, k]);
         } catch (e) { /* not drawable */ }

@@ -286,3 +286,6 @@
 .fb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .fb-full { flex-basis: 100%; width: 100%; height: auto; border-radius: 6px; }
 .stage-badge .btn { height: 22px; }
+/* "use the game's own drawing" under an exact picture: a link-looking button */
+.fb-exact .linkish { display: inline; background: none; border: 0; cursor: pointer; color: var(--text-2); }
+.fb-exact .linkish:disabled { opacity: .6; cursor: progress; }

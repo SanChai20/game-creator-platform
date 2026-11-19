@@ -810,15 +810,17 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'creator_feedback', title: 'Read the creator\'s annotated screenshots',
-    description: `The creator's feedback queue: while playing the preview in the console, the creator takes screenshots, circles or points at what is wrong, writes a note and adds it to this queue. Returns the oldest items (up to ${FEEDBACK_LIMITS.read_max}), each with its note, its marks numbered as drawn on the picture (in picture pixels), the preview version, the screen size, errors the game had and what GCP.test.onState(fn) returned, followed by the annotated pictures as images. Each item is removed from the queue as it is returned, so read it carefully and act on it: it will not come back. peek: true lists what is waiting (notes only, no pictures) without removing anything. Check it at the start of a session and after each deploy_preview (deploy_preview and list_versions say when items are waiting). Only the game's creator's own account can read it.`,
-    inputSchema: obj({ project: PROJECT, limit: { type: 'integer', description: `Items to take, 1 to ${FEEDBACK_LIMITS.read_max} (default 3).` }, peek: { type: 'boolean', description: 'List what is waiting without taking anything (no pictures).' } }, ['project']),
+    description: `The creator's feedback queue: while playing the preview in the console, the creator takes screenshots, circles or points at what is wrong, writes a note and adds it to this queue. Returns the oldest items (up to ${FEEDBACK_LIMITS.read_max}), each with its note, its marks numbered as drawn on the picture (in picture pixels, plus [game (x, y)]: the same spot in the game's CSS pixels, which debug_preview steps take, when the picture shows the whole game), how the picture was taken (captured_from), the preview version, the screen size, errors the game had and what GCP.test.onState(fn) returned, followed by the annotated pictures as images. Each item is taken off the queue as it is returned, so act on it: the next call returns the next items. If an answer never reached you, recent: true returns the items read in the last day again. Large pictures may hold some items back for the next call (still_waiting says so). peek: true lists what is waiting (notes only, no pictures) without removing anything. Check it at the start of a session and after each deploy_preview (deploy_preview and list_versions say when items are waiting). Only the game's creator's own account can read it.`,
+    inputSchema: obj({ project: PROJECT, limit: { type: 'integer', description: `Items to take, 1 to ${FEEDBACK_LIMITS.read_max} (default 3).` }, peek: { type: 'boolean', description: 'List what is waiting without taking anything (no pictures).' }, recent: { type: 'boolean', description: 'Return the items already read in the last 24 hours again, newest first, with their pictures (nothing is taken).' } }, ['project']),
     run: async (a, c) => {
       const p = await feedbackProject(c.env, c.user, a.project);
-      const r = await takeFeedback(c.env, p, Number(a.limit ?? 3), a.peek === true, c.client);
+      const recent = a.recent === true && a.peek !== true;
+      const r = await takeFeedback(c.env, p, Number(a.limit ?? 3), a.peek === true, c.client, recent);
       const data = {
-        ...(a.peek ? { waiting: r.pending } : { taken: r.items.length, still_waiting: r.pending }),
+        ...(a.peek ? { waiting: r.pending } : recent ? { read_again: r.items.length, still_waiting: r.pending } : { taken: r.items.length, still_waiting: r.pending }),
         items: r.items,
-        next: !r.items.length ? 'Nothing waiting. The creator adds items from the preview in the console (Capture feedback).'
+        next: recent ? (r.items.length ? 'These were read before, within the last day. Nothing changed on the queue.' : 'Nothing was read in the last day.')
+          : !r.items.length ? 'Nothing waiting. The creator adds items from the preview in the console (Capture feedback).'
           : a.peek ? 'Call creator_feedback without peek to take them with their pictures.'
             : `These items are now off the queue. Fix what they point at, deploy_preview, and tell the creator what you changed for each.${r.pending ? ` ${r.pending} more waiting: call creator_feedback again.` : ''} debug_preview lets you reproduce what a picture shows.`,
       };

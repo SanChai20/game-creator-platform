@@ -1,6 +1,7 @@
 // The creator feedback queue: annotated screenshots of a game's preview, taken by its creator in the console, waiting for
 // their agent. The console adds and removes items; the agent reads them with creator_feedback, which takes each item off
-// the queue as it returns it, so nothing is read twice. Only the game's owner reaches its queue (not admins, not other
+// the queue as it returns it, so nothing is read twice. A read item is kept for a day (TAKEN_KEEP_MS) where only the agent
+// sees it (recent: true), so an answer that never reached it is not lost. Only the game's owner reaches its queue (not admins, not other
 // accounts), and the queue is small and short-lived: a few dozen items per game, kept a month at most. The rules for
 // what an item holds are in feedback-rules.js (tests/feedback.mjs).
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from './env';
@@ -12,10 +13,14 @@ import { now, parseJson, rid } from './util';
 import { FEEDBACK_LIMITS, FeedbackError, cleanContext, cleanMarks, cleanNote, describeMarks, parseImage } from './feedback-rules.js';
 
 const ADDS_PER_HOUR = 60;   // per account, across games
+const TAKEN_KEEP_MS = 24 * 3600000;   // a read item stays this long for creator_feedback { recent: true }
+// Pictures one creator_feedback answer carries at most. Agents' clients refuse very large answers (several MB of images);
+// items over the budget stay queued for the next call. The first item always goes, whatever its size.
+const ANSWER_IMAGE_BYTES = 3_500_000;
 
 export interface FeedbackRow {
   id: string; project_id: string; owner_id: string; version: number | null; note: string; marks: string; context: string;
-  image_key: string | null; bytes: number; width: number; height: number; created_at: number;
+  image_key: string | null; bytes: number; width: number; height: number; created_at: number; taken_at?: number | null;
 }
 
 /** The project, only for its owner: the feedback queue is the creator's conversation with their own agent. */
@@ -29,7 +34,7 @@ const keyOf = (pid: string, id: string, type: string) => `feedback/${pid}/${id}.
 const wrap = <T>(fn: () => T): T => { try { return fn(); } catch (e) { if (e instanceof FeedbackError) throw bad(e.message); throw e; } };
 
 export async function pendingFeedback(env: Env, pid: string): Promise<number> {
-  const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE project_id = ?').bind(pid).first<{ n: number }>().catch(() => null);
+  const r = await env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE project_id = ? AND taken_at IS NULL').bind(pid).first<{ n: number }>().catch(() => null);
   return r?.n || 0;
 }
 
@@ -57,7 +62,7 @@ export async function addFeedback(env: Env, user: User, p: Project, body: Record
 
 /** The queue as the console shows it, oldest first. The picture comes from feedbackImage. */
 export async function listFeedback(env: Env, p: Project) {
-  const rows = await env.DB.prepare('SELECT * FROM feedback WHERE project_id = ? ORDER BY created_at, id LIMIT 100').bind(p.id).all<FeedbackRow>();
+  const rows = await env.DB.prepare('SELECT * FROM feedback WHERE project_id = ? AND taken_at IS NULL ORDER BY created_at, id LIMIT 100').bind(p.id).all<FeedbackRow>();
   const s = await getSettings(env);
   return {
     enabled: s.feedback_enabled, max_pending: s.feedback_max_pending, keep_days: s.feedback_keep_days,
@@ -87,8 +92,10 @@ function itemText(r: FeedbackRow, n: number) {
     item: n, id: r.id, version: r.version, taken_at: new Date(r.created_at).toISOString(),
     note: r.note || '(no note: see the marks on the picture)',
     picture: r.image_key ? `${r.width} × ${r.height} px, shown below as image ${n}. Each mark is drawn on it with its number.` : 'missing',
-    marks: describeMarks(marks, r.width, r.height),
-    ...(ctx.viewport ? { screen: `${ctx.viewport.width} × ${ctx.viewport.height}${ctx.fullscreen ? ', fullscreen' : ''}${ctx.touch ? ', touch screen' : ''}` } : {}),
+    // a picture of the whole game (not the creator's own screenshot) maps straight onto the game's CSS pixels
+    marks: describeMarks(marks, r.width, r.height, ctx.method !== 'upload' ? ctx.viewport : undefined),
+    ...(ctx.viewport ? { screen: `${ctx.viewport.width} × ${ctx.viewport.height} CSS px${ctx.dpr && ctx.dpr !== 1 ? ` at ${ctx.dpr}× pixel ratio` : ''}${ctx.fullscreen ? ', fullscreen' : ''}${ctx.touch ? ', touch screen' : ''}` } : {}),
+    ...(ctx.capture?.trimmed ? { capture_note: 'The browser drew the tab into only part of its capture frame; the picture was cut from the part it drew. If it still looks off, it is the browser\'s capture, not the game.' } : ctx.capture?.mismatch ? { capture_note: 'The page was resizing while the picture was taken; the game may look slightly off its edges.' } : {}),
     captured_from: ctx.method === 'screen' ? 'the browser\'s own pixels of the game, exactly as the creator saw it (tab capture)' : ctx.method === 'upload' ? 'a screenshot the creator took themselves and pasted or uploaded (exactly what they saw)' : ctx.method === 'page' ? 'the game page redrawing itself: its canvases and the page elements over them, frozen at one frame (close to what the creator saw, but icons, fonts or effects can differ)' : 'the game\'s canvas (HTML overlays such as menus made of page elements are not in the picture)',
     ...(ctx.browser ? { browser: ctx.browser } : {}),
     ...(ctx.frames !== undefined ? { frames_rendered: ctx.frames } : {}), ...(ctx.fps !== undefined ? { fps: ctx.fps } : {}),
@@ -99,35 +106,44 @@ function itemText(r: FeedbackRow, n: number) {
 }
 
 /**
- * Takes up to `limit` items off the queue, oldest first, and returns them with their pictures. Each item is deleted in
- * the same statement that claims it, so two agents reading at once never get the same item, and its picture is deleted
- * after it was read. peek: count and notes only, nothing taken.
+ * Takes up to `limit` items off the queue, oldest first, and returns them with their pictures. Each item is claimed in
+ * one statement (two agents reading at once never get the same item) and kept for a day after, for recent: true. Items
+ * whose pictures would make the answer too large stay queued for the next call. peek: count and notes only, nothing
+ * taken. recent: the items read in the last day again, newest first, with their pictures; nothing changes.
  */
-export async function takeFeedback(env: Env, p: Project, limit: number, peek: boolean, actor: string) {
-  const n = Math.max(1, Math.min(FEEDBACK_LIMITS.read_max, Math.round(limit) || 3));
+export async function takeFeedback(env: Env, p: Project, limit: number, peek: boolean, actor: string, recent = false) {
+  const n = Math.max(1, Math.min(FEEDBACK_LIMITS.read_max, Math.round(limit) || 3)), t = now();
   if (peek) {
-    const rows = await env.DB.prepare('SELECT * FROM feedback WHERE project_id = ? ORDER BY created_at, id LIMIT 30').bind(p.id).all<FeedbackRow>();
+    const rows = await env.DB.prepare('SELECT * FROM feedback WHERE project_id = ? AND taken_at IS NULL ORDER BY created_at, id LIMIT 30').bind(p.id).all<FeedbackRow>();
     return { items: rows.results.map((r, i) => ({ ...itemText(r, i + 1), picture: 'not included: read the item to get it' })), images: [] as { data: Uint8Array; type: string }[], pending: await pendingFeedback(env, p.id) };
   }
-  const rows = await env.DB.prepare('DELETE FROM feedback WHERE id IN (SELECT id FROM feedback WHERE project_id = ?1 ORDER BY created_at, id LIMIT ?2) AND project_id = ?1 RETURNING *')
-    .bind(p.id, n).all<FeedbackRow>();
-  const got = rows.results.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
-  const images: { data: Uint8Array; type: string }[] = [], items = [];
+  let got: FeedbackRow[];
+  if (recent) {
+    got = (await env.DB.prepare('SELECT * FROM feedback WHERE project_id = ? AND taken_at > ? ORDER BY taken_at DESC, created_at DESC LIMIT ?').bind(p.id, t - TAKEN_KEEP_MS, n).all<FeedbackRow>()).results;
+  } else {
+    const rows = await env.DB.prepare('UPDATE feedback SET taken_at = ?3 WHERE id IN (SELECT id FROM feedback WHERE project_id = ?1 AND taken_at IS NULL ORDER BY created_at, id LIMIT ?2) AND project_id = ?1 AND taken_at IS NULL RETURNING *')
+      .bind(p.id, n, t).all<FeedbackRow>();
+    got = rows.results.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
+  }
+  const images: { data: Uint8Array; type: string }[] = [], items = [], back: string[] = [];
+  let budget = ANSWER_IMAGE_BYTES;
   for (const r of got) {
+    if (items.length && r.bytes > budget) { back.push(r.id); continue; }   // too much for one answer: the next call
     const obj = r.image_key ? await env.FILES.get(r.image_key).catch(() => null) : null;
     const bytes = obj ? new Uint8Array(await obj.arrayBuffer()) : null;
-    if (bytes) images.push({ data: bytes, type: obj!.httpMetadata?.contentType || 'image/jpeg' });
+    if (bytes) { images.push({ data: bytes, type: obj!.httpMetadata?.contentType || 'image/jpeg' }); budget -= bytes.byteLength; }
     items.push({ ...itemText(r, items.length + 1), ...(bytes ? {} : { picture: 'missing (the picture could not be loaded)' }) });
   }
-  await Promise.all(got.filter((r) => r.image_key).map((r) => env.FILES.delete(r.image_key!).catch(() => {})));
-  if (got.length) await logEvent(env, p.id, 'feedback_read', `Your agent read ${got.length} feedback item${got.length === 1 ? '' : 's'}`, null, actor);
+  if (back.length && !recent) await env.DB.prepare(`UPDATE feedback SET taken_at = NULL WHERE project_id = ? AND id IN (${back.map(() => '?').join(', ')})`).bind(p.id, ...back).run();
+  if (items.length && !recent) await logEvent(env, p.id, 'feedback_read', `Your agent read ${items.length} feedback item${items.length === 1 ? '' : 's'}`, null, actor);
   return { items, images, pending: await pendingFeedback(env, p.id) };
 }
 
-/** Daily: unread items past their keeping time, with their pictures. */
+/** Daily: unread items past their keeping time and items read over a day ago, with their pictures. */
 export async function purgeOldFeedback(env: Env, max = 200): Promise<number> {
   const s = await getSettings(env), before = now() - Math.max(1, s.feedback_keep_days) * 86400000;
-  const rows = await env.DB.prepare('DELETE FROM feedback WHERE id IN (SELECT id FROM feedback WHERE created_at < ? LIMIT ?) RETURNING image_key').bind(before, max).all<{ image_key: string | null }>();
+  // unread past the keeping time, and read more than a day ago
+  const rows = await env.DB.prepare('DELETE FROM feedback WHERE id IN (SELECT id FROM feedback WHERE created_at < ?1 OR taken_at < ?2 LIMIT ?3) RETURNING image_key').bind(before, now() - TAKEN_KEEP_MS, max).all<{ image_key: string | null }>();
   const keys = rows.results.map((r) => r.image_key).filter(Boolean) as string[];
   if (keys.length) await env.FILES.delete(keys).catch(() => {});
   return keys.length;

@@ -128,9 +128,13 @@ export async function gameState(page) {
   }, DEBUG_LIMITS.state_chars);
 }
 
-/** A JPEG of the viewport (or of clip). */
+/**
+ * A JPEG of the viewport (or of clip, in CSS pixels of the viewport). Puppeteer would capture a clip "beyond the viewport"
+ * by default, which resizes the page for the shot: the game would get a resize event and could be caught re-laying out.
+ * The viewport as it is, never resized, is what the agent asked for (Playwright never resizes).
+ */
 export async function shoot(page, clip, quality = 72) {
-  const buf = await page.screenshot({ type: 'jpeg', quality, ...(clip ? { clip } : {}) });
+  const buf = await page.screenshot({ type: 'jpeg', quality, ...(clip ? { clip } : {}), ...(isPlaywright(page) ? {} : { captureBeyondViewport: false }) });
   return new Uint8Array(buf);
 }
 

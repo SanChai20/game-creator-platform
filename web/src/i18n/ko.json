@@ -1627,5 +1627,8 @@
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "직접 찍은 스크린샷을 여기에 붙여 넣거나 '내 스크린샷 사용'으로 선택할 수도 있습니다.",
  "Your own screenshot. Mark it up as usual.": "직접 찍은 스크린샷입니다. 평소처럼 표시하세요.",
  "Use a screenshot you took yourself instead (you can also paste one)": "대신 직접 찍은 스크린샷 사용(붙여 넣기도 가능)",
- "Use my own screenshot": "내 스크린샷 사용"
+ "Use my own screenshot": "내 스크린샷 사용",
+ "The game could not draw itself (it has no canvas this can copy, or it draws pictures from another site).": "게임이 자기 화면을 그리지 못했습니다(복사할 수 있는 캔버스가 없거나 다른 사이트의 이미지를 사용합니다).",
+ "Taken from this tab exactly as you see it. If the picture does not match the game (cut off, shrunk, black or blank), use the game's own drawing instead, or your own screenshot.": "이 탭에서 보이는 그대로 가져온 이미지입니다. 게임과 다르게 보이면(잘림, 축소, 검은 화면, 빈 화면) 게임이 직접 그린 화면이나 직접 찍은 스크린샷을 사용하세요.",
+ "Use the game's own drawing": "게임이 직접 그린 화면 사용"
 }
