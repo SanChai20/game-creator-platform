@@ -267,17 +267,20 @@ export async function verifyPage(page, url, opts = {}) {
   const frames = [];
   const snap = async () => { if (frames.length >= 8) return; try { frames.push(await page.screenshot({ type: 'jpeg', quality: 60 })); } catch { /* page busy or gone */ } };
   const shoot = async () => { try { const b = await page.screenshot({ type: 'png' }); shots.push(b); return pngStats(b); } catch { return null; } };
-  let pic1 = null, pic1Cover = '', pic2 = null, picIdle = null, f1 = 0, f2 = 0, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
+  let pic1 = null, pic1Cover = '', pic2 = null, picIdle = null, f1 = 0, f2 = 0, observedS = o.observeS, inputS = 1.5, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
   if (s.ready && !s.fatal) {
     // 3. renders
-    const a = await state(page); await sleep(o.observeS * 1000); const b = await state(page);
+    const a = await state(page); await sleep(o.observeS * 1000); let b = await state(page);
     f1 = b.frames - a.frames;
+    // A heavy game on the verifier's software GPU can sit right at the threshold (2 fps one run, 1.7 the next). A loop that is
+    // alive but slow gets up to two more windows to reach the frame count, so the check judges "frames advance", not speed.
+    for (let k = 0; f1 > 0 && f1 < o.minFrames && k < 2; k++) { await sleep(o.observeS * 1000); b = await state(page); f1 = b.frames - a.frames; observedS += o.observeS; }
     // A page that never asked for an animation frame is event driven (cards, text, a board or canvas redrawn on clicks and keys):
     // it is alive when it responds, which the "responds" check below measures, not when it animates. A still picture fails there.
     domGame = b.frames === 0;
     if (domGame) add('renders', true, 'Frames keep rendering', 'No animation loop: the page changes when the player acts (see "Responds to the player").');
-    else add('renders', f1 >= o.minFrames, 'Frames keep rendering', `${f1} frames in ${o.observeS}s (${Math.round(f1 / o.observeS)} fps in the verification browser)`,
-      f1 >= o.minFrames ? '' : 'Drive the game from requestAnimationFrame and keep the loop alive even on menus. A software GPU runs this check, so heavy scenes should offer a lower quality level and pick it when the frame time is high.');
+    else add('renders', f1 >= o.minFrames, 'Frames keep rendering', `${f1} frames in ${observedS}s (${(f1 / observedS).toFixed(1)} fps in the verification browser)${f1 >= o.minFrames && observedS > o.observeS ? '; slow on the software GPU, so the window was extended' : ''}`,
+      f1 >= o.minFrames ? '' : f1 > 0 ? `Frames advance but too slowly in the verification browser (it has no GPU). Pick a lower quality level when the frame time is high (fewer redraws per frame, cache what does not change in an offscreen canvas), then deploy again. A version that only just missed can be checked again without a new number: deploy_preview {retry_version}.` : 'Drive the game from requestAnimationFrame and keep the loop alive even on menus. A software GPU runs this check, so heavy scenes should offer a lower quality level and pick it when the frame time is high.');
     // 4. picture
     pic1 = await shoot(); pic1Cover = await covered(page);
     const blank = !pic1 || !pic1.ok || pic1.other < 200 || pic1.colors < 2; // a flat screen; a sparse one (Pong) is fine
@@ -345,9 +348,16 @@ export async function verifyPage(page, url, opts = {}) {
       add('input', false, 'Survives keyboard, mouse and touch input', where() === home ? 'The page reloaded when it received input and did not boot again within 20 s.' : 'The page navigated away when it received input.',
         'Something reloads or leaves the page on a click, tap or key press. A common cause is a button or link that is invisible (opacity 0) but still clickable: hide inactive UI with display:none or visibility:hidden.');
     } else {
+      const need = Math.max(3, o.minFrames / 3);
+      // the same allowance as "renders": a loop that still advances after input, only slowly, gets two more short windows
+      for (let k = 0; !domGame && f2 > 0 && f2 < need && k < 2; k++) {
+        const before = d.frames; await sleep(1500);
+        const more = await state(page).catch(() => null); if (!more) break;
+        f2 += more.frames - before; inputS += 1.5; d = restarted ? { ...d, frames: more.frames } : more;
+      }
       s = d;
-      const alive = domGame ? !restarted : f2 >= Math.max(3, o.minFrames / 3);
-      add('input', alive, 'Survives keyboard, mouse and touch input', domGame ? 'The page kept running after input.' : restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in 1.5s` : `${f2} frames in the 1.5s after input`, alive ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
+      const alive = domGame ? !restarted : f2 >= need;
+      add('input', alive, 'Survives keyboard, mouse and touch input', domGame ? 'The page kept running after input.' : restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in ${inputS}s` : `${f2} frames in the ${inputS}s after input`, alive ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
       pic2 = await shoot(); ui2 = await uiState(page); await snap();
     }
   }
@@ -391,7 +401,7 @@ export async function verifyPage(page, url, opts = {}) {
   add('clean', errs.length === 0, 'No uncaught errors', errs.length ? `${errs.length} uncaught error(s)` : '', errs.length ? 'Fix each error listed under "errors", then deploy a new preview.' : '');
 
   report.errors = errs; report.warnings.push(...(s.warnings || [])); report.missing = missing;
-  report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / o.observeS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
+  report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / observedS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
   // a few more frames of the game left running after the checks, for the content review; nothing here can fail the version
   if (report.ok) for (let i = 0; i < 3 && frames.length < 7; i++) { await sleep(1500); await snap(); }
@@ -440,7 +450,7 @@ export async function verifyPage(page, url, opts = {}) {
     } catch (e) { report.warnings.push('Craft review could not run: ' + String(e && e.message || e).slice(0, 200)); }
   }
   const failed = checks.filter((c) => !c.ok);
-  report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / o.observeS)} fps in the verification browser, no errors${report.playthrough ? `, play-through of ${report.playthrough.steps.length} step(s) passed` : '; no play-through registered, so only start-up, rendering and input were checked'}.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
+  report.summary = report.ok ? `Playable: booted in ${s.loadMs} ms, ${Math.round(f1 / observedS)} fps in the verification browser, no errors${report.playthrough ? `, play-through of ${report.playthrough.steps.length} step(s) passed` : '; no play-through registered, so only start-up, rendering and input were checked'}.` : `Not playable yet: ${failed.map((c) => c.label.toLowerCase()).join('; ')}.`;
   report.metrics.reviewFrames = frames.length;
   return { report, shots: portraitShot ? [portraitShot, ...shots] : lateShot ? [lateShot, ...shots] : shots, frames };
 }

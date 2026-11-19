@@ -56,7 +56,7 @@ The verification browser renders on the CPU and is slow. A game that adapts like
 
 ## The verification browser: how heavy a scene can be
 
-The browser that runs `deploy_preview` has no GPU. It draws a 960×540 page with a software renderer, so every pixel of every pass is shaded on a CPU core. To pass, the game has to call `GCP.ready()` within 30 seconds and then draw at least 6 frames in 3 seconds (2 frames a second). The report gives the frame rate it measured.
+The browser that runs `deploy_preview` has no GPU. It draws a 960×540 page with a software renderer, so every pixel of every pass is shaded on a CPU core. To pass, the game has to call `GCP.ready()` within 30 seconds and then draw at least 6 frames in 3 seconds (2 frames a second). A loop that is alive but slower gets up to two more 3-second windows to reach those 6 frames, so a game at the edge does not pass one run and fail the next. The report gives the frame rate it measured. If the newest version failed only because it was slow there, `deploy_preview {retry_version}` checks it again without a new version number (3 times per version); a real failure needs a fix.
 
 Measured there, for scale:
 

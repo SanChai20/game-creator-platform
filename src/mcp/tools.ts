@@ -29,7 +29,7 @@ import { MAX_TAGS, MIN_TAGS, missingTags, missingToPublish, normalizeStoredTags,
 import { languageName, parseLanguages, type Languages } from '../../web/src/languages';
 import { OPERATOR } from '../../web/src/operator';
 import type { Project } from '../env';
-import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, sha256, token as randomToken, unb64, usd } from '../util';
+import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, parseJson, sha256, token as randomToken, unb64, usd } from '../util';
 import { actDebug, closeDebug, openDebug, type DebugResult } from '../debug';
 import { feedbackProject, pendingFeedback, takeFeedback } from '../feedback';
 // @ts-ignore plain JS module
@@ -119,6 +119,53 @@ async function versionReport(c: ToolCtx, p: Project, n: number, v: Awaited<Retur
       : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
         : `Verified. A person can play it on the preview page first. To make it live: publish {project, version: ${n}}.`,
   };
+}
+
+/**
+ * The sharing state with where it came from, so an agent that left open_implementation out can tell the user whether this
+ * call changed it (it never does) and who turned it on and when: a console toggle, an earlier update_project, another agent.
+ */
+async function sharingSource(c: ToolCtx, p: Project, asked: unknown): Promise<string> {
+  const base = sharing(p);
+  if (typeof asked === 'boolean') return `${base} (set by this call)`;
+  if (!p.open_implementation) return `${base} (unchanged by this call)`;
+  const e = await c.env.DB.prepare("SELECT actor, created_at FROM events WHERE project_id = ? AND kind = 'implementation_opened' ORDER BY id DESC LIMIT 1").bind(p.id).first<{ actor: string; created_at: number }>();
+  const by = !e ? '' : e.actor === 'console' ? ' in the console' : e.actor === 'admin' ? ' by a platform admin' : e.actor ? ` by ${e.actor}` : '';
+  return `${base}. Unchanged by this call: it was turned on${by}${e ? ` on ${new Date(e.created_at).toISOString().slice(0, 16).replace('T', ' ')} UTC` : ' earlier'}. publish {open_implementation: false} or update_project {open_implementation: false} turns it off.`;
+}
+
+/** The checks a finished version failed, by id and label, for the version list (the full report has details and hints). */
+function failedChecks(v: { status: string; report: string | null }): { failed_checks?: string[] } {
+  if (v.status !== 'failed') return {};
+  const r = parseJson<{ checks?: { id: string; ok: boolean; label: string }[] }>(v.report, {});
+  const f = (r.checks || []).filter((x) => !x.ok).map((x) => `${x.id}: ${x.label}`);
+  return f.length ? { failed_checks: f } : {};
+}
+
+export const RETRY_LIMIT = 3;
+
+/**
+ * Runs the deploy and browser check again on the newest version when it failed, keeping its number: the files are frozen, so
+ * this only helps when the failure did not come from them (a heavy game at the edge of the software GPU's frame count, a
+ * deploy that was slow to settle). Limited per version so it cannot stand in for fixing a real failure.
+ */
+async function retryPreview(c: ToolCtx, p: Project, n: number) {
+  if (!Number.isInteger(n) || n < 1) throw bad('retry_version must be a whole number from list_versions.');
+  const v = await getVersion(c.env, p.id, n);
+  if (!v) throw bad(`Version ${n} does not exist.`, 'Call list_versions to see the versions this game has.');
+  const newest = await c.env.DB.prepare('SELECT MAX(n) AS n FROM versions WHERE project_id = ?').bind(p.id).first<{ n: number }>();
+  if (newest && newest.n !== n) throw bad(`Version ${n} is not the newest version (${newest.n} is), so it cannot be retried.`, `Retry version ${newest.n} instead, or call deploy_preview without retry_version.`);
+  if (RUNNING.includes(v.status)) throw new AppError(409, `Version ${n} is still being checked (${v.status}).`, 'busy', `Call list_versions {project, version: ${n}} and wait for it.`);
+  if (v.status !== 'failed') throw bad(`Version ${n} did not fail (${v.status}), so there is nothing to retry.`, v.status === 'verified' ? `It can be published: publish {project, version: ${n}}.` : 'Call list_versions {project, version} to read it.');
+  if ((v as { purged_at?: number | null }).purged_at) throw bad(`Version ${n} is older than the platform keeps files for.`, 'Call deploy_preview without retry_version to make a new version.');
+  const tries = await c.env.DB.prepare("SELECT COUNT(*) AS k FROM events WHERE project_id = ? AND version = ? AND kind = 'preview_retried'").bind(p.id, n).first<{ k: number }>();
+  if ((tries?.k ?? 0) >= RETRY_LIMIT) throw new AppError(409, `Version ${n} was already checked again ${RETRY_LIMIT} times.`, 'retry_limit', 'The failure is repeatable: read list_versions {project, version} and fix what the failed checks say, then deploy_preview without retry_version.');
+  const res = await c.env.DB.prepare("UPDATE versions SET status = 'queued', stage = 'Queued for another check', report = NULL, verified_at = NULL WHERE project_id = ? AND n = ? AND status = 'failed'").bind(p.id, n).run();
+  if (!res.meta.changes) throw new AppError(409, `Version ${n} changed while retrying.`, 'busy', `Call list_versions {project, version: ${n}}.`);
+  await logEvent(c.env, p.id, 'preview_retried', `Checked again (${(tries?.k ?? 0) + 1} of ${RETRY_LIMIT})`, n, c.client);
+  await enqueue(c.env, { kind: 'preview', pid: p.id, n, origin: c.origin, actor: c.client });
+  const done = await waitVersion(c, p.id, n, 80000);
+  return { deployed: true, retried: true, retries_left: RETRY_LIMIT - (tries?.k ?? 0) - 1, storage: await storageLine(c.env, p), ...(await versionReport(c, p, n, done)) };
 }
 
 /** Tells the agent when its creator left feedback on the preview: annotated screenshots it should read and act on. */
@@ -326,7 +373,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
   const live = q.status === 'live' && q.live_version === v.n;
   const vm = await ensureVersionMeta(c.env, v);
-  return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: sharing(q), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+  return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
 }
 
 export const TOOLS: Tool[] = [
@@ -552,9 +599,10 @@ export const TOOLS: Tool[] = [
       const base = `${c.origin}/api/upload/${t}`;
       return {
         expires_in_minutes: 30,
+        file_url: `${base}?path=`, zip_url: `${base}/zip`,
         one_file: `curl -fsS -X PUT --data-binary @index.html "${base}?path=index.html"`,
         whole_folder: `zip -qr /tmp/game.zip . -x '.*' && curl -fsS -X POST --data-binary @/tmp/game.zip "${base}/zip"`,
-        note: 'Run whole_folder inside the folder that holds index.html. Paths inside the zip become paths in the workspace. Add ?clean=1 to the zip URL to delete workspace files that are not in the zip (gcp.json, which holds the declared build metadata, is kept; a gcp.json in the zip replaces it but keeps any build field it leaves out). Each call prints JSON listing what was written.',
+        note: 'file_url and zip_url are the bare URLs for scripts (append the workspace path, URL-encoded, to file_url; PUT one file there, or POST a zip to zip_url). one_file and whole_folder are ready-to-run commands. Run whole_folder inside the folder that holds index.html. Paths inside the zip become paths in the workspace. Add ?clean=1 to the zip URL to delete workspace files that are not in the zip (gcp.json, which holds the declared build metadata, is kept; a gcp.json in the zip replaces it but keeps any build field it leaves out). Each call prints JSON listing what was written.',
       };
     },
   },
@@ -706,10 +754,11 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
-    description: 'Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after 80 seconds the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile).',
-    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' } }, ['project']),
+    description: `Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after 80 seconds the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile). retry_version: n runs the deploy and browser check again on the newest version when it failed (for example a heavy game that only just missed the frame count on the verifier's software GPU), without making a new version number; up to ${RETRY_LIMIT} retries per version.`,
+    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' }, retry_version: { type: 'integer', description: 'Optional. Check this failed version again (it must be the newest) instead of making a new one from the workspace.' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
+      if (a.retry_version !== undefined && a.retry_version !== null) return retryPreview(c, p, Number(a.retry_version));
       const check = await checkProject(c.env, p, c.origin);
       const storage = await storageLine(c.env, p);
       if (a.dry_run) return { ok: check.ok, files: check.files, bytes: check.bytes, storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: check.ok ? 'No errors. Call deploy_preview without dry_run.' : 'Fix the errors above, then check again.' };
@@ -725,13 +774,15 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'list_versions', title: 'List versions or read one report',
-    description: 'Without version: lists the project\'s versions, newest first, with status, whether each can be published, and which is live and which is on preview. With version: returns that version\'s full verification report (each check, uncaught errors, missing files, load time, frame rate, screenshot), waiting up to 40 seconds if it is still being checked.',
+    description: 'Without version: lists the project\'s versions, newest first, with status, the one-line summary, the checks that failed, whether each can be published, and which is live and which is on preview. With version: returns that version\'s full verification report (each check with its detail and hint, uncaught errors, missing files, load time, frame rate, screenshot), waiting up to 40 seconds if it is still being checked. This is how to read any past version\'s report.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Optional. A version number to read in full.' } }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
       if (a.version) return versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), 40000));
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
-      return { live_version: p.live_version, preview_version: p.preview_version, status: p.status, versions: rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage, can_publish: versionEligible(v, s.verify_browser_required).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' })) };
+      const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' }));
+      const failed = versions.find((v) => v.status === 'failed');
+      return { live_version: p.live_version, preview_version: p.preview_version, status: p.status, versions, next: failed ? `Call list_versions {project, version: ${failed.version}} for the full report of a version (every check with its detail and hint).` : 'Call list_versions {project, version} for the full report of one version.' };
     },
   },
   {
