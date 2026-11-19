@@ -909,24 +909,69 @@
     }
     return false;
   }
-  /** The page as it is now, drawn through an SVG picture of its elements. snaps: canvas -> data URL of its frozen frame. */
+  /**
+   * The page as it is now, drawn through an SVG picture of its elements. snaps: canvas -> data URL of its frozen frame.
+   * Each element is copied with the styles it has at this moment; SVG icons element by element (fills and strokes set by
+   * the game's style sheet, gradients, currentColor), ::before and ::after as elements of their own, and the pictures and
+   * fonts the page uses from its own site embedded, since a picture drawn this way cannot load files.
+   */
   function domPicture(snaps, vw, vh, w, h, bg, done) {
     var doc = document.implementation.createHTMLDocument(''), n = 0, imgs = 0, SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, LINK: 1, META: 1, TEMPLATE: 1, IFRAME: 1, OBJECT: 1, EMBED: 1 };
-    function styleOf(src) {
+    var SVGNS = 'http://www.w3.org/2000/svg', here = location.href.split('#')[0], files = {}, nfiles = 0;
+    var SVGPROPS = ['fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-width', 'stroke-opacity', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'opacity', 'visibility', 'display', 'color', 'stop-color', 'stop-opacity', 'transform', 'transform-origin', 'transform-box', 'rotate', 'scale', 'translate', 'filter', 'clip-path', 'clip-rule', 'mask', 'mix-blend-mode', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-anchor', 'dominant-baseline', 'paint-order', 'vector-effect', 'marker-start', 'marker-mid', 'marker-end', 'flood-color', 'flood-opacity', 'lighting-color', 'shape-rendering'];
+    // url(...) in a style: a reference into this page (an SVG gradient, a filter) becomes url(#id); a file of this site is
+    // fetched below and embedded; anything else is left out
+    function urls(v) {
+      return v.replace(/url\(\s*(["']?)(.*?)\1\s*\)/g, function (all, q, u) {
+        if (/^data:/.test(u)) return all;
+        var abs; try { abs = new URL(u, here).href; } catch (e) { return 'none'; }
+        var i = abs.indexOf('#'); if (i >= 0 && abs.slice(0, i) === here) return 'url("' + abs.slice(i) + '")';
+        if (/^https?:/.test(abs) && !files[abs] && nfiles < 60) { files[abs] = 1; nfiles++; }
+        return files[abs] ? 'url("' + abs + '")' : 'none';
+      });
+    }
+    function styleOf(src, pseudo) {
+      var cs = getComputedStyle(src, pseudo), out = '';
+      for (var i = 0; i < cs.length; i++) { var k = cs[i]; if (/^(animation|transition)/.test(k)) continue; var v = cs.getPropertyValue(k); if (v.indexOf('url(') >= 0) v = urls(v); out += k + ':' + v + ';'; }
+      return out + 'animation:none;transition:none;';
+    }
+    function svgStyleOf(src) {
       var cs = getComputedStyle(src), out = '';
-      for (var i = 0; i < cs.length; i++) { var k = cs[i]; if (/^(animation|transition)/.test(k)) continue; var v = cs.getPropertyValue(k); if (/url\(/.test(v) && !/url\("?data:/.test(v)) continue; out += k + ':' + v + ';'; }
+      for (var i = 0; i < SVGPROPS.length; i++) { var v = cs.getPropertyValue(SVGPROPS[i]); if (!v) continue; if (v.indexOf('url(') >= 0) v = urls(v); out += SVGPROPS[i] + ':' + v + ';'; }
       return out + 'animation:none;transition:none;';
     }
     function pictureOf(el) {   // an <img> or a <video> frame, as a data URL (same-site files only)
       if (++imgs > 80) return '';
       try { var c = document.createElement('canvas'), iw = el.naturalWidth || el.videoWidth, ih = el.naturalHeight || el.videoHeight; if (!iw || !ih) return ''; var k = Math.min(1, 1024 / Math.max(iw, ih)); c.width = Math.max(1, Math.round(iw * k)); c.height = Math.max(1, Math.round(ih * k)); c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); return c.toDataURL('image/png'); } catch (e) { return ''; }
     }
+    // an SVG element and everything in it, each with its own computed styles (the page's style sheet is not in the picture)
+    function copySvg(src, top) {
+      if (src.nodeType === 3) return doc.createTextNode(src.nodeValue);
+      if (src.nodeType !== 1 || src.tagName === 'script' || ++n > 6000) return null;
+      var el = doc.importNode(src, false);
+      el.setAttribute('style', top ? styleOf(src) : svgStyleOf(src));
+      var href = src.getAttribute('href') || src.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      if (href && src.tagName === 'image') { var hu = urls('url("' + href + '")').match(/^url\("(.*)"\)$/); if (hu) el.setAttribute('href', hu[1]); else el.removeAttribute('href'); el.removeAttributeNS('http://www.w3.org/1999/xlink', 'href'); }
+      for (var c = src.firstChild; c; c = c.nextSibling) { var k = copySvg(c, false); if (k) el.appendChild(k); }
+      return el;
+    }
+    // ::before / ::after, as a span with the pseudo-element's styles and text
+    function pseudo(src, which) {
+      var cs; try { cs = getComputedStyle(src, which); } catch (e) { return null; }
+      var content = cs.getPropertyValue('content');
+      if (!content || content === 'none' || content === 'normal' || cs.display === 'none') return null;
+      var el = doc.createElement('span'), text = '', m, re = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
+      while ((m = re.exec(content))) text += (m[1] !== undefined ? m[1] : m[2]).replace(/\\([0-9a-fA-F]{1,6}) ?/g, function (a, hx) { return String.fromCodePoint(parseInt(hx, 16)); }).replace(/\\(.)/g, '$1');
+      el.setAttribute('style', styleOf(src, which));
+      if (text) el.textContent = text;
+      return el;
+    }
     function copy(src) {
       if (src.nodeType === 3) return doc.createTextNode(src.nodeValue);
-      if (src.nodeType !== 1 || SKIP[src.tagName] || ++n > 4000) return null;
+      if (src.nodeType !== 1 || SKIP[src.tagName] || ++n > 6000) return null;
       var st = getComputedStyle(src); if (st.display === 'none') return null;
       var tag = src.tagName, el;
-      if (src.namespaceURI === 'http://www.w3.org/2000/svg') { el = doc.importNode(src, true); el.setAttribute('style', styleOf(src)); return el; }
+      if (src.namespaceURI === SVGNS) return copySvg(src, true);
       if (tag === 'CANVAS' || tag === 'IMG' || tag === 'VIDEO') {
         el = doc.createElement('img'); var u = tag === 'CANVAS' ? snaps.get(src) || '' : pictureOf(src);
         if (u) el.setAttribute('src', u); el.setAttribute('style', styleOf(src)); return el;
@@ -935,23 +980,68 @@
       el.setAttribute('style', styleOf(src));
       if (tag === 'INPUT') { el.setAttribute('value', src.value); if (src.checked) el.setAttribute('checked', ''); }
       if (tag === 'TEXTAREA') el.textContent = src.value;
+      var b = pseudo(src, '::before'); if (b) el.appendChild(b);
       for (var c = src.firstChild; c; c = c.nextSibling) { var k = copy(c); if (k) el.appendChild(k); }
+      var a = pseudo(src, '::after'); if (a) el.appendChild(a);
       return el;
+    }
+    // the fonts the page loaded from its style sheets, so text keeps its typeface
+    function fontRules() {
+      var out = [];
+      try {
+        for (var i = 0; i < document.styleSheets.length; i++) {
+          var sh = document.styleSheets[i], rules; try { rules = sh.cssRules; } catch (e) { continue; }
+          for (var j = 0; j < rules.length && out.length < 30; j++) {
+            var r = rules[j]; if (!r.style || r.type !== 5) continue;   // CSSFontFaceRule
+            var fam = r.style.getPropertyValue('font-family'), srcv = r.style.getPropertyValue('src'), m = srcv.match(/url\(\s*["']?([^"')]+)["']?\s*\)/);
+            if (!fam || !m) continue;
+            var abs; try { abs = new URL(m[1], sh.href || here).href; } catch (e) { continue; }
+            var fmt = (srcv.match(/format\(\s*["']?([^"')]+)/) || [])[1] || '';
+            out.push({ family: fam, url: abs, format: fmt, weight: r.style.getPropertyValue('font-weight'), style: r.style.getPropertyValue('font-style'), range: r.style.getPropertyValue('unicode-range') });
+          }
+        }
+      } catch (e) { /* no fonts */ }
+      return out;
     }
     var root = doc.createElement('div');
     root.setAttribute('style', 'position:relative;overflow:hidden;width:' + vw + 'px;height:' + vh + 'px;background:' + bg + ';margin-top:' + (-scrollY) + 'px;margin-left:' + (-scrollX) + 'px');
     var body = copy(document.body); if (body) root.appendChild(body);
     var xml = new XMLSerializer().serializeToString(root);
-    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + vw + ' ' + vh + '"><foreignObject x="0" y="0" width="' + vw + '" height="' + vh + '">' + xml + '</foreignObject></svg>';
-    var img = new Image(), over = false, t = setTimeout(function () { if (!over) { over = true; done(null); } }, 4000);
-    img.onload = function () {
-      if (over) return; over = true; clearTimeout(t);
-      try { var c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h); done(c.toDataURL('image/jpeg', 0.86)); } catch (e) { done(null); }
-    };
-    img.onerror = function () { if (!over) { over = true; clearTimeout(t); done(null); } };
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    // fonts: only those whose family the copied page names
+    var fonts = fontRules().filter(function (f) { var name = f.family.replace(/^["']|["']$/g, ''); return name && xml.indexOf(name) >= 0; });
+    for (var i = 0; i < fonts.length; i++) files[fonts[i].url] = 1;
+    var list = Object.keys(files), got = {}, budget = 6e6, over = false;
+    var giveUp = setTimeout(function () { render(); }, 3500);
+    function load(u) {
+      if (!/^https?:/.test(u) || new URL(u).origin !== location.origin) return Promise.resolve();   // other sites: left out
+      return fetch(u, { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) {
+        if (!b || b.size > budget) return; budget -= b.size;
+        return new Promise(function (ok) { var fr = new FileReader(); fr.onload = function () { got[u] = fr.result; ok(); }; fr.onerror = function () { ok(); }; fr.readAsDataURL(b); });
+      }).catch(function () { /* left out */ });
+    }
+    Promise.all(list.map(load)).then(function () { clearTimeout(giveUp); render(); });
+    function esc(s) { return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+    function render() {
+      if (over) return; over = true;
+      var x = xml;
+      x = x.replace(/url\(&quot;(https?:[^&]*?(?:&amp;[^&]*?)*)&quot;\)/g, function (all, u) { var d = got[u.replace(/&amp;/g, '&')]; return d ? 'url(&quot;' + d + '&quot;)' : 'none'; });
+      x = x.replace(/ href="(https?:[^"]*)"/g, function (all, u) { var d = got[u.replace(/&amp;/g, '&')]; return d ? ' href="' + d + '"' : ''; });
+      var css = fonts.filter(function (f) { return got[f.url]; }).map(function (f) {
+        return '@font-face{font-family:' + f.family + ';src:url("' + got[f.url] + '")' + (f.format ? ' format("' + f.format + '")' : '') + (f.weight ? ';font-weight:' + f.weight : '') + (f.style ? ';font-style:' + f.style : '') + (f.range ? ';unicode-range:' + f.range : '') + '}';
+      }).join('');
+      if (css) x = x.replace(/^<div([^>]*)>/, function (all) { return all + '<style>' + esc(css).replace(/&quot;/g, '"') + '</style>'; });
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + vw + ' ' + vh + '"><foreignObject x="0" y="0" width="' + vw + '" height="' + vh + '">' + x + '</foreignObject></svg>';
+      var img = new Image(), fin = false, t = setTimeout(function () { if (!fin) { fin = true; done(null); } }, 5000);
+      img.onload = function () {
+        if (fin) return; fin = true; clearTimeout(t);
+        try { var c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h); done(c.toDataURL('image/jpeg', 0.86)); } catch (e) { done(null); }
+      };
+      img.onerror = function () { if (!fin) { fin = true; clearTimeout(t); done(null); } };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
   }
-  function captureGame(id) {
+  // picture false: only the game's state and counters (the console took the picture itself, from the browser's tab capture)
+  function captureGame(id, picture) {
     var vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight), dpr = window.devicePixelRatio || 1;
     var scale = Math.min(dpr, 1600 / vw, 1600 / vh), out = document.createElement('canvas');
     out.width = Math.round(vw * scale); out.height = Math.round(vh * scale);
@@ -981,6 +1071,7 @@
     }
     function finish() {
       if (done) return; done = true; afterDraw = null; clearTimeout(timer);
+      if (!picture) { send('', '', 'game'); return; }
       var canvasOnly = '', error = '';
       if (drew) { try { canvasOnly = out.toDataURL('image/jpeg', 0.86); } catch (e) { error = 'tainted'; } }
       var page = false; try { page = pageShowsElements(vw, vh); } catch (e) { /* keep the canvases */ }
@@ -1003,7 +1094,7 @@
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (e.source === window.parent && d && d.gcp === 'capture') {
-      if (cfg.env === 'preview' && cfg.kind === 'owner' && e.origin === platformOrigin) captureGame(String(d.id || '').slice(0, 40));
+      if (cfg.env === 'preview' && cfg.kind === 'owner' && e.origin === platformOrigin) captureGame(String(d.id || '').slice(0, 40), d.picture !== false);
       else toParent({ gcp: 'capture_result', id: String(d.id || '').slice(0, 40), error: 'not_allowed' });
       return;
     }

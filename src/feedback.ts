@@ -89,7 +89,7 @@ function itemText(r: FeedbackRow, n: number) {
     picture: r.image_key ? `${r.width} × ${r.height} px, shown below as image ${n}. Each mark is drawn on it with its number.` : 'missing',
     marks: describeMarks(marks, r.width, r.height),
     ...(ctx.viewport ? { screen: `${ctx.viewport.width} × ${ctx.viewport.height}${ctx.fullscreen ? ', fullscreen' : ''}${ctx.touch ? ', touch screen' : ''}` } : {}),
-    captured_from: ctx.method === 'screen' ? 'the whole tab (HTML overlays included)' : ctx.method === 'page' ? 'the game page: its canvases and the page elements over them (menus, panels), frozen at one frame' : 'the game\'s canvas (HTML overlays such as menus made of page elements are not in the picture)',
+    captured_from: ctx.method === 'screen' ? 'the browser\'s own pixels of the game, exactly as the creator saw it (tab capture)' : ctx.method === 'upload' ? 'a screenshot the creator took themselves and pasted or uploaded (exactly what they saw)' : ctx.method === 'page' ? 'the game page redrawing itself: its canvases and the page elements over them, frozen at one frame (close to what the creator saw, but icons, fonts or effects can differ)' : 'the game\'s canvas (HTML overlays such as menus made of page elements are not in the picture)',
     ...(ctx.browser ? { browser: ctx.browser } : {}),
     ...(ctx.frames !== undefined ? { frames_rendered: ctx.frames } : {}), ...(ctx.fps !== undefined ? { fps: ctx.fps } : {}),
     ...(ctx.label ? { loading_label: ctx.label } : {}),

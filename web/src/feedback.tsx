@@ -2,40 +2,88 @@
 // a note and adds it to a queue their agent reads with the creator_feedback tool (src/feedback.ts). Each item is removed
 // once the agent has read it; the creator can remove items here too.
 //
-// The picture comes from the SDK inside the game page (every canvas, drawn right after a frame), which needs no
-// permission and works on phones. Page elements over the canvas (HTML menus, a DOM HUD) are not in it, so on desktop
-// browsers that can share a tab the creator can capture the whole tab instead.
-import { useCallback, useEffect, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
+// The picture is the tab's real pixels where the browser can share the tab (desktop Chromium, Firefox): the browser asks
+// once per preview, and each capture takes the next frame, cropped to the game. Elsewhere, or when the creator declines,
+// the SDK inside the game page redraws the page itself (its canvases and the elements over them), which can differ from
+// what was on screen; the editor says so.
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type PointerEvent as RPointerEvent } from 'react';
 import { ago, api, bytes, t, useAct, useData } from './lib';
 import { Badge, Button, Card, EmptyState, Segmented, Textarea } from './ui';
 import type { GameCapture } from './player';
 
 export type Tool = 'circle' | 'arrow' | 'box' | 'pen';
 export interface Mark { type: Tool; x?: number; y?: number; w?: number; h?: number; x1?: number; y1?: number; x2?: number; y2?: number; points?: [number, number][]; label?: string }
-export interface Shot { image: string; method: 'game' | 'page' | 'screen'; capture: Partial<GameCapture>; fullscreen: boolean; version: number | null; partial?: boolean }
+export interface Shot { image: string; method: 'game' | 'page' | 'screen' | 'upload'; capture: Partial<GameCapture>; fullscreen: boolean; version: number | null; partial?: boolean; why?: 'declined' | 'unsupported' | 'fullscreen' | 'failed' }
 
 const COLOR = '#ff3b5c', HALO = 'rgba(0,0,0,.55)';
 const MAX_SIDE = 1600, MAX_BYTES = 1_400_000;
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error(t('The screenshot could not be read.', '无法读取截图。'))); i.src = src; });
 
-/** The whole tab, through the browser's screen sharing (it asks first), cropped to the game. Desktop Chromium and Firefox. */
-export async function captureTab(frame: Element | null): Promise<string> {
-  const md = navigator.mediaDevices as MediaDevices & { getDisplayMedia?: (o: unknown) => Promise<MediaStream> };
-  if (!md?.getDisplayMedia) throw new Error(t('This browser cannot capture the tab.', '此浏览器无法截取标签页。'));
-  const stream = await md.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' } as unknown);
-  try {
-    const v = document.createElement('video'); v.muted = true; v.srcObject = stream; await v.play();
-    await new Promise((r) => setTimeout(r, 250));   // the first frame of a new share can be stale
-    const r = frame?.getBoundingClientRect(), sx = v.videoWidth / innerWidth, sy = v.videoHeight / innerHeight;
-    const crop = r && r.width > 10 ? { x: r.left * sx, y: r.top * sy, w: r.width * sx, h: r.height * sy } : { x: 0, y: 0, w: v.videoWidth, h: v.videoHeight };
-    const k = Math.min(1, MAX_SIDE / Math.max(crop.w, crop.h)), c = document.createElement('canvas');
-    c.width = Math.round(crop.w * k); c.height = Math.round(crop.h * k);
-    c.getContext('2d')!.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, c.width, c.height);
-    return c.toDataURL('image/jpeg', 0.88);
-  } finally { stream.getTracks().forEach((tr) => tr.stop()); }
-}
+// The tab's real pixels. A page cannot read what the browser draws, so an exact picture needs the browser's own tab
+// capture (getDisplayMedia), which asks the creator first. The share is kept for the whole preview, so the browser asks
+// once; each capture then takes the next frame of it, cropped to the game (Region Capture where the browser has it).
+type Live = { stream: MediaStream; track: MediaStreamTrack; video: HTMLVideoElement; cropped: boolean };
+let live: Live | null = null, declined = false;
+const listeners = new Set<() => void>();
+const changed = () => listeners.forEach((f) => f());
 export const canCaptureTab = () => typeof navigator !== 'undefined' && !!(navigator.mediaDevices as { getDisplayMedia?: unknown } | undefined)?.getDisplayMedia && !matchMedia('(pointer: coarse)').matches;
+export const tabShareOn = () => !!live && live.track.readyState === 'live';
+export const tabShareDeclined = () => declined;
+export function onTabShare(f: () => void) { listeners.add(f); return () => { listeners.delete(f); }; }
+export function stopTabShare() { if (!live) return; live.stream.getTracks().forEach((tr) => tr.stop()); live.video.srcObject = null; live = null; changed(); }
+
+/** Starts sharing this tab (the browser asks). Needs a click. Resolves false when declined or unavailable. */
+export async function startTabShare(frame: Element | null): Promise<boolean> {
+  if (tabShareOn()) return true;
+  const md = navigator.mediaDevices as MediaDevices & { getDisplayMedia?: (o: unknown) => Promise<MediaStream> };
+  if (!md?.getDisplayMedia) return false;
+  let stream: MediaStream;
+  try {
+    stream = await md.getDisplayMedia({ video: { displaySurface: 'browser', frameRate: 30 }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude' } as unknown);
+  } catch { declined = true; changed(); return false; }
+  const track = stream.getVideoTracks()[0];
+  // only this tab will do: a window or a screen cannot be cropped to the game
+  if (!track || (track.getSettings() as { displaySurface?: string }).displaySurface !== 'browser') { stream.getTracks().forEach((tr) => tr.stop()); declined = true; changed(); return false; }
+  let cropped = false;
+  try {
+    const CT = (window as unknown as { CropTarget?: { fromElement(e: Element): Promise<unknown> } }).CropTarget;
+    if (CT && frame && 'cropTo' in track) { await (track as unknown as { cropTo(t: unknown): Promise<void> }).cropTo(await CT.fromElement(frame)); cropped = true; }
+  } catch { /* crop by hand below */ }
+  const video = document.createElement('video'); video.muted = true; video.playsInline = true; video.srcObject = stream;
+  await video.play().catch(() => {});
+  live = { stream, track, video, cropped }; declined = false;
+  track.addEventListener('ended', () => { if (live?.track === track) { live = null; changed(); } });
+  changed();
+  return true;
+}
+
+/** The next frame of the shared tab, cropped to the game, as a JPEG data URL. */
+export async function grabTab(frame: Element | null): Promise<string> {
+  const l = live; if (!l || l.track.readyState !== 'live') throw new Error('not sharing');
+  const v = l.video as HTMLVideoElement & { requestVideoFrameCallback?: (f: () => void) => number };
+  // a frame drawn after the press (a page that is not changing sends none: the last one is then current)
+  await new Promise<void>((ok) => { const t0 = setTimeout(ok, 200); v.requestVideoFrameCallback?.(() => { clearTimeout(t0); ok(); }); });
+  if (!v.videoWidth) await new Promise((r) => setTimeout(r, 300));
+  if (!v.videoWidth) throw new Error('no frame');
+  let crop = { x: 0, y: 0, w: v.videoWidth, h: v.videoHeight };
+  if (!l.cropped) {
+    const r = frame?.getBoundingClientRect(), sx = v.videoWidth / innerWidth, sy = v.videoHeight / innerHeight;
+    if (r && r.width > 10) crop = { x: Math.max(0, r.left * sx), y: Math.max(0, r.top * sy), w: Math.min(v.videoWidth, r.width * sx), h: Math.min(v.videoHeight, r.height * sy) };
+  }
+  const k = Math.min(1, MAX_SIDE / Math.max(crop.w, crop.h)), c = document.createElement('canvas');
+  c.width = Math.round(crop.w * k); c.height = Math.round(crop.h * k);
+  c.getContext('2d')!.drawImage(v, crop.x, crop.y, crop.w, crop.h, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.88);
+}
+
+/** A screenshot the creator took themselves (pasted or chosen), as a data URL. */
+export function readOwnPicture(f: Blob): Promise<string> {
+  if (!/^image\/(png|jpeg|webp|gif|bmp)$/.test(f.type)) return Promise.reject(new Error(t('Choose a picture (PNG or JPEG).', '请选择图片（PNG 或 JPEG）。')));
+  if (f.size > 25e6) return Promise.reject(new Error(t('That picture is too large.', '图片太大。')));
+  return new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => no(new Error(t('The screenshot could not be read.', '无法读取截图。'))); r.readAsDataURL(f); });
+}
+const imageIn = (d: DataTransfer | null) => [...(d?.items || [])].find((i) => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile() ?? null;
 
 function draw(g: CanvasRenderingContext2D, w: number, h: number, marks: Mark[], draft: Mark | null) {
   const lw = Math.max(3, Math.round(Math.max(w, h) / 260)), all = draft ? [...marks, draft] : marks;
@@ -86,7 +134,15 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel }: { projectI
   const [tool, setTool] = useState<Tool>('circle'), [marks, setMarks] = useState<Mark[]>([]), [draft, setDraft] = useState<Mark | null>(null);
   const [note, setNote] = useState(''), start = useRef<[number, number] | null>(null);
   const { busy, act } = useAct();
-  useEffect(() => { void loadImage(shot.image).then(setImg, () => setImg(null)); }, [shot.image]);
+  // the creator can put their own screenshot in place of the captured one (pasted, or chosen from their files)
+  const [own, setOwn] = useState<string | null>(null), image = own ?? shot.image, method = own ? 'upload' : shot.method;
+  const file = useRef<HTMLInputElement>(null);
+  const useOwn = (f: Blob | null | undefined) => { if (f) act('own', async () => { setOwn(await readOwnPicture(f)); }); };
+  useEffect(() => {
+    const p = (e: ClipboardEvent) => { const f = imageIn(e.clipboardData); if (f) { e.preventDefault(); useOwn(f); } };
+    addEventListener('paste', p); return () => removeEventListener('paste', p);
+  });
+  useEffect(() => { void loadImage(image).then(setImg, () => setImg(null)); }, [image]);
   useEffect(() => {
     const c = canvas.current; if (!c || !img) return;
     c.width = img.naturalWidth; c.height = img.naturalHeight;
@@ -123,11 +179,11 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel }: { projectI
   };
   const send = () => act('fb', async () => {
     if (!note.trim() && !marks.length) throw new Error(t('Write a note or mark something on the screenshot first.', '请先写一段说明，或在截图上做个标记。'));
-    const flat = await flatten(shot.image, marks), c = shot.capture;
+    const flat = await flatten(image, marks), c = shot.capture;
     const r = await api<{ pending: number }>(`/console/projects/${projectId}/feedback`, { body: {
       image: flat.image, note: note.trim(), version: shot.version,
       marks: marks.map((m) => ({ ...m, label: m.label?.trim() || undefined })),
-      context: { method: shot.method, viewport: c.viewport, frames: c.frames, fps: c.fps, ready: c.ready, label: c.label, errors: c.errors, warnings: c.warnings, state: c.state,
+      context: { method, viewport: c.viewport, frames: c.frames, fps: c.fps, ready: c.ready, label: c.label, errors: c.errors, warnings: c.warnings, state: c.state,
         fullscreen: shot.fullscreen, touch: matchMedia('(pointer: coarse)').matches, lang: navigator.language, browser: navigator.userAgent },
     } });
     onDone(r.pending);
@@ -145,7 +201,14 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel }: { projectI
       </div>
       <canvas ref={canvas} className="fb-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { start.current = null; setDraft(null); }}
         aria-label={t('Screenshot of the game. Drag on it to circle or point at something.', '游戏截图。在上面拖动即可圈出或指向某处。')} />
-      {shot.partial && <p className="dim fs-sm">{t('This browser could not draw the page elements over the game (menus, panels), so only the game\'s canvas is in this picture.', '此浏览器无法绘制游戏上方的网页元素（菜单、面板），因此这张图只包含游戏画布。')}{canCaptureTab() ? ' ' + t('Capture tab includes them.', '“截取标签页”会包含它们。') : ''}</p>}
+      {(method === 'game' || method === 'page') && <p className="dim fs-sm fb-approx">{t('This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).', '这张图由游戏页面重新绘制，并非直接截取屏幕，因此可能与你看到的画面有出入（图标、字体、特效等）。')}
+        {shot.partial ? ' ' + t('Only the game\'s canvas is in it: this browser could not draw the menus and panels over it.', '图中只有游戏画布：此浏览器无法绘制其上方的菜单和面板。') : ''}
+        {' '}{shot.why === 'unsupported' ? t('This browser cannot share a tab, so an exact picture is not possible here.', '此浏览器无法共享标签页，因此这里无法截取完全一致的画面。')
+          : shot.why === 'fullscreen' ? t('For exact pictures in fullscreen, turn on Exact screenshots below the game first.', '如需在全屏时截取完全一致的画面，请先在游戏下方开启“精确截图”。')
+          : shot.why === 'failed' ? t('Sharing this tab did not give a picture; try Exact screenshots again.', '共享标签页未能获取画面，请再试一次“精确截图”。')
+          : t('For an exact picture, allow sharing this tab when the browser asks (Exact screenshots, below the game).', '如需完全一致的画面，请在浏览器询问时允许共享此标签页（游戏下方的“精确截图”）。')}
+        {' '}{t('Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.', '你也可以自己截图后粘贴到这里，或通过“使用我自己的截图”选择。')}</p>}
+      {method === 'upload' && <p className="dim fs-sm">{t('Your own screenshot. Mark it up as usual.', '这是你自己的截图，照常标注即可。')}</p>}
       {!!marks.length && <div className="stack s">{marks.map((m, i) => (
         <div className="row fb-mark" key={i}>
           <span className="fb-num">{i + 1}</span><span className="mute fs-sm">{toolName(m.type)}</span>
@@ -156,6 +219,8 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel }: { projectI
       <Textarea rows={3} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('What should your agent fix or change? For example: the score overlaps the health bar on small screens.', '希望智能体修复或修改什么？例如：在小屏幕上分数和血条重叠了。')} aria-label={t('Note for your agent', '给智能体的说明')} />
       <div className="row" style={{ gap: 8 }}>
         <span className="dim fs-sm grow">{t('Your agent reads this with the creator_feedback tool. It leaves the queue once read.', '智能体通过 creator_feedback 工具读取，读取后即从队列移除。')}</span>
+        <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { useOwn(e.target.files?.[0]); e.target.value = ''; }} />
+        <Button variant="ghost" onClick={() => file.current?.click()} disabled={busy === 'own'} title={t('Use a screenshot you took yourself instead (you can also paste one)', '改用你自己截的图（也可以直接粘贴）')}>{t('Use my own screenshot', '使用我自己的截图')}</Button>
         <Button variant="ghost" onClick={onCancel}>{t('Back to the game', '返回游戏')}</Button>
         <Button variant="primary" onClick={send} disabled={busy === 'fb'}>{t('Add to queue', '加入队列')}</Button>
       </div>
@@ -163,33 +228,47 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel }: { projectI
   );
 }
 
-/** The capture buttons under the preview. capture() asks the game; tab() asks the browser to share the tab. */
+/** The capture buttons under the preview: Capture, and the switch for exact screenshots (sharing this tab). */
 export function CaptureButtons({ onShot, capture, frame, version, fullscreen, disabled, compact }: {
   /** Only the game capture (in fullscreen, beside the menu button). */
   compact?: boolean;
-  onShot: (s: Shot) => void; capture: () => Promise<GameCapture>; frame: () => Element | null; version: number | null; fullscreen: () => boolean; disabled?: boolean;
+  onShot: (s: Shot) => void; capture: (picture?: boolean) => Promise<GameCapture>; frame: () => Element | null; version: number | null; fullscreen: () => boolean; disabled?: boolean;
 }) {
   const { busy, act } = useAct();
+  const sharing = useSyncExternalStore(onTabShare, tabShareOn, () => false);
+  // the share lasts as long as the preview: closing it stops the share
+  useEffect(() => (compact ? undefined : () => stopTabShare()), [compact]);
+  const exact = async (base: Omit<Shot, 'image' | 'method' | 'capture'>) => {
+    const image = await grabTab(frame());
+    const c = await capture(false).catch(() => ({} as Partial<GameCapture>));   // the game's own state, if it answers
+    onShot({ ...base, image, method: 'screen', capture: { ...c, image: '' } });
+  };
   const fromGame = () => act('cap', async () => {
+    const base = { fullscreen: fullscreen(), version };
+    let why: Shot['why'] = !canCaptureTab() ? 'unsupported' : 'declined';
+    if (tabShareOn()) {
+      try { await exact(base); return; } catch { why = 'failed'; }
+    } else if (canCaptureTab() && !tabShareDeclined()) {
+      if (base.fullscreen) why = 'fullscreen';   // the browser's question would end fullscreen
+      else if (await startTabShare(frame())) {
+        (frame() as HTMLElement | null)?.focus();   // the browser's question took the focus away from the game
+        try { await exact(base); return; } catch { why = 'failed'; }
+      }
+    }
     const c = await capture();
     if (c.error === 'not_allowed') throw new Error(t('Only the preview can be captured, by the game\'s creator.', '只有游戏创作者才能截取预览画面。'));
-    if ((c.error && c.error !== 'page_elements_missing') || !c.image) {
-      if (canCaptureTab()) throw new Error(t('The game has no canvas this can capture (or it draws pictures from another site). Use Capture tab instead.', '游戏没有可截取的画布（或使用了其他网站的图片）。请改用“截取标签页”。'));
-      throw new Error(t('The game has no canvas this can capture (or it draws pictures from another site).', '游戏没有可截取的画布（或使用了其他网站的图片）。'));
-    }
-    onShot({ image: c.image, method: c.method === 'page' ? 'page' : 'game', capture: c, fullscreen: fullscreen(), version, partial: c.error === 'page_elements_missing' });
+    if ((c.error && c.error !== 'page_elements_missing') || !c.image) throw new Error(t('The game has no canvas this can capture (or it draws pictures from another site).', '游戏没有可截取的画布（或使用了其他网站的图片）。'));
+    onShot({ ...base, image: c.image, method: c.method === 'page' ? 'page' : 'game', capture: c, partial: c.error === 'page_elements_missing', why });
   });
-  const fromTab = () => act('cap', async () => {
-    const c = await capture().catch(() => ({} as Partial<GameCapture>));   // the game's own state, if it answers
-    const image = await captureTab(frame());
-    onShot({ image, method: 'screen', capture: { ...c, image: '' }, fullscreen: false, version });
-  });
+  const toggle = () => act('share', async () => { if (sharing) stopTabShare(); else await startTabShare(frame()); });
   // Pressing a button would move the focus out of the game, and many games close an open menu or pause when they lose
   // it: the picture would no longer show what the creator saw. The press keeps the focus where it is.
   const keepFocus = (e: { preventDefault(): void }) => e.preventDefault();
   return <>
     <Button size="sm" onMouseDown={keepFocus} onClick={fromGame} disabled={disabled || busy === 'cap'} title={t('Take a screenshot to mark up and send to your agent', '截图、标注并发送给你的智能体')}>{t('Capture feedback', '截图反馈')}</Button>
-    {!compact && canCaptureTab() && <Button size="sm" variant="ghost" onMouseDown={keepFocus} onClick={fromTab} disabled={disabled || busy === 'cap'} title={t('Capture the whole tab, menus made of page elements included (the browser asks first)', '截取整个标签页，包括由网页元素构成的菜单（浏览器会先询问）')}>{t('Capture tab', '截取标签页')}</Button>}
+    {!compact && canCaptureTab() && <Button size="sm" variant="ghost" onMouseDown={keepFocus} onClick={toggle} disabled={disabled || busy === 'share'}
+      title={sharing ? t('Screenshots are taken from this tab exactly as you see it. Stop sharing the tab.', '截图会按你所见直接从此标签页获取。点击停止共享标签页。') : t('Let the browser share this tab once, so screenshots show exactly what you see. It stops when you close the preview.', '让浏览器共享此标签页一次，截图就会与你所见完全一致。关闭预览时自动停止。')}>
+      {sharing ? t('Exact screenshots: on', '精确截图：已开启') : t('Exact screenshots', '精确截图')}</Button>}
   </>;
 }
 

@@ -252,7 +252,7 @@ export function Project({ id }: { id: string }) {
         <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); setShot(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
         {shot && <FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} />}
         {(() => {
-          const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} version={p.preview_version} capture={() => stage.current!.capture()} frame={() => stageBox.current?.querySelector('iframe') ?? null}
+          const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} version={p.preview_version} capture={(pic) => stage.current!.capture(pic)} frame={() => stageBox.current?.querySelector('iframe') ?? null}
             fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); setShot(sh); }} /> : null;
           // hidden while a capture is marked up: a hidden frame stops drawing, so the game waits where it was
           return <div ref={stageBox} style={shot ? { display: 'none' } : undefined}>
