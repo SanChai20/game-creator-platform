@@ -61,6 +61,20 @@ test('grants add up: lifetime wins, otherwise the term that ends last', () => {
   assert.deepEqual(licenseFromGrants([{ plan: 'term', expires_at: 5 }, { plan: 'lifetime', expires_at: null }]), { creator: 1, plan: 'lifetime', until: null });
 });
 
+test('a license an admin removed before 0026 stays removed: buying a one-year license afterwards gives one year', async () => {
+  const DB = d1('0025_library.sql');
+  const ins = (id, creator) => DB.sql.prepare("INSERT INTO users (id, email, name, pw_hash, creator, creator_since, created_at) VALUES (?, ?, ?, '', ?, 5, 0)").run(id, id + '@x.y', id, creator);
+  ins('removed', 0); ins('claimed', 1);
+  // the old Remove set users.creator = 0 and left the admin grant paid; the old claim set creator = 1 with no grant at all
+  DB.sql.prepare("INSERT INTO payments (id, user_id, kind, amount_cents, provider, provider_ref, status, created_at) VALUES ('p1', 'removed', 'creator_fee', 0, 'admin', 'grant:removed', 'paid', 5)").run();
+  DB.run('0026_creator_licenses.sql'); DB.run('0027_license_grants_cleanup.sql');
+  const e = { DB };
+  assert.equal(await grantLicense(e, S, 'removed', 'term', 'stripe', 'cs_x', 1000), 'granted');
+  assert.equal((await currentLicense(e, 'removed')).plan, 'term');
+  await syncLicense(e, 'claimed');   // anything that recomputes the license keeps the first admin's
+  assert.equal((await currentLicense(e, 'claimed')).plan, 'lifetime');
+});
+
 test('the migration turns every existing license into lifetime', () => {
   const DB = d1('0025_library.sql');
   DB.sql.prepare("INSERT INTO users (id, email, name, pw_hash, creator, creator_since, created_at) VALUES ('old', 'o@x.y', 'O', '', 1, 5, 0)").run();
