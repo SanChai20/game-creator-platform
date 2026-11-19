@@ -180,7 +180,8 @@
   function onBeat(j) { if (j && j.trial) { if (j.trial.over) trialOver(); else if (!j.trial.bought) trial.until = Math.min(trial.until, Date.now() + j.trial.remaining_seconds * 1000); } }
   if (trial) setInterval(function () { if (!trial.over && !trial.ending && Date.now() >= trial.until) { trial.ending = true; beat(); setTimeout(trialOver, 3000); } }, 1000);
 
-  // Heartbeat: play time counts only while the tab is visible and frames are advancing.
+  // Heartbeat: tells the platform the game is running and passes on its errors. It moves no play number: play time,
+  // plays and players online are measured by the platform from the page that shows the game (src/play-clock.ts).
   var beatFrames = 0, fpsEma = 0;
   function beat(last) {
     if (standalone || !S.ready || ended) return;

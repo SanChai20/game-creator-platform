@@ -66,7 +66,7 @@ async function main() {
     assert.equal(l.status, 200, 'an admin from an earlier run exists; start from a clean local database (rm -rf .wrangler/state) or set ADMIN_EMAIL');
   }
   assert.equal((await B.get('/api/admin/overview')).status, 403);
-  must(await ADM.put('/api/admin/settings', { play_min_seconds: 2, verify_human_min_seconds: 2, earnings_hold_days: 0, withdraw_min_cents: 300 }));
+  must(await ADM.put('/api/admin/settings', { play_min_seconds: 2, verify_human_min_seconds: 2, earnings_hold_days: 0, refund_window_hours: 0, withdraw_min_cents: 300 }));
   ok('first admin claimed; non-admin blocked; settings changed');
 
   // OAuth: dynamic registration + PKCE authorization code
@@ -104,10 +104,10 @@ async function main() {
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
-  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 5 && started.services.multiplayer && started.account && started.guides.length === 7 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
+  assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 5 && started.services.multiplayer && started.account && started.guides.length === 8 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
   assert.ok(!JSON.stringify(started).match(/design_scene|list_blocks|recommend_pipeline|craft score/), 'get_started must not teach how to make a game');
   for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer', 'storage', 'services']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
-  assert.equal((await rpc('resources/list')).resources.length, 8);
+  assert.equal((await rpc('resources/list')).resources.length, 9);
   const catalog = await tool('platform_services');
   assert.ok(catalog.services.length >= 20 && catalog.not_provided.length >= 10 && catalog.services.some((x) => x.id === 'multiplayer'), JSON.stringify(catalog).slice(0, 400));
   assert.equal((await tool('platform_services', { service: 'saves' })).service.id, 'saves');
@@ -323,16 +323,24 @@ GCP.ready();
   const t = new URL(play.url).searchParams.get('gcp_t');
   assert.equal((await B.post(`/api/games/${slug}/reviews`, { rating: 5, body: 'too early' })).status, 403);
   const beat = (body) => fetch(`${BASE}/api/rt/beat`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t, ...body }) }).then((r) => r.json());
+  // the store page's check-ins are the platform's play clock; the game's heartbeats, however active they claim to be, count nothing
+  const checkin = (ms) => B.post(`/api/plays/${play.session}/seen`, { visible_ms: ms });
+  must(await checkin(0));
   await beat({ frames: 10, active: false, first: true });
   await sleep(2600);
   const b2 = await beat({ frames: 200, active: true, errors: ['TypeError: demo error'] });
-  assert.ok(b2.seconds >= 2);
+  assert.equal(b2.seconds, 0, 'heartbeats alone credit no play time');
+  assert.equal((await B.post(`/api/games/${slug}/reviews`, { rating: 4, body: 'not yet' })).status, 403, 'nor count a play');
+  assert.equal((await fetch(`${BASE}/api/plays/${play.session}/seen`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://game.example' }, body: '{"visible_ms":9999}' })).status, 403, 'another origin (the game) cannot check in');
+  assert.equal(must(await A.post(`/api/plays/${play.session}/seen`, { visible_ms: 9999 })).ok, false, 'nor can another account');
+  const c2 = must(await checkin(3_600_000));
+  assert.ok(c2.ok && c2.seconds >= 2 && c2.seconds <= 4 && c2.counted, JSON.stringify(c2));   // capped by the server's clock
   must(await B.post(`/api/games/${slug}/reviews`, { rating: 4, body: 'Lovely island.' }));
   must(await B.post(`/api/games/${slug}/reviews`, { rating: 5, body: 'Lovely island, even better.' }));
   const detail = must(await B.get(`/api/games/${slug}`));
   assert.equal(detail.game.plays, 1); assert.equal(detail.game.rating, 5); assert.equal(detail.game.rating_count, 1); assert.equal(detail.played, true);
   assert.equal((await A.post(`/api/games/${slug}/reviews`, { rating: 5 })).status, 403);
-  ok('play session: signed-in players play at once, document gated by token, play counted after the minimum, review updates rating, own-game review refused');
+  ok('play session: signed-in players play at once, document gated by token, play counted by the platform\'s clock (not the game\'s heartbeats) after the minimum, review updates rating, own-game review refused');
 
   // game services: saves, leaderboard, room
   const svc = (path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t, ...body }) }).then((r) => r.json());
@@ -564,7 +572,7 @@ GCP.ready();
   const vs = await tool('list_versions', { project: pid });
   assert.equal(vs.live_version, 1); assert.equal(vs.versions.length, 2);
   const stats = await tool('get_stats', { project: pid });
-  assert.equal(stats.plays, 2); assert.ok(stats.runtime_errors.some((e) => /demo error/.test(e.message)));   // plays: the first play and the free-trial session
+  assert.equal(stats.plays, 1); assert.ok(stats.runtime_errors.some((e) => /demo error/.test(e.message)));   // plays: the first play; the same player's free-trial session within the hour adds none
   const con = must(await A.get(`/api/console/projects/${pid}`));
   assert.equal(con.versions.length, 2); assert.ok(con.events.length >= 6); assert.ok(con.daily.length >= 1);
   const prev = must(await A.post(`/api/console/projects/${pid}/preview`));
