@@ -37,7 +37,9 @@ export function Earnings() {
         <StatGrid>
           <Stat tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
           <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={(data.hold_days === 1 ? t('Sales clear after 1 day', '销售收入在 1 天后可提现') : t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days }))} />
-          <Stat label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={t('The platform keeps {cut}% of each sale', '平台从每笔销售中收取 {cut}%', { cut: data.fee_percent })} />
+          <Stat label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={data.fee_open_percent != null && data.fee_open_percent < data.fee_percent
+            ? t('The platform keeps {cut}% of each sale, {open}% on games that share their Open Implementation', '平台从每笔销售中收取 {cut}%，开放实现的游戏仅收取 {open}%', { cut: data.fee_percent, open: data.fee_open_percent })
+            : t('The platform keeps {cut}% of each sale', '平台从每笔销售中收取 {cut}%', { cut: data.fee_percent })} />
         </StatGrid>
 
         <div className="cols">

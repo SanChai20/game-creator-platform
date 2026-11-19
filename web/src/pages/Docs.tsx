@@ -162,6 +162,7 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
               ...(s.paid_games_enabled ? [
                 t('Publish free, or set a price.', '可以免费发布，也可以自行定价。'),
                 t('On paid games you keep {share}% of each sale.', '付费游戏每笔销售你可获得 {share}%。', { share: 100 - s.platform_fee_percent }),
+                ...(s.platform_fee_open_percent < s.platform_fee_percent ? [t('Share your game\'s Open Implementation and you keep {share}% instead.', '开放游戏的实现方式，你可获得 {share}%。', { share: 100 - s.platform_fee_open_percent })] : []),
                 t('Withdraw once your balance reaches {amount}.', '余额达到 {amount} 即可提现。', { amount: usd(s.withdraw_min_cents) }),
               ] : []),
             ]} />

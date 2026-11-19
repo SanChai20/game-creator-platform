@@ -1381,5 +1381,12 @@
  "Find a game": "ゲームを探す",
  "Games you play show up here, with where you left off.": "プレイしたゲームが、どこまで進んだかと一緒にここに表示されます。",
  "Show more": "もっと見る",
- "Bought, not played yet": "購入済み・未プレイ"
+ "Bought, not played yet": "購入済み・未プレイ",
+ "Platform cut of each sale of a game that shares its Open Implementation (percent)": "オープン実装 を公開しているゲームの販売ごとのプラットフォーム手数料（%）",
+ "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "オープン実装 を公開している無料ゲームの、無料ゲーム内での順位ブースト（最近のプレイに加える重みの割合。0 でオフ、最大 100。評価の低いゲームには適用されません）",
+ "Share your game's Open Implementation and you keep {share}% instead.": "ゲームの オープン実装 を公開すると、代わりに {share}% を受け取れます。",
+ "The platform keeps {cut}% of each sale, {open}% on games that share their Open Implementation": "プラットフォームは各販売の {cut}% を受け取ります（オープン実装 を公開しているゲームは {open}%）",
+ "For a game that shares its Open Implementation, the platform’s share is {open}% instead, on sales made while sharing is turned on.": "オープン実装 を公開しているゲームでは、公開中に行われた販売について、プラットフォームの取り分は代わりに {open}% となります。",
+ "While shared, the platform keeps {open}% of each sale of this game instead of {cut}%.": "公開中は、このゲームの各販売でプラットフォームが受け取るのは {cut}% ではなく {open}% です。",
+ "While shared, this free game ranks higher among free games, unless players rate it poorly.": "公開中は、この無料ゲームが無料ゲームの中で上位に表示されます（プレイヤーの評価が低い場合を除く）。"
 }

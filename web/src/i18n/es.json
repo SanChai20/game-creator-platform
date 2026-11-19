@@ -1380,5 +1380,12 @@
  "Find a game": "Buscar un juego",
  "Games you play show up here, with where you left off.": "Los juegos que juegues aparecen aquí, con el punto donde lo dejaste.",
  "Show more": "Mostrar más",
- "Bought, not played yet": "Comprados, sin jugar todavía"
+ "Bought, not played yet": "Comprados, sin jugar todavía",
+ "Platform cut of each sale of a game that shares its Open Implementation (percent)": "Comisión de la plataforma por cada venta de un juego que comparte su Implementación abierta (porcentaje)",
+ "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "Impulso en el ranking para juegos gratuitos que comparten su Implementación abierta, entre los juegos gratuitos (porcentaje de peso extra en su juego reciente; 0 lo desactiva, máximo 100; los juegos mal valorados no lo reciben)",
+ "Share your game's Open Implementation and you keep {share}% instead.": "Comparte la Implementación abierta de tu juego y te quedas con el {share}%.",
+ "The platform keeps {cut}% of each sale, {open}% on games that share their Open Implementation": "La plataforma se queda con el {cut}% de cada venta, el {open}% en los juegos que comparten su Implementación abierta",
+ "For a game that shares its Open Implementation, the platform’s share is {open}% instead, on sales made while sharing is turned on.": "Para un juego que comparte su Implementación abierta, la parte de la plataforma es del {open}%, en las ventas hechas mientras se comparte.",
+ "While shared, the platform keeps {open}% of each sale of this game instead of {cut}%.": "Mientras se comparte, la plataforma se queda con el {open}% de cada venta de este juego en lugar del {cut}%.",
+ "While shared, this free game ranks higher among free games, unless players rate it poorly.": "Mientras se comparte, este juego gratuito aparece más arriba entre los juegos gratuitos, salvo que los jugadores lo valoren mal."
 }
