@@ -24,6 +24,7 @@ import { Auth, ClaimAdmin, Forgot, Reset } from './pages/Auth';
 import { Account } from './pages/Account';
 import { Creators } from './pages/Creators';
 import { Console } from './pages/Console';
+import { License, LicenseGate } from './pages/License';
 import { Project } from './pages/Project';
 import { Analytics } from './pages/Analytics';
 import { Earnings } from './pages/Earnings';
@@ -156,7 +157,7 @@ function NotFound() {
 
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
-  const needUser = path === '/library' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account';
+  const needUser = path === '/library' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account';
   useEffect(() => { if (needUser && !user) navigate(loginUrl(), true); }, [needUser, user, loc]);
   if (needUser && !user) return <RouteSkeleton path={path} />;
   let m: RegExpMatchArray | null;
@@ -173,6 +174,9 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/library') return <Library />;
   if (path === '/create') return <Creators />;
   if (path === '/docs') return <Docs />;
+  if (path === '/license') return <License />;
+  // The console is for creators only: without a valid license every console page is the Get License page.
+  if (path.startsWith('/console') && !user!.creator) return <LicenseGate />;
   if (path === '/console') return <Console />;
   if (path === '/console/earnings') return <Earnings />;
   if ((m = path.match(/^\/console\/(?:p|projects)\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;

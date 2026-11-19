@@ -36,7 +36,10 @@ export interface Env {
 
 export interface User {
   id: string; email: string; name: string; role: 'user' | 'admin'; status: 'active' | 'suspended';
-  creator: number; creator_since: number | null; stripe_account: string | null; stripe_payouts_enabled: number;
+  creator: number; creator_since: number | null;
+  // creator is 1 only while the license is valid (src/license.ts); creator_licensed is the stored flag, set once granted
+  creator_plan: string | null; creator_until: number | null; creator_licensed?: number;
+  stripe_account: string | null; stripe_payouts_enabled: number;
   payout_country: string | null; created_at: number;
 }
 

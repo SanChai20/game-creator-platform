@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { AppError, type Env, type User } from './env';
 import { b64u, hmacHex, unb64, now, rid, sha256, token, safeEqual } from './util';
+import { withLicense } from './license';
 
 const ITER = 100_000; // the Workers runtime caps PBKDF2 at 100k iterations
 const SESSION_DAYS = 30;
@@ -38,17 +39,17 @@ export async function createSession(env: Env, req: Request, userId: string): Pro
   return sessionCookie(req, t, SESSION_DAYS * 86400);
 }
 
-const USER_COLS = 'u.id, u.email, u.name, u.role, u.status, u.creator, u.creator_since, u.stripe_account, u.stripe_payouts_enabled, u.payout_country, u.created_at';
+const USER_COLS = 'u.id, u.email, u.name, u.role, u.status, u.creator, u.creator_since, u.creator_plan, u.creator_until, u.stripe_account, u.stripe_payouts_enabled, u.payout_country, u.created_at';
 
 export async function userFromRequest(env: Env, req: Request): Promise<User | null> {
   const t = sessionToken(req);
   if (!t) return null;
   const u = await env.DB.prepare(`SELECT ${USER_COLS} FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?`)
     .bind(await sha256(t), now()).first<User>();
-  return u && u.status === 'active' ? u : null;
+  return u && u.status === 'active' ? withLicense(u) : null;
 }
 export async function userById(env: Env, id: string): Promise<User | null> {
-  return env.DB.prepare(`SELECT ${USER_COLS} FROM users u WHERE u.id = ?`).bind(id).first<User>();
+  return withLicense(await env.DB.prepare(`SELECT ${USER_COLS} FROM users u WHERE u.id = ?`).bind(id).first<User>());
 }
 
 // ---- guests: players without an account, only when the admin switches "Require login to play" off (it is on by default) ----

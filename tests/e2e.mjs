@@ -66,7 +66,7 @@ async function main() {
     assert.equal(l.status, 200, 'an admin from an earlier run exists; start from a clean local database (rm -rf .wrangler/state) or set ADMIN_EMAIL');
   }
   assert.equal((await B.get('/api/admin/overview')).status, 403);
-  must(await ADM.put('/api/admin/settings', { play_min_seconds: 2, verify_human_min_seconds: 2, earnings_hold_days: 0, refund_window_hours: 0, withdraw_min_cents: 300 }));
+  must(await ADM.put('/api/admin/settings', { play_min_seconds: 2, verify_human_min_seconds: 2, earnings_hold_days: 0, refund_window_hours: 0, withdraw_min_cents: 300, new_creator_days: 0 }));
   ok('first admin claimed; non-admin blocked; settings changed');
 
   // OAuth: dynamic registration + PKCE authorization code
@@ -596,12 +596,25 @@ GCP.ready();
   // license gate for a brand-new creator
   const C = client();
   must(await C.post('/api/auth/signup', { email: `new-${run}@example.com`, name: 'Newbie ' + run, password: 'correct horse' }));
-  const fee = must(await C.post('/api/billing/creator-fee'));
-  const fs = sessions.get(fee.url.split('/').pop());
-  assert.equal(fs.amount_total, 3000); assert.equal(fs.metadata.kind, 'creator_fee');
-  must(await C.post('/api/billing/confirm', { session_id: fs.id }));
-  assert.equal(must(await C.get('/api/me')).user.creator, true);
-  ok('creator license: $30 checkout, confirmed, account can publish');
+  let me = must(await C.get('/api/me')).user;
+  assert.equal(me.creator, false); assert.equal(me.license.active, false);
+  assert.equal((await C.post('/api/billing/license', { plan: 'monthly' })).status, 400);
+  const term = must(await C.post('/api/billing/license', { plan: 'term' }));
+  const termSess = sessions.get(term.url.split('/').pop());
+  assert.equal(termSess.amount_total, 1000); assert.equal(termSess.metadata.kind, 'creator_fee'); assert.equal(termSess.metadata.plan, 'term');
+  const life = must(await C.post('/api/billing/license', { plan: 'lifetime' }));          // a second checkout opened before paying
+  const lsess = sessions.get(life.url.split('/').pop());
+  assert.equal(lsess.amount_total, 5000); assert.equal(lsess.metadata.plan, 'lifetime');
+  assert.equal(must(await C.post('/api/billing/confirm', { session_id: termSess.id })).result, 'creator_fee');
+  me = must(await C.get('/api/me')).user;
+  assert.equal(me.creator, true); assert.equal(me.license.plan, 'term');
+  assert.ok(Math.abs(me.license.until - (Date.now() + 365 * 86400000)) < 120000);
+  assert.equal((await C.post('/api/billing/license', { plan: 'lifetime' })).status, 409);   // no other license while one is valid
+  const refunds = stripeCalls.filter((x) => x.path === '/v1/refunds').length;
+  assert.equal(must(await C.post('/api/billing/confirm', { session_id: lsess.id })).result, 'duplicate_refunded');   // paid the other tab anyway: given back
+  assert.equal(stripeCalls.filter((x) => x.path === '/v1/refunds').length, refunds + 1);
+  assert.equal(must(await C.get('/api/me')).user.license.plan, 'term');
+  ok('creator license: time-limited $10 for a year by checkout, the lifetime one refused and refunded while it is valid');
 
   // device sign-in: an agent with no browser and no token works out how to connect from the 401 alone
   const agent = async (path, form) => { const r = await fetch(BASE + path, { method: 'POST', headers: form ? { 'content-type': 'application/x-www-form-urlencoded' } : { 'content-type': 'application/json' }, body: form ? new URLSearchParams(form).toString() : '{"jsonrpc":"2.0","id":1,"method":"initialize"}' }); return { status: r.status, headers: r.headers, json: await r.json().catch(() => null) }; };

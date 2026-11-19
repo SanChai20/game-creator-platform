@@ -16,6 +16,7 @@ import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
+import { grantLicense, isPlan, licenseOf, licenseView, offerOf, planName, syncLicense } from '../license';
 import { freeTrendingOrder } from '../catalog';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { currentPicks } from '../rankings';
@@ -37,7 +38,8 @@ type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
 
 const media = (origin: string, key: string | null) => (key ? `${origin}/api/media/${key}` : null);
-const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.role, creator: !!u.creator, creator_since: u.creator_since, payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country });
+const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.role, creator: !!u.creator, creator_since: u.creator_since,
+  license: licenseOf({ ...u, creator: u.creator_licensed ?? u.creator }), payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country });
 
 function card(origin: string, r: Record<string, any>) {
   return {
@@ -556,11 +558,21 @@ async function checkout(c: Ctx, u: User, name: string, amount: number, metadata:
   return c.json({ url: session.url });
 }
 
-api.post('/billing/creator-fee', async (c) => {
+// Creator licenses (src/license.ts). The web app's license page lists what can be bought; choosing one opens Stripe
+// Checkout, or grants it at once when that license is free. An account with a valid license cannot buy either kind.
+api.get('/license', async (c) => {
   const u = requireUser(c), s = await getSettings(c.env);
-  if (u.creator) throw new AppError(409, 'You already have a creator license.', 'already');
-  if (s.creator_fee_cents === 0) { await grantCreator(c.env, u.id, 'admin', 'free:' + u.id, 0); return c.json({ ok: true }); }
-  return checkout(c, u, `${s.brand_name} creator license`, s.creator_fee_cents, { kind: 'creator_fee', user_id: u.id }, '/console');
+  c.header('cache-control', 'private, no-store');
+  return c.json(licenseView(u, s, stripeReady(c.env)));
+});
+
+api.post('/billing/license', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env), b = await c.req.json<{ plan?: string }>().catch(() => ({} as { plan?: string }));
+  if (!isPlan(b.plan)) throw bad('Choose a license: "term" or "lifetime".');
+  if (u.creator) throw new AppError(409, 'You already have a valid creator license.', 'already');
+  const o = offerOf(s, b.plan);
+  if (o.cents === 0) { await grantLicense(c.env, s, u.id, o.plan, 'admin', `free:${o.plan}:${u.id}:${now()}`, 0); return c.json({ ok: true, granted: o.plan }); }
+  return checkout(c, u, `${s.brand_name} ${planName(o.plan, o.days)}`, o.cents, { kind: 'creator_fee', user_id: u.id, plan: o.plan }, '/license');
 });
 
 api.post('/games/:slug/buy', async (c) => {
@@ -600,14 +612,6 @@ api.post('/games/:slug/refund', async (c) => {
   return c.json({ ok: true });
 });
 
-export async function grantCreator(env: Env, userId: string, provider: string, ref: string, amount: number) {
-  if (await env.DB.prepare('SELECT 1 FROM payments WHERE provider_ref = ?').bind(ref).first()) return;
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO payments (id, user_id, kind, amount_cents, provider, provider_ref, status, created_at) VALUES (?, ?, 'creator_fee', ?, ?, ?, 'paid', ?)").bind('pay_' + rid(16), userId, amount, provider, ref, now()),
-    env.DB.prepare('UPDATE users SET creator = 1, creator_since = COALESCE(creator_since, ?) WHERE id = ?').bind(now(), userId),
-  ]);
-}
-
 async function creatorFeeSession(env: Env, paymentIntent: string): Promise<string | null> {
   // A Stripe failure here must reach the webhook's caller, so Stripe retries the event instead of it being dropped.
   const list = await stripe<{ data: { id: string }[] }>(env, 'GET', '/checkout/sessions', { payment_intent: paymentIntent, limit: 1 });
@@ -620,11 +624,8 @@ async function revokeCreatorFee(env: Env, paymentIntent: string, status: 'refund
   if (!sid) return;
   const pay = await env.DB.prepare("SELECT id, user_id FROM payments WHERE provider_ref = ? AND kind = 'creator_fee' AND status = 'paid'").bind(sid).first<{ id: string; user_id: string }>();
   if (!pay) return;
-  await env.DB.batch([
-    env.DB.prepare("UPDATE payments SET status = ? WHERE id = ? AND status = 'paid'").bind(status, pay.id),
-    // only when no other paid license remains (an admin grant, a second payment)
-    env.DB.prepare("UPDATE users SET creator = 0 WHERE id = ? AND NOT EXISTS (SELECT 1 FROM payments WHERE user_id = ? AND kind = 'creator_fee' AND status = 'paid')").bind(pay.user_id, pay.user_id),
-  ]);
+  await env.DB.prepare("UPDATE payments SET status = ? WHERE id = ? AND status = 'paid'").bind(status, pay.id).run();
+  await syncLicense(env, pay.user_id);   // any other paid grant (an admin grant, a later payment) still counts
 }
 
 /** A disputed creator license payment that the platform won: the license comes back. */
@@ -633,10 +634,8 @@ async function restoreCreatorFee(env: Env, paymentIntent: string): Promise<void>
   if (!sid) return;
   const pay = await env.DB.prepare("SELECT id, user_id FROM payments WHERE provider_ref = ? AND kind = 'creator_fee' AND status = 'disputed'").bind(sid).first<{ id: string; user_id: string }>();
   if (!pay) return;
-  await env.DB.batch([
-    env.DB.prepare("UPDATE payments SET status = 'paid' WHERE id = ? AND status = 'disputed'").bind(pay.id),
-    env.DB.prepare('UPDATE users SET creator = 1, creator_since = COALESCE(creator_since, ?) WHERE id = ?').bind(now(), pay.user_id),
-  ]);
+  await env.DB.prepare("UPDATE payments SET status = 'paid' WHERE id = ? AND status = 'disputed'").bind(pay.id).run();
+  await syncLicense(env, pay.user_id);
 }
 
 /**
@@ -654,7 +653,20 @@ async function applySession(env: Env, session: any): Promise<string> {
   if (!session || session.payment_status !== 'paid') return 'unpaid';
   const m = session.metadata || {};
   const pi = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null;
-  if (m.kind === 'creator_fee' && m.user_id) { await grantCreator(env, m.user_id, 'stripe', session.id, session.amount_total || 0); return 'creator_fee'; }
+  if (m.kind === 'creator_fee' && m.user_id) {
+    // Checkouts made before there were two licenses carry no plan: they bought the one-time unlimited license, now lifetime.
+    const plan = isPlan(m.plan) ? m.plan : 'lifetime';
+    const r = await grantLicense(env, await getSettings(env), m.user_id, plan, 'stripe', session.id, session.amount_total || 0);
+    if (r === 'already_licensed') {
+      // The account got a valid license while this checkout was open (another tab, the other kind): the payment is given
+      // back at once and kept on record as refunded, so nobody pays for a license they cannot use.
+      if (pi) await stripe(env, 'POST', '/refunds', { payment_intent: pi, reason: 'duplicate', metadata: { session: session.id } }, 'dup:' + session.id);
+      await env.DB.prepare("INSERT INTO payments (id, user_id, kind, amount_cents, provider, provider_ref, status, plan, created_at) VALUES (?, ?, 'creator_fee', ?, 'stripe', ?, 'refunded', ?, ?)")
+        .bind('pay_' + rid(16), m.user_id, session.amount_total || 0, session.id, plan, now()).run();
+      return 'duplicate_refunded';
+    }
+    return 'creator_fee';
+  }
   if (m.kind === 'game' && m.user_id && m.project_id) {
     const p = await getProject(env, m.project_id);
     if (!p) return 'missing_project';
@@ -773,7 +785,7 @@ api.get('/console/overview', async (c) => {
   const sales = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>();
   const library = await c.env.DB.prepare("SELECT p.*, u.name AS author FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users u ON u.id = p.owner_id WHERE x.user_id = ? AND x.status = 'paid' ORDER BY x.created_at DESC LIMIT 60").bind(u.id).all<Record<string, any>>();
   return c.json({
-    user: pubUser(u), balance: await balanceOf(c.env, u.id), sales: sales || { n: 0, net: 0 }, fee_cents: s.creator_fee_cents,
+    user: pubUser(u), balance: await balanceOf(c.env, u.id), sales: sales || { n: 0, net: 0 },
     projects: projects.results.map((p) => ({ ...card(origin, p), live_version: p.live_version, preview_version: p.preview_version, sales: p.sales, updated_at: p.updated_at })),
     library: library.results.map((p) => card(origin, p)),
   });
@@ -903,5 +915,7 @@ api.post('/claim-admin', async (c) => {
   const r = await c.env.DB.prepare("UPDATE users SET role = 'admin', creator = 1, creator_since = COALESCE(creator_since, ?1) WHERE id = ?2 AND NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin') AND NOT EXISTS (SELECT 1 FROM settings WHERE key = '_admin_claimed')").bind(now(), u.id).run();
   if (!r.meta.changes) throw forbidden('This claim link was already used. Ask an admin to promote you.');
   await c.env.DB.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('_admin_claimed', ?, ?) ON CONFLICT(key) DO NOTHING").bind(JSON.stringify(u.id), now()).run();
+  // the first admin is a creator for good: a lifetime license on record, so recomputing the license keeps it
+  await grantLicense(c.env, await getSettings(c.env), u.id, 'lifetime', 'admin', 'claim:' + u.id, 0, true);
   return c.json({ ok: true });
 });

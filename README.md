@@ -59,6 +59,10 @@ A version the verification browser cannot run (it needs WebGPU, or no browser wa
 
 Genre, art direction, engine and rendering technique are the creator's, and the platform neither prescribes nor scores them.
 
+## Creator licenses
+
+The console is for creators only. An account without a valid creator license that opens it (the Console link, or any page under `/console`) sees a Get License button instead, which leads to `/license`: two licenses side by side, a time-limited one (one year and $10 by default) and a lifetime one ($50 by default), both one-time payments and never subscriptions. Prices and the time-limited license's length are admin settings (Creator license). Choosing one opens Stripe Checkout, and the license is granted when the payment succeeds (on return and from the webhook), then the console opens. A license priced at $0 is granted at once; when the lifetime license is free, Get License grants it directly. The two cannot be converted into each other, and while one is valid neither can be bought; a payment that slips through anyway (two checkouts open) is refunded. A time-limited license that ends is no license: the console closes again and publishing stops until a new one is bought, while live games stay live. Licenses granted before there were two kinds are lifetime. Rules in `src/license.ts`, tests in `tests/license.mjs`.
+
 ## Player progress
 
 Every game gets per-player progress from the platform: cloud saves (`GCP.save`), player stats (`GCP.playerStats`) and a play record the platform keeps by itself (sessions, play time, first and last played, best scores; `GCP.playRecord()`). The rules live in `src/player-data.js` and are tested in `tests/player-data.mjs`:

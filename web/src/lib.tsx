@@ -115,7 +115,9 @@ export function Link({ to, className, children, onClick, title, scroll, ...rest 
 }
 
 // ---- session ----------------------------------------------------------------------------------
-export interface Me { id: string; email: string; name: string; role: string; creator: boolean; payouts_enabled: boolean; has_payout_account: boolean; payout_country: string | null }
+/** A creator license (src/license.ts). `creator` on Me is true only while it is valid. */
+export interface License { active: boolean; plan: 'term' | 'lifetime' | null; until: number | null; since: number | null; expired: boolean }
+export interface Me { id: string; email: string; name: string; role: string; creator: boolean; license: License; payouts_enabled: boolean; has_payout_account: boolean; payout_country: string | null }
 export interface Config { settings: Record<string, any>; payments: boolean; mcp_url: string; origin: string }
 export interface AppState { user: Me | null; config: Config; refresh: () => Promise<void>; toast: (msg: string, bad?: boolean) => void }
 export const AppCtx = createContext<AppState>(null as unknown as AppState);

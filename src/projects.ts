@@ -34,7 +34,7 @@ export async function ownedProject(env: Env, user: User, idOrSlug: string): Prom
 
 export async function createProject(env: Env, user: User, input: { title: string; slug?: string; tagline?: string; description?: string; tags?: string[] }, actor = 'console'): Promise<Project> {
   const s = await getSettings(env);
-  if (s.creator_fee_for_projects && !user.creator) throw forbidden('A creator license is required before creating projects.', 'Call get_started to see the account status and the purchase link.');
+  if (s.creator_fee_for_projects && !user.creator) throw forbidden('A valid creator license is required before creating projects.', 'Call get_started to see the account status and where the user gets a license.');
   const title = String(input.title || '').trim().slice(0, 80);
   if (title.length < 2) throw bad('title must be at least 2 characters.');
   const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM projects WHERE owner_id = ? AND status != 'removed'").bind(user.id).first<{ n: number }>();

@@ -113,5 +113,11 @@
  "Depending on where you live, you can ask to see, correct, export or delete your information, or object to how we use it. You can delete your account yourself on your Account page. Send other privacy requests to {email}. We may need to confirm it is you, and we will answer within the time the law sets. You can also complain to your local data protection authority.": "根据你所在地区的法律，你可以要求查看、更正、导出或删除你的信息，或反对我们使用这些信息的方式。你可以在“账户”页面自行删除账户。其他隐私请求请发送至 {email}。我们可能需要核实你的身份，并会在法律规定的期限内答复。你也可以向当地的数据保护机构投诉。",
  "{brand} is operated by {op}. We use only the cookies the site needs to work: one that keeps you signed in, one that remembers your language so pages we send are in it, one that lets a game you opened know it may run for you, and, when you play without an account, one that keeps your guest progress in this browser. There are no advertising or tracking cookies.": "{brand} 由 {op} 运营。我们只使用网站运行所必需的 Cookie：一个用于保持登录状态，一个用于记住你的语言以便我们发送的页面使用该语言，一个让你打开的游戏确认可以为你运行，以及在你不登录游玩时，一个在当前浏览器中保存你的访客进度。没有广告或追踪 Cookie。",
  "Platform cut of each sale of a game that shares its Open Implementation (percent)": "开放实现的游戏每笔销售的平台分成（百分比）",
- "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "开放实现的免费游戏在免费游戏中的排名加成（近期游玩权重增加的百分比；0 为关闭，最高 100；评价较差的游戏不加成）"
+ "Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)": "开放实现的免费游戏在免费游戏中的排名加成（近期游玩权重增加的百分比；0 为关闭，最高 100；评价较差的游戏不加成）",
+ "Price of the time-limited creator license (one-time payment, not a subscription)": "限时创作者许可的价格（一次性付款，不是订阅）",
+ "Days a time-limited creator license stays valid": "限时创作者许可的有效天数",
+ "Price of the lifetime creator license (one-time payment, never expires)": "永久创作者许可的价格（一次性付款，永不过期）",
+ "Require a valid creator license to publish (preview stays free)": "发布前须持有有效的创作者许可（预览仍免费）",
+ "Require a valid creator license before creating projects at all": "创建项目前就须持有有效的创作者许可",
+ "Creator license": "创作者许可"
 }

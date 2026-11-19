@@ -13,6 +13,7 @@ import { takeOffline, trialStats } from '../routes/api';
 import { trialMinutes } from '../trials';
 import type { GameRoom } from '../room';
 import { getSettings } from '../settings';
+import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
 import { gameAnalytics, onlineNow } from '../analytics';
 // @ts-ignore plain JS module
@@ -77,7 +78,7 @@ async function account(c: ToolCtx) {
   return {
     name: u.name, creator_license: !!u.creator,
     can_publish: !!u.creator || !s.creator_fee_required,
-    license: u.creator ? 'active' : `Not purchased. Publishing needs a one-time ${usd(s.creator_fee_cents)} creator license (unlimited games). Uploading, previewing and verifying are free. The account owner buys it at ${c.origin}/console`,
+    license: u.creator ? licenseText(u) : `${licenseText(u) === 'none' ? 'Not purchased' : 'Expired (' + licenseText(u) + ')'}. Publishing and the console need ${offersText(s)}. Uploading, previewing and verifying are free. The account owner gets it at ${c.origin}/license`,
     console_url: `${c.origin}/console`,
     earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
     paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_open_implementation: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled' } : 'disabled',
@@ -239,7 +240,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
   if (v.purged_at) throw bad(`Version ${v.n} is older than the platform keeps files for, so it can no longer be published.`, 'Call deploy_preview to make a new version from the workspace, then publish that.');
   // Input is checked before the license, so a wrong version number is reported as such for any account.
-  if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs the one-time ${usd(s.creator_fee_cents)} creator license.`, `Ask the user to buy it at ${c.origin}/console, then call publish again. Preview stays available meanwhile.`);
+  if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs a valid creator license (${licenseText(c.user)} on this account).`, `Ask the user to get one at ${c.origin}/license: ${offersText(s)}. Then call publish again. Preview stays available meanwhile.`);
   // A rollback only goes back to a version that was live before; anything else is a new publish and meets every gate.
   if (rollback && !v.published_at) throw bad(`Version ${v.n} was never live, so it cannot be rolled back to.`, 'Call publish {project, version} instead: a version that was never live meets the publishing checks.');
   const el = versionEligible(v, s.verify_browser_required);

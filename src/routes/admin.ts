@@ -14,7 +14,8 @@ import { hostId, hostingProblems } from '../hosting';
 import { decideRequest, setGameStorage, MB } from '../storage';
 import { addDays, dayOf, now, rid } from '../util';
 import { currentPicks, JOBS } from '../rankings';
-import { grantCreator, reverseWithdrawal, takeOffline } from './api';
+import { reverseWithdrawal, takeOffline } from './api';
+import { grantLicense, isPlan, revokeLicense } from '../license';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
@@ -32,11 +33,11 @@ admin.post('/audit/files', async (c) => {
 admin.get('/overview', async (c) => {
   const db = c.env.DB, since = addDays(dayOf(now()), -29), t30 = now() - 30 * 86400000;
   const [users, games, plays, sales, fees, owed, pendingW, daily, signups, salesDaily, flags, ai, runs, picks] = await Promise.all([
-    db.prepare("SELECT COUNT(*) AS n, SUM(creator) AS creators, SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS new30 FROM users").bind(t30).first<any>(),
+    db.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN creator = 1 AND (creator_plan IS NOT 'term' OR creator_until > ?2) THEN 1 ELSE 0 END) AS creators, SUM(CASE WHEN created_at >= ?1 THEN 1 ELSE 0 END) AS new30 FROM users").bind(t30, now()).first<any>(),
     db.prepare("SELECT COUNT(*) AS n, SUM(status = 'live') AS live, SUM(status = 'live' AND price_cents > 0) AS paid, SUM(status = 'draft') AS draft, SUM(status = 'offline') AS offline, SUM(status = 'removed') AS removed FROM projects").first<any>(),
     db.prepare('SELECT COALESCE(SUM(plays), 0) AS plays, COALESCE(SUM(seconds), 0) AS seconds, COALESCE(SUM(sessions), 0) AS sessions FROM game_daily WHERE day >= ?').bind(since).first<any>(),
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(fee_cents), 0) AS fees, COALESCE(SUM(net_cents), 0) AS net, COALESCE(SUM(CASE WHEN created_at >= ?1 THEN price_cents ELSE 0 END), 0) AS gross30, COALESCE(SUM(CASE WHEN created_at >= ?1 THEN fee_cents ELSE 0 END), 0) AS fees30 FROM purchases WHERE status = 'paid'").bind(t30).first<any>(),
-    db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS total, COALESCE(SUM(CASE WHEN created_at >= ? THEN amount_cents ELSE 0 END), 0) AS total30 FROM payments WHERE kind = 'creator_fee' AND status = 'paid' AND provider = 'stripe'").bind(t30).first<any>(),
+    db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS total, COALESCE(SUM(CASE WHEN created_at >= ? THEN amount_cents ELSE 0 END), 0) AS total30 FROM payments WHERE kind = 'creator_fee' AND status IN ('paid', 'revoked') AND provider = 'stripe'").bind(t30).first<any>(),
     db.prepare('SELECT COALESCE(SUM(amount_cents), 0) AS c FROM ledger').first<any>(),
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents), 0) AS c FROM withdrawals WHERE status = 'pending'").first<any>(),
     db.prepare('SELECT day, SUM(sessions) AS sessions, SUM(plays) AS plays, SUM(seconds) AS seconds FROM game_daily WHERE day >= ? GROUP BY day ORDER BY day').bind(since).all(),
@@ -67,7 +68,7 @@ const pageOf = (c: { req: { query: (k: string) => string | undefined } }) => Mat
 admin.get('/users', async (c) => {
   const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%', off = pageOf(c);
   const rows = await c.env.DB.prepare(
-    `SELECT u.id, u.email, u.name, u.role, u.status, u.creator, u.created_at, u.last_seen_at, u.stripe_payouts_enabled, u.payout_country,
+    `SELECT u.id, u.email, u.name, u.role, u.status, u.creator, u.creator_plan, u.creator_until, u.created_at, u.last_seen_at, u.stripe_payouts_enabled, u.payout_country,
        (SELECT COUNT(*) FROM projects p WHERE p.owner_id = u.id AND p.status != 'removed') AS projects,
        (SELECT COUNT(*) FROM projects p WHERE p.owner_id = u.id AND p.status = 'live') AS live,
        (SELECT COALESCE(SUM(amount_cents), 0) FROM ledger l WHERE l.user_id = u.id) AS balance,
@@ -83,8 +84,14 @@ admin.patch('/users/:id', async (c) => {
   const u = await c.env.DB.prepare('SELECT id, role, status FROM users WHERE id = ?').bind(id).first<{ id: string; role: string; status: string }>();
   if (!u) throw notFound();
   if (u.status === 'deleted') throw bad('This account was deleted by its owner.');
-  if (b.creator === true) await grantCreator(c.env, id, 'admin', 'grant:' + id + ':' + rid(6), 0);
-  if (b.creator === false) await c.env.DB.prepare('UPDATE users SET creator = 0 WHERE id = ?').bind(id).run();
+  // license: "lifetime" or "term" grants that kind (free, on record as an admin grant); "none" takes every grant back.
+  // creator true / false are the older form of the same thing (true grants lifetime).
+  const lic = b.license ?? (b.creator === true ? 'lifetime' : b.creator === false ? 'none' : undefined);
+  if (lic !== undefined) {
+    if (lic === 'none') await revokeLicense(c.env, id);
+    else if (isPlan(lic)) { await revokeLicense(c.env, id); await grantLicense(c.env, await getSettings(c.env), id, lic, 'admin', 'grant:' + id + ':' + rid(6), 0, true); }
+    else throw bad('license must be "term", "lifetime" or "none".');
+  }
   if (b.status === 'active' || b.status === 'suspended') {
     if (id === me.id) throw bad('You cannot suspend yourself.');
     await c.env.DB.prepare('UPDATE users SET status = ? WHERE id = ?').bind(b.status, id).run();

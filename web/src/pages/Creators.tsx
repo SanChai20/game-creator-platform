@@ -46,7 +46,7 @@ export function Creators() {
           <h1>{t('Describe a game.', '描述一款游戏，')} <mark>{t('Your agent ships it.', '智能体帮你上线。')}</mark></h1>
           <p>{t('Use the agent you already have. We deploy every version, test it in a real browser and put it in front of players.', '用你已有的智能体。我们负责部署每个版本、在真实浏览器中测试，并把它送到玩家面前。')}</p>
           <div className="row wrapx lead-actions">
-            <Button to={user ? '/console' : '/signup?next=%2Fconsole'} variant="primary" size="lg">{user ? t('Open your console', '打开控制台') : t('Start creating', '开始创作')} <em aria-hidden="true">→</em></Button>
+            <Button to={!user ? '/signup?next=%2Fconsole' : user.creator ? '/console' : '/license'} variant="primary" size="lg">{!user ? t('Start creating', '开始创作') : user.creator ? t('Open your console', '打开控制台') : t('Get License', '获取许可')} <em aria-hidden="true">→</em></Button>
             <Button to="/docs" variant="ghost" size="lg">{t('Read the docs', '阅读文档')}</Button>
           </div>
           <div className="web-only">{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。')}</div>

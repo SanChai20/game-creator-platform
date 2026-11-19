@@ -14,7 +14,7 @@ HearthCade is a marketplace on Stripe Connect with **separate charges and transf
    default): the platform sends a Transfer from its balance to the creator's account, and Stripe pays it out to the
    creator's bank on that account's payout schedule. Creators can also press Withdraw to be paid sooner.
 
-The creator license fee (`POST /api/billing/creator-fee`) is a plain Checkout payment to the platform.
+Creator licenses (`POST /api/billing/license` with `plan` "term" or "lifetime", see `src/license.ts`) are plain one-time Checkout payments to the platform, never subscriptions. A license paid for while the account already holds a valid one is refunded at once.
 
 **Refunds.** A buyer refunds a game themselves from its page (`POST /api/games/:slug/refund`) when it was bought less
 than `refund_window_hours` ago (default 24) and played less than `refund_max_play_minutes` (default 30, free trial
