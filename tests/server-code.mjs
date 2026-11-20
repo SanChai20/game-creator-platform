@@ -136,6 +136,8 @@ test('a deployed game Worker has no bucket: files come from the platform with th
   assert.equal(part.status, 206); assert.equal(part.headers.get('content-range'), 'bytes 1-2/4'); assert.equal(await part.text(), 'BC');
   assert.equal((await get('/c.png', { 'if-none-match': '"e"' })).status, 304);
   assert.equal((await get('/missing.png')).status, 404);
-  const page = await mod.handle(new Request('https://g.example/?gcp_t=' + tok), env, {});
+  const launch = await mod.handle(new Request('https://g.example/?gcp_t=' + tok), env, {});
+  assert.equal(launch.status, 302);
+  const page = await mod.handle(new Request('https://g.example' + launch.headers.get('location')), env, {});
   assert.equal(page.status, 200); assert.match(await page.text(), /__GCP_CONFIG/);
 });
