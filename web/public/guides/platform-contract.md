@@ -54,8 +54,12 @@ GCP.test.onState(fn)      // fn() returns where the game is (level, scene, playe
 GCP.lang          // the player's platform language: 'en' | 'zh' | 'zh-TW' | 'ja' | 'ko' | 'es'
 GCP.onLang(fn)    // fn(lang, previous) when the player switches the platform language mid-game; the game is never restarted for it
 GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch, paused, menu }, kept current
-GCP.onDisplay(fn) // fn(display) when it changes; pause while display.paused is true
-GCP.onEscape(fn)  // the Escape rule: fn() returns true when it closed something; otherwise Esc opens the platform menu (input guide)
+GCP.onDisplay(fn) // fn(display) when it changes
+GCP.onEscape(fn)  // Esc goes to the game first: fn() returns false only when nothing of the game's was open (input guide, "One pause owner")
+GCP.pauseMenu(open) // the game has its own pause menu: Esc with nothing open, or the browser leaving fullscreen, calls open() instead of opening the platform menu
+GCP.setPaused(on) // report the game's own pause menu opening (true) and closing (false)
+GCP.paused        // true while the platform or the game's own menu pauses the game: the one flag the game loop obeys
+GCP.onPause(fn)   // fn(paused, by) when GCP.paused changes, by 'platform' | 'game'; freeze the clock here, never open a menu from it
 GCP.menu()        // opens the platform menu (Resume, Quit game); GCP.quit() quits straight away
 GCP.fullscreen()  // toggles fullscreen (true enters, false back to the window); the player also has a button and Alt+Enter
 GCP.setDisplay({ orientation: 'landscape', exitButton: 'top-right' })   // see "Phones and tablets" in the input guide

@@ -95,6 +95,67 @@ test('a game without onEscape: Esc opens the platform menu unless the game took 
   assert.equal(posted.filter((x) => x.gcp === 'menu').length, 1);
 });
 
+test('one pause owner: an onEscape that returns nothing used the key, so no second menu opens', () => {
+  const { GCP, posted, send, key } = loadSdk();
+  let opened = 0; GCP.onEscape(() => { opened++; });   // opens its own pause menu, forgets to return true
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen' });
+  key('Escape');
+  assert.equal(opened, 1);
+  assert.equal(posted.some((x) => x.gcp === 'menu'), false, 'only the game\'s menu');
+});
+
+test('one pause owner: a game that shows its own menu from its own key handler is not given the platform menu too', () => {
+  const { GCP, posted, send, key } = loadSdk();
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen' });
+  key('Escape', () => GCP.setPaused(true));          // its menu opens (Bloomguard reads keys in its loop)
+  assert.equal(posted.some((x) => x.gcp === 'menu'), false);
+  assert.deepEqual({ ...posted.find((x) => x.gcp === 'game_paused') }, { gcp: 'game_paused', on: true });
+  key('Escape', () => GCP.setPaused(false));         // and closes on the next one
+  assert.equal(posted.some((x) => x.gcp === 'menu'), false, 'closing its menu is not a reason for the platform menu');
+});
+
+test('pauseMenu: Esc with nothing open opens the game\'s own menu, never the platform\'s', () => {
+  const { GCP, posted, send, key } = loadSdk();
+  let opens = 0; GCP.pauseMenu(() => { opens++; GCP.setPaused(true); });
+  GCP.onEscape(() => false);
+  assert.equal(posted.filter((x) => x.gcp === 'escape').pop().on, true);
+  send({ gcp: 'display', fullscreen: true, mode: 'fullscreen' });
+  key('Escape');
+  assert.equal(opens, 1); assert.equal(GCP.paused, true);
+  key('Escape');                                       // the menu is up: Esc is the game's, the menu is not opened again
+  assert.equal(opens, 1);
+  assert.equal(posted.some((x) => x.gcp === 'menu'), false);
+});
+
+test('GCP.paused combines the platform\'s pause and the game\'s; the platform resuming never runs the game under its own menu', () => {
+  const { GCP, send } = loadSdk();
+  const seen = []; GCP.onPause((p, by) => seen.push([p, by]));
+  send({ gcp: 'display', fullscreen: true, paused: true, menu: true });
+  assert.equal(GCP.paused, true);
+  GCP.setPaused(true);
+  send({ gcp: 'display', fullscreen: true, paused: false, menu: false });
+  assert.equal(GCP.paused, true, 'its own menu is still up');
+  GCP.setPaused(false);
+  assert.equal(GCP.paused, false);
+  assert.deepEqual(seen, [[true, 'platform'], [false, 'game']]);
+});
+
+test('the browser leaving fullscreen asks the game to pause: its own menu if it has one, the platform card otherwise', () => {
+  const a = loadSdk();
+  a.send({ gcp: 'pause_request' });
+  assert.equal(a.posted.find((x) => x.gcp === 'pause_answer').took, false);
+  const b = loadSdk(); let opens = 0;
+  b.GCP.pauseMenu(() => { opens++; b.GCP.setPaused(true); });
+  b.send({ gcp: 'pause_request' });
+  assert.equal(opens, 1); assert.equal(b.posted.find((x) => x.gcp === 'pause_answer').took, true);
+});
+
+test('on-screen controls hide while the game\'s own menu is up', () => {
+  const { GCP } = loadSdk();
+  GCP.setPaused(true);
+  assert.equal(GCP.controls.shown, false);
+});
+
 test('menu, quit and fullscreen(false) go to the platform page', () => {
   const { GCP, posted } = loadSdk();
   GCP.menu(); GCP.menu(false); GCP.quit(); GCP.fullscreen(false);

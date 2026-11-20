@@ -292,6 +292,21 @@ export async function verifyPage(page, url, opts = {}) {
     // Browsers keep sound locked until the first real press. One click in the top-left corner pixel gives the page that press, as a
     // player's first key or tap would, so sounds played during the play-through are real and can be measured.
     try { await page.mouse.click(2, 2); await sleep(120); } catch { /* no pointer */ }
+    // 4a. one menu at a time: in simulated fullscreen, Esc must open the game's own pause menu or the platform's, never both,
+    // and the platform's pause must not make the game open its own menu (two menus, and Resume runs the game under one).
+    // Only games that use the pause contract can be checked (GCP.onEscape, GCP.pauseMenu, GCP.setPaused).
+    try {
+      const pz = await Promise.race([page.evaluate(() => (window.__GCP && window.__GCP.pauseCheck ? window.__GCP.pauseCheck() : { ran: false })), sleep(8000).then(() => ({ ran: false }))]);
+      if (pz && pz.ran) {
+        const both = !!(pz.esc && pz.esc.platformMenu && pz.esc.gameMenu), self = !!(pz.platformPause && pz.platformPause.gameMenu);
+        const ok = !both && !self;
+        add('pause', ok, 'One pause menu at a time', (pz.steps || []).join('; ').slice(0, 400),
+          ok ? '' : both ? 'One Esc opened the game\'s own pause menu and the platform menu together. Route Esc through GCP.onEscape (return false only when nothing of the game\'s was open), declare the pause menu with GCP.pauseMenu(open), and report it with GCP.setPaused(true/false) (input guide, "One pause owner").'
+            : 'The game opened its own pause menu because the platform paused it. Only freeze the clock on GCP.onPause or display.paused; the platform shows its own menu. Otherwise the player sees two menus, and Resume leaves the game\'s menu up (input guide, "One pause owner").');
+        if (pz.escCloses === false) report.warnings.push('Esc opened the game\'s pause menu but a second Esc did not close it. Players expect Esc to toggle it.');
+        report.pause = pz;
+      }
+    } catch { /* the page went away; the input check reports it */ }
     // 4b. play-through: if the game registered one, it plays itself to the end and every step is reported.
     let play = null;
     try {
