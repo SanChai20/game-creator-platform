@@ -53,5 +53,8 @@ html:has(.stage.filled), html:has(.stage.filled) body { overscroll-behavior: non
 .stage-btn.primary:hover { background: rgb(255 255 255 / .88); }
 .stage-btn.ghost { border-color: transparent; background: transparent; font-weight: 500; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 @keyframes stage-fade { from { opacity: 0; } to { opacity: 1; } }
-@media (max-height: 420px) { .stage-card { padding: 14px 18px; gap: 7px; } .stage-btn { min-height: 40px; } .stage-card > b { font-size: 17px; } }
+@media (max-height: 420px) { .stage-menu { padding: 12px; } .stage-card { padding: 14px 18px; gap: 7px; } .stage-btn { min-height: 40px; } .stage-card > b { font-size: 17px; } }
+/* A phone on its side: the menu's buttons sit two by two so the card fits the short screen (and scrolls if it still does not). */
+.stage-card { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+@media (max-height: 420px) and (orientation: landscape) { .stage-card { width: min(540px, 100%); grid-template-columns: 1fr 1fr; } .stage-card > :not(.stage-btn) { grid-column: 1 / -1; } }
 @media (prefers-reduced-motion: reduce) { .stage-menu { animation: none; } }
