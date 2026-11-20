@@ -98,6 +98,12 @@ async function deployedRow(env: Env, pid: string, e: GameEnv): Promise<Row | nul
   catch { return null; }   // before migration 0014
 }
 
+/** True when the game environment was last deployed to the shared host, which serves the version the database names. */
+export async function onSharedHost(env: Env, pid: string, e: GameEnv): Promise<boolean> {
+  if (hostKind(env) === 'local') return false;
+  return parseHostId((await deployedRow(env, pid, e))?.host).kind === 'shared';
+}
+
 /** The address a game is played at: where its Worker is now. While games move to another host, one that has not
     been redeployed yet keeps its old address until the rollout reaches it. */
 export async function gameUrl(env: Env, origin: string, pid: string, e: GameEnv): Promise<string> {
