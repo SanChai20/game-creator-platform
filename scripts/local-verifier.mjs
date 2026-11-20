@@ -2,7 +2,7 @@
 // Start it next to `wrangler dev` and set VERIFIER_URL=http://127.0.0.1:8799 in .dev.vars.
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
-import { verifyPage } from '../src/verify-core.js';
+import { applyDeviceResults, verifyDevices, verifyPage } from '../src/verify-core.js';
 import { gameState, openGame, runSteps, shoot } from '../src/debug-core.js';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -48,6 +48,13 @@ createServer(async (req, res) => {
     const { url, opts } = JSON.parse(body);
     const page = await ctx.newPage();
     const { report, shots, frames } = await verifyPage(page, url, { ...opts, openPage: () => ctx.newPage() });
+    const dv = opts.devices || { profiles: [] };
+    if (report.ok && dv.profiles && dv.profiles.length && !opts.usesWebGPU) {
+      const contexts = [];
+      const openDevicePage = async (p, vp) => { const c = await browser.newContext({ viewport: vp, deviceScaleFactor: p.deviceScaleFactor, isMobile: true, hasTouch: true, userAgent: p.userAgent }); contexts.push(c); return c.newPage(); };
+      try { applyDeviceResults(report, await verifyDevices(openDevicePage, url, { profiles: dv.profiles, orientation: dv.orientation, readyTimeoutS: opts.readyTimeoutS }), dv.devices); }
+      finally { for (const c of contexts) await c.close().catch(() => {}); }
+    }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ report, shot: shots.length ? Buffer.from(shots[0]).toString('base64') : null, frames: (frames || []).map((f) => Buffer.from(f).toString('base64')) }));
   } catch (e) {

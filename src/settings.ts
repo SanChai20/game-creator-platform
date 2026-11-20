@@ -43,6 +43,7 @@ export const SETTING_DEFS = {
   verify_min_frames: { v: 6, type: 'int', group: 'Verification', label: 'Frames that must render in the observation window (the check runs on a software GPU, so keep this low)' },
   verify_observe_s: { v: 3, type: 'int', group: 'Verification', label: 'Observation window after ready (seconds)' },
   verify_playthrough_s: { v: 30, type: 'int', group: 'Verification', label: "Seconds a game's own play-through script may take" },
+  verify_devices: { v: 'iphone,ipad', type: 'text', group: 'Verification', label: 'Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off' },
   craft_target: { v: 75, type: 'int', group: 'Verification', label: 'Craft score (0 to 100) agents are told to reach before calling a game finished; publishing never depends on it', public: true },
   verify_browser_required: { v: true, type: 'bool', group: 'Verification', label: 'Require the automated browser check (otherwise a clean creator preview session also qualifies)' },
   metadata_required: { v: true, type: 'bool', group: 'Verification', label: 'Require complete game metadata to publish (genre, requirements, languages, players, content descriptors)' },

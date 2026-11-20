@@ -454,3 +454,150 @@ export async function verifyPage(page, url, opts = {}) {
   report.metrics.reviewFrames = frames.length;
   return { report, shots: portraitShot ? [portraitShot, ...shots] : lateShot ? [lateShot, ...shots] : shots, frames };
 }
+
+// ----- phones and tablets ------------------------------------------------------------------------------------------
+// After the main check passes, the game is opened again as it would be on an iPhone and an iPad (touch screen, small
+// viewport, high pixel density, Safari's user agent): the same browser with phone and tablet emulation, not Safari
+// itself, so what it catches is what the device's size, touch and density do to a game. Safari's own engine is covered
+// by the game runtime's fix-ins and by the deploy's static device checks (src/device-checks.js).
+// Hard problems (it does not start, it throws, it stops drawing, a finger crashes it) fail the version when the game
+// says it is made for that kind of device (requirements.devices); otherwise they are noted. Layout problems (cut off,
+// tiny, unreadable text, buttons too small for a finger) are always notes.
+const IOS_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1';
+const IPAD_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15';
+const ANDROID_UA = 'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
+export const DEVICE_PROFILES = {
+  iphone: { id: 'iphone', label: 'iPhone', kind: 'mobile', width: 844, height: 390, deviceScaleFactor: 3, userAgent: IOS_UA },
+  ipad: { id: 'ipad', label: 'iPad', kind: 'tablet', width: 1180, height: 820, deviceScaleFactor: 2, userAgent: IPAD_UA },
+  android: { id: 'android', label: 'Android phone', kind: 'mobile', width: 915, height: 412, deviceScaleFactor: 2.625, userAgent: ANDROID_UA },
+};
+/** The viewport of a profile for a game's orientation (portrait games are held upright, everything else sideways). */
+export function deviceViewport(profile, orientation) {
+  const long = Math.max(profile.width, profile.height), short = Math.min(profile.width, profile.height);
+  return orientation === 'portrait' ? { width: short, height: long } : { width: long, height: short };
+}
+
+/** A one-finger drag through the browser's protocol (Puppeteer and Playwright on Chromium). */
+async function swipe(page, x0, y0, x1, y1) {
+  try {
+    const cdp = page.createCDPSession ? await page.createCDPSession() : await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
+    for (let i = 1; i <= 6; i++) { await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0 + ((x1 - x0) * i) / 6, y: y0 + ((y1 - y0) * i) / 6 }] }); await sleep(30); }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach().catch(() => {});
+  } catch { /* no protocol session */ }
+}
+
+/** What the screen shows of the game: the page against the screen, the main canvas, text size and finger-sized buttons. */
+const layoutOf = (page) => page.evaluate(() => {
+  const vw = innerWidth, vh = innerHeight, se = document.scrollingElement || document.documentElement;
+  const shown = (el, r) => { const cs = getComputedStyle(el); return r.width > 1 && r.height > 1 && cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity > 0.05; };
+  let canvas = null, best = 0;
+  for (const c of document.querySelectorAll('canvas')) { const r = c.getBoundingClientRect(); if (shown(c, r) && r.width * r.height > best) { best = r.width * r.height; canvas = r; } }
+  const cut = canvas ? (() => { const w = Math.max(0, Math.min(canvas.right, vw) - Math.max(canvas.left, 0)), h = Math.max(0, Math.min(canvas.bottom, vh) - Math.max(canvas.top, 0)); return { onScreen: (w * h) / (canvas.width * canvas.height), covers: (w * h) / (vw * vh), w: Math.round(canvas.width), h: Math.round(canvas.height) }; })() : null;
+  const bodyCs = getComputedStyle(document.body || document.documentElement), htmlCs = getComputedStyle(document.documentElement);
+  const clipped = /hidden|clip/.test(bodyCs.overflow + htmlCs.overflow);
+  let small = 0, sample = '', tiny = 0, tinySample = '';
+  const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT), seen = new Set();
+  while (walker.nextNode()) {
+    const t = walker.currentNode.nodeValue.trim(), el = walker.currentNode.parentElement;
+    if (!t || !el || seen.has(el) || /^(SCRIPT|STYLE|NOSCRIPT)$/.test(el.tagName)) continue; seen.add(el);
+    const r = el.getBoundingClientRect(); if (!shown(el, r) || r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw) continue;
+    const fs = parseFloat(getComputedStyle(el).fontSize) || 16;
+    if (fs < 9) { small++; if (!sample) sample = `"${t.slice(0, 30)}" at ${Math.round(fs * 10) / 10} px`; }
+  }
+  for (const el of document.querySelectorAll('button, a[href], [role="button"], input:not([type="hidden"]), select')) {
+    const r = el.getBoundingClientRect(); if (!shown(el, r) || r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw) continue;
+    if (Math.min(r.width, r.height) < 20) { tiny++; if (!tinySample) tinySample = `${el.tagName.toLowerCase()} "${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 24)}" ${Math.round(r.width)}×${Math.round(r.height)} px`; }
+  }
+  return { vw, vh, scrollW: se.scrollWidth, scrollH: se.scrollHeight, clipped, canvas: cut, small, sample, tiny, tinySample };
+}).catch(() => null);
+
+/**
+ * Plays the game on each device profile. openDevicePage(profile, viewport) -> a fresh page emulating that device (touch,
+ * mobile, density, user agent). Returns [{ id, label, kind, ok, problems: [..], notes: [..], loadMs, fps, runtime }].
+ */
+export async function verifyDevices(openDevicePage, url, { profiles = ['iphone', 'ipad'], orientation = 'any', readyTimeoutS = 30, observeS = 2 } = {}) {
+  const out = [];
+  for (const id of profiles) {
+    const profile = DEVICE_PROFILES[id]; if (!profile) continue;
+    const vp = deviceViewport(profile, orientation), res = { id, label: profile.label, kind: profile.kind, viewport: `${vp.width}×${vp.height}`, ok: true, problems: [], notes: [], loadMs: 0, fps: 0, runtime: null };
+    out.push(res);
+    let page = null;
+    try {
+      page = await openDevicePage(profile, vp);
+      const errs = [];
+      page.on('pageerror', (e) => { if (errs.length < 10) errs.push(String(e && (e.message || e)).slice(0, 300)); });
+      page.on('dialog', (d) => { d.dismiss().catch(() => {}); });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      const t0 = Date.now(); let s = null;
+      while (Date.now() - t0 < readyTimeoutS * 1000) { s = await state(page).catch(() => null); if (s && (s.ready || s.fatal)) break; await sleep(250); }
+      if (!s) { res.problems.push('The page did not run (the platform SDK never loaded).'); continue; }
+      if (s.fatal) { res.problems.push(`It did not start: GCP.fatal: ${String(s.fatal).slice(0, 200)}`); continue; }
+      if (!s.ready) { res.problems.push(`It did not start: GCP.ready() was not called within ${readyTimeoutS} s (progress ${Math.round(s.progress * 100)}%).`); continue; }
+      res.loadMs = s.loadMs;
+      await sleep(observeS * 1000);
+      const a = await state(page).catch(() => null);
+      await sleep(1000);
+      const b = await state(page).catch(() => null);
+      if (!a || !b || b.frames <= a.frames) {
+        // a game that draws only when something changes (turn-based, a page of elements) is not stalled: a tap must make it draw
+        if (!(b && (await page.evaluate(() => !document.querySelector('canvas')).catch(() => false)))) {
+          const f0 = b ? b.frames : 0; await tap(page, vp.width / 2, vp.height / 2); await sleep(1200);
+          const c = await state(page).catch(() => null);
+          if (!c || c.frames <= f0) res.problems.push(`It stopped drawing frames after it started (${b ? b.frames : 0} frames).`);
+        }
+      } else res.fps = Math.round(b.frames - a.frames);
+      // a finger: taps in the middle and a corner, then a drag across the screen
+      await page.evaluate(() => { window.__gcpDeviceMark = 1; }).catch(() => {});
+      const before = await state(page).catch(() => null);
+      await tap(page, vp.width / 2, vp.height / 2); await sleep(300);
+      await tap(page, vp.width * 0.2, vp.height * 0.75); await sleep(300);
+      await swipe(page, vp.width * 0.3, vp.height * 0.6, vp.width * 0.7, vp.height * 0.4); await sleep(1500);
+      const after = await state(page).catch(() => null);
+      const still = await page.evaluate(() => !!window.__gcpDeviceMark).catch(() => false);
+      if (!still) res.problems.push('The page reloaded or navigated away when it was touched.');
+      else if (!after) res.problems.push('The page stopped answering when it was touched.');
+      else if (before && after.frames <= before.frames && res.fps) res.problems.push('It stopped drawing frames when it was touched.');
+      const thrown = [...new Set([...(after ? after.errors : s.errors), ...errs])];
+      if (thrown.length) res.problems.push(`It threw ${thrown.length === 1 ? 'an error' : thrown.length + ' errors'}: ${thrown.slice(0, 2).map((e) => e.slice(0, 160)).join(' | ')}`);
+      res.runtime = await page.evaluate(() => (window.__GCP && window.__GCP.runtime) || null).catch(() => null);
+      // what the screen shows
+      const L = await layoutOf(page);
+      if (L) {
+        if (!L.clipped && (L.scrollW > L.vw + 4 || L.scrollH > L.vh + 4)) res.notes.push(`The page is larger than the ${L.vw}×${L.vh} screen (${L.scrollW}×${L.scrollH}), so part of it is off screen. Size the game to the window (100% width and height, or innerWidth and innerHeight on resize).`);
+        if (L.canvas && L.canvas.onScreen < 0.9) res.notes.push(`Only ${Math.round(L.canvas.onScreen * 100)}% of the game's canvas (${L.canvas.w}×${L.canvas.h}) is on the ${L.vw}×${L.vh} screen. Scale it to fit the window.`);
+        else if (L.canvas && L.canvas.covers < 0.3) res.notes.push(`The game's canvas covers only ${Math.round(L.canvas.covers * 100)}% of the ${L.vw}×${L.vh} screen. Scale it up to the window.`);
+        if (L.small >= 3) res.notes.push(`${L.small} pieces of text are smaller than 9 px, hard to read on a ${profile.label} (${L.sample}).`);
+        if (L.tiny >= 3) res.notes.push(`${L.tiny} buttons are smaller than 20 px, hard to hit with a finger (${L.tinySample}).`);
+      }
+    } catch (e) {
+      res.problems.push('It could not be opened: ' + String(e && e.message || e).slice(0, 200));
+    } finally {
+      res.ok = !res.problems.length;
+      try { if (page) await page.close(); } catch { /* gone */ }
+    }
+  }
+  return out;
+}
+
+/**
+ * Adds the device results to a report: one check per device ("Plays on iPhone"), failing only for a device kind the game
+ * says it is made for (devices from its requirements); the rest of the findings go into the report's notes.
+ */
+export function applyDeviceResults(report, results, devices = ['desktop', 'tablet', 'mobile']) {
+  report.devices = results;
+  const failed = [];
+  for (const r of results) {
+    const made = devices.includes(r.kind), label = `Plays on ${r.label} (touch screen, ${r.viewport})`;
+    if (r.ok) report.checks.push({ id: 'device_' + r.id, ok: true, label, detail: `Started in ${r.loadMs} ms and kept running through taps and a drag${r.runtime && r.runtime.fixes ? `; platform fixes on: ${r.runtime.fixes.join(', ') || 'none'}` : ''}.`, hint: '' });
+    else if (made) { failed.push(r); report.checks.push({ id: 'device_' + r.id, ok: false, label, detail: r.problems.join(' '), hint: `The game says it is made for ${r.kind === 'mobile' ? 'phones' : 'tablets'} (requirements.devices). Fix it there (debug_preview with a ${r.kind === 'mobile' ? 'phone' : 'tablet'} viewport and touch shows what happens), or remove ${r.kind} from requirements.devices so players are told before they start.` }); }
+    else report.notes.push(`On ${r.label}: ${r.problems.join(' ')} The game is not listed for ${r.kind === 'mobile' ? 'phones' : 'tablets'}, so this does not stop the version.`);
+    for (const n of r.notes) report.notes.push(`On ${r.label}: ${n}`);
+  }
+  if (failed.length) {
+    report.ok = false;
+    report.summary = `Not playable on ${failed.map((r) => r.label).join(' and ')} yet: ${failed.map((r) => r.problems[0]).join(' ')}`;
+  }
+  return report;
+}

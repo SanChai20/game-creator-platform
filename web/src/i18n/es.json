@@ -833,6 +833,7 @@
  "Searching…": "Buscando…",
  "Seconds a game has to call GCP.ready()": "Segundos que tiene un juego para llamar a GCP.ready()",
  "Seconds a game's own play-through script may take": "Segundos que puede durar el script de partida completa del propio juego",
+ "Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off": "Dispositivos táctiles en los que también se juega cada versión después de aprobar (emulados): iphone, ipad, android, separados por comas; vacío desactiva la comprobación de dispositivos",
  "Seconds before a session counts as a play": "Segundos para que una sesión cuente como partida",
  "Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it": "Segundos de partida sin errores en la vista previa en un navegador real que validan una versión cuando el navegador automático no puede ejecutarla",
  "See all": "Ver todo",

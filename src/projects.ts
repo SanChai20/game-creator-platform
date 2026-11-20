@@ -7,6 +7,8 @@ import { THREE_VERSION } from './generated/runtime-source';
 import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf } from './util';
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
+// @ts-ignore plain JS module shared with the tests
+import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
 import { buildControls, type TouchControls } from '../web/src/touch-controls';
 import { buildMeta, genreTags, genresOf, normGenre, GENRES, type Genre, type MetaIssue, type MetaRecord } from '../web/src/gamemeta';
@@ -185,6 +187,7 @@ export interface Manifest {
   three: string;
   orientation?: string;
   usesWebGPU?: boolean;
+  minSafari?: number;            // the oldest Safari (iPhone, iPad) that can load all of the code, when newer than the baseline (src/device-checks.js)
   hasServer?: boolean;
   hasMatch?: boolean;            // server/match.js: server-run matches
   /** What this version needs from the player's browser: declared in gcp.json "requirements", merged with what the code shows. */
@@ -278,6 +281,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const importKeys = Object.keys(manifest.imports);
   const mapped = (spec: string, extra: string[]) => [...importKeys, ...extra].some((k) => (k.endsWith('/') ? spec.startsWith(k) : spec === k));
   let sawReady = false, usesGPU = false, bareImports = false;
+  const deviceFiles: { file: string; syntax: unknown[]; apis: unknown[]; lineOffset: number }[] = [];   // what the game's code uses, for the iPhone and iPad checks (findings only: syntax trees are not kept)
 
   const checkJs = (file: string, src: string, kind: 'module' | 'script', lineOffset: number, extraMap: string[]): void => {
     if (/\bGCP\s*\.\s*ready\s*\(/.test(src) || /\bGCP\b/.test(src) && /\.\s*ready\s*\(\s*[^)]{0,80}\)/.test(src)) sawReady = true; // also matches an alias: const G = window.GCP; G.ready()
@@ -293,6 +297,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
         hint: kind === 'script' && /\b(import|export)\b/.test(src) ? 'This file uses import/export. Load it with <script type="module">.' : 'Fix the syntax at the marked position, upload the file again, then deploy again.' });
       return;
     }
+    deviceFiles.push({ file, syntax: syntaxFindings(ast), apis: apiFindings(src), lineOffset });
     const imps: { spec: string; line: number }[] = [];
     collectImports(ast, imps);
     for (const im of imps) {
@@ -408,6 +413,10 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
       if (paths.has('server/match.js')) manifest.hasMatch = true;
     }
   }
+  // iPhone and iPad: what in the code the game runtime cannot fill in for Safari (newer syntax, missing features, Ogg-only sound).
+  const dev = deviceIssues(deviceFiles, [...paths]);
+  for (const i of dev.issues) warn(i);
+  if (dev.minSafari) manifest.minSafari = dev.minSafari;
   // Compatibility: the creator's declared requirements, merged with what the code shows it uses.
   const c = buildCompat(declared, { texts, paths: [...paths], bareImports, orientation: manifest.orientation }, bytes);
   for (const i of c.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `requirements${i.field === 'requirements' ? '' : '.' + i.field}: ${i.message}`, hint: i.hint });

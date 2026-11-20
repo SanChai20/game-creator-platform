@@ -54,6 +54,7 @@
  "Reviews": "评价",
  "Seconds a game has to call GCP.ready()": "游戏调用 GCP.ready() 的时限（秒）",
  "Seconds a game's own play-through script may take": "游戏自带试玩脚本的最长运行时间（秒）",
+ "Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off": "每个版本通过检查后还会在这些触屏设备上试玩（模拟）：iphone、ipad、android，用逗号分隔；留空则关闭设备检查",
  "Seconds before a session counts as a play": "会话计为一次游玩所需的秒数",
  "Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it": "自动浏览器无法运行时，创作者在真实浏览器中无错误试玩预览达到多少秒即可让版本通过",
  "Single file size (bytes)": "单个文件大小（字节）",
