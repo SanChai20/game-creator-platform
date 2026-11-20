@@ -1,5 +1,6 @@
 // Runtime API called from inside games (cross-origin, authenticated by the signed play token):
 // the game's heartbeat (started, errors), cloud saves, leaderboards, realtime rooms, and the store used by game server code.
+import { readOptions } from '../file-read';
 import { Hono } from 'hono';
 import { AppError, bad, type Env } from '../env';
 import { isGuestId } from '../auth';
@@ -235,7 +236,14 @@ rt.get('/file/:n/*', async (c) => {
   let path: string;
   try { path = raw.split('/').map((s) => decodeURIComponent(s)).join('/'); } catch { throw bad('Bad path.'); }
   if (!Number.isInteger(n) || n < 1 || !path || path.includes('..') || path.includes('\0') || path.startsWith('/') || isServerPath(path)) throw new AppError(404, 'Not found.', 'not_found');
-  const obj = await c.env.FILES.get(verKey(g, n, path), { range: c.req.raw.headers, onlyIf: c.req.raw.headers });
+  // Conditions and ranges are handed to R2 as parsed values, not as the request's headers: given the headers of a browser's
+  // revalidation (If-None-Match, sent when a game fetch()es a file it already has in its cache, as the SDK does to embed
+  // fonts in a feedback picture) R2 failed with an internal error, and every such file read came back 500. A read that
+  // still fails with a condition or range is served whole instead: a file read never fails because of how it was asked.
+  const key = verKey(g, n, path), opts = readOptions(c.req.raw.headers);
+  let obj: R2Object | R2ObjectBody | null;
+  try { obj = await c.env.FILES.get(key, opts); }
+  catch (e) { if (!opts.onlyIf && !opts.range) throw e; console.warn('file read retried without conditions', key, String((e as Error).message || e)); obj = await c.env.FILES.get(key); }
   if (!obj) throw new AppError(404, 'Not found.', 'not_found');
   const headers = new Headers({ etag: obj.httpEtag, 'x-gcp-size': String(obj.size), 'cache-control': 'no-store' });
   if (obj.httpMetadata?.contentType) headers.set('x-gcp-type', obj.httpMetadata.contentType);
