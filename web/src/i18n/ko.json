@@ -1656,5 +1656,14 @@
  "{n} pictures": "이미지 {n}장",
  "Attached picture {n}": "첨부 이미지 {n}",
  "The feedback editor ran into a problem.": "피드백 편집기에 문제가 생겼습니다.",
- "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "아무것도 보내지 않았습니다. 게임으로 돌아가 다시 캡처하세요. 다시 발생하면 무엇을 했는지 알려 주세요."
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "아무것도 보내지 않았습니다. 게임으로 돌아가 다시 캡처하세요. 다시 발생하면 무엇을 했는지 알려 주세요.",
+ "Menu button in the way? Drag it anywhere.": "메뉴 버튼이 가리나요? 원하는 곳으로 끌어 옮기세요.",
+ "Menu button in the way? Drag it anywhere. Esc opens the menu too.": "메뉴 버튼이 가리나요? 원하는 곳으로 끌어 옮기세요. Esc로도 메뉴를 열 수 있습니다.",
+ "Press Esc for the game menu.": "Esc를 누르면 게임 메뉴가 열립니다.",
+ "Tap with three fingers for the game menu.": "세 손가락으로 탭하면 게임 메뉴가 열립니다.",
+ "Swipe in from the left edge, or tap with three fingers, for the game menu.": "왼쪽 가장자리에서 안쪽으로 밀거나 세 손가락으로 탭하면 게임 메뉴가 열립니다.",
+ "Go back, or tap with three fingers, for the game menu.": "뒤로 가기를 하거나 세 손가락으로 탭하면 게임 메뉴가 열립니다.",
+ "Game menu (drag to move)": "게임 메뉴(끌어서 이동)",
+ "Keep playing here": "여기서 계속하기",
+ "Back, or a three-finger tap, also opens this menu.": "뒤로 가기나 세 손가락 탭으로도 이 메뉴가 열립니다."
 }

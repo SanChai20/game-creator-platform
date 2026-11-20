@@ -1656,5 +1656,14 @@
  "{n} pictures": "画像 {n} 枚",
  "Attached picture {n}": "添付画像 {n}",
  "The feedback editor ran into a problem.": "フィードバックエディターで問題が発生しました。",
- "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "何も送信されていません。ゲームに戻ってもう一度キャプチャしてください。再び起きた場合は、何をしたか教えてください。"
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "何も送信されていません。ゲームに戻ってもう一度キャプチャしてください。再び起きた場合は、何をしたか教えてください。",
+ "Menu button in the way? Drag it anywhere.": "メニューボタンが邪魔なら、好きな場所へドラッグできます。",
+ "Menu button in the way? Drag it anywhere. Esc opens the menu too.": "メニューボタンが邪魔なら、好きな場所へドラッグできます。Esc でもメニューを開けます。",
+ "Press Esc for the game menu.": "Esc でゲームメニューを開きます。",
+ "Tap with three fingers for the game menu.": "3本指でタップするとゲームメニューが開きます。",
+ "Swipe in from the left edge, or tap with three fingers, for the game menu.": "左端から内側へスワイプするか、3本指でタップするとゲームメニューが開きます。",
+ "Go back, or tap with three fingers, for the game menu.": "戻る操作をするか、3本指でタップするとゲームメニューが開きます。",
+ "Game menu (drag to move)": "ゲームメニュー（ドラッグで移動）",
+ "Keep playing here": "このまま続ける",
+ "Back, or a three-finger tap, also opens this menu.": "戻る操作や3本指のタップでもこのメニューが開きます。"
 }

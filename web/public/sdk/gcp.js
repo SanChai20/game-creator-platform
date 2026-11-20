@@ -1017,22 +1017,26 @@
     + 'html.gcp-noselect :where(input,textarea,[contenteditable],[contenteditable] *){-webkit-user-select:text;user-select:text}';   // Safari cannot type into a field that inherits none
   var noSelect = true;
   function noSelectCss() {
-    var h = document.documentElement; if (h && h.classList) h.classList.toggle('gcp-noselect', noSelect);
-    if (!noSelect || document.getElementById('gcp-noselect')) return;
-    try { var st = document.createElement('style'); st.id = 'gcp-noselect'; st.textContent = noSelCss; (document.head || document.documentElement).appendChild(st); } catch (e) { /* no DOM yet */ }
+    try {
+      var h = document.documentElement; if (h && h.classList) h.classList.toggle('gcp-noselect', noSelect);
+      var ns = document.getElementById('gcp-noselect'); if (ns) { ns.disabled = !noSelect; return; }
+      if (!noSelect) return;
+      var st = document.createElement('style'); st.id = 'gcp-noselect'; st.textContent = noSelCss; (document.head || document.documentElement).appendChild(st);
+    } catch (e) { /* no DOM yet, or a page without one (workers, tests) */ }
   }
   noSelectCss();
   function editable(n) { var el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')); }
-  document.addEventListener('selectstart', function (e) { if (noSelect && !editable(e.target)) e.preventDefault(); }, true);
+  var docOn = function (type, fn, opts) { try { document.addEventListener(type, fn, opts); } catch (e) { /* no document events here */ } };
+  docOn('selectstart', function (e) { if (noSelect && !editable(e.target)) e.preventDefault(); }, true);
   // A selection that starts anyway (select-all from the keyboard, a script) is dropped.
-  document.addEventListener('selectionchange', function () {
+  docOn('selectionchange', function () {
     if (!noSelect) return;
     var sel = window.getSelection && window.getSelection();
     if (sel && sel.rangeCount && !sel.isCollapsed && !editable(sel.anchorNode) && !editable(document.activeElement)) { try { sel.removeAllRanges(); } catch (e) { /* read-only */ } }
   });
   // A long press on a picture or link opens the browser's own menu (save image, open link) on Android: not over a game.
   // The game's own contextmenu listeners still run.
-  document.addEventListener('contextmenu', function (e) { if (display.touch && e.isTrusted && !editable(e.target)) e.preventDefault(); }, true);
+  docOn('contextmenu', function (e) { if (display.touch && e.isTrusted && !editable(e.target)) e.preventDefault(); }, true);
   function touchCss() {
     if (!display.touch || !document.head || document.getElementById('gcp-touch')) return;
     var st = document.createElement('style'); st.id = 'gcp-touch'; st.textContent = tcss; document.head.appendChild(st);
@@ -1638,7 +1642,7 @@
       if (prefs.touchControls === 'none' || prefs.touchControls === 'auto') { ui.off = prefs.touchControls === 'none'; refreshControls(); }
       if (prefs.pixelRatio === 'native') { TL.dprCap = 0; S.pixelRatio = 0; }
       if (typeof prefs.menuGesture === 'boolean') menuGesture = prefs.menuGesture;
-      if (typeof prefs.textSelect === 'boolean') { noSelect = !prefs.textSelect; noSelectCss(); var ns = document.getElementById('gcp-noselect'); if (ns && !noSelect) ns.disabled = true; else if (ns) ns.disabled = false; }
+      if (typeof prefs.textSelect === 'boolean') { noSelect = !prefs.textSelect; noSelectCss(); }
       try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ }
     },
     /** The platform's on-screen controls for touch screens: a stick and buttons that press the game's keys. They show by
@@ -1922,17 +1926,17 @@
   // the game still gets the touches (a game that uses three fingers can say GCP.setDisplay({ menuGesture: false })).
   var menuTap = null, menuGesture = true;
   function touchMid(l) { var x = 0, y = 0; for (var i = 0; i < l.length; i++) { x += l[i].clientX; y += l[i].clientY; } return [x / l.length, y / l.length]; }
-  document.addEventListener('touchstart', function (e) {
+  docOn('touchstart', function (e) {
     var n = e.touches ? e.touches.length : 0;
     if (n === 1) menuTap = null;
     if (n >= 3 && !menuTap) menuTap = { at: performance.now(), mid: touchMid(e.touches), moved: false };
   }, { capture: true, passive: true });
-  document.addEventListener('touchmove', function (e) {
+  docOn('touchmove', function (e) {
     if (!menuTap || !e.touches || e.touches.length < 3) return;
     var m = touchMid(e.touches); if (Math.abs(m[0] - menuTap.mid[0]) + Math.abs(m[1] - menuTap.mid[1]) > 40) menuTap.moved = true;
   }, { capture: true, passive: true });
-  document.addEventListener('touchcancel', function () { menuTap = null; }, { capture: true, passive: true });
-  document.addEventListener('touchend', function (e) {
+  docOn('touchcancel', function () { menuTap = null; }, { capture: true, passive: true });
+  docOn('touchend', function (e) {
     if (!menuTap || (e.touches && e.touches.length)) return;
     var tap = menuTap; menuTap = null;
     if (menuGesture && !tap.moved && performance.now() - tap.at < 600 && display.fullscreen && !display.menu) toParent({ gcp: 'menu', on: true });
