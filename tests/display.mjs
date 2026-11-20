@@ -113,7 +113,7 @@ test('on a touch screen in the player, the game cannot be pinched or overscrolle
   assert.equal(gesture().prevented, false);
   send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: true });
   assert.ok(classes.has('gcp-guard'));
-  assert.match(styles[0].textContent, /overscroll-behavior:none/);
+  assert.match(styles.find((st) => st.id === 'gcp-guard').textContent, /overscroll-behavior:none/);
   assert.equal(gesture().prevented, true);
   send({ gcp: 'display', fullscreen: false, mode: 'inline', touch: true });
   assert.ok(!classes.has('gcp-guard'));
@@ -123,7 +123,7 @@ test('on a touch screen in the player, the game cannot be pinched or overscrolle
 test('the guard never loosens the game\'s own touch-action', () => {
   const { send, styles } = loadSdk();
   send({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: true });
-  const css = styles[0].textContent;
+  const css = styles.find((st) => st.id === 'gcp-guard').textContent;
   // pan-only sits on <html> alone, with no specificity, so a game's touch-action:none on html or body wins
   assert.match(css, /:where\(html\.gcp-guard\)\{touch-action:pan-x pan-y\}/);
   assert.doesNotMatch(css.replace(/:where\(html\.gcp-guard\)\{[^}]*\}/, ''), /touch-action/);
@@ -313,4 +313,14 @@ test('on phones and tablets devicePixelRatio reads at most 2, unless the game as
   assert.equal(win.devicePixelRatio, 3);
   ({ win } = loadSdk({ ...SCREEN, devicePixelRatio: 3 }));   // a computer: untouched
   assert.equal(win.devicePixelRatio, 3);
+});
+
+test('game text is never selectable; fields are, and a game can ask for its text back', () => {
+  const { GCP, styles, classes } = loadSdk();
+  assert.ok(classes.has('gcp-noselect'));
+  const css = styles.find((st) => st.id === 'gcp-noselect').textContent;
+  assert.match(css, /html\.gcp-noselect body :not\(input\):not\(textarea\)[^{]*\{-webkit-user-select:none!important;user-select:none!important/);
+  assert.match(css, /:where\(input,textarea,\[contenteditable\],\[contenteditable\] \*\)\{-webkit-user-select:text;user-select:text\}/);
+  GCP.setDisplay({ textSelect: true });
+  assert.ok(!classes.has('gcp-noselect'));
 });

@@ -1009,9 +1009,30 @@
   //                 changes them with GCP.controls, or turns them off with GCP.setDisplay({ touchControls: 'none' }).
   TL.touchNow = function () { return display.touch; };
   var tcss = ':where(html.gcp-touch){-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}'
-    + ':where(html.gcp-touch:not(.gcp-guard)){touch-action:manipulation}'
-    + ':where(html.gcp-touch) :where(body,body *:not(input):not(textarea):not(select):not([contenteditable]):not([contenteditable] *)){-webkit-user-select:none;user-select:none}'
-    + ':where(html.gcp-touch) :where(input,textarea,[contenteditable],[contenteditable] *){-webkit-user-select:text;user-select:text}';   // Safari cannot type into a field that inherits none
+    + ':where(html.gcp-touch:not(.gcp-guard)){touch-action:manipulation}';
+  // Game text is never selectable, on any device and whatever the page's own styles say (a game's user-select: text, a
+  // UI kit's): no copy, share or translate bar over the game after a long press, no highlight from a mouse drag. Fields
+  // stay selectable and typeable. GCP.setDisplay({ textSelect: true }) gives a game that wants selection its text back.
+  var noSelCss = 'html.gcp-noselect body :not(input):not(textarea):not(select):not([contenteditable]):not([contenteditable] *){-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}'
+    + 'html.gcp-noselect :where(input,textarea,[contenteditable],[contenteditable] *){-webkit-user-select:text;user-select:text}';   // Safari cannot type into a field that inherits none
+  var noSelect = true;
+  function noSelectCss() {
+    var h = document.documentElement; if (h && h.classList) h.classList.toggle('gcp-noselect', noSelect);
+    if (!noSelect || document.getElementById('gcp-noselect')) return;
+    try { var st = document.createElement('style'); st.id = 'gcp-noselect'; st.textContent = noSelCss; (document.head || document.documentElement).appendChild(st); } catch (e) { /* no DOM yet */ }
+  }
+  noSelectCss();
+  function editable(n) { var el = n && (n.nodeType === 1 ? n : n.parentElement); return !!(el && el.closest && el.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')); }
+  document.addEventListener('selectstart', function (e) { if (noSelect && !editable(e.target)) e.preventDefault(); }, true);
+  // A selection that starts anyway (select-all from the keyboard, a script) is dropped.
+  document.addEventListener('selectionchange', function () {
+    if (!noSelect) return;
+    var sel = window.getSelection && window.getSelection();
+    if (sel && sel.rangeCount && !sel.isCollapsed && !editable(sel.anchorNode) && !editable(document.activeElement)) { try { sel.removeAllRanges(); } catch (e) { /* read-only */ } }
+  });
+  // A long press on a picture or link opens the browser's own menu (save image, open link) on Android: not over a game.
+  // The game's own contextmenu listeners still run.
+  document.addEventListener('contextmenu', function (e) { if (display.touch && e.isTrusted && !editable(e.target)) e.preventDefault(); }, true);
   function touchCss() {
     if (!display.touch || !document.head || document.getElementById('gcp-touch')) return;
     var st = document.createElement('style'); st.id = 'gcp-touch'; st.textContent = tcss; document.head.appendChild(st);
@@ -1605,7 +1626,8 @@
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
         (a small platform menu button in that corner, for a game that keeps the corner free; left out, there is none and the
         menu opens from Back, a three-finger tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
-        itself: they no longer open the platform menu),
+        itself: they no longer open the platform menu), textSelect: true (the game's text can be selected and copied; left
+        out, only fields can, so a long press or a drag never highlights the game's labels),
         edgeToEdge: false (in fullscreen the platform keeps the frame inside the notch, camera hole and rounded corners,
         which leaves black bars on those phones; left out, the game covers the whole screen and keeps its own buttons
         inside display.safe) }. */
@@ -1616,6 +1638,7 @@
       if (prefs.touchControls === 'none' || prefs.touchControls === 'auto') { ui.off = prefs.touchControls === 'none'; refreshControls(); }
       if (prefs.pixelRatio === 'native') { TL.dprCap = 0; S.pixelRatio = 0; }
       if (typeof prefs.menuGesture === 'boolean') menuGesture = prefs.menuGesture;
+      if (typeof prefs.textSelect === 'boolean') { noSelect = !prefs.textSelect; noSelectCss(); var ns = document.getElementById('gcp-noselect'); if (ns && !noSelect) ns.disabled = true; else if (ns) ns.disabled = false; }
       try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ }
     },
     /** The platform's on-screen controls for touch screens: a stick and buttons that press the game's keys. They show by
