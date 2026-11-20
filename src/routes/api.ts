@@ -24,6 +24,8 @@ import { currentPicks } from '../rankings';
 import { checkIn, sessionStartStmt } from '../play-clock';
 import { implementationCard, setOpenImplementation } from '../implementations';
 import { addFeedback, feedbackImage, feedbackProject, listFeedback, removeFeedback } from '../feedback';
+// @ts-ignore plain JS module
+import { FEEDBACK_LIMITS } from '../feedback-rules.js';
 import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../stripe';
 import { startWithdrawal } from '../payouts';
 export { autoPayouts, retryTransfers, reverseWithdrawal, sendTransfer } from '../payouts';
@@ -939,6 +941,8 @@ api.post('/console/projects/:id/preview', async (c) => {
 });
 
 // The creator feedback queue (src/feedback.ts): annotated screenshots of the preview, waiting for the creator's agent.
+// base64 of every picture of one item, with room for the note, marks and context
+const FEEDBACK_BODY_MAX = Math.ceil(FEEDBACK_LIMITS.item_bytes / 3) * 4 + 300_000;
 // Owner only, never an admin looking at someone else's game.
 api.get('/console/projects/:id/feedback', async (c) => {
   const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
@@ -946,17 +950,20 @@ api.get('/console/projects/:id/feedback', async (c) => {
 });
 api.post('/console/projects/:id/feedback', async (c) => {
   const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
-  // the picture travels as a data URL: refuse an oversized body before reading it
-  if (Number(c.req.header('content-length') || 0) > 2_200_000) throw new AppError(413, 'The screenshot is too large.', 'too_large');
+  // the pictures travel as data URLs (the screenshot and any attached, FEEDBACK_LIMITS.item_bytes together): refuse an
+  // oversized body before reading it
+  if (Number(c.req.header('content-length') || 0) > FEEDBACK_BODY_MAX) throw new AppError(413, 'The pictures are too large together.', 'too_large');
   const text = await c.req.text();
-  if (text.length > 2_200_000) throw new AppError(413, 'The screenshot is too large.', 'too_large');
+  if (text.length > FEEDBACK_BODY_MAX) throw new AppError(413, 'The pictures are too large together.', 'too_large');
   const b = parseJson<Record<string, unknown> | null>(text, null);
   if (!b || typeof b !== 'object') throw bad('Send the feedback as JSON.');
   return c.json(await addFeedback(c.env, u, p, b));
 });
 api.get('/console/projects/:id/feedback/:fid/image', async (c) => {
   const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
-  return feedbackImage(c.env, p, c.req.param('fid'));
+  // ?n=1… for the pictures the creator attached
+  const n = Math.round(Number(c.req.query('n') || 0));
+  return feedbackImage(c.env, p, c.req.param('fid'), Number.isFinite(n) && n > 0 && n <= 10 ? n : 0);
 });
 api.delete('/console/projects/:id/feedback/:fid', async (c) => {
   const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));

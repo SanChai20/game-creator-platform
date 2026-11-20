@@ -1,7 +1,7 @@
 // The creator feedback queue's rules (src/feedback-rules.js): what one item may hold, checked by its bytes and cut to size.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FEEDBACK_LIMITS, FeedbackError, cleanContext, cleanMarks, cleanNote, describeMarks, imageInfo, parseImage } from '../src/feedback-rules.js';
+import { FEEDBACK_LIMITS, FeedbackError, cleanAttachments, cleanContext, cleanMarks, cleanNote, describeMarks, imageInfo, parseImage } from '../src/feedback-rules.js';
 
 // a 1x1 PNG and a tiny baseline JPEG header (SOI, APP0, SOF0 with 640x360)
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
@@ -62,4 +62,23 @@ test('an exact picture keeps how it was cut from the tab, and nothing else', () 
   assert.equal(cleanContext({ method: 'page', capture: { k: 1 } }).capture, undefined);
   assert.equal(cleanContext({ method: 'screen', capture: { view: [1, 'a'], crop: [1, 2] } }).capture, undefined);
   assert.equal(cleanContext({ dpr: 99 }).dpr, undefined);
+});
+
+test('attached pictures are checked like the screenshot, with their own marks, and held to one item\'s size', () => {
+  const png = 'data:image/png;base64,' + PNG.toString('base64'), jpg = 'data:image/jpeg;base64,' + JPEG.toString('base64');
+  const a = cleanAttachments([{ image: png, name: ' C:\\designs/menu mockup.png ', marks: [{ type: 'box', x: 0.1, y: 0.1, w: 0.5, h: 0.5, label: 'like this' }] }, { image: jpg }]);
+  assert.equal(a.length, 2);
+  assert.equal(a[0].type, 'image/png'); assert.equal(a[0].name, 'menu mockup.png');
+  assert.deepEqual(a[0].marks, [{ n: 1, type: 'box', x: 0.1, y: 0.1, w: 0.5, h: 0.5, label: 'like this' }]);
+  assert.equal(a[1].width, 640); assert.deepEqual(a[1].marks, []); assert.equal(a[1].name, undefined);
+  assert.deepEqual(cleanAttachments(undefined), []);
+  // by their bytes, never their declared type, and named in the error
+  assert.throws(() => cleanAttachments([{ image: png }, { image: 'data:image/png;base64,' + Buffer.from('<svg onload=x>').toString('base64') }]), /Attached picture 2 must be a JPEG or PNG/);
+  assert.throws(() => cleanAttachments([{}]), /Attached picture 1 has no image/);
+  assert.throws(() => cleanAttachments([{ image: png, marks: [{ type: 'nope' }] }]), /Attached picture 1: Mark 1/);
+  assert.throws(() => cleanAttachments(Array.from({ length: FEEDBACK_LIMITS.attachments + 1 }, () => ({ image: png }))), /At most/);
+  assert.throws(() => cleanAttachments('x'), /must be a list/);
+  // the screenshot's bytes count toward the item's total
+  assert.throws(() => cleanAttachments([{ image: png }], FEEDBACK_LIMITS.item_bytes - 10), /add up to/);
+  assert.equal(cleanAttachments([{ image: png }], FEEDBACK_LIMITS.item_bytes - PNG.length).length, 1);
 });

@@ -5,6 +5,9 @@
 
 export const FEEDBACK_LIMITS = {
   image_bytes: 1_500_000,      // one annotated picture (the console sends a JPEG of at most 1600 px)
+  attachments: 4,              // the creator's own pictures (design mockups, references) beside the screenshot
+  item_bytes: 3_000_000,       // all pictures of one item together: one item always fits one creator_feedback answer
+  name_chars: 120,             // an attached picture's file name
   image_side: 2560,            // pixels on the longest side
   note_chars: 2000,
   mark_label_chars: 200,
@@ -46,18 +49,18 @@ export function imageInfo(b) {
   return null;
 }
 
-/** Decodes a data URL or bare base64 into checked picture bytes: { bytes, type, width, height }. */
-export function parseImage(input) {
-  if (typeof input !== 'string' || !input) fail('image is required: the annotated screenshot as a data URL (JPEG or PNG).');
+/** Decodes a data URL or bare base64 into checked picture bytes: { bytes, type, width, height }. `what` names it in errors. */
+export function parseImage(input, what = 'The screenshot') {
+  if (typeof input !== 'string' || !input) fail(what === 'The screenshot' ? 'image is required: the annotated screenshot as a data URL (JPEG or PNG).' : `${what} has no image: send it as a data URL (JPEG or PNG).`);
   const m = input.match(/^data:image\/(?:jpeg|png);base64,/);
   const b64 = m ? input.slice(m[0].length) : input;
-  if (b64.length > Math.ceil(FEEDBACK_LIMITS.image_bytes / 3) * 4 + 4) fail(`The screenshot is larger than ${Math.round(FEEDBACK_LIMITS.image_bytes / 1e5) / 10} MB.`);
+  if (b64.length > Math.ceil(FEEDBACK_LIMITS.image_bytes / 3) * 4 + 4) fail(`${what} is larger than ${Math.round(FEEDBACK_LIMITS.image_bytes / 1e5) / 10} MB.`);
   let bytes;
   try { const bin = atob(b64); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); }
-  catch { fail('The screenshot is not valid base64.'); }
+  catch { fail(`${what} is not valid base64.`); }
   const info = imageInfo(bytes);
-  if (!info) fail('The screenshot must be a JPEG or PNG picture.');
-  if (!info.width || !info.height || info.width > FEEDBACK_LIMITS.image_side || info.height > FEEDBACK_LIMITS.image_side) fail(`The screenshot must be at most ${FEEDBACK_LIMITS.image_side} pixels on each side.`);
+  if (!info) fail(`${what} must be a JPEG or PNG picture.`);
+  if (!info.width || !info.height || info.width > FEEDBACK_LIMITS.image_side || info.height > FEEDBACK_LIMITS.image_side) fail(`${what} must be at most ${FEEDBACK_LIMITS.image_side} pixels on each side.`);
   return { bytes, ...info };
 }
 
@@ -91,6 +94,28 @@ export function cleanMarks(v) {
     const label = str(m.label, FEEDBACK_LIMITS.mark_label_chars);
     if (label) out.label = label;
     return out;
+  });
+}
+
+/**
+ * The creator's own pictures attached to an item (design mockups, references), each its own annotated picture:
+ * [{ image (data URL), marks, name }]. Each is checked like the screenshot; all pictures of one item, the screenshot
+ * included (`used` bytes), stay within item_bytes so the item always fits one answer to the agent.
+ */
+export function cleanAttachments(v, used = 0) {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) fail('attachments must be a list.');
+  if (v.length > FEEDBACK_LIMITS.attachments) fail(`At most ${FEEDBACK_LIMITS.attachments} attached pictures in one item.`);
+  let total = used;
+  return v.map((a, i) => {
+    if (!a || typeof a !== 'object') fail(`Attached picture ${i + 1} must be an object with image.`);
+    const img = parseImage(a.image, `Attached picture ${i + 1}`);
+    total += img.bytes.length;
+    if (total > FEEDBACK_LIMITS.item_bytes) fail(`The pictures of one item add up to more than ${Math.round(FEEDBACK_LIMITS.item_bytes / 1e5) / 10} MB.`);
+    let marks;
+    try { marks = cleanMarks(a.marks); } catch (e) { fail(`Attached picture ${i + 1}: ${e.message}`); }
+    const name = str(String(a.name ?? '').split(/[\\/]/).pop(), FEEDBACK_LIMITS.name_chars);   // the file's name, never a path
+    return { ...img, marks, ...(name ? { name } : {}) };
   });
 }
 
