@@ -1664,5 +1664,6 @@
  "Go back, or tap with three fingers, for the game menu.": "Vuelve atrás o toca con tres dedos para abrir el menú del juego.",
  "Game menu (drag to move)": "Menú del juego (arrastra para moverlo)",
  "Keep playing here": "Seguir jugando aquí",
- "Back, or a three-finger tap, also opens this menu.": "Volver atrás o tocar con tres dedos también abre este menú."
+ "Back, or a three-finger tap, also opens this menu.": "Volver atrás o tocar con tres dedos también abre este menú.",
+ "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "Ejecutar el reloj de juego en Durable Objects (necesario para decenas de miles de jugadores en línea; las cifras pueden tardar hasta un minuto)"
 }

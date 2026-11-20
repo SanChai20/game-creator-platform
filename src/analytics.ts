@@ -6,6 +6,7 @@
 // Only real players of the live game are counted in the history; the creator's own plays and the verifier are not.
 import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
+import { getSettings } from './settings';
 
 export const ONLINE_WINDOW_MS = 60_000;        // four missed check-ins of the page showing the game and a player no longer counts as online
 const ROOM_STALE_MS = 12 * 3600_000;    // presence rows older than this are from a room that never said goodbye
@@ -26,8 +27,10 @@ const LENGTHS: [string, number][] = [['under 30 s', 30], ['30 s to 2 min', 120],
 
 /** Players online now: a session whose page checked in under a minute ago. */
 export async function onlineNow(env: Env, pid: string) {
-  const t = now(), since = t - ONLINE_WINDOW_MS;
+  const t = now(), since = t - ONLINE_WINDOW_MS, atScale = (await getSettings(env)).play_clock_do;
   const [online, rooms] = await Promise.all([
+    // at scale the game's tally keeps the numbers (src/clock-do.ts); otherwise they come from the sessions' check-ins
+    atScale ? env.DB.prepare("SELECT 'live' AS env, live_players AS players, live_sessions AS sessions FROM game_online WHERE project_id = ?1 AND updated_at > ?2 UNION ALL SELECT 'preview', preview_players, 0 FROM game_online WHERE project_id = ?1 AND updated_at > ?2").bind(pid, t - 6 * 60_000).all<{ env: string; players: number; sessions: number }>() :
     env.DB.prepare("SELECT env, COUNT(DISTINCT user_id) AS players, COUNT(*) AS sessions FROM plays WHERE project_id = ? AND seen_at > ? AND kind != 'verify' GROUP BY env").bind(pid, since).all<{ env: string; players: number; sessions: number }>(),
     env.DB.prepare('SELECT env, room, players, updated_at FROM room_presence WHERE project_id = ? AND players > 0 AND updated_at > ? ORDER BY players DESC, updated_at DESC LIMIT 50').bind(pid, t - ROOM_STALE_MS).all<{ env: string; room: string; players: number; updated_at: number }>(),
   ]);

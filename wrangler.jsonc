@@ -9,8 +9,13 @@
   // or read the platform's cookies. www redirects pages to PUBLIC_ORIGIN (src/index.ts).
   "routes": [
     { "pattern": "hearthcade.com", "custom_domain": true },
-    { "pattern": "www.hearthcade.com", "custom_domain": true }
+    { "pattern": "www.hearthcade.com", "custom_domain": true },
+    // The shared game host (DEPLOY_DRIVER "shared", src/game-host.ts): every game at <script>.hearthcade.app. A game that
+    // still has a Worker of its own keeps its per-script route, which is more specific, until the rollout moves it.
+    { "pattern": "*.hearthcade.app/*", "zone_id": "696f63e1c098bfd778b39bf941ae69c4" }
   ],
+  // games' server code runs as Dynamic Workers loaded by the shared game host
+  "worker_loaders": [{ "binding": "LOADER" }],
   "assets": {
     "directory": "dist",
     "binding": "ASSETS",
@@ -28,10 +33,13 @@
     "bindings": [
       { "name": "ROOMS", "class_name": "GameRoom" },
       { "name": "PIPELINE", "class_name": "Pipeline" },
-      { "name": "MATCHMAKER", "class_name": "Matchmaker" }   // server-run matches (src/matchmaker.ts)
+      { "name": "MATCHMAKER", "class_name": "Matchmaker" },   // server-run matches (src/matchmaker.ts)
+      // the play clock at scale (setting play_clock_do, src/clock-do.ts): one per player, one per game
+      { "name": "PLAY_CLOCK", "class_name": "PlayClock" },
+      { "name": "GAME_TALLY", "class_name": "GameTally" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }, { "tag": "v2", "new_sqlite_classes": ["Matchmaker"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }, { "tag": "v2", "new_sqlite_classes": ["Matchmaker"] }, { "tag": "v3", "new_sqlite_classes": ["PlayClock", "GameTally"] }],
   // Game service calls (saves, stats, scores, heartbeats, server store) per play session and per game Worker, without a
   // database write per check (src/routes/rt.ts). Counted per Cloudflare location, so the limits are generous.
   "ratelimits": [
@@ -54,7 +62,9 @@
     // "cloudflare" deploys each game as its own standard Worker (today). "dispatch" deploys each game as a user Worker in
     // the DISPATCH_NAMESPACE dispatch namespace (Workers for Platforms). "local" serves games from this Worker (wrangler dev).
     // Switching from "cloudflare" to "dispatch" moves every game over a few at a time (the scheduled rollout).
-    "DEPLOY_DRIVER": "cloudflare",
+    // "shared" serves every game from this Worker on *.<GAME_HOST> (src/game-host.ts); only games with server-run matches
+    // keep a standard Worker of their own. Switching moves the games over a few at a time (the scheduled rollout).
+    "DEPLOY_DRIVER": "shared",
     "PUBLIC_ORIGIN": "https://hearthcade.com",
     // "DISPATCH_NAMESPACE": "gcp-games",
     // Games are served at <script>.<GAME_HOST>. Needed for "dispatch". With "cloudflare" plus GAME_ZONE_ID, standard

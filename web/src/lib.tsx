@@ -76,11 +76,18 @@ export const playTime = (seconds: number) => { const m = Math.round((seconds || 
 // ---- API --------------------------------------------------------------------------------------
 export class ApiError extends Error { constructor(msg: string, public status: number, public code?: string, public hint?: string) { super(msg); } }
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
-  const r = await fetch('/api' + path, {
-    method: opts.method || (opts.body !== undefined ? 'POST' : 'GET'), credentials: 'same-origin',
-    headers: opts.body !== undefined ? { 'content-type': 'application/json' } : undefined, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
-  const j = await r.json().catch(() => ({}));
+  let r: Response, j: any;
+  // "busy" (503): the platform's database is taking a rush of players. Wait a moment and try again, a little longer each
+  // time and at a slightly different moment for each player, so the rush spreads out instead of failing.
+  for (let attempt = 0; ; attempt++) {
+    r = await fetch('/api' + path, {
+      method: opts.method || (opts.body !== undefined ? 'POST' : 'GET'), credentials: 'same-origin',
+      headers: opts.body !== undefined ? { 'content-type': 'application/json' } : undefined, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+    j = await r.json().catch(() => ({}));
+    if (r.status !== 503 || j.code !== 'busy' || attempt >= 4) break;
+    await new Promise((ok) => setTimeout(ok, (500 << attempt) * (0.5 + Math.random())));
+  }
   if (!r.ok) throw new ApiError(j.error || `${t('Request failed', '请求失败')} (${r.status})`, r.status, j.code, j.hint);
   return j as T;
 }

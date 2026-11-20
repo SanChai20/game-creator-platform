@@ -1665,5 +1665,6 @@
  "Go back, or tap with three fingers, for the game menu.": "戻る操作をするか、3本指でタップするとゲームメニューが開きます。",
  "Game menu (drag to move)": "ゲームメニュー（ドラッグで移動）",
  "Keep playing here": "このまま続ける",
- "Back, or a three-finger tap, also opens this menu.": "戻る操作や3本指のタップでもこのメニューが開きます。"
+ "Back, or a three-finger tap, also opens this menu.": "戻る操作や3本指のタップでもこのメニューが開きます。",
+ "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "プレイ時間の計測を Durable Objects で行う（数万人の同時プレイに必要。数値は最大1分ほど遅れることがあります）"
 }

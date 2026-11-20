@@ -37,6 +37,7 @@ export const SETTING_DEFS = {
   refund_max_play_minutes: { v: 30, type: 'int', group: 'Paid games', label: 'Most minutes a buyer can have played a game (trial included) and still refund it themselves', public: true },
 
   play_min_seconds: { v: 30, type: 'int', group: 'Play counting', label: 'Seconds before a session counts as a play', public: true },
+  play_clock_do: { v: false, type: 'bool', group: 'Play counting', label: 'Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)' },
   review_requires_play: { v: true, type: 'bool', group: 'Reviews', label: 'Only players with a counted play can rate and review', public: true },
 
   verify_ready_timeout_s: { v: 30, type: 'int', group: 'Verification', label: 'Seconds a game has to call GCP.ready()' },

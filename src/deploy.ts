@@ -10,9 +10,12 @@ import { hmacHex, now, parseJson, sha256 } from './util';
 import { getVersion, verKey } from './projects';
 import {
   GAME_COMPAT_DATE, GAME_COMPAT_FLAGS, GAME_MAIN_MODULE, MATCH_MIGRATION_TAG, RETIRE_AFTER_MS, gameLimits, gameUrlFor, hostId, hostKind,
-  matchGameRequest, matchSetup, metadataLimits, parseHostId, scriptBindings, scriptMetadata, scriptName, scriptsPath, scriptTags, type GameEnv, type HostRef,
+  matchGameRequest, matchHostId, matchSetup, metadataLimits, parseHostId, scriptBindings, scriptMetadata, scriptName, scriptsPath, scriptTags, type GameEnv, type HostRef,
 } from './hosting';
 import { gameFetch } from './dispatch';
+import { forgetGame, serveSharedGame } from './game-host';
+
+const NO_CTX = { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext;
 
 export type { GameEnv } from './hosting';
 export const workerName = scriptName;
@@ -55,7 +58,8 @@ async function removeRoute(env: Env, routeHost: string, script: string): Promise
 
 function host(env: Env, id = hostId(env)): Host {
   const h = parseHostId(id);
-  if (h.kind === 'local') return { ...h, id, put: async () => {}, remove: async () => {}, settings: async () => null, migrationTag: async () => null };
+  // the shared game host has no script per game: deploying a version there is recording it (src/game-host.ts)
+  if (h.kind === 'local' || h.kind === 'shared') return { ...h, id, put: async () => {}, remove: async () => {}, settings: async () => null, migrationTag: async () => null };
   const base = scriptsPath(h);
   return {
     ...h, id,
@@ -118,10 +122,11 @@ export async function runtimeHash(): Promise<string> {
   return (runtimeSum ??= (await sha256(JSON.stringify([GAME_WORKER_SOURCE, GAME_INTRINSICS_SOURCE, GAME_MATCH_CORE_SOURCE, GAME_COMPAT_DATE, GAME_COMPAT_FLAGS]))).slice(0, 16));
 }
 /** What game_workers.runtime records: the runtime, plus the limits when they are baked into the script (standard
-    Workers). Changing a limit in the admin settings then makes the rollout redeploy every game with it. */
-async function fingerprint(env: Env): Promise<string> {
+    Workers). Changing a limit in the admin settings then makes the rollout redeploy every game with it. `id` is the host
+    the game goes to (with the shared host, games with server-run matches still go to standard Workers). */
+async function fingerprint(env: Env, id = hostId(env)): Promise<string> {
   const rt = await runtimeHash();
-  if (hostKind(env) !== 'workers') return rt;   // a dispatch namespace takes the limits per request
+  if (parseHostId(id).kind !== 'workers') return rt;   // a dispatch namespace and the shared host take the limits per request
   const l = metadataLimits(gameLimits(await getSettings(env)));
   return l ? `${rt}:${l.cpu_ms || 0}/${l.subrequests || 0}` : rt;
 }
@@ -129,11 +134,14 @@ async function fingerprint(env: Env): Promise<string> {
 export async function deployGame(env: Env, origin: string, p: Project, v: Version, e: GameEnv): Promise<string> {
   const script = scriptName(p.id, e), kind = hostKind(env);
   if (kind === 'local') return urlIn(env, 'local', script, origin);
-  const h = host(env);
   // server/ modules run only here; shared/ modules are also served to the page, so the client and server/match.js can
   // use the same rules (movement, hit rules) for prediction
   const files = parseJson<{ path: string }[]>(v.files, []).filter((f) => (f.path.startsWith('server/') || f.path.startsWith('shared/')) && /\.m?js$/.test(f.path));
   const hasMatch = files.some((f) => f.path === 'server/match.js');
+  // A server-run match is a Durable Object class of the game's own script, so with the shared host such a game still
+  // gets a standard Worker (on its own route under GAME_HOST, which wins over the shared host's wildcard).
+  const h = host(env, hasMatch ? matchHostId(env) : hostId(env));
+  if (h.kind === 'shared') return recordDeploy(env, origin, p, v, e, h, script, hasMatch);
   let tag: string | null = null;
   try { tag = await h.migrationTag(script); }
   catch (err) { if (hasMatch) console.error('reading the migration tag failed; trying with the migration', script, err); }
@@ -164,6 +172,12 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
     if (!setup.migrations || !(err instanceof AppError) || !/migration|tag/i.test(err.message)) throw err;
     await h.put(script, await build(matchSetup(MATCH_MIGRATION_TAG, true)));
   }
+  return recordDeploy(env, origin, p, v, e, h, script, hasMatch);
+}
+
+/** After a version is in place on host `h`: retires the copy on the host the game was on before, and records where the
+    game lives now. */
+async function recordDeploy(env: Env, origin: string, p: Project, v: Version, e: GameEnv, h: Host, script: string, hasMatch: boolean): Promise<string> {
   const url = await urlIn(env, h.id, script, origin);
 
   // Moved from another host (the Workers for Platforms migration): retire the old copy. If the address is the same
@@ -182,10 +196,11 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
       else { retiredHost = prev.host; retiredAt = now(); }
     }
   }
-  await env.DB.prepare(`INSERT INTO game_workers (project_id, env, version, runtime, origin, deployed_at, host, script, retired_host, retired_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  await env.DB.prepare(`INSERT INTO game_workers (project_id, env, version, runtime, origin, deployed_at, host, script, retired_host, retired_at, matches) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(project_id, env) DO UPDATE SET version = excluded.version, runtime = excluded.runtime, origin = excluded.origin, deployed_at = excluded.deployed_at,
-      host = excluded.host, script = excluded.script, retired_host = excluded.retired_host, retired_at = excluded.retired_at, idle_at = NULL`)
-    .bind(p.id, e, v.n, await fingerprint(env), origin, now(), h.id, script, retiredHost, retiredAt).run();
+      host = excluded.host, script = excluded.script, retired_host = excluded.retired_host, retired_at = excluded.retired_at, idle_at = NULL, matches = excluded.matches`)
+    .bind(p.id, e, v.n, await fingerprint(env, h.id), origin, now(), h.id, script, retiredHost, retiredAt, hasMatch ? 1 : 0).run();
+  forgetGame(script);
   return url;
 }
 
@@ -203,14 +218,15 @@ async function deployedOrigin(env: Env, id: string, script: string): Promise<str
 export async function rolloutRuntime(env: Env, max = 16): Promise<{ updated: string[]; skipped: string[]; failed: string[]; retired: string[]; remaining: number }> {
   const out = { updated: [] as string[], skipped: [] as string[], failed: [] as string[], retired: [] as string[], remaining: 0 };
   if (hostKind(env) === 'local' || !env.CF_API_TOKEN || !env.CF_ACCOUNT_ID) return out;
-  const fp = await fingerprint(env), hid = hostId(env);
+  // with the shared host, games with server-run matches (game_workers.matches) belong on standard Workers instead
+  const hid = hostId(env), mid = matchHostId(env), fp = await fingerprint(env, hid), mfp = await fingerprint(env, mid);
   const stale = `FROM projects p CROSS JOIN (SELECT 'live' AS env UNION ALL SELECT 'preview') e
     LEFT JOIN game_workers w ON w.project_id = p.id AND w.env = e.env
     WHERE p.status != 'removed' AND (CASE e.env WHEN 'live' THEN p.status = 'live' AND p.live_version IS NOT NULL ELSE p.preview_version IS NOT NULL END)
-      AND (w.runtime IS NULL OR w.runtime != ?1 OR w.host IS NULL OR w.host != ?2)
+      AND (w.runtime IS NULL OR w.host IS NULL OR CASE WHEN w.matches = 1 THEN w.runtime != ?4 OR w.host != ?5 ELSE w.runtime != ?1 OR w.host != ?2 END)
       AND w.idle_at IS NULL`;   // a preview removed for being idle is deployed again when it is next opened (src/cleanup.ts)
   const rows = await env.DB.prepare(`SELECT p.id, e.env AS env, CASE e.env WHEN 'live' THEN p.live_version ELSE p.preview_version END AS n, w.origin AS origin, w.host AS host ${stale} ORDER BY e.env = 'live' DESC, p.updated_at DESC LIMIT ?3`)
-    .bind(fp, hid, max).all<{ id: string; env: GameEnv; n: number; origin: string | null; host: string | null }>();
+    .bind(fp, hid, max, mfp, mid).all<{ id: string; env: GameEnv; n: number; origin: string | null; host: string | null }>();
   for (const r of rows.results) {
     const name = scriptName(r.id, r.env);
     try {
@@ -234,12 +250,12 @@ export async function rolloutRuntime(env: Env, max = 16): Promise<{ updated: str
   for (const r of old.results) {
     const name = scriptName(r.project_id, r.env);
     try {
-      if (r.retired_host !== hid) await host(env, r.retired_host).remove(name);
+      if (r.retired_host !== hid && r.retired_host !== mid) await host(env, r.retired_host).remove(name);
       await env.DB.prepare('UPDATE game_workers SET retired_host = NULL, retired_at = NULL WHERE project_id = ? AND env = ?').bind(r.project_id, r.env).run();
       out.retired.push(`${r.retired_host}/${name}`);
     } catch (err) { console.error('retiring old game Worker failed', name, err); out.failed.push(name); }
   }
-  const left = await env.DB.prepare(`SELECT COUNT(*) AS n ${stale}`).bind(fp, hid).first<{ n: number }>();
+  const left = await env.DB.prepare(`SELECT COUNT(*) AS n ${stale}`).bind(fp, hid, null, mfp, mid).first<{ n: number }>();
   out.remaining = left?.n || 0;
   if (out.updated.length || out.failed.length || out.retired.length) console.log('runtime rollout', JSON.stringify(out));
   return out;
@@ -258,6 +274,13 @@ export async function undeployGame(env: Env, pid: string, e: GameEnv): Promise<v
 /** Fetches a game URL from the platform: through the DISPATCHER binding when it is on the dispatch host, so health
     checks never depend on one Worker reaching another over HTTP. */
 async function fetchGame(env: Env, url: string, init?: RequestInit): Promise<Response> {
+  if (hostKind(env) === 'shared') {
+    // A Worker's request to its own route would not reach it again: a game on the shared host is checked in-process.
+    const m = matchGameRequest(env, new URL(url));
+    if (m && m.script && parseHostId((await deployedRow(env, m.pid, m.env))?.host).kind === 'shared') {
+      return serveSharedGame(new Request(url, init), env, NO_CTX, m, env.PUBLIC_ORIGIN || new URL(url).origin, null);
+    }
+  }
   const route = hostKind(env) === 'dispatch' ? matchGameRequest(env, new URL(url)) : null;
   return gameFetch(url, route, route && env.DISPATCHER ? env.DISPATCHER : null, env, await getSettings(env), env.PUBLIC_ORIGIN || '', init);
 }

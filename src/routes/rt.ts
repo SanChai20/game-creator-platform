@@ -1,11 +1,12 @@
 // Runtime API called from inside games (cross-origin, authenticated by the signed play token):
 // the game's heartbeat (started, errors), cloud saves, leaderboards, realtime rooms, and the store used by game server code.
 import { readOptions } from '../file-read';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { AppError, bad, type Env } from '../env';
 import { isGuestId } from '../auth';
 import { playKey, runtimeHash, storeKey } from '../deploy';
 import { getSettings } from '../settings';
+import { playClock } from '../clock-do';
 import { assertGameDataRoom } from '../db-guard';
 import { owns } from '../earnings';
 import { TRIAL_MIN_CHARGE_S, trialOpenStmts } from '../trials';
@@ -96,7 +97,26 @@ const body = async (c: { req: { raw: Request } }) => {
 // it hit, which the creator's analytics show as reported by the game. It moves no play number: sessions, counted plays,
 // play time, players online and the player's record come from the platform's own clock (src/play-clock.ts).
 rt.post('/beat', async (c) => {
-  const b = await body(c), env = c.env, tok = await authAny(env, b.t), s = await getSettings(env), t = now();
+  const b = await body(c), env = c.env, s = await getSettings(env), t = now();
+  // At scale (play_clock_do) the heartbeat goes to the player's clock, which confirms the session binding once a minute
+  // instead of on every beat (src/clock-do.ts). Free-trial and verifier sessions stay on the database path below.
+  if (s.play_clock_do && env.PLAY_CLOCK) {
+    const tok = await guard(() => authToken(b.t, (g: string) => playKey(env, g))) as Tok;
+    if (!tok.tr && tok.k !== 'verify') {
+      if (isGuestId(tok.u) && s.require_login_to_play) throw new AppError(401, 'Sign in to play.', 'unauthenticated');
+      await throttle(env.PLAY_RL, 'play:' + tok.s);
+      const errors: string[] = Array.isArray(b.errors) ? b.errors.map((e: unknown) => String(e)) : [];
+      const r = await playClock(env, tok.u).beat({ sid: tok.s, player: tok.u, frames: b.frames, errors, fatal: !!b.fatal, t, human_min_seconds: s.verify_human_min_seconds, tok });
+      if (r.ok) return c.json({ ok: true, seconds: r.seconds });
+      if (r.reason === 'ended') throw new AppError(401, r.message || 'This play session ended.', r.code || 'session_ended');
+      if (r.reason === 'unknown') throw new AppError(401, 'Unknown play session.', 'bad_token');
+    }
+  }
+  return legacyBeat(c, b, s, t);
+});
+
+async function legacyBeat(c: Context<{ Bindings: Env }>, b: Record<string, any>, s: Awaited<ReturnType<typeof getSettings>>, t: number) {
+  const env = c.env, tok = await authAny(env, b.t);
   const play = await env.DB.prepare('SELECT * FROM plays WHERE id = ?').bind(tok.s).first<{ id: string; project_id: string; version: number; env: string; user_id: string; kind: string; last_beat_at: number; seconds: number; counted: number; ready: number; errors: number; trial: number; trial_seconds: number; trial_until: number | null; started_at: number }>();
   if (!play || play.project_id !== tok.g) throw new AppError(401, 'Unknown play session.', 'bad_token');
   const errs: string[] = Array.isArray(b.errors) ? b.errors.slice(0, 5).map((e: unknown) => String(e).slice(0, 500)) : [];
@@ -131,7 +151,7 @@ rt.post('/beat', async (c) => {
   }
   // seconds: the play time the platform has measured for this session so far (from the page's check-ins)
   return c.json({ ok: true, seconds: play.seconds, ...(trial ? { trial } : {}) });
-});
+}
 
 // Is this play token still good? The game Worker asks before it serves a game page from the token it kept in a cookie
 // (a reload), so a page reopened after signing out or switching accounts never starts as the previous player.

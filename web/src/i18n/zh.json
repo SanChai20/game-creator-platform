@@ -128,5 +128,6 @@
  "Price of the lifetime creator license (one-time payment, never expires)": "永久创作者许可的价格（一次性付款，永不过期）",
  "Require a valid creator license to publish (preview stays free)": "发布前须持有有效的创作者许可（预览仍免费）",
  "Require a valid creator license before creating projects at all": "创建项目前就须持有有效的创作者许可",
- "Creator license": "创作者许可"
+ "Creator license": "创作者许可",
+ "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "在 Durable Objects 中运行游戏时钟（数万玩家同时在线时需要；数据最多可能延迟约一分钟）"
 }

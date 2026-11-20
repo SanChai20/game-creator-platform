@@ -7,6 +7,11 @@
 //                                 <script>.<GAME_HOST>: a wildcard route sends those hosts to the dispatch Worker
 //                                 (src/dispatcher.ts, dispatcher/wrangler.jsonc), which calls DISPATCHER.get(script, …)
 //                                 with the per-game limits and outbound params.
+//   DEPLOY_DRIVER = "shared"      no Worker per game: the platform Worker itself answers on *.<GAME_HOST> (a wildcard
+//                                 route) and serves every game with the same runtime, in-process for its files and
+//                                 pages, and runs a game's server code as a Dynamic Worker (src/game-host.ts). Games with
+//                                 server-run matches (server/match.js) still get a standard Worker on a per-script route,
+//                                 which is more specific than the wildcard. See docs/shared-game-host.md.
 //   DEPLOY_DRIVER = "local"       wrangler dev: no upload; the platform Worker runs the game runtime itself at
 //                                 /__game/<pid>/<env>/, through the same dispatch code with an emulated namespace.
 //
@@ -14,12 +19,12 @@
 import type { Env } from './env';
 
 export type GameEnv = 'preview' | 'live';
-export type HostKind = 'workers' | 'dispatch' | 'local';
+export type HostKind = 'workers' | 'dispatch' | 'shared' | 'local';
 type HostEnv = Pick<Env, 'DEPLOY_DRIVER'> & Partial<Pick<Env, 'DISPATCH_NAMESPACE' | 'GAME_HOST' | 'GAME_ZONE_ID' | 'PUBLIC_ORIGIN'>>;
 
 export function hostKind(env: HostEnv): HostKind {
   const d = String(env.DEPLOY_DRIVER || 'cloudflare').toLowerCase();
-  return d === 'local' ? 'local' : d === 'dispatch' || d === 'wfp' ? 'dispatch' : 'workers';
+  return d === 'local' ? 'local' : d === 'dispatch' || d === 'wfp' ? 'dispatch' : d === 'shared' ? 'shared' : 'workers';
 }
 
 /** Where a script lives, as stored in game_workers.host: "workers" (standard Worker on workers.dev), "workers:<GAME_HOST>"
@@ -28,6 +33,7 @@ export function hostKind(env: HostEnv): HostKind {
 export function hostId(env: HostEnv): string {
   const k = hostKind(env);
   if (k === 'dispatch') return `dispatch:${env.DISPATCH_NAMESPACE || ''}`;
+  if (k === 'shared') return `shared:${gameHostName(env)}`;
   if (k === 'workers' && gameHostName(env) && env.GAME_ZONE_ID) return `workers:${gameHostName(env)}`;
   return k;
 }
@@ -36,16 +42,29 @@ export function parseHostId(id: string | null | undefined): HostRef {
   const s = String(id || 'workers');
   if (s.startsWith('dispatch:')) return { kind: 'dispatch', namespace: s.slice(9) };
   if (s.startsWith('workers:')) return { kind: 'workers', routeHost: s.slice(8) };
+  if (s.startsWith('shared:')) return { kind: 'shared', routeHost: s.slice(7) };
   return { kind: s === 'local' ? 'local' : 'workers' };
 }
 
+/** Where a game with server-run matches lives while the configured host is "shared": a standard Worker on its own
+    route under GAME_HOST (a Durable Object class per match needs a script of its own). Any other host keeps all games. */
+export function matchHostId(env: HostEnv): string {
+  if (hostKind(env) !== 'shared') return hostId(env);
+  return gameHostName(env) && env.GAME_ZONE_ID ? `workers:${gameHostName(env)}` : 'workers';
+}
+
 /** What is missing for the configured host to work, in words an admin can act on. Empty when it is ready. */
-export function hostingProblems(env: HostEnv & { DISPATCHER?: unknown }): string[] {
+export function hostingProblems(env: HostEnv & { DISPATCHER?: unknown; LOADER?: unknown }): string[] {
   const k = hostKind(env), out: string[] = [];
   if (k === 'dispatch') {
     if (!env.DISPATCH_NAMESPACE) out.push('DISPATCH_NAMESPACE is not set.');
     if (!gameHostName(env)) out.push('GAME_HOST is not set (games are served at <script>.<GAME_HOST> by the dispatch Worker).');
     if (!env.DISPATCHER) out.push('The DISPATCHER dispatch namespace binding is missing (health checks go through it).');
+  }
+  if (k === 'shared') {
+    if (!gameHostName(env)) out.push('GAME_HOST is not set (the shared game host answers on *.<GAME_HOST>).');
+    if (!env.LOADER) out.push('The LOADER Worker Loader binding is missing (games with server code run as Dynamic Workers).');
+    if (!env.GAME_ZONE_ID) out.push('GAME_ZONE_ID is not set (games with server-run matches keep a per-script route on GAME_HOST).');
   }
   if (k === 'workers' && env.GAME_ZONE_ID && !gameHostName(env)) out.push('GAME_ZONE_ID is set without GAME_HOST.');
   return out;
@@ -132,6 +151,7 @@ export function scriptMetadata(kind: HostKind, o: { bindings: Binding[]; tags: s
 
 /** Cloudflare API path of the scripts collection of a host. */
 export function scriptsPath(host: HostRef): string {
+  if (host.kind === 'shared') throw new Error('The shared game host has no scripts.');
   if (host.kind === 'dispatch') {
     if (!host.namespace) throw new Error('DISPATCH_NAMESPACE is not set.');
     return `/workers/dispatch/namespaces/${encodeURIComponent(host.namespace)}/scripts`;
@@ -147,6 +167,11 @@ export const gameHostName = (env: HostEnv) => String(env.GAME_HOST || '').trim()
 
 /** The URL a game is played at, for a script in the given host. `subdomain` is the account's workers.dev subdomain. */
 export function gameUrlFor(env: HostEnv, host: HostRef, script: string, o: { origin: string; subdomain?: string }): string {
+  if (host.kind === 'shared') {
+    const gh = host.routeHost || gameHostName(env);
+    if (!gh) throw new Error('GAME_HOST is not set: the shared game host serves games at <script>.<GAME_HOST>.');
+    return `${schemeFor(gh)}://${script}.${gh}/`;
+  }
   if (host.kind === 'dispatch') {
     const gh = gameHostName(env);
     if (!gh) throw new Error('GAME_HOST is not set: games in a dispatch namespace are reached through <script>.<GAME_HOST>.');
@@ -167,7 +192,7 @@ export type GameMatch =
   | { script: null };   // under the game host but not a game: answer 404, never the platform
 
 /** Which game a request is for, if any. Host routing (<script>.<GAME_HOST>) is how the dispatch Worker
-    (src/dispatcher.ts) receives every game request; path routing (/__game/<pid>/<env>/) is the local driver's. */
+    (src/dispatcher.ts) and the shared game host (src/game-host.ts) receive every game request; path routing (/__game/<pid>/<env>/) is the local driver's. */
 export function matchGameRequest(env: HostEnv, url: URL): GameMatch | null {
   const gh = gameHostName(env), host = url.host.toLowerCase();
   if (gh && host.endsWith('.' + gh)) {
