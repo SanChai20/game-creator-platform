@@ -188,14 +188,23 @@ export async function handle(request, env, ctx, base = '') {
   if (path.includes('..') || path.includes('\0')) return new Response('Bad path', { status: 400 });
   if (path === '/__gcp/health') return Response.json({ ok: true, game: env.GAME_ID, version: Number(env.VERSION), env: env.ENV });
 
-  const fromUrl = url.searchParams.get('gcp_t'), token = fromUrl || cookie(request, url.protocol === 'https:' ? '__Host-gcp_t' : 'gcp_t');
+  // The play token also travels in the path: /~t/<token>/index.html, and so in every relative address the page, its
+  // scripts, workers and stylesheets resolve from there. The game is framed by the platform's page on another site, and
+  // browsers that refuse third-party cookies (Safari on iPhone and iPad, some versions even with Partitioned) never send
+  // the cookie below, so without this every file after the page itself was refused and the game never started.
+  let pathToken = null; const root = base;
+  const tm = path.match(/^\/~t\/([A-Za-z0-9_.-]{16,4096})(\/.*)?$/);
+  if (tm) { pathToken = tm[1]; path = tm[2] || '/'; base = base + '/~t/' + pathToken; }
+  const fromUrl = url.searchParams.get('gcp_t'), fromCookie = cookie(request, url.protocol === 'https:' ? '__Host-gcp_t' : 'gcp_t');
+  // A path token stops working when it expires; a renewed one the SDK handed over may be in the cookie (where cookies work).
+  const token = fromUrl || (pathToken && (fromCookie === pathToken || !fromCookie || await verifyPlayToken(pathToken, env.PLAY_KEY, env.GAME_ID, env.ENV)) ? pathToken : fromCookie || pathToken);
   // The SDK hands over a renewed token so a reload later in a long session still opens (POST, same origin, signed token only).
   if (path === '/__gcp/token' && request.method === 'POST') {
     const next = String(await request.text().catch(() => '')).trim(), ok = await verifyPlayToken(next, env.PLAY_KEY, env.GAME_ID, env.ENV);
     const cur = await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV);
     // only a token for the same player and session as the one this origin already holds: a page cannot swap players
     if (!ok || !cur || ok.u !== cur.u || ok.s !== cur.s) return Response.json({ ok: false }, { status: 400, headers: { 'cache-control': 'no-store' } });
-    return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store', 'set-cookie': tokenCookie(next, base, url.protocol === 'https:', Math.max(60, Math.floor(ok.x - Date.now() / 1000))) } });
+    return Response.json({ ok: true }, { headers: { 'cache-control': 'no-store', 'set-cookie': tokenCookie(next, root, url.protocol === 'https:', Math.max(60, Math.floor(ok.x - Date.now() / 1000))) } });
   }
   if (path === '/__gcp/match') return matchRoute(request, env, url);
   if (path.startsWith('/api/')) {
@@ -213,6 +222,7 @@ export async function handle(request, env, ctx, base = '') {
   // The game's server code (server/ in the bundle) runs here and is never served as a file: it may hold logic or data the
   // creator does not want players to read. Checked on the storage key, so '//server/…' or '/./server/…' cannot get around it.
   if (isServerPath(path)) return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
+  const asked = path;
   if (path.endsWith('/')) path += 'index.html';
   const ext = (path.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
   const rel = path.slice(1);
@@ -226,9 +236,16 @@ export async function handle(request, env, ctx, base = '') {
     // allows it, and a link handed out before "Require login to play" was switched on must not open the game.
     const guest = String(auth.u).startsWith('guest_');
     if ((guest || !fromUrl) && auth.k !== 'verify' && !(await stillBound(env, token))) return gate(env);
+    const secure = url.protocol === 'https:';
+    // A launch (?gcp_t=) moves to the address that carries the token, so the page's own files load without the cookie.
+    // The cookie is still set for browsers that keep it (a renewed token reaches later loads that way).
+    if (fromUrl) {
+      const q = new URLSearchParams(url.search); q.delete('gcp_t');
+      const to = `${root}/~t/${fromUrl}${encodeURI(asked)}${q.toString() ? '?' + q : ''}`;
+      return new Response(null, { status: 302, headers: { location: to, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'set-cookie': tokenCookie(fromUrl, root, secure, Math.max(60, Math.floor(auth.x - Date.now() / 1000))) } });
+    }
     const obj = await readFile(env, rel);
     if (!obj || typeof obj.text !== 'function') return new Response('Not found', { status: 404 });
-    const secure = url.protocol === 'https:';
     const headers = new Headers({
       'content-type': TYPES.html, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
       // Its own agent cluster, so Chrome gives the game a process of its own even though the platform page that frames it
@@ -236,7 +253,7 @@ export async function handle(request, env, ctx, base = '') {
       'origin-agent-cluster': '?1',
       'content-security-policy': `frame-ancestors 'self' ${env.PLATFORM}`,
       // The token lives only as long as it is valid; the address-bar copy is removed by the SDK and never sent on.
-      'set-cookie': tokenCookie(token, base, secure, Math.max(60, Math.floor(auth.x - Date.now() / 1000))),
+      'set-cookie': tokenCookie(token, root, secure, Math.max(60, Math.floor(auth.x - Date.now() / 1000))),
       'referrer-policy': 'strict-origin-when-cross-origin',
     });
     return new Response(inject(await obj.text(), env, auth, token, base), { headers });

@@ -199,10 +199,35 @@ async function withPlatform(answer, fn) {
 test('a launch token from the address bar opens the game without asking the platform', async () => {
   const t = await sign('u_alice', 'ps_1');
   await withPlatform(() => new Response('{}', { status: 500 }), async (calls) => {
-    const r = await handle(new Request(`https://g.example/?gcp_t=${t}`), env, {});
-    assert.equal(r.status, 200); assert.equal(calls.length, 0);
+    const r = await handle(new Request(`https://g.example/?gcp_t=${t}&gcp_autostart=1`), env, {});
+    assert.equal(r.status, 302); assert.equal(calls.length, 0);
+    assert.equal(r.headers.get('location'), `/~t/${t}/?gcp_autostart=1`, 'on to the address that carries the token, other parameters kept');
     assert.match(r.headers.get('set-cookie'), /Max-Age=3[56]\d\d;/, 'the cookie lasts as long as the token, not longer');
   });
+});
+
+// Safari (iPhone, iPad, Mac) refuses the cookie of a game framed by the platform's page on another site, so the token
+// travels in the path and every relative address the page resolves carries it.
+test('a game opens and loads its files from the token in the path, with no cookie at all', async () => {
+  const t = await sign('u_alice', 'ps_1');
+  const files = { FILES: { get: async (k) => k.endsWith('.html') ? { text: async () => '<!doctype html><html><head></head><body>game</body></html>' } : { body: 'export {}', size: 9, httpEtag: '"e"', httpMetadata: {} } } };
+  await withPlatform(() => Response.json({ ok: true }), async (calls) => {
+    const page = await handle(new Request(`https://g.example/~t/${t}/`), { ...env, ...files }, {});
+    assert.equal(page.status, 200);
+    const html = await page.text();
+    assert.match(html, new RegExp('"base":"/~t/' + t.replace(/[.]/g, '\\.') + '"'), 'the SDK reaches /__gcp/ and /api/ through the same path');
+    assert.equal(calls.length, 1, 'a page opened from a kept address still asks whether the player is still signed in');
+    const js = await handle(new Request(`https://g.example/~t/${t}/src/main.js`), { ...env, ...files }, {});
+    assert.equal(js.status, 200); assert.equal(await js.text(), 'export {}');
+  });
+  assert.equal((await handle(new Request('https://g.example/src/main.js'), { ...env, ...files }, {})).status, 401, 'no token anywhere: refused');
+  const other = await signPlayToken({ g: 'gameb2', e: 'live', u: 'u_alice', n: 'a', k: 'player', s: 'ps_1', x: now() + 3600 }, KEY);
+  assert.equal((await handle(new Request(`https://g.example/~t/${other}/src/main.js`), { ...env, ...files }, {})).status, 401, "another game's token");
+  assert.equal((await handle(new Request(`https://g.example/~t/${t.slice(0, -2)}xx/src/main.js`), { ...env, ...files }, {})).status, 401, 'a forged token');
+  // the token in the path ran out, a renewed one is in the cookie: the cookie is used
+  const old = await sign('u_alice', 'ps_1', now() - 10), fresh = await sign('u_alice', 'ps_1');
+  assert.equal((await handle(new Request(`https://g.example/~t/${old}/src/main.js`), { ...env, ...files }, {})).status, 401);
+  assert.equal((await handle(new Request(`https://g.example/~t/${old}/src/main.js`, { headers: { cookie: `__Host-gcp_t=${fresh}` } }), { ...env, ...files }, {})).status, 200);
 });
 
 test('a page reopened from a cookie token after signing out shows the gate, not the previous player', async () => {
