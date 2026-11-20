@@ -13,11 +13,10 @@
 // open the platform menu (GCP.menu) or quit (GCP.quit), and can keep Esc for itself (GCP.onEscape). Switching the
 // platform language on the page does not restart the game: it is told the new language (GCP.lang, GCP.onLang). A watchdog pings it
 // every second and offers Wait or Quit game when it stops answering.
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode, type Ref } from 'react';
 import { artStyle, getLang, t, useLang } from './lib';
 import { Button } from './ui';
 import { sanitizeControls, type TouchControls } from './touch-controls';
-import { SIZE, candidates, choose, parseSpot, place, probeRect, spotAt, type Area, type Placed, type Spot } from './menu-spot';
 import './player.css';
 
 // What a game may do inside the player. Never allow-top-navigation: a game must not be able to replace the platform's page
@@ -107,18 +106,19 @@ function lockPage(): () => void {
 const controlsKey = (seed: string) => 'gcp.controls.' + seed;
 function readControlsPref(seed: string): boolean | null { try { const v = localStorage.getItem(controlsKey(seed)); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } }
 function saveControlsPref(seed: string, on: boolean) { try { localStorage.setItem(controlsKey(seed), on ? '1' : '0'); } catch { /* private mode */ } }
-/** Where the player dragged the menu button for one game, per orientation (null: the platform picks, see menu-spot.ts). */
-const spotKey = (seed: string, portrait: boolean) => 'gcp.menu.' + seed + (portrait ? '.p' : '.l');
-function readSpot(seed: string, portrait: boolean): Spot | null { try { return parseSpot(localStorage.getItem(spotKey(seed, portrait))); } catch { return null; } }
-function saveSpot(seed: string, portrait: boolean, s: Spot) { try { localStorage.setItem(spotKey(seed, portrait), JSON.stringify({ side: s.side, t: +s.t.toFixed(3) })); } catch { /* private mode */ } }
-/** The one-time note beside the menu button ("drag to move"), once per device. */
-const HINT_KEY = 'gcp.menu.hint';
-function hintSeen(): boolean { try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return true; } }
-function markHintSeen() { try { localStorage.setItem(HINT_KEY, '1'); } catch { /* private mode */ } }
-/** How often the spot is checked again while the game plays: its screens change, and a button may appear under ours. */
-const SPOT_RECHECK_MS = 1500;
 
 type Insets = { top: number; right: number; bottom: number; left: number };
+/** The note on how to open the menu: shown at the start of the first few plays on a device. */
+const TIP_KEY = 'gcp.menu.tip', TIP_TIMES = 3;
+/** Where the player dragged the menu button for one game, per orientation: the share of the free width and height (0 to 1). */
+type BtnPos = { x: number; y: number };
+const posKey = (seed: string, portrait: boolean) => 'gcp.menu.' + seed + (portrait ? '.p' : '.l');
+function readPos(seed: string, portrait: boolean): BtnPos | null {
+  try { const o = JSON.parse(localStorage.getItem(posKey(seed, portrait)) || 'null'); return o && Number.isFinite(o.x) && Number.isFinite(o.y) ? { x: Math.min(1, Math.max(0, o.x)), y: Math.min(1, Math.max(0, o.y)) } : null; } catch { return null; }
+}
+function savePos(seed: string, portrait: boolean, p: BtnPos) { try { localStorage.setItem(posKey(seed, portrait), JSON.stringify({ x: +p.x.toFixed(4), y: +p.y.toFixed(4) })); } catch { /* private mode */ } }
+/** The menu button's size and the room kept around it at the screen's edges. */
+const BTN = 40, BTN_EDGE = 4;
 /** The watchdog: how long a game may go without answering before the player offers Wait or Quit game (ms). */
 const HUNG_MS = 4000, HUNG_BOOT_MS = 20000, HUNG_WAIT_MS = 15000;
 const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -167,6 +167,10 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false), [menu, setMenu] = useState(false);
   const gameEsc = useRef(false), menuOpen = useRef(false), hungRef = useRef(false);
   const [prefs, setPrefs] = useState<{ orientation?: Orientation; exit?: Corner; edge?: boolean }>({});
+  // The browser left fullscreen by itself on a phone or tablet (Back, iPad's swipe down): the game waits behind a card.
+  const [held, setHeld] = useState(false), heldRef = useRef(false), ourExit = useRef(false);
+  heldRef.current = held;
+  const [tip, setTip] = useState<string | null>(null);
   const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [turned, setTurned] = useState(false), [portrait, setPortrait] = useState(() => innerHeight > innerWidth);
   // On-screen controls: whether the game has any to offer here (the SDK says), and the player's choice for this game.
@@ -195,12 +199,12 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   // iOS (already full screen, where a swipe would only drop an element fullscreen), the stage fills the viewport instead.
   const enter = useCallback(() => {
     const el = box.current as FsEl | null; if (!el || fsElement() === el || unlock.current) return;
-    setTurned(false); setMenu(false);
+    setTurned(false); setMenu(false); setHeld(false);
     if (fsAvailable(el) && !(isIOS() && isInstalled())) requestFs(el).then(() => { lockOrientation(want); pushPlay(); }, goImmersive);
     else goImmersive();
   }, [want, goImmersive, pushPlay]);
   const exit = useCallback(() => {
-    setMenu(false); exitFs();
+    setMenu(false); setHeld(false); ourExit.current = true; setTimeout(() => { ourExit.current = false; }, 800); exitFs();
     // Leave at once, then drop the play entry. Leaving first matters: Quit calls exit() twice (here and when the url
     // clears), and a second back while the first is still in flight would take the player off the page.
     if (unlock.current) { const entry = !!history.state?.gcpPlay; leaveImmersive(); if (entry) history.back(); }
@@ -231,10 +235,14 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   }, []);
 
+  const fsRef = useRef(false);
   // Real fullscreen ends by itself too (holding Esc, the back or swipe gesture): follow it. Esc stays locked while it lasts.
   useEffect(() => {
     const f = () => {
-      const on = !!box.current && fsElement() === box.current; setFs(on); escLock(on);
+      const on = !!box.current && fsElement() === box.current, was = fsRef.current; fsRef.current = on; setFs(on); escLock(on);
+      // Fullscreen ended by the browser, not by the menu: on a phone or tablet that was the player's Back or swipe, so the
+      // game pauses behind a card (Resume goes back to fullscreen, which needs that tap).
+      if (was && !on && !ourExit.current && urlRef.current && isHandheld()) setHeld(true);
       // Drop the play entry, once any back that ended fullscreen has landed (it may already have taken the entry).
       if (!on) { unlockOrientation(); setTimeout(() => { if (!fsElement() && !unlock.current && history.state?.gcpPlay) history.back(); }, 250); }
     };
@@ -244,9 +252,17 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   // The back gesture or button pauses immersive play instead of leaving the page. In real fullscreen it only takes the play
   // entry: the game stays in fullscreen (a back that the browser itself turns into leaving fullscreen is handled above).
   useEffect(() => {
-    const f = () => { if (unlock.current && !history.state?.gcpPlay) leaveImmersive(); };
+    // Back opens the platform menu instead (iPhone's swipe from the edge, Android's Back): the play entry is put back, so the
+    // next Back is caught too. A Back while the menu is open leaves fullscreen; the game keeps running in its window.
+    const f = () => {
+      if (history.state?.gcpPlay) return;
+      const playing = !!unlock.current || (!!box.current && fsElement() === box.current);
+      if (!playing || hungRef.current) { if (unlock.current) leaveImmersive(); return; }
+      if (menuOpen.current) { exit(); return; }
+      pushPlay(); setMenu(true);
+    };
     addEventListener('popstate', f); return () => removeEventListener('popstate', f);
-  }, [leaveImmersive]);
+  }, [leaveImmersive, pushPlay, exit]);
   useEffect(() => () => { unlock.current?.(); unlock.current = null; exitFs(); escLock(false); }, []);
   useEffect(() => {
     const f = () => setPortrait(innerHeight > innerWidth);
@@ -268,10 +284,10 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung, menu, controls: padCfg, controlsOn: padPref }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, JSON.stringify(padCfg), padPref]); // eslint-disable-line react-hooks/exhaustive-deps
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held, menu: menu || held, controls: padCfg, controlsOn: padPref }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, JSON.stringify(padCfg), padPref]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
-  useEffect(() => { if (!url) setPadState({ available: false, shown: false }); }, [url]);
+  useEffect(() => { if (!url) { setPadState({ available: false, shown: false }); setHeld(false); } }, [url]);
   const togglePad = useCallback(() => { const next = !padState.shown; saveControlsPref(seed, next); setPadPref(next); setMenu(false); frame.current?.focus(); }, [padState.shown, seed]);
   // No page zoom while a game runs on a phone or tablet (see applyViewport).
   useEffect(() => {
@@ -349,114 +365,80 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   useWakeLock(!!url && handheld);
 
   const sideways = active && handheld && !turned && want !== 'any' && (want === 'landscape' ? portrait : !portrait);
+  // The menu button starts in the corner the game asks for (top-left unless GCP.setDisplay({ exitButton }) says otherwise)
+  // and the player can drag it anywhere; the spot is kept per game and orientation. Back, a three-finger tap, Esc and the
+  // game itself (GCP.menu) open the menu too.
   const corner = prefs.exit ?? 'top-left';
-  const iosTip = active && handheld && isIOS() && !isInstalled();
-  // The menu button's spot (menu-spot.ts): a margin beside the game when the screen has one, otherwise the spot over the
-  // game that the game's page says is free, or wherever the player dragged it.
-  const declared = prefs.exit && prefs.exit !== 'none' ? prefs.exit : null;
-  const showBtn = active && !!url && !menu && !hung && corner !== 'none';
-  const [spot, setSpot] = useState<Placed | null>(null), spotRef = useRef<Placed | null>(null); spotRef.current = spot;
-  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null), dragRef = useRef<{ x: number; y: number } | null>(null);
-  const grab = useRef<{ id: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null), noClick = useRef(0);
-  const [hint, setHint] = useState(false);
-  const area = useCallback((): Area | null => {
-    const el = box.current; if (!el || !el.clientWidth || !el.clientHeight) return null;
-    return { w: el.clientWidth, h: el.clientHeight, ...(edge ? NO_INSETS : insets) };
-  }, [edge, insets]);
-  const probe = useCallback((rects: number[][]) => new Promise<(number | undefined)[]>((resolve) => {
-    const win = frame.current?.contentWindow; if (!win || !rects.length) { resolve([]); return; }
-    const id = Math.random().toString(36).slice(2, 12);
-    const done = (e: MessageEvent) => {
-      if (e.source !== frame.current?.contentWindow || e.data?.gcp !== 'menu_probe_result' || e.data.id !== id) return;
-      clearTimeout(timer); removeEventListener('message', done);
-      resolve(Array.isArray(e.data.scores) ? e.data.scores.map((n: unknown) => (typeof n === 'number' ? n : undefined)) : []);
-    };
-    // A game that does not answer (busy, or an older page) leaves the spots in their usual order.
-    const timer = setTimeout(() => { removeEventListener('message', done); resolve([]); }, 600);
-    addEventListener('message', done);
-    win.postMessage({ gcp: 'menu_probe', id, rects }, '*');
-  }), []);
-  useEffect(() => {
-    if (!showBtn || drag) return;
-    let live = true, busy = false;
-    // The first check after a start, a rotation or a resize places the button afresh; the checks while the game plays only
-    // move it off something to tap (see choose).
-    // Text or a picture that stays under it for a few checks (a new screen, not a passing damage number) moves it too.
-    let settled = false, covered = 0;
-    const check = async (fresh = false) => {
-      if (fresh) { settled = false; covered = 0; }
-      const a = area(); if (busy || !a) return;
-      busy = true;
-      try {
-        const mine = readSpot(seed, a.h > a.w);
-        let pick: Placed | null;
-        if (mine) pick = place(mine, a);
-        else {
-          const cands = candidates(a, declared), scores: (number | undefined)[] = [];
-          const over = cands.map((p, i) => [p, i] as const).filter(([p]) => !p.margin);
-          if (!cands[0]?.margin && over.length) { const got = await probe(over.map(([p]) => probeRect(p, a))); over.forEach(([, i], k) => { scores[i] = got[k]; }); }
-          const cur = spotRef.current, at = cur ? cands.findIndex((p) => p.side === cur.side && Math.abs(p.t - cur.t) < 0.02) : -1;
-          covered = at >= 0 && (scores[at] ?? 0) >= 2 ? covered + 1 : 0;
-          pick = choose(cands, scores, cur, settled && covered < 3);
-        }
-        settled = true;
-        if (live) setSpot((o) => (o && pick && o.x === pick.x && o.y === pick.y && o.size === pick.size ? o : pick));
-      } finally { busy = false; }
-    };
-    void check(true);
-    const i = setInterval(() => void check(), SPOT_RECHECK_MS), r = () => void check(true);
-    addEventListener('resize', r); addEventListener('orientationchange', r);
-    return () => { live = false; clearInterval(i); removeEventListener('resize', r); removeEventListener('orientationchange', r); };
-  }, [showBtn, drag, area, seed, declared, probe]);
-  // The first time a player sees the button on this device, a note beside it says that it can be dragged.
-  useEffect(() => {
-    if (!showBtn || !spot || hintSeen()) return;
-    markHintSeen(); setHint(true);
-    const t1 = setTimeout(() => setHint(false), 5000);
-    return () => clearTimeout(t1);
-  }, [showBtn, !!spot]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Dragging the button: it follows the finger or mouse, then snaps to the nearest edge (or into the margin there) and stays.
+  const [pos, setPos] = useState<BtnPos | null>(null), [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const grab = useRef<{ id: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null), dragAt = useRef<{ x: number; y: number } | null>(null), noClick = useRef(0);
+  useEffect(() => { setPos(active ? readPos(seed, portrait) : null); }, [active, seed, portrait]);
+  const room = () => ({ w: Math.max(0, (box.current?.clientWidth ?? 0) - BTN - 2 * BTN_EDGE), h: Math.max(0, (box.current?.clientHeight ?? 0) - BTN - 2 * BTN_EDGE) });
   const onBtnDown = (e: RPointerEvent<HTMLButtonElement>) => {
-    if (!spot || e.button > 0) return;
-    grab.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: spot.x, oy: spot.y, moved: false };
+    if (e.button > 0) return;
+    const r = e.currentTarget.getBoundingClientRect(), b = box.current?.getBoundingClientRect();
+    grab.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left - (b?.left ?? 0), oy: r.top - (b?.top ?? 0), moved: false };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* old browser */ }
   };
   const onBtnMove = (e: RPointerEvent<HTMLButtonElement>) => {
     const g = grab.current; if (!g || g.id !== e.pointerId) return;
     const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
     if (!g.moved && Math.hypot(dx, dy) < 10) return;
-    const a = area(); if (!a) return;
-    g.moved = true; setHint(false);
-    const pos = { x: Math.max(0, Math.min(a.w - SIZE, g.ox + dx)), y: Math.max(0, Math.min(a.h - SIZE, g.oy + dy)) };
-    dragRef.current = pos; setDrag(pos);
+    g.moved = true; setTip(null);
+    const { w, h } = room(), at = { x: Math.min(w, Math.max(0, g.ox - BTN_EDGE + dx)), y: Math.min(h, Math.max(0, g.oy - BTN_EDGE + dy)) };
+    dragAt.current = at; setDrag(at);
   };
   const onBtnUp = (e: RPointerEvent<HTMLButtonElement>) => {
     const g = grab.current; if (!g || g.id !== e.pointerId) return;
     grab.current = null;
     if (!g.moved) return;   // a tap: the click that follows opens the menu
     noClick.current = performance.now() + 400;
-    const a = area(), pos = dragRef.current;
-    if (a && pos && e.type === 'pointerup') { const s = spotAt(pos.x, pos.y, a); saveSpot(seed, a.h > a.w, s); setSpot(place(s, a)); }
-    dragRef.current = null; setDrag(null); frame.current?.focus();
+    const { w, h } = room(), at = dragAt.current;
+    if (at && e.type === 'pointerup') { const p = { x: w ? at.x / w : 0, y: h ? at.y / h : 0 }; savePos(seed, portrait, p); setPos(p); }
+    dragAt.current = null; setDrag(null); frame.current?.focus();
   };
-  const onBtnClick = () => { if (performance.now() < noClick.current) return; setMenu(true); };
-  const btn = drag ? { ...drag, size: SIZE, side: 'left' as const, margin: false } : spot;
+  const btnStyle = (): CSSProperties | undefined => {
+    if (drag) return { left: BTN_EDGE + drag.x, top: BTN_EDGE + drag.y, right: 'auto', bottom: 'auto' };
+    if (!pos) return undefined;
+    const { w, h } = room();
+    return { left: BTN_EDGE + Math.round(pos.x * w), top: BTN_EDGE + Math.round(pos.y * h), right: 'auto', bottom: 'auto' };
+  };
+  const iosTip = active && handheld && isIOS() && !isInstalled();
+  // How to open the menu here, said once at the start of the first few plays on this device (taps go through the note).
+  const howTo = corner !== 'none' ? (handheld ? t('Menu button in the way? Drag it anywhere.', '菜单按钮挡住了画面？可以把它拖到任意位置。') : t('Menu button in the way? Drag it anywhere. Esc opens the menu too.', '菜单按钮挡住了画面？可以把它拖到任意位置。按 Esc 也能打开菜单。'))
+    : !handheld ? t('Press Esc for the game menu.', '按 Esc 打开游戏菜单。')
+    : isIOS() && isInstalled() ? t('Tap with three fingers for the game menu.', '三指轻点打开游戏菜单。')
+    : isIOS() && immersive ? t('Swipe in from the left edge, or tap with three fingers, for the game menu.', '从屏幕左边缘向内滑，或三指轻点，打开游戏菜单。')
+    : t('Go back, or tap with three fingers, for the game menu.', '使用返回手势或返回键，或三指轻点，打开游戏菜单。');
+  useEffect(() => {
+    if (!active || !url) return;
+    let n = 0; try { n = +(localStorage.getItem(TIP_KEY) || 0) || 0; } catch { /* private mode */ }
+    if (n >= TIP_TIMES) return;
+    try { localStorage.setItem(TIP_KEY, String(n + 1)); } catch { /* private mode */ }
+    const t0 = setTimeout(() => setTip(howTo), 1200), t1 = setTimeout(() => setTip(null), 6200);
+    return () => { clearTimeout(t0); clearTimeout(t1); setTip(null); };
+  }, [active, !!url]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div>
       <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '')} ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
+        {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung || held} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
-        {active && url && !menu && !hung && corner === 'none' && badge && (
-          <div className="stage-exit top-left"><span className="stage-badge">{badge}</span></div>
+        {active && url && !menu && !hung && (corner !== 'none' || badge) && (
+          <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner) + (pos || drag ? ' moved' : '') + (drag ? ' dragging' : '')} style={corner === 'none' ? undefined : btnStyle()}>
+            {corner !== 'none' && <button type="button" onClick={() => { if (performance.now() >= noClick.current) setMenu(true); }} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}
+              aria-label={t('Game menu', '游戏菜单')} title={t('Game menu (drag to move)', '游戏菜单（可拖动）')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>}
+            {badge && <span className="stage-badge">{badge}</span>}
+          </div>
         )}
-        {showBtn && btn && (
-          <div className={'stage-exit placed ' + btn.side + (btn.margin ? ' margin' : '') + (drag ? ' dragging' : '')}
-            style={btn.side === 'right' ? { right: (box.current?.clientWidth ?? 0) - btn.x - btn.size, top: btn.y } : { left: btn.x, top: btn.y }}>
-            <button type="button" style={{ width: btn.size, height: btn.size }} onClick={onBtnClick} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}
-              aria-label={t('Game menu', '游戏菜单')} title={t('Game menu (drag to move)', '游戏菜单（可拖动）')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>
-            {hint && !drag && <span className="stage-tip">{t('Game menu · drag to move it', '游戏菜单 · 可拖动换位置')}</span>}
-            {badge && !hint && <span className="stage-badge">{badge}</span>}
+        {tip && active && url && !menu && !hung && <div className="stage-tip" role="status">{tip}</div>}
+        {!active && url && held && !hung && (
+          <div className="stage-menu" role="dialog" aria-modal="true" aria-label={t('Paused', '已暂停')}>
+            <div className="stage-card">
+              <b>{t('Paused', '已暂停')}</b>
+              <button type="button" className="stage-btn primary" onClick={enter}>{t('Resume', '继续游戏')}</button>
+              <button type="button" className="stage-btn" onClick={() => { setHeld(false); frame.current?.focus(); }}>{t('Keep playing here', '在此继续玩')}</button>
+              <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
+            </div>
           </div>
         )}
         {active && url && menu && (
@@ -469,7 +451,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
               <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
               {iosTip && <span className="stage-hint">{t('For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.', '想要不会被滑动打断的全屏，请点“分享”，再点“添加到主屏幕”，然后从主屏幕打开游玩。')}</span>}
-              {corner !== 'none' && <span className="stage-hint">{t('Menu button in the way? Drag it to another edge.', '菜单按钮挡住了画面？把它拖到别的边上。')}</span>}
+              {corner !== 'none' && <span className="stage-hint">{t('Menu button in the way? Drag it anywhere.', '菜单按钮挡住了画面？可以把它拖到任意位置。')}</span>}
+              {handheld && <span className="stage-hint">{t('Back, or a three-finger tap, also opens this menu.', '返回手势或三指轻点也能打开此菜单。')}</span>}
               <span className="stage-hint">{handheld ? t('Tap outside this card to go back to the game.', '点击卡片外即可返回游戏。') : t('Press Esc to go back to the game.', '按 Esc 返回游戏。')}</span>
             </div>
           </div>
