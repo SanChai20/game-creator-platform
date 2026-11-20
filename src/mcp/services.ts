@@ -291,11 +291,11 @@ export function platformServices(s: Settings, origin: string): Service[] {
     {
       id: 'creator_feedback', name: 'Creator feedback queue', category: 'quality', status: on(s.feedback_enabled),
       what: 'Annotated screenshots of the preview from the game\'s creator: while playing it in the console they capture the game, circle or point at what is wrong, add a note and queue it for their agent.',
-      how_it_works: `The console captures every canvas of the game right after a frame (or, on desktop browsers that can share a tab, the whole tab). The creator draws numbered circles, arrows, boxes or freehand marks, labels them and writes a note. creator_feedback returns the oldest items (up to ${FEEDBACK_MAX_READ}) with the note, each mark in picture pixels, the version, screen size, the game\'s errors and GCP.test.onState(fn), and the pictures as images, and removes them from the queue. The creator can remove items too.`,
+      how_it_works: `The console captures every canvas of the game right after a frame (or, on desktop browsers that can share a tab, the whole tab). The creator draws numbered circles, arrows, boxes or freehand marks, labels them and writes a note, and can attach up to 4 pictures of their own (design mockups, references), marked up the same way. creator_feedback returns the oldest items (up to ${FEEDBACK_MAX_READ}) with the note, each mark in picture pixels, the version, screen size, the game\'s errors and GCP.test.onState(fn), and the pictures as images (an item's attached pictures right after its screenshot, under attached_pictures), and removes them from the queue. The creator can remove items too.`,
       use_for: ['Knowing exactly what the creator wants changed, with a picture', 'Bugs that are easier to show than to describe: layout, overlap, art, wrong text'],
       sdk: ['GCP.test.onState(fn)'],
       mcp_tools: ['creator_feedback'],
-      limits: { waiting_per_game: s.feedback_max_pending, kept_days: s.feedback_keep_days, items_per_read: FEEDBACK_MAX_READ, picture_mb: 1.5, note_characters: 2000, marks_per_picture: 30, read_by: 'the game\'s creator\'s account only' },
+      limits: { waiting_per_game: s.feedback_max_pending, kept_days: s.feedback_keep_days, items_per_read: FEEDBACK_MAX_READ, picture_mb: 1.5, attached_pictures_per_item: 4, item_pictures_mb: 3, note_characters: 2000, marks_per_picture: 30, read_by: 'the game\'s creator\'s account only' },
       guidelines: ['Read creator_feedback at the start of each session and whenever deploy_preview or list_versions says items are waiting.', 'An item is gone once read: act on it, and tell the creator what you changed for each.', 'peek: true lists what is waiting without taking it.'],
       guide: 'versions',
     },

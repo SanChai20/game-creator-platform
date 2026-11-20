@@ -285,6 +285,27 @@
 .fb-thumb { flex: none; width: 96px; aspect-ratio: 16 / 9; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: #000; cursor: zoom-in; }
 .fb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .fb-full { flex-basis: 100%; width: 100%; height: auto; border-radius: 6px; }
+/* an item's pictures in the queue: the screenshot, and the attached ones in a row of small ones under it */
+.fb-thumbs { flex: none; width: 96px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.fb-thumbs > .fb-thumb { width: auto; }
+.fb-thumbs > .fb-thumb:first-child { grid-column: 1 / -1; }
+.fb-thumb.sm { aspect-ratio: 1; background: #fff; }
+/* the pictures of one item in the editor: the screenshot and those the creator attached */
+.fb-editor { position: relative; }
+.fb-pics { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 4px; -webkit-overflow-scrolling: touch; }
+.fb-pic { position: relative; flex: none; }
+.fb-pic-pick { display: grid; gap: 4px; justify-items: center; width: 92px; padding: 4px; border: 2px solid transparent; border-radius: 8px; background: none; color: inherit; cursor: pointer; font: inherit; }
+.fb-pic.on .fb-pic-pick { border-color: var(--accent); }
+.fb-pic-pick img { width: 80px; height: 48px; object-fit: cover; border-radius: 4px; background: #000; display: block; }
+.fb-pic.own .fb-pic-pick img { object-fit: contain; background: #fff; box-shadow: inset 0 0 0 1px var(--line, rgb(127 127 127 / .2)); }
+.fb-pic-label { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; white-space: nowrap; }
+.fb-num.sm { width: 16px; height: 16px; font-size: 10px; }
+.fb-pic-x { position: absolute; top: -4px; right: -4px; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line-2, rgb(127 127 127 / .4)); background: var(--surface); color: var(--text); font: 600 16px/1 system-ui, sans-serif; cursor: pointer; display: grid; place-items: center; padding: 0; }
+.fb-pic-add { flex: none; display: grid; place-items: center; align-content: center; gap: 2px; width: 92px; min-height: 76px; border: 1.5px dashed var(--line-2, rgb(127 127 127 / .4)); border-radius: 8px; background: none; color: var(--text-2); cursor: pointer; font: inherit; font-size: 12px; }
+.fb-pic-add span { font-size: 22px; line-height: 1; }
+.fb-pic-add:disabled { opacity: .6; cursor: progress; }
+.fb-canvas.paper { background: #fff; }
+.fb-drop { position: absolute; inset: 0; display: grid; place-items: center; border: 2px dashed var(--accent); border-radius: 10px; background: var(--surface); background: color-mix(in srgb, var(--surface) 82%, transparent); font-weight: 600; pointer-events: none; z-index: 3; }
 .stage-badge .btn { height: 22px; }
 /* "use the game's own drawing" under an exact picture: a link-looking button */
 .fb-exact .linkish { display: inline; background: none; border: 0; cursor: pointer; color: var(--text-2); }

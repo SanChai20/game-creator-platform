@@ -138,4 +138,38 @@ const third = must(await add('Remove me'));
 must(await creator.del(`/api/console/projects/${pid}/feedback/${third.id}`));
 assert.equal(must(await creator.get(`/api/console/projects/${pid}/feedback`)).items.length, 0);
 step('the creator removes an item by hand');
+
+// ---- pictures of the creator's own beside the screenshot, each with its marks, read together with their item
+const PNG1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+// a large photo-sized JPEG: the debug screenshot's bytes padded after its end, as a camera's extra data would be
+const big = (n) => 'data:image/jpeg;base64,' + Buffer.concat([Buffer.from(jpg, 'base64'), randomBytes(n)]).toString('base64');
+const withPics = must(await add('Make the menu look like my mockup', { attachments: [
+  { image: 'data:image/png;base64,' + PNG1, name: 'menu-mockup.png', marks: [{ type: 'box', x: 0.2, y: 0.2, w: 0.6, h: 0.3, label: 'this panel' }] },
+  { image: big(1_300_000), name: 'C:\\fakepath\\photo.jpg' },
+] }));
+// over the item's total: refused by its pictures' bytes (400), or before reading the body when it is far over (413)
+const over = await creator.post(`/api/console/projects/${pid}/feedback`, { image: big(1_050_000), note: 'too much', attachments: [{ image: big(1_050_000) }, { image: big(1_050_000) }] });
+assert.equal(over.status, 400); assert.match(over.json.error, /add up to/);
+assert.equal((await creator.post(`/api/console/projects/${pid}/feedback`, { image: big(1_400_000), note: 'far too much', attachments: [{ image: big(1_400_000) }, { image: big(1_400_000) }] })).status, 413);
+assert.equal((await creator.post(`/api/console/projects/${pid}/feedback`, { image: 'data:image/jpeg;base64,' + jpg, note: 'svg', attachments: [{ image: 'data:image/png;base64,' + Buffer.from('<svg/>' + 'x'.repeat(40)).toString('base64') }] })).status, 400);
+assert.equal((await creator.post(`/api/console/projects/${pid}/feedback`, { image: 'data:image/jpeg;base64,' + jpg, note: 'five', attachments: Array.from({ length: 5 }, () => ({ image: 'data:image/png;base64,' + PNG1 })) })).status, 400);
+const listed = must(await creator.get(`/api/console/projects/${pid}/feedback`)).items;
+assert.equal(listed.length, 1); assert.equal(listed[0].id, withPics.id);
+assert.deepEqual(listed[0].attachments.map((x) => x.name), ['menu-mockup.png', 'photo.jpg']);
+const pic2 = await creator.get(`/api/console/projects/${pid}/feedback/${withPics.id}/image?n=2`);
+assert.equal(pic2.status, 200); assert.equal(pic2.headers.get('content-type'), 'image/jpeg');
+assert.equal((await creator.get(`/api/console/projects/${pid}/feedback/${withPics.id}/image?n=1`)).headers.get('content-type'), 'image/png');
+assert.equal((await creator.get(`/api/console/projects/${pid}/feedback/${withPics.id}/image?n=3`)).status, 404);
+step('console: an item with two pictures of the creator\'s own; too large together, not a picture, or too many refused');
+must(await add('Next item waits for its own answer', { attachments: [{ image: big(1_200_000) }, { image: big(1_000_000) }] }));
+const both = await ok('creator_feedback', { project: pid, limit: 5 });
+assert.equal(both.data.taken, 1); assert.equal(both.data.still_waiting, 1);   // the second would make the answer too large
+assert.equal(both.images.length, 3); assert.deepEqual(both.images.map((x) => x.mimeType), ['image/jpeg', 'image/png', 'image/jpeg']);
+const [it] = both.data.items;
+assert.match(it.picture, /image 1\b/); assert.equal(it.attached_pictures.length, 2);
+assert.equal(it.attached_pictures[0].file, 'menu-mockup.png'); assert.match(it.attached_pictures[0].picture, /image 2\b/);
+assert.match(it.attached_pictures[0].marks[0], /^1\. box .*"this panel"$/); assert.match(it.attached_pictures[1].picture, /image 3\b/);
+const rest = await ok('creator_feedback', { project: pid });
+assert.equal(rest.data.taken, 1); assert.equal(rest.images.length, 3);
+step('creator_feedback: an item\'s attached pictures come right after its screenshot, numbered, in one answer');
 console.log(`OK (project ${pid})`);
