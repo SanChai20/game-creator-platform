@@ -180,9 +180,10 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   // The watchdog: the game is asked every second whether it is alive (the SDK answers from the game's main thread).
   const [hung, setHung] = useState(false), waitBtn = useRef<HTMLButtonElement>(null), waitRef = useRef<() => void>(() => {});
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
-  // A game that keeps its own buttons clear of the notch (setDisplay({ edgeToEdge: true })) gets the whole screen in
-  // fullscreen and is told the insets; any other game's frame is kept inside them.
-  const edge = active && !!prefs.edge;
+  // In fullscreen every game gets the whole screen, notch, camera hole and rounded corners included, and is told the insets
+  // (GCP.display.safe, --gcp-safe-*); the on-screen controls keep inside them. Black bars around the game read as a broken
+  // fullscreen. A game can still ask to be kept inside them with setDisplay({ edgeToEdge: false }).
+  const edge = active && prefs.edge !== false;
   const unlock = useRef<(() => void) | null>(null);
   menuOpen.current = menu; hungRef.current = hung;
   const urlRef = useRef(url), toggleRef = useRef<() => void>(() => {}); urlRef.current = url;
