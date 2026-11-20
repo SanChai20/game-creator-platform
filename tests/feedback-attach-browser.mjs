@@ -106,7 +106,18 @@ async function mark(fx, fy, fw, fh) {
 }
 await mark(0.2, 0.2, 0.3, 0.3);
 await editor.locator('.fb-mark').first().waitFor();
-step('a mark on the screenshot');
+// a move and the release in the same frame (a quick flick; Edge on Windows does this often): the editor keeps working
+await canvas.evaluate((c) => {
+  const r = c.getBoundingClientRect(), o = { pointerId: 7, pointerType: 'mouse', isPrimary: true, bubbles: true, button: 0, buttons: 1 };
+  const at = (fx, fy) => ({ ...o, clientX: r.left + r.width * fx, clientY: r.top + r.height * fy });
+  c.dispatchEvent(new PointerEvent('pointerdown', at(0.6, 0.6)));
+  for (let i = 1; i <= 5; i++) c.dispatchEvent(new PointerEvent('pointermove', at(0.6 + i * 0.03, 0.6 + i * 0.02)));
+  c.dispatchEvent(new PointerEvent('pointerup', { ...at(0.75, 0.7), buttons: 0 }));
+});
+await page.waitForFunction(() => document.querySelectorAll('.fb-mark').length === 2);
+await editor.getByRole('button', { name: 'Undo' }).click();
+await page.waitForFunction(() => document.querySelectorAll('.fb-mark').length === 1);
+step('a mark on the screenshot; a flick (move and release in one frame) marks too, and undo');
 
 // attach two with the file picker
 const [chooser] = await Promise.all([page.waitForEvent('filechooser'), editor.getByRole('button', { name: /Attach images/ }).click()]);

@@ -1654,5 +1654,7 @@
  "Drop to attach": "ドロップして添付",
  "Show attached picture {n}": "添付画像 {n} を表示",
  "{n} pictures": "画像 {n} 枚",
- "Attached picture {n}": "添付画像 {n}"
+ "Attached picture {n}": "添付画像 {n}",
+ "The feedback editor ran into a problem.": "フィードバックエディターで問題が発生しました。",
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "何も送信されていません。ゲームに戻ってもう一度キャプチャしてください。再び起きた場合は、何をしたか教えてください。"
 }

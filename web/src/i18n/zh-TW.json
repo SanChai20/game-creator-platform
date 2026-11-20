@@ -1675,5 +1675,7 @@
  "Drop to attach": "放開即可附加",
  "Show attached picture {n}": "查看附加圖片 {n}",
  "{n} pictures": "{n} 張圖片",
- "Attached picture {n}": "附加圖片 {n}"
+ "Attached picture {n}": "附加圖片 {n}",
+ "The feedback editor ran into a problem.": "回饋編輯器發生問題。",
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "沒有送出任何內容。請返回遊戲重新截圖。如果再次發生，請告訴我們你做了什麼。"
 }

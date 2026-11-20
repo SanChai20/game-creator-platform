@@ -1654,5 +1654,7 @@
  "Drop to attach": "놓아서 첨부",
  "Show attached picture {n}": "첨부 이미지 {n} 보기",
  "{n} pictures": "이미지 {n}장",
- "Attached picture {n}": "첨부 이미지 {n}"
+ "Attached picture {n}": "첨부 이미지 {n}",
+ "The feedback editor ran into a problem.": "피드백 편집기에 문제가 생겼습니다.",
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "아무것도 보내지 않았습니다. 게임으로 돌아가 다시 캡처하세요. 다시 발생하면 무엇을 했는지 알려 주세요."
 }
