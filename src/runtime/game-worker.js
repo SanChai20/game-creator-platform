@@ -44,7 +44,8 @@ export const WORKER_HELPER = `
     G.__gcpw = 1;
     var offs = [], ctxs = new WeakMap(), port = null, want = null;
     var gc = OffscreenCanvas.prototype.getContext;
-    OffscreenCanvas.prototype.getContext = function () { var c = gc.apply(this, arguments); try { if (c && !ctxs.has(this)) ctxs.set(this, c); } catch (e) {} return c; };
+    var calls = 0, hook = function () { var c = gc.apply(this, arguments); calls++; try { if (c && !ctxs.has(this)) ctxs.set(this, c); } catch (e) {} return c; };
+    OffscreenCanvas.prototype.getContext = hook;
     function walk(v, out, b, d) {
       if (!v || typeof v !== 'object' || d > 4 || ++b.n > 300 || out.length > 8) return;
       if (v instanceof OffscreenCanvas) { out.push(v); return; }
@@ -78,7 +79,7 @@ export const WORKER_HELPER = `
       if (want !== r) return; want = null; clearTimeout(r.t);
       for (var s = 0; s < r.saved.length; s++) r.saved[s][0][r.saved[s][1]] = r.saved[s][2];
       var frames = [], give = [], why = null;
-      for (var i = 0; i < offs.length; i++) { var b = null; try { if (ctxs.has(offs[i])) b = snap(offs[i], r.max); else why = why || 'no context'; } catch (e) { why = why || String(e && e.message || e).slice(0, 160); } frames.push(b); if (b) give.push(b); }
+      for (var i = 0; i < offs.length; i++) { var b = null; try { if (ctxs.has(offs[i])) b = snap(offs[i], r.max); else why = why || 'no context (hooked ' + (OffscreenCanvas.prototype.getContext === hook) + ', calls ' + calls + ', canvases ' + offs.length + ')'; } catch (e) { why = why || String(e && e.message || e).slice(0, 160); } frames.push(b); if (b) give.push(b); }
       if (!offs.length) why = 'no canvas';
       try { port.postMessage({ cap: r.id, frames: frames, why: why }, give); } catch (e) { try { port.postMessage({ cap: r.id, frames: [], why: String(e && e.message || e).slice(0, 160) }); } catch (x) {} }
     }
