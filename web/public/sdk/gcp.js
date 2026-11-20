@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.0.0', fixes: {} };
+  var RT = S.runtime = { version: '2.1.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // Keep the play token out of the address bar (the game Worker also set it as a cookie).
@@ -304,21 +304,23 @@
   // come back the same way on the next tap. Subclasses (Tone.js and the like) keep working: the context is built with
   // the subclass as its constructor.
   (function () {
-    var live = [], held = typeof WeakSet === 'function' ? new WeakSet() : null;
+    var live = [], all = [], held = typeof WeakSet === 'function' ? new WeakSet() : null;
     if (!held || typeof Reflect !== 'object') return;
+    var sus0 = null, res0 = null, media = typeof Set === 'function' ? new Set() : null, ours = [], oursMedia = [], holding = false;
     ['AudioContext', 'webkitAudioContext'].forEach(function (n) {
       var A = window[n]; if (typeof A !== 'function' || A.__gcpUnlock) return;
       var W = function AudioContext() {
         var nt = this instanceof W && typeof this.constructor === 'function' ? this.constructor : A;   // a subclass's own constructor
         var c = Reflect.construct(A, arguments, nt);
-        try { if (c.state !== 'running') live.push(c); c.addEventListener('statechange', function () { if (c.state === 'closed') { var i = live.indexOf(c); if (i >= 0) live.splice(i, 1); } else if (c.state !== 'running' && live.indexOf(c) < 0) live.push(c); }); } catch (e) { /* not a real context */ }
+        try { all.push(c); if (c.state !== 'running') live.push(c); c.addEventListener('statechange', function () { if (c.state === 'closed') { var i = live.indexOf(c); if (i >= 0) live.splice(i, 1); i = all.indexOf(c); if (i >= 0) all.splice(i, 1); } else if (c.state !== 'running' && live.indexOf(c) < 0) live.push(c); }); } catch (e) { /* not a real context */ }
+        if (holding && sus0) { try { var hp = sus0.call(c); if (hp && hp.catch) hp.catch(function () { }); ours.push(c); } catch (e) { /* not now */ } }
         return c;
       };
       W.prototype = A.prototype; W.__gcpUnlock = 1;
       try { Object.setPrototypeOf(W, A); } catch (e) { /* old browser */ }
       var P0 = A.prototype;
       if (P0 && typeof P0.suspend === 'function' && typeof P0.resume === 'function' && !P0.__gcpUnlock) {
-        var sus = P0.suspend, res = P0.resume;
+        var sus = P0.suspend, res = P0.resume; sus0 = sus; res0 = res;
         P0.suspend = function () { held.add(this); return sus.apply(this, arguments); };
         P0.resume = function () { held.delete(this); return res.apply(this, arguments); };
         P0.__gcpUnlock = 1;
@@ -330,12 +332,33 @@
         var c = live[i];
         if (c.state === 'closed') { live.splice(i, 1); continue; }
         if (c.state === 'running') { live.splice(i, 1); continue; }
-        if (held.has(c)) continue;
+        if (held.has(c) || (holding && ours.indexOf(c) >= 0)) continue;
         try { var r = c.resume(); if (r && r.catch) r.catch(function () { }); } catch (e) { /* not now */ }
       }
     };
     ['pointerup', 'touchend', 'click', 'keydown', 'mousedown'].forEach(function (t) { window.addEventListener(t, unlock, { capture: true, passive: true }); });
     fix('audio-unlock', true);
+    // Sound stops while the player cannot hear the game on purpose: the platform paused it (its menu, a card) or the tab is
+    // hidden. Every running audio context is suspended and every playing <audio>/<video> paused, and exactly those are
+    // started again afterwards. A context the game suspended or resumed itself meanwhile is left to the game, so a game
+    // that already handles this keeps working. GCP.setDisplay({ pauseAudio: false }) turns it off.
+    if (media && window.HTMLMediaElement) {
+      var MP = HTMLMediaElement.prototype, play0 = MP.play, pause0 = MP.pause;
+      MP.play = function () { try { media.add(this); } catch (e) { /* not a node */ } if (holding && oursMedia.indexOf(this) < 0) oursMedia.push(this); else return play0.apply(this, arguments); return Promise.resolve(); };
+    }
+    TL.audioHold = function (on) {
+      on = !!on; if (on === holding) return; holding = on;
+      if (on) {
+        ours = []; oursMedia = [];
+        all.forEach(function (c) { if (c.state === 'running' && sus0) { try { var r = sus0.call(c); if (r && r.catch) r.catch(function () { }); ours.push(c); } catch (e) { /* not now */ } } });
+        if (media) media.forEach(function (el) { if (!el.paused) { try { pause0.call(el); oursMedia.push(el); } catch (e) { /* gone */ } } else if (!el.isConnected) media.delete(el); });
+      } else {
+        ours.forEach(function (c) { if (c.state === 'suspended' && !held.has(c) && res0) { try { var r = res0.call(c); if (r && r.catch) r.catch(function () { }); } catch (e) { /* not now */ } } });
+        oursMedia.forEach(function (el) { try { var r = play0.call(el); if (r && r.catch) r.catch(function () { }); } catch (e) { /* gone */ } });
+        ours = []; oursMedia = [];
+      }
+    };
+    fix('pause-audio', true);
   })();
 
   // Count frames for any engine by wrapping requestAnimationFrame. Frames are what "alive" means.
@@ -833,14 +856,142 @@
     document.addEventListener('touchstart', function (e) { if (e.touches && e.touches.length === 1) free = display.fullscreen && scrolls(e.target); }, { passive: true, capture: true });
     document.addEventListener('touchmove', keepTouch, { passive: false });
   } catch (e) { /* old browser */ }
-  function toParent(msg) { if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } } }
+  function toParent(msg) { if (PZ && PZ.sim) { PZ.sim.push(msg); if (msg.gcp === 'menu' || msg.gcp === 'game_paused' || msg.gcp === 'escape') return; } if (window.parent !== window) { try { parent.postMessage(msg, '*'); } catch (e) { /* not framed */ } } }
+  // ---- One pause, one owner at a time. Two menus can pause a game: the platform's (Resume, Exit fullscreen, Quit) and the
+  // game's own pause menu, if it has one. They must never stack or fight, so:
+  //   - Esc goes to exactly one place. While the game's own menu is up, Esc is the game's. A game with its own pause menu
+  //     (GCP.pauseMenu) gets Esc to open it; only a game without one gets the platform menu on Esc. The platform menu
+  //     stays reachable from its button, Back and a three-finger tap, and the game's menu carries Quit (GCP.quit()).
+  //   - The game says when its own menu is up (GCP.setPaused). The platform's pause and the game's are combined into one
+  //     flag, GCP.paused (and GCP.onPause): the platform resuming never runs the game under its own menu, and the
+  //     platform pausing is never a reason for the game to open its menu.
+  //   - While the platform pauses, the SDK stops the game's sound, lets go of keys held down and frees the mouse, for
+  //     every game, so nobody walks on after closing the menu or hears music under it.
   var escFn = null;
+  var PZ = { game: false, own: null, fns: [], last: false, changes: 0, said: false, sim: null, audio: true, plat: false };
+  function pausedNow() { return !!(display.paused || PZ.game); }
+  function pauseNotify(by) {
+    var now = pausedNow();
+    if (display.paused !== PZ.plat) { PZ.plat = display.paused; platformPause(PZ.plat); }
+    if (now === PZ.last) return; PZ.last = now;
+    try { refreshControls(); } catch (e) { /* not ready yet */ }
+    PZ.fns.slice().forEach(function (fn) { try { fn(now, by); } catch (err) { console.error(err); } });
+  }
+  function platformPause(on) {
+    audioHold();
+    if (!on) return;
+    releaseKeys();
+    try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (e) { /* not locked */ }
+  }
+  function audioHold() { if (TL.audioHold) TL.audioHold(PZ.audio && (display.paused || document.visibilityState === 'hidden')); }
+  document.addEventListener('visibilitychange', audioHold);
+  // Keys the player is holding down when the game loses the keyboard (the platform menu opens, focus leaves the frame) are
+  // let go of with a keyup, as the browser never sends one: otherwise the game keeps walking after the menu closes.
+  var downKeys = {};
+  window.addEventListener('keydown', function (e) { if (e.isTrusted && e.code) downKeys[e.code] = { key: e.key, keyCode: e.keyCode }; }, true);
+  window.addEventListener('keyup', function (e) { if (e.isTrusted && e.code) delete downKeys[e.code]; }, true);
+  window.addEventListener('blur', function () { releaseKeys(); });
+  fix('held-keys', true);
+  function releaseKeys() {
+    var codes = Object.keys(downKeys); if (!codes.length) return;
+    var k = downKeys; downKeys = {};
+    var tg = document.activeElement && document.activeElement !== document.documentElement ? document.activeElement : document.body || document.documentElement;
+    codes.forEach(function (code) {
+      var ev; try { ev = new KeyboardEvent('keyup', { key: k[code].key, code: code, bubbles: true, cancelable: true, composed: true, view: window }); } catch (e) { return; }
+      try { Object.defineProperty(ev, 'keyCode', { get: function () { return k[code].keyCode; } }); Object.defineProperty(ev, 'which', { get: function () { return k[code].keyCode; } }); } catch (e) { /* frozen */ }
+      try { tg.dispatchEvent(ev); } catch (e) { /* gone */ }
+    });
+  }
+  function ownsEsc() { return !!(escFn || PZ.own || PZ.said); }
+  function tellEsc() { toParent({ gcp: 'escape', on: ownsEsc() }); }
+  function setGamePaused(on) {
+    on = !!on; if (!PZ.said) { PZ.said = true; tellEsc(); }
+    if (on === PZ.game) return; PZ.game = on; PZ.changes++;
+    toParent({ gcp: 'game_paused', on: on });
+    pauseNotify('game');
+  }
+  function openOwnPause() { if (!PZ.own || PZ.game) return !!PZ.game; try { PZ.own(); } catch (err) { console.error(err); } return true; }
+  // Esc through GCP.onEscape: fn() returns false when nothing of the game's was open. Anything else (true, or nothing at
+  // all, as a handler that just closes something returns) means the game used the key. A game whose own menu was up, or
+  // came up or went away during the call, used it too: that is what kept two menus from opening on one Esc.
   function runEscape(e) {
-    var used = false; try { used = escFn() === true; } catch (err) { console.error(err); }
+    var before = PZ.changes, was = PZ.game, used = false;
+    if (escFn) { try { used = escFn() !== false; } catch (err) { console.error(err); used = true; } }
+    if (!used && (was || PZ.changes !== before)) used = true;
+    if (!used && PZ.own) used = openOwnPause();
     if (e && (used || display.fullscreen)) e.preventDefault();
     if (used) return;
     if (display.fullscreen) toParent({ gcp: 'menu', on: true });   // nothing of the game's was open: the platform menu
   }
+  // A game that reads Esc in its own handlers or its frame loop (no onEscape): give it two frames to show its own menu
+  // (and say so with setPaused) before deciding the key was not used.
+  function escFallback(e) {
+    var before = PZ.changes, was = PZ.game, done = false;
+    var decide = function () {
+      if (done) return; done = true;
+      if ((e && e.defaultPrevented) || was || PZ.changes !== before) return;
+      if (PZ.own) { openOwnPause(); return; }
+      if (display.fullscreen) toParent({ gcp: 'menu', on: true });
+    };
+    raf0(function () { raf0(function () { setTimeout(decide, 0); }); });
+    setTimeout(decide, 250);
+  }
+  // The platform page heard Esc itself (its own element had the keyboard): the game gets it as if it were pressed here.
+  function escapeFromPage() {
+    if (escFn) { runEscape(null); return; }
+    var ev; try { ev = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true, view: window }); Object.defineProperty(ev, 'keyCode', { get: function () { return 27; } }); } catch (x) { ev = null; }
+    var tg = document.activeElement && document.activeElement !== document.documentElement ? document.activeElement : document.body || document.documentElement;
+    if (ev) try { tg.dispatchEvent(ev); } catch (x) { /* gone */ }   // the SDK's own Esc listener takes it from there
+    else escFallback(null);
+  }
+  // The browser itself left fullscreen (Esc in Firefox and Safari, holding Esc in Chrome, a swipe on a tablet): that was
+  // the player asking to stop, so the game pauses. A game with its own pause menu opens it; otherwise the platform holds
+  // the game behind its Paused card.
+  function pauseRequest() {
+    var took = PZ.game || (PZ.own ? openOwnPause() : false);
+    toParent({ gcp: 'pause_answer', took: !!took });
+  }
+  // The verifier's check that Esc and the platform's pause lead to one menu (see verify-core.js, "pause").
+  S.pauseCheck = function () {
+    return new Promise(function (resolve) {
+      if (!ownsEsc()) { resolve({ ran: false }); return; }
+      var saved = { fullscreen: display.fullscreen, paused: display.paused, menu: display.menu }, out = { ran: true, steps: [] };
+      PZ.sim = [];
+      var wait = function (ms) { return new Promise(function (ok) { raf0(function () { raf0(function () { setTimeout(ok, ms); }); }); }); };
+      var esc = function () {
+        var tg = document.activeElement && document.activeElement !== document.documentElement ? document.activeElement : document.body || document.documentElement;
+        ['keydown', 'keyup'].forEach(function (t) { var ev; try { ev = new KeyboardEvent(t, { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true, view: window }); Object.defineProperty(ev, 'keyCode', { get: function () { return 27; } }); } catch (x) { return; } try { tg.dispatchEvent(ev); } catch (x) { /* gone */ } });
+      };
+      var menus = function () { return PZ.sim.filter(function (m) { return m.gcp === 'menu' && m.on; }).length; };
+      var setDisp = function (p) { display.paused = display.menu = p; pauseNotify('platform'); displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } }); };
+      var finish = function () {
+        PZ.sim = null; display.fullscreen = saved.fullscreen; display.paused = saved.paused; display.menu = saved.menu; pauseNotify('platform');
+        displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
+        out.pausedAfter = PZ.game; resolve(out);
+      };
+      display.fullscreen = true;
+      var startPaused = PZ.game;
+      wait(50).then(function () {
+        esc(); return wait(300);
+      }).then(function () {
+        out.esc = { platformMenu: menus() > 0, gameMenu: PZ.game && !startPaused };
+        out.steps.push('Esc: ' + (out.esc.gameMenu ? 'the game\'s menu' : '') + (out.esc.gameMenu && out.esc.platformMenu ? ' and ' : '') + (out.esc.platformMenu ? 'the platform menu' : '') + (!out.esc.gameMenu && !out.esc.platformMenu ? 'nothing opened' : ''));
+        if (!out.esc.gameMenu) return null;
+        PZ.sim = []; esc(); return wait(300).then(function () { out.escCloses = !PZ.game; out.steps.push('Esc again: ' + (PZ.game ? 'the game\'s menu stayed open' : 'the game\'s menu closed')); });
+      }).then(function () {
+        if (PZ.game) return null;
+        PZ.sim = []; setDisp(true);
+        return wait(300).then(function () {
+          out.platformPause = { gameMenu: PZ.game, paused: pausedNow() };
+          setDisp(false); return wait(150);
+        }).then(function () {
+          out.steps.push('Platform pause: ' + (out.platformPause.gameMenu ? 'the game opened its own menu as well' : 'the game waited') + '; resume: ' + (PZ.game ? 'the game stayed paused under its own menu' : 'play went on'));
+          if (PZ.game) { esc(); return wait(300); }
+        });
+      }).then(finish, function () { finish(); });
+      setTimeout(function () { if (PZ.sim) finish(); }, 6000);
+    });
+  };
   // ---- Fullscreen through the platform's player (fix "fullscreen-api"). A game in the player is a frame inside the
   // platform's page, and the fullscreen it can ask the browser for itself is the wrong one: on iPhone there is none at all
   // (element.requestFullscreen is missing, so a game that calls it throws), and elsewhere it puts only the game's own
@@ -1286,7 +1437,7 @@
     // a game with touch controls of its own is not offered a second set, unless it asked for them
     var c = ui.cfg, has = !!c && !ui.off && display.touch && (!!c.stick || c.buttons.length > 0 || c.gamepad) && (!c.own || c.show || ui.gameShow === true);
     var want = has && (ui.pref != null ? ui.pref : ui.gameShow != null ? ui.gameShow : c.show);
-    var visible = want && !display.paused;
+    var visible = want && !pausedNow();
     if (want) { build(); if (ui.root && ui.root.getAttribute('data-k') !== ui.key) { layout(); ui.root.setAttribute('data-k', ui.key); } }
     if (ui.root) { if (!visible) releaseAll(); ui.root.classList.toggle('hide', !visible); }
     ui.shown = !!want;
@@ -1630,8 +1781,23 @@
         fullscreen on Esc whatever the page does: the game then carries on in its window on the page. */
     onEscape: function (fn) {
       escFn = typeof fn === 'function' ? fn : null;
-      toParent({ gcp: 'escape', on: !!escFn });
+      tellEsc();
     },
+    /** The game has a pause menu of its own. Register open(), which shows it. From then on Esc with nothing of the game's
+        open calls open() instead of opening the platform menu, and so does the browser leaving fullscreen by itself (Esc
+        in Firefox and Safari, a swipe on a tablet). Give that menu Resume and Quit (GCP.quit()). The platform menu stays
+        reachable from its button, Back and a three-finger tap. Report the menu with setPaused(). pauseMenu(null) undoes. */
+    pauseMenu: function (open) { PZ.own = typeof open === 'function' ? open : null; tellEsc(); },
+    /** The game's own pause menu (or any pause of its own) is up (true) or gone (false). Call it every time it opens or
+        closes, however that happened (Esc, a button, a gamepad). While it is up, Esc belongs to the game, and the
+        platform's Resume does not unpause the game. */
+    setPaused: function (on) { setGamePaused(on); },
+    /** true while the game must not advance: the platform paused it (its menu, a card) or the game's own menu is up.
+        The one flag the game loop should obey. */
+    get paused() { return pausedNow(); },
+    /** fn(paused, by) whenever GCP.paused changes; by is 'platform' or 'game'. Freeze and thaw the clock here. Never open
+        the game's own menu from it: the platform's pause shows the platform's menu, and it alone. */
+    onPause: function (fn) { if (typeof fn === 'function') PZ.fns.push(fn); },
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
@@ -1649,6 +1815,7 @@
       if (prefs.touchControls === 'none' || prefs.touchControls === 'auto') { ui.off = prefs.touchControls === 'none'; refreshControls(); }
       if (prefs.pixelRatio === 'native') { TL.dprCap = 0; S.pixelRatio = 0; }
       if (typeof prefs.menuGesture === 'boolean') menuGesture = prefs.menuGesture;
+      if (typeof prefs.pauseAudio === 'boolean') { PZ.audio = prefs.pauseAudio; audioHold(); }
       if (typeof prefs.textSelect === 'boolean') { noSelect = !prefs.textSelect; noSelectCss(); }
       try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ }
     },
@@ -1672,7 +1839,7 @@
       },
       show: function () { ui.gameShow = true; refreshControls(); },
       hide: function () { ui.gameShow = false; refreshControls(); },
-      get shown() { return ui.shown && !display.paused; },
+      get shown() { return ui.shown && !pausedNow(); },
     },
     /** What the player is holding: { touch (a finger is the main pointer), phone, tablet, ios, android, pixelRatio (the
         devicePixelRatio the game is given: the screen's, or less on phones and tablets, see setDisplay pixelRatio) }. */
@@ -1683,14 +1850,16 @@
     },
   };
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !e.repeat && escFn) runEscape(e); }, true);
-  // A game without onEscape: an Esc it did not take for itself (preventDefault) opens the platform menu.
+  // A game without onEscape: an Esc it did not take for itself (preventDefault, or its own menu coming up) opens the
+  // game's own pause menu if it registered one (pauseMenu), and the platform menu otherwise.
   // Alt+Enter toggles the player's fullscreen, the shortcut PC games use (the page around the game cannot hear keys
   // pressed in it; the key press counts as the player's gesture there too).
   window.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.altKey && !e.repeat && window.parent !== window) { e.preventDefault(); toParent({ gcp: 'fullscreen' }); } }, true);
   // Checked once the key has reached every listener of the game, wherever it registered.
   window.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape' || e.repeat || escFn || !display.fullscreen) return;
-    setTimeout(function () { if (!e.defaultPrevented) toParent({ gcp: 'menu', on: true }); }, 0);
+    if (e.key !== 'Escape' || e.repeat || escFn) return;
+    if (!display.fullscreen && !PZ.own) return;
+    escFallback(e);
   });
   // ---- creator feedback: the console asks for a picture of the game while its creator plays the preview. Only on the
   // preview, only for the game's owner, only when the platform's own page asks. The picture is what the creator sees:
@@ -2459,14 +2628,15 @@
     // The player's watchdog: an answer proves the game's main thread is free. A game stuck in a long loop cannot answer,
     // and the player then offers Wait or Quit game.
     if (e.source === window.parent && d && d.gcp === 'ping') { toParent({ gcp: 'pong', n: d.n, frames: S.frames }); return; }
-    if (e.source === window.parent && d && d.gcp === 'escape_key' && escFn) { runEscape(null); return; }
+    if (e.source === window.parent && d && d.gcp === 'escape_key') { escapeFromPage(); return; }
+    if (e.source === window.parent && d && d.gcp === 'pause_request') { pauseRequest(); return; }
     if (e.source === window.parent && d && d.gcp === 'lang') { setLang(d.lang); return; }
     if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
     display.paused = !!d.paused; display.menu = !!d.menu;
-    markDisplay(); guard(); controlsFromPage(d); fsChanged();
+    markDisplay(); guard(); controlsFromPage(d); fsChanged(); pauseNotify('platform');
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
   toParent({ gcp: 'display_query' });
@@ -2477,6 +2647,6 @@
   ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
   Object.defineProperty(view, 'runtime', { get: runtimeInfo, enumerable: true });
-  ['hold', 'step', 'captureFrame', 'pageUi', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
+  ['hold', 'pauseCheck', 'step', 'captureFrame', 'pageUi', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }
 })();

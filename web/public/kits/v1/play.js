@@ -706,10 +706,12 @@ export function pauseMenu(hud, { title = 'Paused', controls = [], buttons = [], 
     open() { if (M.isOpen || hud.screenOpen || hud.windowOpen) return M;
       const width = (u) => Math.max(276, ...controls.map(([k, t]) => u.measure(k, { size: 13, weight: 800 }) + u.measure(t, { size: 13 }) + 80));
       W = hud.window((u, x, y, bw, bh) => { const rs = rows(); let ry = y + 18; u.nav = true; for (const r of rs) { r.draw(u, x + 18, ry, bw - 36); ry += r.h + 10; } },
-        { width, height: () => stack(rows()) + 36, escape: false, closeOnBackdrop: false, onClose: () => { hud.ui.nav = false; W = null; if (onResume) onResume(); } });
-      if (onPause) onPause(); return M; },
+        { width, height: () => stack(rows()) + 36, escape: false, closeOnBackdrop: false, onClose: () => { hud.ui.nav = false; W = null; globalThis.GCP?.setPaused?.(false); if (onResume) onResume(); } });
+      globalThis.GCP?.setPaused?.(true); if (onPause) onPause(); return M; },
     close() { if (W) W.close(); return M; } };
   addEventListener('keydown', (e) => { if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return; if (e.code === 'Escape' || e.code === 'KeyP') { if (M.isOpen) M.close(); else if (!hud.windowOpen) M.open(); } });
+  // the platform's one pause owner: Esc, Back and the platform's pause open this menu, never the platform's as well
+  globalThis.GCP?.pauseMenu?.(() => M.open());
   return M;
 }
 

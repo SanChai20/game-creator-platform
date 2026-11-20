@@ -2,7 +2,8 @@
 // so a slow first deploy or a long browser check never times out the agent's tool call.
 import { DurableObject } from 'cloudflare:workers';
 import type { Env, Project, Version } from './env';
-import { deployGame, playKey, waitHealthy } from './deploy';
+import { deployGame, onSharedHost, playKey, waitHealthy } from './deploy';
+import { switchLive } from './go-live';
 import { getProject, getVersion, logEvent } from './projects';
 import { browserVerify } from './verify';
 import { afterPublish } from './implementations';
@@ -104,15 +105,9 @@ async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<v
   const copy = await publishGate(env, p, v);
   if (copy) { await logEvent(env, p.id, 'publish_failed', copy, v.n, job.actor); return; }
   const url = await deployGame(env, job.origin, p, v, 'live');
-  const health = await waitHealthy(env, url, v.n);
-  if (!health.ok) { await logEvent(env, p.id, 'publish_failed', health.detail, v.n, job.actor); return; }
   // the store labels the game from the version going live (an adults-only game is blurred and asks players to confirm); before it is live
-  await syncMature(env, p.id, v);
-  const t = now();
-  await env.DB.batch([
-    env.DB.prepare("UPDATE projects SET status = 'live', live_version = ?, published_at = COALESCE(published_at, ?), cover_key = COALESCE(cover_key, ?), updated_at = ? WHERE id = ? AND status != 'removed'").bind(v.n, t, v.screenshot_key, t, p.id),
-    env.DB.prepare('UPDATE versions SET published_at = ? WHERE project_id = ? AND n = ?').bind(t, p.id, v.n),
-  ]);
+  const health = await switchLive(env, p, v, url, await onSharedHost(env, p.id, 'live'), waitHealthy, () => syncMature(env, p.id, v));
+  if (!health.ok) { await logEvent(env, p.id, 'publish_failed', health.detail, v.n, job.actor); return; }
   await logEvent(env, p.id, 'published', `Version ${v.n} is live`, v.n, job.actor);
   await afterPublish(env, p.id);
 }
