@@ -23,6 +23,7 @@
 <div class="box round"></div>
 <div class="bar"><i id="fill"></i></div>
 <script>
+  window.onerror = function (m) { console.error('game error: ' + m); };
   // a worker that draws green
   var off = document.getElementById('w').transferControlToOffscreen();
   var wk = new Worker('/worker.js', { type: 'module' });

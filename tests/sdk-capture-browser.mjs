@@ -27,16 +27,18 @@ const server = await new Promise((ok) => { const s = createServer((q, r) => {
 let failed = 0;
 // BROWSER=chromium (default) | firefox | webkit: the same checks in each engine (CI runs all three)
 const engine = process.env.BROWSER || 'chromium';
-const browser = await playwright[engine].launch(engine === 'chromium' ? { args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : {});
+const browser = await playwright[engine].launch(engine === 'chromium' ? { args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : engine === 'firefox' ? { firefoxUserPrefs: { 'webgl.force-enabled': true, 'webgl.disabled': false, 'gfx.offscreencanvas.enabled': true } } : {});
 console.log('engine:', engine, browser.version());
 try {
   for (const dpr of [1, 2]) {
     const name = `pixel ratio ${dpr}`;
     try {
       const page = await browser.newPage({ deviceScaleFactor: dpr, viewport: { width: 640, height: 300 } });
+      const log = []; page.on('console', (m) => log.push(m.type() + ': ' + m.text())); page.on('pageerror', (e) => log.push('error: ' + e.message));
+      page.context().on('weberror', (e) => log.push('weberror: ' + e.error().message));
       await page.goto('http://127.0.0.1:8932/page.html');
       const game = await (await page.waitForSelector('#game')).contentFrame();
-      await game.waitForFunction(() => window.ready === true, null, { timeout: 10000 });
+      await game.waitForFunction(() => window.ready === true, null, { timeout: 10000 }).catch((e) => { throw new Error(e.message.split('\n')[0] + ' | ' + log.slice(-6).join(' | ')); });
       await page.waitForTimeout(300);
       const res = await page.evaluate(() => window.shoot());
       assert.ok(res.image, `${name}: a picture (${res.error})`);
