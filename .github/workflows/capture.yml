@@ -28,9 +28,12 @@ jobs:
       - run: npm ci
       - run: npm install --no-save playwright@1.63.0
       - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - run: npm run test:sdk-capture
+      # headless Firefox and WebKit have no WebGL on a runner without a GPU; a headed browser on a virtual display gets
+      # Mesa's software renderer
+      - run: xvfb-run -a npm run test:sdk-capture
         env:
           BROWSER: ${{ matrix.browser }}
+          HEADED: ${{ matrix.browser != 'chromium' && '1' || '' }}
   capture-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 30

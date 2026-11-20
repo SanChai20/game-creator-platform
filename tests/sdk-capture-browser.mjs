@@ -27,7 +27,7 @@ const server = await new Promise((ok) => { const s = createServer((q, r) => {
 let failed = 0;
 // BROWSER=chromium (default) | firefox | webkit: the same checks in each engine (CI runs all three)
 const engine = process.env.BROWSER || 'chromium';
-const browser = await playwright[engine].launch(engine === 'chromium' ? { args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : engine === 'firefox' ? { firefoxUserPrefs: { 'webgl.force-enabled': true, 'webgl.disabled': false, 'gfx.offscreencanvas.enabled': true } } : {});
+const browser = await playwright[engine].launch(engine === 'chromium' ? { args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : engine === 'firefox' ? { headless: !process.env.HEADED, firefoxUserPrefs: { 'webgl.force-enabled': true, 'webgl.disabled': false } } : { headless: !process.env.HEADED });   // HEADED=1 under xvfb: Mesa's software WebGL
 console.log('engine:', engine, browser.version());
 try {
   for (const dpr of [1, 2]) {
