@@ -8,6 +8,7 @@ import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf 
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
+import { buildControls, type TouchControls } from '../web/src/touch-controls';
 import { buildMeta, genreTags, genresOf, normGenre, GENRES, type Genre, type MetaIssue, type MetaRecord } from '../web/src/gamemeta';
 import { parseListings } from '../web/src/languages';
 import { MAX_TAGS, normalizeStoredTags, parseTags, TAG_GROUPS, tagsOnly, type TagIssue } from '../web/src/tags';
@@ -190,6 +191,8 @@ export interface Manifest {
   compat?: Compat;
   /** The build layer of the game metadata: languages, players, session, progress, accessibility, content and the age rating. */
   meta?: MetaRecord;
+  /** On-screen controls for touch screens: gcp.json "controls" laid over the keys found in the code. */
+  controls?: TouchControls;
 }
 
 export function defaultImports(origin: string): Record<string, string> {
@@ -414,6 +417,10 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const gm = buildMeta(gcpRaw, texts, [...paths]);
   for (const i of gm.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: i.hint });
   manifest.meta = gm.record;
+  // On-screen controls for phones and tablets: the keys the game's code checks, or the creator's own layout.
+  const tc = buildControls({ texts, declared: (gcpRaw as Record<string, unknown> | null)?.controls, declaredInput: c.compat.declared ? c.compat.requirements.input : null });
+  for (const i of tc.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: i.hint });
+  manifest.controls = tc.controls;
   return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest, compatIssues: c.issues, metaIssues: gm.issues };
 }
 
@@ -462,6 +469,7 @@ export function publicVersion(v: Version, origin: string) {
     published_at: v.published_at, human_ok: !!v.human_ok, screenshot: v.screenshot_key ? `${origin}/api/media/${v.screenshot_key}` : null, report: parseJson(v.report, null),
     compat: parseJson<Manifest>(v.manifest, {} as Manifest).compat ?? null,
     meta: parseJson<Manifest>(v.manifest, {} as Manifest).meta ?? null,
+    controls: parseJson<Manifest>(v.manifest, {} as Manifest).controls ?? null,
   };
 }
 
@@ -472,9 +480,9 @@ export function publicVersion(v: Version, origin: string) {
 export async function ensureCompat(env: Env, v: Version): Promise<Compat> { return (await ensureVersionMeta(env, v)).compat; }
 
 /** A version's compatibility and metadata records, detected from its frozen files and stored the first time anyone asks. */
-export async function ensureVersionMeta(env: Env, v: Version): Promise<{ compat: Compat; meta: MetaRecord }> {
+export async function ensureVersionMeta(env: Env, v: Version): Promise<{ compat: Compat; meta: MetaRecord; controls: TouchControls }> {
   const m = parseJson<Manifest>(v.manifest, {} as Manifest);
-  if (m.compat?.v === 1 && m.meta?.v === 1) return { compat: m.compat, meta: m.meta };
+  if (m.compat?.v === 1 && m.meta?.v === 1 && m.controls?.v === 1) return { compat: m.compat, meta: m.meta, controls: m.controls };
   const files = parseJson<{ path: string; size: number }[]>(v.files, []), texts = new Map<string, string>();
   for (const f of files) {
     if (!isText(f.path) || f.path.startsWith('server/') || f.size > 6 * 1024 * 1024 || texts.size >= 200) continue;   // server code is not what the browser runs
@@ -487,6 +495,7 @@ export async function ensureVersionMeta(env: Env, v: Version): Promise<{ compat:
   const bareImports = [...texts.values()].some((s) => /\b(?:from|import)\s*\(?\s*["'](?![./]|https?:|data:|blob:)[^"'\s]+["']/.test(s));
   const compat = m.compat?.v === 1 ? m.compat : buildCompat(raw.requirements, { texts, paths, bareImports, orientation: typeof m.orientation === 'string' ? m.orientation : undefined }, v.bytes).compat;
   const meta = m.meta?.v === 1 ? m.meta : buildMeta(raw, texts, paths).record;
-  await env.DB.prepare('UPDATE versions SET manifest = ? WHERE project_id = ? AND n = ?').bind(JSON.stringify({ ...m, compat, meta }), v.project_id, v.n).run();
-  return { compat, meta };
+  const controls = m.controls?.v === 1 ? m.controls : buildControls({ texts, declared: raw.controls, declaredInput: compat.declared ? compat.requirements.input : null }).controls;
+  await env.DB.prepare('UPDATE versions SET manifest = ? WHERE project_id = ? AND n = ?').bind(JSON.stringify({ ...m, compat, meta, controls }), v.project_id, v.n).run();
+  return { compat, meta, controls };
 }

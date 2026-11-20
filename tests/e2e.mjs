@@ -106,7 +106,7 @@ async function main() {
   const started = await tool('get_started');
   assert.ok(/web games only/.test(started.web_games_only) && started.workflow.length >= 5 && started.rules.length === 5 && started.services.multiplayer && started.account && started.guides.length === 8 && /Web \/ HTML5/.test(started.engines), JSON.stringify(started).slice(0, 600));
   assert.ok(!JSON.stringify(started).match(/design_scene|list_blocks|recommend_pipeline|craft score/), 'get_started must not teach how to make a game');
-  for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer', 'storage', 'services']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
+  for (const topic of ['contract', 'metadata', 'versions', 'saves', 'multiplayer', 'storage', 'services', 'touch']) { const g = await tool('get_started', { topic }); assert.ok(g.markdown.length > 1000 && !g.markdown.includes('{{'), topic); }
   assert.equal((await rpc('resources/list')).resources.length, 9);
   const catalog = await tool('platform_services');
   assert.ok(catalog.services.length >= 20 && catalog.not_provided.length >= 10 && catalog.services.some((x) => x.id === 'multiplayer'), JSON.stringify(catalog).slice(0, 400));

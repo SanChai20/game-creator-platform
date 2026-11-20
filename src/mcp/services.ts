@@ -245,6 +245,17 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'contract',
     },
     {
+      id: 'touch', name: 'Touch devices', category: 'runtime', status: 'available',
+      what: 'Every game playable on phones and tablets with no code for it: on-screen controls for keyboard and gamepad games, mouse events from the finger for mouse games, a pointer-lock stand-in for mouse look, native-feeling taps, and a pixel-density cap.',
+      how_it_works: 'At deploy (and the first time an older version\'s page is opened) the platform reads the game\'s own code for the keys it checks: WASD or the arrows become a stick, other keys up to six buttons, most important first. On a touch screen the SDK draws them over the game and presses real keys (keydown and keyup with code, key and keyCode), or acts as a standard gamepad for a game that reads gamepads and no keys. They show by themselves only when the game has no touch controls of its own; the player hides or shows them from the game menu, and they hide while the game is paused. A game that follows the mouse and no finger gets mouse events from touch (drag, two-finger tap for right click, pinch for the wheel); pointer lock gets a stand-in where a drag turns the view. Long-press selection, callouts, tap flashes and zoom are off, a tap just beside a button hits it, and devicePixelRatio reads at most 2 (lower when the game keeps dropping frames).',
+      use_for: ['Keyboard games on phones and tablets', 'Mouse-look and drag games on touch screens', 'Choosing the on-screen buttons and their labels'],
+      sdk: ['gcp.json "controls": { "touch": "auto" | "overlay" | "none", "stick": "wasd" | "arrows" | "both" | "none", "buttons": [{ "key": "Space", "label": "Jump" }] }', 'GCP.controls.set({ stick, buttons })', 'GCP.controls.show()', 'GCP.controls.hide()', 'GCP.controls.shown', 'GCP.device', 'GCP.setDisplay({ touchControls: "none", pixelRatio: "native" })'],
+      mcp_tools: ['compatibility'],
+      limits: { max_buttons: 6, pixel_ratio_cap: 2 },
+      guidelines: ['Touch controls designed for the game are better than the platform\'s: when the game has its own, declare "controls": {"touch": "none"} or let the platform see them.', 'Give the buttons labels players understand ("Jump", not "Space") in gcp.json controls.', 'Read devicePixelRatio again in the resize handler.'],
+      guide: 'touch',
+    },
+    {
       id: 'compatibility', name: 'Compatibility requirements', category: 'quality', status: 'available',
       what: 'Each version carries what it needs from the player\'s browser: graphics API, GPU, features, input, devices, orientation, memory, minimum browsers and known issues.',
       how_it_works: 'Declared in gcp.json "requirements" (the compatibility tool writes it) and merged with what the platform detects in the code at deploy. The store page lists them and checks the player\'s own browser before launch.',

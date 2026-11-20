@@ -1632,5 +1632,7 @@
  "Taken from this tab exactly as you see it. If the picture does not match the game (cut off, shrunk, black or blank), use the game's own drawing instead, or your own screenshot.": "このタブから見たままを取り込んだ画像です。ゲームと違って見える場合（切れている、縮んでいる、黒い、空白）は、ゲーム自身が描いた画像か、自分で撮ったスクリーンショットを使ってください。",
  "Use the game's own drawing": "ゲーム自身の描画を使う",
  "Your browser has only {api}. Update it, or turn on hardware acceleration in its settings and restart it.": "お使いのブラウザは {api} のみに対応しています。ブラウザを更新するか、設定でハードウェアアクセラレーションをオンにしてから再起動してください。",
- "Turned off or blocked in this browser. Turn on hardware acceleration in its settings and restart it, or try another browser.": "このブラウザではオフになっているか、ブロックされています。設定でハードウェアアクセラレーションをオンにしてから再起動するか、別のブラウザをお試しください。"
+ "Turned off or blocked in this browser. Turn on hardware acceleration in its settings and restart it, or try another browser.": "このブラウザではオフになっているか、ブロックされています。設定でハードウェアアクセラレーションをオンにしてから再起動するか、別のブラウザをお試しください。",
+ "Hide on-screen controls": "画面上のボタンを隠す",
+ "Show on-screen controls": "画面上のボタンを表示"
 }

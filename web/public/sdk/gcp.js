@@ -137,6 +137,50 @@
     });
   })();
 
+  // ---- Touch screens, part 1: what has to be in place before any game code runs (part 2, the controls, is further down).
+  //   - Which input events the game listens for, so the platform knows whether a finger has to be turned into a mouse.
+  //     The SDK's own listeners are not counted (TL.mine is true while the SDK sets itself up).
+  //   - The pixel-density guard: on phones and tablets devicePixelRatio reads at most 2 (1.5 on devices with 2 GB of memory
+  //     or less), so a game that sizes its canvas to devicePixelRatio does not draw 9 pixels for every point on a 3x
+  //     iPhone. Games that already cap it see no change. A game that keeps dropping frames is stepped further down while
+  //     it plays (and told with a resize event). GCP.setDisplay({ pixelRatio: 'native' }) turns the guard off.
+  //   - Pointer lock on a touch screen: the browser has none, so a game that asks for it (mouse look) gets a stand-in, and
+  //     a finger dragging over the game turns its view (movementX/Y), as a mouse would.
+  var coarse0 = false; try { coarse0 = matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches; } catch (e) { /* old browser */ }
+  var ET = window.EventTarget && EventTarget.prototype;
+  var TL = { mine: true, heard: {}, nodes: typeof WeakMap === 'function' ? new WeakMap() : null, add: ET ? ET.addEventListener : null, dprCap: 0, dprReal: function () { return 1; }, lockEl: null };
+  (function () {
+    var add = TL.add;
+    if (add) ET.addEventListener = function (type) {
+      if (!TL.mine) { try { TL.heard[type] = (TL.heard[type] || 0) + 1; if (TL.nodes && this && this.nodeType === 1) { var s = TL.nodes.get(this); if (!s) TL.nodes.set(this, s = {}); s[type] = 1; } } catch (e) { /* never break a listener */ } }
+      return add.apply(this, arguments);
+    };
+    var d = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio') || (window.Window && Object.getOwnPropertyDescriptor(Window.prototype, 'devicePixelRatio'));
+    if (d) TL.dprReal = d.get ? function () { return +d.get.call(window) || 1; } : function () { return +d.value || 1; };
+    if (!coarse0) return;   // computers keep everything as it is
+    var mem = +navigator.deviceMemory || 0;
+    TL.dprCap = mem && mem <= 2 ? 1.5 : 2;
+    var own = null;   // a value the game assigned itself (devicePixelRatio is replaceable)
+    try {
+      Object.defineProperty(window, 'devicePixelRatio', { configurable: true, enumerable: true,
+        get: function () { if (own != null) return own; var r = TL.dprReal(); return TL.dprCap && r > TL.dprCap ? TL.dprCap : r; },
+        set: function (v) { own = v; } });
+    } catch (e) { TL.dprCap = 0; }
+    // pointer lock stand-in
+    var EP = window.Element && Element.prototype, DP = window.Document && Document.prototype;
+    if (!EP || !DP) return;
+    var req = EP.requestPointerLock, exit = DP.exitPointerLock, pd = Object.getOwnPropertyDescriptor(DP, 'pointerLockElement');
+    var change = function () { try { document.dispatchEvent(new Event('pointerlockchange')); } catch (e) { /* old browser */ } };
+    EP.requestPointerLock = function () {
+      if (!TL.touchNow()) return req ? req.apply(this, arguments) : undefined;
+      if (TL.lockEl !== this) { TL.lockEl = this; setTimeout(change, 0); }
+      return Promise.resolve();
+    };
+    DP.exitPointerLock = function () { if (TL.lockEl) { TL.lockEl = null; setTimeout(change, 0); return; } return exit ? exit.apply(this, arguments) : undefined; };
+    if (pd && pd.get) try { Object.defineProperty(DP, 'pointerLockElement', { configurable: true, enumerable: true, get: function () { return TL.lockEl || pd.get.call(this); } }); } catch (e) { /* locked down */ }
+  })();
+  TL.touchNow = function () { return coarse0; };   // replaced by the display's own answer once the platform page has spoken
+
   // ---- Sound that starts on the first tap, for every game. Browsers only let a page start sound inside a user gesture,
   // and on iPhone and iPad only some events count: touchend, pointerup, click and keydown do, but pointerdown and
   // touchstart from a finger do not. A game that creates or resumes its AudioContext on pointerdown (a common choice that
@@ -681,6 +725,316 @@
     if (used) return;
     if (display.fullscreen) toParent({ gcp: 'menu', on: true });   // nothing of the game's was open: the platform menu
   }
+  // ---- Touch screens, part 2: every game playable with a finger, without the game doing anything.
+  //   Clean-up      on phones and tablets: no text selection, callout or magnifier on a long press, no grey flash on a tap,
+  //                 no double-tap zoom (all with no specificity, so a game's own CSS wins), and a tap that lands just
+  //                 beside a button of the game's page counts as a tap on that button.
+  //   Mouse games   a game that listens only for mouse events (no touch or pointer events) gets a mouse from the finger:
+  //                 a drag moves the mouse with the button held, a two-finger tap is a right click, a pinch turns the
+  //                 wheel. In pointer lock (see part 1) a drag is mouse look and a tap is a click.
+  //   Controls      a stick and buttons that press the game's keys (or act as a gamepad), drawn over the game. The
+  //                 platform page hands over the layout (gcp.json "controls", or the keys the platform found in the code)
+  //                 and whether they show by themselves; the player can hide or show them in the game menu. A game
+  //                 changes them with GCP.controls, or turns them off with GCP.setDisplay({ touchControls: 'none' }).
+  TL.touchNow = function () { return display.touch; };
+  var tcss = ':where(html.gcp-touch){-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}'
+    + ':where(html.gcp-touch:not(.gcp-guard)){touch-action:manipulation}'
+    + ':where(html.gcp-touch) :where(body,body *:not(input):not(textarea):not(select):not([contenteditable]):not([contenteditable] *)){-webkit-user-select:none;user-select:none}'
+    + ':where(html.gcp-touch) :where(input,textarea,[contenteditable],[contenteditable] *){-webkit-user-select:text;user-select:text}';   // Safari cannot type into a field that inherits none
+  function touchCss() {
+    if (!display.touch || !document.head || document.getElementById('gcp-touch')) return;
+    var st = document.createElement('style'); st.id = 'gcp-touch'; st.textContent = tcss; document.head.appendChild(st);
+  }
+  var on = function (t, type, fn, opts) { try { (TL.add || t.addEventListener).call(t, type, fn, opts); } catch (e) { /* old browser */ } };
+  var lastTouchAt = 0;
+  on(window, 'pointerdown', function (e) { if (e.pointerType === 'touch') lastTouchAt = performance.now(); }, { capture: true, passive: true });
+  on(window, 'touchstart', function () { lastTouchAt = performance.now(); }, { capture: true, passive: true });
+
+  // near-miss taps
+  var HOT_TAGS = /^(A|BUTTON|INPUT|SELECT|TEXTAREA|LABEL|SUMMARY|CANVAS|VIDEO|OPTION|IFRAME)$/, HOT_EVENTS = ['click', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'];
+  var TAPPABLE = 'button,a[href],[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[role="checkbox"],[role="switch"],input:not([type="hidden"]),select,textarea,summary,label[for],[onclick],[tabindex]:not([tabindex="-1"])';
+  function hot(el) {
+    for (; el && el.nodeType === 1 && el !== document.body && el !== document.documentElement; el = el.parentNode) {
+      if (el === ui.host) return true;
+      if (HOT_TAGS.test(el.tagName) || el.isContentEditable || el.onclick || el.onpointerdown || el.onmousedown || el.ontouchstart) return true;
+      var r = el.getAttribute && el.getAttribute('role'); if (r && /button|link|tab|menuitem|option|checkbox|switch|slider/.test(r)) return true;
+      var s = TL.nodes && TL.nodes.get(el); if (s) for (var i = 0; i < HOT_EVENTS.length; i++) if (s[HOT_EVENTS[i]]) return true;
+    }
+    return false;
+  }
+  function nearMiss(x, y, reach) {
+    var best = null, bd = reach + 1, list; try { list = document.querySelectorAll(TAPPABLE); } catch (e) { return null; }
+    for (var i = 0; i < list.length && i < 400; i++) {
+      var el = list[i]; if (el.disabled) continue;
+      var r = el.getBoundingClientRect(); if (r.width < 1 || r.height < 1) continue;
+      var dx = x < r.left ? r.left - x : x > r.right ? x - r.right : 0, dy = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0, d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= bd) continue;
+      var top = document.elementFromPoint(Math.min(innerWidth - 1, Math.max(0, (r.left + r.right) / 2)), Math.min(innerHeight - 1, Math.max(0, (r.top + r.bottom) / 2)));
+      if (!top || (top !== el && !el.contains(top))) continue;   // covered by something else
+      best = el; bd = d;
+    }
+    return best;
+  }
+  on(document, 'click', function (e) {
+    if (!display.touch || !e.isTrusted || performance.now() - lastTouchAt > 1000 || M.on) return;
+    var t = e.target; if (!t || t.nodeType !== 1 || hot(t)) return;
+    var el = nearMiss(e.clientX, e.clientY, 20); if (!el) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    try { if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) el.focus(); el.click(); } catch (err) { /* gone */ }
+  }, true);
+
+  // a mouse from the finger
+  // Mouse only: the game follows the mouse (mousedown or mousemove) and follows no finger or pointer as it moves. Touch or
+  // pointer listeners for start and end alone do not count: sound libraries add them to unlock audio, and taps already
+  // reach a game as clicks.
+  var mouseOnly = function () {
+    var h = TL.heard;
+    if (!(h.mousedown || h.mousemove)) return false;
+    return !(h.touchmove || h.pointermove || window.ontouchmove || document.ontouchmove || window.onpointermove || document.onpointermove);
+  };
+  var M = { on: false, id: null, x: 0, y: 0, x0: 0, y0: 0, moved: false, down: false, target: null, two: null };
+  var mouse = function (type, x, y, target, button, buttons, mx, my) {
+    var ev; try { ev = new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window, clientX: x, clientY: y, screenX: x, screenY: y, button: button || 0, buttons: buttons || 0, movementX: mx || 0, movementY: my || 0, detail: type === 'click' || type === 'mousedown' || type === 'mouseup' ? 1 : 0 }); } catch (e) { return; }
+    (target && target.isConnected ? target : document.body || document.documentElement).dispatchEvent(ev);
+  };
+  var at = function (x, y) { var el = document.elementFromPoint(x, y); return el === ui.host ? null : el; };
+  var isField = function (el) { return el && el.nodeType === 1 && (/^(INPUT|TEXTAREA|SELECT|OPTION)$/.test(el.tagName) || el.isContentEditable); };
+  var bridged = function () { return display.touch && (!!TL.lockEl || mouseOnly()); };
+  var lockPoint = function () { var el = TL.lockEl, r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null; return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: innerWidth / 2, y: innerHeight / 2 }; };
+  var LOOK = 1.6;   // a finger covers less ground than a mouse: mouse look turns this much faster than the finger moves
+  on(window, 'touchstart', function (e) {
+    if (e.target === ui.host || isField(e.target)) return;
+    M.on = bridged(); if (!M.on) return;
+    if (e.cancelable) e.preventDefault();   // the browser's own mouse events and click would follow otherwise
+    if (e.touches.length === 2) {
+      if (M.down) { var tg = M.target; M.down = false; mouse('mouseup', M.x, M.y, tg, 0, 0); }
+      var a = e.touches[0], b = e.touches[1];
+      M.two = { at: performance.now(), d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2, moved: false };
+      return;
+    }
+    if (e.touches.length !== 1 || M.two) return;
+    var t = e.changedTouches[0]; M.id = t.identifier; M.x = M.x0 = t.clientX; M.y = M.y0 = t.clientY; M.moved = false;
+    if (TL.lockEl) { var p = lockPoint(); M.target = TL.lockEl; mouse('mousedown', p.x, p.y, M.target, 0, 1); M.down = true; return; }
+    M.target = at(M.x, M.y) || e.target;
+    mouse('mousemove', M.x, M.y, M.target, 0, 0); mouse('mousedown', M.x, M.y, M.target, 0, 1); M.down = true;
+  }, { capture: true, passive: false });
+  on(window, 'touchmove', function (e) {
+    if (!M.on) return;
+    if (e.cancelable) e.preventDefault();
+    if (M.two && e.touches.length >= 2) {
+      var a = e.touches[0], b = e.touches[1], d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), dd = M.two.d - d;
+      if (Math.abs(dd) < 2) return;
+      if (Math.abs(dd) > 6) M.two.moved = true;
+      M.two.d = d;
+      try { (at(M.two.x, M.two.y) || document.body).dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, view: window, clientX: M.two.x, clientY: M.two.y, deltaY: dd * 3, deltaMode: 0 })); } catch (err) { /* old browser */ }
+      return;
+    }
+    for (var i = 0; i < e.changedTouches.length; i++) {
+      var t = e.changedTouches[i]; if (t.identifier !== M.id) continue;
+      var mx = t.clientX - M.x, my = t.clientY - M.y; M.x = t.clientX; M.y = t.clientY;
+      if (Math.abs(M.x - M.x0) + Math.abs(M.y - M.y0) > 8) M.moved = true;
+      if (TL.lockEl) { var p = lockPoint(); mouse('mousemove', p.x, p.y, TL.lockEl, 0, M.down ? 1 : 0, mx * LOOK, my * LOOK); }
+      else mouse('mousemove', M.x, M.y, M.down ? M.target : at(M.x, M.y), 0, M.down ? 1 : 0, mx, my);
+    }
+  }, { capture: true, passive: false });
+  var touchEnd = function (e) {
+    if (!M.on) return;
+    if (e.cancelable) e.preventDefault();
+    if (M.two) {
+      if (e.touches.length === 0) {
+        if (!M.two.moved && performance.now() - M.two.at < 400 && e.type === 'touchend') {   // a two-finger tap: the right button
+          var tg = at(M.two.x, M.two.y);
+          mouse('mousedown', M.two.x, M.two.y, tg, 2, 2); mouse('mouseup', M.two.x, M.two.y, tg, 2, 0); mouse('contextmenu', M.two.x, M.two.y, tg, 2, 0);
+        }
+        M.two = null; M.on = false;
+      }
+      return;
+    }
+    for (var i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier !== M.id || !M.down) continue;
+      M.down = false;
+      if (TL.lockEl) { var p = lockPoint(); mouse('mouseup', p.x, p.y, TL.lockEl, 0, 0); if (!M.moved) mouse('click', p.x, p.y, TL.lockEl, 0, 0); }
+      else {
+        var up = at(M.x, M.y) || M.target; mouse('mouseup', M.x, M.y, up, 0, 0);
+        var near = !M.moved && e.type === 'touchend' && up && !hot(up) ? nearMiss(M.x, M.y, 20) : null;   // a tap just beside a button
+        if (near) { try { near.click(); } catch (err) { /* gone */ } }
+        else if (e.type === 'touchend' && (up === M.target || (M.target && M.target.contains && M.target.contains(up)) || !M.moved)) mouse('click', M.x, M.y, up, 0, 0);
+      }
+    }
+    if (e.touches.length === 0) M.on = false;
+  };
+  on(window, 'touchend', touchEnd, { capture: true, passive: false });
+  on(window, 'touchcancel', touchEnd, { capture: true, passive: false });
+
+  // the stick and buttons
+  var ui = { host: null, root: null, cfg: null, pref: null, gameShow: null, off: false, shown: false, stick: null, held: {}, pad: { axes: [0, 0, 0, 0], buttons: [] }, padOn: false };
+  for (var bi = 0; bi < 17; bi++) ui.pad.buttons.push({ pressed: false, touched: false, value: 0 });
+  var WASD = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' }, ARROW = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' };
+  var KEYINFO = { KeyW: ['w', 87], KeyA: ['a', 65], KeyS: ['s', 83], KeyD: ['d', 68], ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39] };
+  function keyEvent(type, code, key, keyCode) {
+    var tg = document.activeElement && document.activeElement !== ui.host && document.activeElement !== document.documentElement ? document.activeElement : document.body || document.documentElement;
+    var shift = !!(ui.held.ShiftLeft || ui.held.ShiftRight);
+    var ev; try { ev = new KeyboardEvent(type, { key: key, code: code, bubbles: true, cancelable: true, composed: true, view: window, shiftKey: shift, location: /Left$/.test(code) ? 1 : /Right$/.test(code) && !/^Arrow/.test(code) ? 2 : 0 }); } catch (e) { return; }
+    try { Object.defineProperty(ev, 'keyCode', { get: function () { return keyCode; } }); Object.defineProperty(ev, 'which', { get: function () { return keyCode; } }); if (type === 'keypress') Object.defineProperty(ev, 'charCode', { get: function () { return key.length === 1 ? key.charCodeAt(0) : 0; } }); } catch (e) { /* frozen */ }
+    tg.dispatchEvent(ev);
+  }
+  function press(code, key, keyCode, down) {
+    if (!!ui.held[code] === down) return;
+    if (down) ui.held[code] = 1; else delete ui.held[code];
+    keyEvent(down ? 'keydown' : 'keyup', code, key, keyCode);
+    if (down && key.length === 1) keyEvent('keypress', code, key, key.charCodeAt(0));
+  }
+  function releaseAll() {
+    Object.keys(ui.held).forEach(function (c) { var k = KEYINFO[c] || keyOf(c); press(c, k[0], k[1], false); });
+    ui.pad.axes[0] = ui.pad.axes[1] = 0; ui.pad.buttons.forEach(function (b) { b.pressed = b.touched = false; b.value = 0; });
+    if (ui.stick) ui.stick.reset();
+    if (ui.root) Array.prototype.forEach.call(ui.root.querySelectorAll('.on'), function (el) { el.classList.remove('on'); });
+  }
+  function keyOf(code) { var b = ui.cfg && ui.cfg.buttons.filter(function (x) { return x.code === code; })[0]; return b ? [b.key, b.keyCode] : ['', 0]; }
+  // the stick's direction as keys: eight ways, with a dead zone in the middle
+  function stickKeys(x, y) {
+    var c = ui.cfg, sets = c.stick === 'arrows' ? [ARROW] : [WASD];   // "both": WASD alone (a game that reads both reads either)
+    var len = Math.sqrt(x * x + y * y), a = Math.atan2(y, x), want = {};
+    if (len > 0.3) { var cx = Math.cos(a), cy = Math.sin(a); if (cx > 0.38) want.right = 1; if (cx < -0.38) want.left = 1; if (cy > 0.38) want.down = 1; if (cy < -0.38) want.up = 1; }
+    sets.forEach(function (set) { ['up', 'down', 'left', 'right'].forEach(function (d) { var code = set[d], k = KEYINFO[code]; press(code, k[0], k[1], !!want[d]); }); });
+  }
+  var CSS = ':host{all:initial}*{box-sizing:border-box}.w{position:fixed;inset:0;pointer-events:none;z-index:2147483000;font:600 13px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}'
+    + '.zone{position:absolute;pointer-events:auto;touch-action:none}.base{position:absolute;border-radius:50%;background:rgba(10,12,24,.28);border:2px solid rgba(255,255,255,.38);box-shadow:0 2px 12px rgba(0,0,0,.25);transition:opacity .2s}'
+    + '.knob{position:absolute;border-radius:50%;background:rgba(255,255,255,.42);border:2px solid rgba(255,255,255,.7);box-shadow:0 2px 10px rgba(0,0,0,.35)}.zone.on .base{background:rgba(10,12,24,.4)}.zone.on .knob{background:rgba(255,255,255,.62)}'
+    + '.btn{position:absolute;pointer-events:auto;touch-action:none;border-radius:50%;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.92);text-shadow:0 1px 2px rgba(0,0,0,.6);background:rgba(10,12,24,.3);border:2px solid rgba(255,255,255,.42);box-shadow:0 2px 12px rgba(0,0,0,.25);transition:transform .06s,background .06s;text-align:center;padding:4px;overflow:hidden;letter-spacing:.01em}'
+    + '.btn.on{background:rgba(255,255,255,.45);color:#111;text-shadow:none;transform:scale(.93)}.w.hide{display:none}';
+  function build() {
+    if (ui.host || !document.body) return;
+    var host = document.createElement('gcp-touch-controls'), root;
+    host.setAttribute('aria-hidden', 'true');
+    host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000;display:block';
+    try { root = host.attachShadow({ mode: 'closed' }); } catch (e) { root = host; }
+    var st = document.createElement('style'); st.textContent = CSS; root.appendChild(st);
+    var w = document.createElement('div'); w.className = 'w hide'; root.appendChild(w);
+    ui.host = host; ui.root = w; document.body.appendChild(host);
+    ['contextmenu', 'selectstart'].forEach(function (t) { on(w, t, function (e) { e.preventDefault(); }); });
+  }
+  function layout() {
+    var w = ui.root, c = ui.cfg; if (!w || !c) return;
+    releaseAll(); w.textContent = ''; ui.stick = null;
+    var vw = innerWidth, vh = innerHeight, m = Math.min(vw, vh), s = Math.max(0.75, Math.min(1.35, m / 400));
+    var sf = display.safe || {}, padL = 18 + (sf.left || 0), padR = 18 + (sf.right || 0), padB = 18 + (sf.bottom || 0);
+    if (c.stick || c.gamepad) {
+      var R = Math.round(62 * s), K = Math.round(R * 0.82);
+      var zone = document.createElement('div'); zone.className = 'zone';
+      var zw = Math.round(Math.min(vw * 0.42, R * 3.4)), zh = Math.round(Math.min(vh * 0.62, R * 3.4));
+      zone.style.cssText = 'left:' + padL + 'px;bottom:' + padB + 'px;width:' + zw + 'px;height:' + zh + 'px';
+      var base = document.createElement('div'), knob = document.createElement('div'); base.className = 'base'; knob.className = 'knob';
+      zone.appendChild(base); zone.appendChild(knob); w.appendChild(zone);
+      var home = { x: R + 6, y: zh - R - 6 }, ctr = { x: home.x, y: home.y }, id = null;
+      var place = function (bx, by, kx, ky) {
+        base.style.cssText = 'width:' + 2 * R + 'px;height:' + 2 * R + 'px;left:' + (bx - R) + 'px;top:' + (by - R) + 'px';
+        knob.style.cssText = 'width:' + K + 'px;height:' + K + 'px;left:' + (kx - K / 2) + 'px;top:' + (ky - K / 2) + 'px';
+      };
+      place(home.x, home.y, home.x, home.y);
+      var move = function (e) {
+        var r = zone.getBoundingClientRect(), x = e.clientX - r.left - ctr.x, y = e.clientY - r.top - ctr.y, len = Math.sqrt(x * x + y * y), k = len > R ? R / len : 1;
+        place(ctr.x, ctr.y, ctr.x + x * k, ctr.y + y * k);
+        var nx = x * k / R, ny = y * k / R;
+        if (c.gamepad) { ui.pad.axes[0] = nx; ui.pad.axes[1] = ny; var B = ui.pad.buttons; B[12].pressed = ny < -0.5; B[13].pressed = ny > 0.5; B[14].pressed = nx < -0.5; B[15].pressed = nx > 0.5; [12, 13, 14, 15].forEach(function (i) { B[i].value = B[i].pressed ? 1 : 0; B[i].touched = B[i].pressed; }); }
+        else stickKeys(nx, ny);
+      };
+      ui.stick = { reset: function () { id = null; ctr.x = home.x; ctr.y = home.y; place(home.x, home.y, home.x, home.y); zone.classList.remove('on'); } };
+      on(zone, 'pointerdown', function (e) {
+        if (id !== null) return; e.preventDefault(); e.stopPropagation(); id = e.pointerId; try { zone.setPointerCapture(id); } catch (err) { /* old browser */ }
+        var r = zone.getBoundingClientRect(); ctr.x = Math.max(R, Math.min(zw - R, e.clientX - r.left)); ctr.y = Math.max(R, Math.min(zh - R, e.clientY - r.top));   // the stick comes to the thumb
+        zone.classList.add('on'); move(e);
+      });
+      on(zone, 'pointermove', function (e) { if (e.pointerId === id) { e.preventDefault(); e.stopPropagation(); move(e); } });
+      var end = function (e) { if (e.pointerId !== id) return; e.stopPropagation(); ui.stick.reset(); if (c.gamepad) { ui.pad.axes[0] = ui.pad.axes[1] = 0; [12, 13, 14, 15].forEach(function (i) { ui.pad.buttons[i].pressed = false; ui.pad.buttons[i].value = 0; }); } else stickKeys(0, 0); };
+      on(zone, 'pointerup', end); on(zone, 'pointercancel', end); on(zone, 'lostpointercapture', end);
+    }
+    // buttons: the first (most important) is the biggest, in the corner; the rest sit around it
+    var big = Math.round(76 * s), small = Math.round(58 * s), cx = vw - padR - big / 2, cy = vh - padB - big / 2;
+    var ring = [[-1.22, 0.1], [-0.92, -0.92], [0.05, -1.25], [-2.3, 0.1], [-1.95, -1.15], [-1.1, -2.05]];
+    c.buttons.forEach(function (b, i) {
+      var d = i === 0 ? big : small, x = cx, y = cy;
+      if (i > 0) { var o = ring[i - 1], u = (big + small) / 2 + 6 * s; x = cx + o[0] * u; y = cy + o[1] * u; }
+      var el = document.createElement('div'); el.className = 'btn'; el.textContent = b.label;
+      el.style.cssText = 'width:' + d + 'px;height:' + d + 'px;left:' + Math.round(x - d / 2) + 'px;top:' + Math.round(y - d / 2) + 'px;font-size:' + Math.round((b.label.length > 3 ? 11 : 15) * Math.min(1.2, s)) + 'px';
+      var ids = {}, n = 0;
+      var down = function (e) { e.preventDefault(); e.stopPropagation(); if (ids[e.pointerId]) return; ids[e.pointerId] = 1; n++; try { el.setPointerCapture(e.pointerId); } catch (err) { /* old browser */ } el.classList.add('on'); hit(b, i, true); };
+      var up = function (e) { if (!ids[e.pointerId]) return; e.stopPropagation(); delete ids[e.pointerId]; if (--n > 0) return; el.classList.remove('on'); hit(b, i, false); };
+      on(el, 'pointerdown', down); on(el, 'pointerup', up); on(el, 'pointercancel', up); on(el, 'lostpointercapture', up);
+      w.appendChild(el);
+    });
+  }
+  function hit(b, i, down) {
+    if (ui.cfg.gamepad) { var B = ui.pad.buttons[i]; if (B) { B.pressed = B.touched = down; B.value = down ? 1 : 0; } return; }
+    press(b.code, b.key, b.keyCode, down);
+  }
+  // the gamepad the controls stand in for, next to any real ones (only for a game that reads gamepads and no keys)
+  (function () {
+    var nav = navigator, real = nav.getGamepads; if (typeof real !== 'function') return;
+    var t0 = performance.now();
+    nav.getGamepads = function () {
+      var list = Array.prototype.slice.call(real.apply(nav, arguments) || []);
+      if (!ui.padOn) return list;
+      var i = 0; while (list[i]) i++;
+      list[i] = { id: 'HearthCade touch controls (STANDARD GAMEPAD Vendor: 0000 Product: 0000)', index: i, connected: true, mapping: 'standard', timestamp: performance.now() - t0, axes: ui.pad.axes.slice(), buttons: ui.pad.buttons.map(function (b) { return { pressed: b.pressed, touched: b.touched, value: b.value }; }), vibrationActuator: null };
+      return list;
+    };
+  })();
+  function padConnected(onNow) {
+    if (ui.padOn === onNow) return; ui.padOn = onNow;
+    try { var ev = new Event(onNow ? 'gamepadconnected' : 'gamepaddisconnected'); Object.defineProperty(ev, 'gamepad', { value: navigator.getGamepads()[0] || null }); window.dispatchEvent(ev); } catch (e) { /* old browser */ }
+  }
+  var lastState = '';
+  function refreshControls() {
+    // a game with touch controls of its own is not offered a second set, unless it asked for them
+    var c = ui.cfg, has = !!c && !ui.off && display.touch && (!!c.stick || c.buttons.length > 0 || c.gamepad) && (!c.own || c.show || ui.gameShow === true);
+    var want = has && (ui.pref != null ? ui.pref : ui.gameShow != null ? ui.gameShow : c.show);
+    var visible = want && !display.paused;
+    if (want) { build(); if (ui.root && ui.root.getAttribute('data-k') !== ui.key) { layout(); ui.root.setAttribute('data-k', ui.key); } }
+    if (ui.root) { if (!visible) releaseAll(); ui.root.classList.toggle('hide', !visible); }
+    ui.shown = !!want;
+    padConnected(!!(want && c && c.gamepad));
+    var state = (has ? 1 : 0) + ':' + (want ? 1 : 0);
+    if (state !== lastState) { lastState = state; toParent({ gcp: 'controls_state', available: has, shown: !!want }); }
+  }
+  function setControls(c) {
+    if (!c || typeof c !== 'object') { ui.cfg = null; refreshControls(); return; }
+    var stick = c.stick === 'wasd' || c.stick === 'arrows' || c.stick === 'both' ? c.stick : null, buttons = [];
+    (Array.isArray(c.buttons) ? c.buttons : []).slice(0, 6).forEach(function (b) {
+      if (!b || typeof b !== 'object') return;
+      var code = String(b.code || ''), key = String(b.key == null ? '' : b.key).slice(0, 12), kc = +b.keyCode || 0;
+      if (!/^(Key[A-Z]|Digit\d|Arrow(Up|Down|Left|Right)|Space|Enter|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Tab|Backspace|Pad[0-3])$/.test(code)) return;
+      buttons.push({ code: code, key: key, keyCode: kc, label: String(b.label || key || code).slice(0, 12) });
+    });
+    ui.cfg = { stick: stick, buttons: buttons, gamepad: !!c.gamepad, show: !!c.show, own: !!c.own_touch };
+    ui.key = JSON.stringify(ui.cfg) + innerWidth + 'x' + innerHeight + JSON.stringify(display.safe);
+    refreshControls();
+  }
+  on(window, 'resize', function () { if (!ui.cfg) return; ui.key = JSON.stringify(ui.cfg) + innerWidth + 'x' + innerHeight + JSON.stringify(display.safe); refreshControls(); });
+  on(window, 'blur', releaseAll);
+  on(document, 'visibilitychange', function () { if (document.visibilityState !== 'visible') releaseAll(); });
+  // what the platform page says: the layout, the player's choice (null: the default), and whether the game is shown at all
+  function controlsFromPage(d) {
+    if ('controlsOn' in d) ui.pref = d.controlsOn === true ? true : d.controlsOn === false ? false : null;
+    if ('controls' in d && JSON.stringify(d.controls || null) !== JSON.stringify(ui.fromPage || null)) { ui.fromPage = d.controls || null; if (!ui.fromGame) setControls(ui.fromPage); }
+    touchCss(); if (ui.cfg) { ui.key = JSON.stringify(ui.cfg) + innerWidth + 'x' + innerHeight + JSON.stringify(display.safe); } refreshControls();
+  }
+  // adaptive pixel density: a game that keeps missing frames on a phone or tablet is drawn with fewer pixels (part 1)
+  (function () {
+    if (!TL.dprCap) return;
+    var lastF = 0, slow = 0, STEPS = [2, 1.5, 1.25];
+    setInterval(function () {
+      var f = S.frames, n = f - lastF; lastF = f;
+      if (!S.ready || display.paused || document.visibilityState !== 'visible' || !TL.dprCap) { slow = 0; return; }
+      slow = n >= 5 && n <= 26 ? slow + 1 : 0;   // drawing, but slowly (a game that draws nothing is just idle)
+      if (slow < 4) return; slow = 0;
+      var cur = Math.min(TL.dprCap, TL.dprReal()), next = STEPS.filter(function (v) { return v < cur - 0.01; })[0];
+      if (!next) return;
+      TL.dprCap = next; S.pixelRatio = next;
+      try { window.dispatchEvent(new Event('resize')); } catch (e) { /* old browser */ }
+    }, 1000);
+  })();
+
   // ---- GPU warm-up. Every page in the browser shares one GPU process, so a game that builds all its shaders and uploads
   // all its textures in one go stalls the GPU for everything else, the platform page around it included, until it is done.
   // Done here for every game, so no game has to know about it:
@@ -970,7 +1324,43 @@
         edgeToEdge: true (in fullscreen the game covers the whole screen, under the notch and the rounded corners too, and
         keeps its own buttons inside display.safe; left out, the platform keeps the whole frame clear of them, which leaves
         black bars on phones with a notch) }. */
-    setDisplay: function (prefs) { prefs = prefs || {}; try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ } },
+    setDisplay: function (prefs) {
+      prefs = prefs || {};
+      // touchControls: 'none' when the game has touch controls of its own (the platform's stick and buttons never show);
+      // pixelRatio: 'native' to see the screen's real devicePixelRatio on phones and tablets (set it before reading it).
+      if (prefs.touchControls === 'none' || prefs.touchControls === 'auto') { ui.off = prefs.touchControls === 'none'; refreshControls(); }
+      if (prefs.pixelRatio === 'native') { TL.dprCap = 0; S.pixelRatio = 0; }
+      try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ }
+    },
+    /** The platform's on-screen controls for touch screens: a stick and buttons that press the game's keys. They show by
+        themselves on phones and tablets when the game is played with keys and has no touch controls of its own; the
+        layout comes from gcp.json "controls" or from the keys the platform found in the code, and the player can hide or
+        show them in the game menu. All optional:
+          GCP.controls.set({ stick: 'wasd' | 'arrows' | 'both' | null, buttons: [{ code: 'Space', label: 'Jump' }, …] })
+                                   another layout from now on (a vehicle, a menu); set(null) goes back to the platform's
+          GCP.controls.show() / hide()   while the game wants them (hide them on a title screen played by tapping, say)
+          GCP.controls.shown       whether they are up right now */
+    controls: {
+      set: function (layout) {
+        if (layout == null) { ui.fromGame = false; setControls(ui.fromPage); return; }
+        var keys = { Space: [' ', 32], Enter: ['Enter', 13], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16], ControlLeft: ['Control', 17], AltLeft: ['Alt', 18], Tab: ['Tab', 9], Backspace: ['Backspace', 8], ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39] };
+        var buttons = (Array.isArray(layout.buttons) ? layout.buttons : []).map(function (b) {
+          var code = typeof b === 'string' ? b : String(b && (b.code || b.key) || ''), k = keys[code] || (/^Key[A-Z]$/.test(code) ? [code.slice(3).toLowerCase(), code.charCodeAt(3)] : /^Digit\d$/.test(code) ? [code.slice(5), 48 + +code.slice(5)] : null);
+          return k ? { code: code, key: k[0], keyCode: k[1], label: String(b && b.label || (code === 'Space' ? 'Space' : code.replace(/^(Key|Digit)/, '').replace(/(Left|Right)$/, ''))).slice(0, 12) } : null;
+        }).filter(Boolean);
+        ui.fromGame = true; setControls({ stick: layout.stick, buttons: buttons, gamepad: false, show: layout.show !== false });
+      },
+      show: function () { ui.gameShow = true; refreshControls(); },
+      hide: function () { ui.gameShow = false; refreshControls(); },
+      get shown() { return ui.shown && !display.paused; },
+    },
+    /** What the player is holding: { touch (a finger is the main pointer), phone, tablet, ios, android, pixelRatio (the
+        devicePixelRatio the game is given: the screen's, or less on phones and tablets, see setDisplay pixelRatio) }. */
+    get device() {
+      var ua = navigator.userAgent || '', ios = /iP(hone|ad|od)/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1), android = /Android/.test(ua);
+      var small = Math.min(screen.width || 0, screen.height || 0) < 600;
+      return { touch: display.touch, phone: display.touch && small, tablet: display.touch && !small, ios: ios, android: android, pixelRatio: window.devicePixelRatio, screenPixelRatio: TL.dprReal() };
+    },
   };
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !e.repeat && escFn) runEscape(e); }, true);
   // A game without onEscape: an Esc it did not take for itself (preventDefault) opens the platform menu.
@@ -1235,10 +1625,11 @@
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
     display.paused = !!d.paused; display.menu = !!d.menu;
-    markDisplay(); guard();
+    markDisplay(); guard(); controlsFromPage(d);
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
   toParent({ gcp: 'display_query' });
+  TL.mine = false;   // from here on, listeners are the game's (part 1 of the touch layer counts them)
   // What the verifier reads. The game runs in the same page, so the verifier's view is a read-only window onto the SDK's own
   // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
   var view = {};
