@@ -37,3 +37,21 @@ export function freeTrendingOrder(boostPercent: number, a = 'p'): string {
   const goodEnough = `(${a}.rating_sum + 3.5 * 3) * 1.0 / (${a}.rating_count + 3) >= 3`;
   return `${a}.recent * (CASE WHEN ${a}.open_implementation = 1 AND ${goodEnough} THEN ${(100 + b) / 100} ELSE 1 END) DESC, ${a}.plays DESC, ${a}.published_at DESC`;
 }
+
+/**
+ * A page of free games in the same order as freeTrendingOrder, without sorting every free game. The boost only scales a
+ * game's recent score within its own group (boosted: shares its Open Implementation and is rated well enough; or not),
+ * so the first `offset + limit` games of the boosted order are always among the first `offset + limit` of each group in
+ * plain trending order, which an index reads directly. The two short lists are merged with the boosted order.
+ * Placeholders: the WHERE arguments, then `offset + limit`, the WHERE arguments again, `offset + limit`, `limit` and
+ * `offset` (freeTrendingArgs). Returns null when there is no boost: the plain trending order is already indexed.
+ */
+export function freeTrendingQuery(boostPercent: number, select: string, from: string, where: string): string | null {
+  const b = Math.max(0, Math.min(100, Math.round(Number(boostPercent) || 0)));
+  if (!b) return null;
+  const boosted = `(p.open_implementation = 1 AND (p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) >= 3)`;
+  const part = (cond: string, g: number) => `SELECT * FROM (SELECT ${select}, ${g} AS boost_group FROM ${from} WHERE ${where} AND ${cond} ORDER BY p.recent DESC, p.plays DESC, p.published_at DESC LIMIT ?)`;
+  return `SELECT * FROM (${part(boosted, 1)} UNION ALL ${part(`NOT ${boosted}`, 0)})
+    ORDER BY recent * (CASE WHEN boost_group = 1 THEN ${(100 + b) / 100} ELSE 1 END) DESC, plays DESC, published_at DESC LIMIT ? OFFSET ?`;
+}
+export const freeTrendingArgs = (args: unknown[], limit: number, offset: number) => [...args, offset + limit, ...args, offset + limit, limit, offset];

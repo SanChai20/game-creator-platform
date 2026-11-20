@@ -179,13 +179,16 @@ export type ChallengeResult = { ok: true; userId: string; kind: 'totp' | 'recove
  * Answers a sign-in challenge. A good code ends the challenge and names the account to sign in. A wrong one counts
  * against it; after CHALLENGE_TRIES wrong codes, or five minutes, it is gone and the sign-in starts again from the password.
  */
-export async function answerChallenge(env: Env, tk: string, code: string, at = now()): Promise<ChallengeResult> {
+export async function answerChallenge(env: Env, tk: string, code: string, at = now(), perAccount?: (userId: string) => Promise<void>): Promise<ChallengeResult> {
   if (!tk || tk.length > 100) return { ok: false, reason: 'expired' };
   const id = await sha256(tk);
   // the try is counted before the code is checked, so parallel guesses all count
   const c = await env.DB.prepare('UPDATE login_challenges SET attempts = attempts + 1 WHERE id = ?1 AND expires_at > ?2 AND attempts < ?3 RETURNING user_id')
     .bind(id, at, CHALLENGE_TRIES).first<{ user_id: string }>();
   if (!c) { await env.DB.prepare('DELETE FROM login_challenges WHERE id = ?').bind(id).run(); return { ok: false, reason: 'expired' }; }
+  // A limit per account as well as per challenge: whoever has the password can start challenge after challenge (from many
+  // networks), and five guesses each would otherwise add up to thousands of guesses at the six digits a day.
+  if (perAccount) await perAccount(c.user_id);
   const kind = await useCode(env, c.user_id, code, at);
   if (!kind) return { ok: false, reason: 'bad_code' };
   await env.DB.prepare('DELETE FROM login_challenges WHERE id = ?').bind(id).run();

@@ -9,7 +9,7 @@ import { getSettings } from '../settings';
 import { assertGameDataRoom } from '../db-guard';
 import { owns } from '../earnings';
 import { TRIAL_MIN_CHARGE_S, trialOpenStmts } from '../trials';
-import { clamp, now, safeEqual } from '../util';
+import { clamp, now, readCapped, safeEqual } from '../util';
 import { regionHint } from '../placement';
 import { eloChanges, matchRequest } from '../match-making';
 import { getProject, getVersion, verKey } from '../projects';
@@ -82,7 +82,15 @@ rt.use('*', async (c, next) => {
 
 const MAX_ERROR_KINDS = 200;
 const MAX_BOARDS = 50, MAX_SCORE = 1e15;
-const body = async (c: { req: { text(): Promise<string> } }) => { try { return JSON.parse(await c.req.text()) as Record<string, any>; } catch { throw bad('Body must be JSON.'); } };
+// Every call's body is read before its token can be checked (the token travels in it), so it is read only up to a cap:
+// a stranger posting a huge body must not make the Worker hold and parse it. The largest legitimate body is one save
+// value (256 KB of JSON) with its key and token.
+export const RT_BODY_MAX = 1024 * 1024;
+const body = async (c: { req: { raw: Request } }) => {
+  const raw = await readCapped(c.req.raw, RT_BODY_MAX);
+  if (!raw) throw new AppError(413, 'Request body too large (1 MB at most).', 'too_large');
+  try { return JSON.parse(new TextDecoder().decode(raw)) as Record<string, any>; } catch { throw bad('Body must be JSON.'); }
+};
 
 // The game's heartbeat. It reports what only the game knows: that it started (GCP.ready), its frame count and the errors
 // it hit, which the creator's analytics show as reported by the game. It moves no play number: sessions, counted plays,

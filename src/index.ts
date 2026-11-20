@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
 import { sessionToken, userFromRequest } from './auth';
 import { gameBindings, rolloutRuntime } from './deploy';
-import { purgeOldVersions, purgeRemovedGameData, retireIdlePreviews } from './cleanup';
+import { eachStmt, purgeOldVersions, purgeRemovedGameData, retireIdlePreviews } from './cleanup';
 import { reapDebugSessions } from './debug';
 import { purgeOldFeedback } from './feedback';
 import { dispatchGame, type Namespace } from './dispatch';
@@ -315,7 +315,9 @@ export default {
     if (event.cron !== DAILY_CRON) return;
     job('payouts', () => autoPayouts(env));
     const t = now();
-    job('cleanup', () => env.DB.batch([
+    // Each statement runs on its own: they are independent, and one that runs out of time on a big table must not roll
+    // back the others (a single batch is one transaction), or nothing would ever be cleaned up again.
+    job('cleanup', () => eachStmt([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM uploads WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),

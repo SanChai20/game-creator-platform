@@ -191,7 +191,7 @@ admin.get('/money', async (c) => {
   const db = c.env.DB;
   const [purchases, payments, withdrawals] = await Promise.all([
     db.prepare('SELECT x.id, x.price_cents, x.fee_cents, x.net_cents, x.status, x.provider, x.created_at, p.title, p.slug, b.email AS buyer, o.email AS creator FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users b ON b.id = x.user_id JOIN users o ON o.id = x.owner_id ORDER BY x.created_at DESC LIMIT 200').all(),
-    db.prepare('SELECT y.id, y.amount_cents, y.provider, y.status, y.created_at, u.email FROM payments y JOIN users u ON u.id = y.user_id ORDER BY y.created_at DESC LIMIT 200').all(),
+    db.prepare('SELECT y.id, y.amount_cents, y.provider, y.status, y.created_at, u.email FROM payments y CROSS JOIN users u ON u.id = y.user_id ORDER BY y.created_at DESC LIMIT 200').all(),
     db.prepare('SELECT w.id, w.amount_cents, w.method, w.details, w.status, w.error, w.provider_ref, w.created_at, w.settled_at, u.email, u.name FROM withdrawals w JOIN users u ON u.id = w.user_id ORDER BY (w.status = \'pending\') DESC, w.created_at DESC LIMIT 200').all(),
   ]);
   return c.json({ purchases: purchases.results, payments: payments.results, withdrawals: withdrawals.results });

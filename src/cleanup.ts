@@ -88,3 +88,15 @@ export async function purgeRemovedGameData(env: Env, max = 20): Promise<string[]
   }
   return rows.results.map((r) => r.id);
 }
+
+/** Runs independent statements one by one; every one is tried, and the job fails afterwards if any of them did. */
+export async function eachStmt(stmts: D1PreparedStatement[]): Promise<number> {
+  const failed: string[] = [];
+  let changes = 0;
+  for (const st of stmts) {
+    try { changes += (await st.run()).meta.changes || 0; }
+    catch (e) { failed.push(String((e as Error).message || e).slice(0, 200)); }
+  }
+  if (failed.length) throw new Error(`${failed.length} of ${stmts.length} cleanup statements failed: ${failed.join('; ')}`);
+  return changes;
+}
