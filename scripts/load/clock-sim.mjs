@@ -3,7 +3,8 @@
 // each sends to the database and, for the Durable Object clock, to Durable Object storage:
 //   database  every check-in is src/play-clock.ts checkIn, every heartbeat the statements src/routes/rt.ts legacyBeat runs
 //   objects   every check-in and heartbeat goes to the player's PlayClock (src/clock-do.ts), which batches the database
-// Players check in and send a heartbeat every 15 seconds (CHECKIN_MS), as the page and the game do. Nothing is sent
+// Players check in every 30 seconds (CHECKIN_MS, the page) and send a heartbeat every 15 (the game). CHECKIN_S=15
+// simulates the earlier rhythm. Nothing is sent
 // anywhere: Durable Objects are stood in for by plain objects with a storage that counts its writes.
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -14,7 +15,7 @@ register('data:text/javascript,' + encodeURIComponent(`export async function res
 register('../../tests/ts-hook.mjs', import.meta.url);
 
 const [PLAYERS = 20000, MINUTES = 30, GAMES = 500] = process.argv.slice(2).map(Number);
-const STEP = 15_000, MIN_SECONDS = 30;
+const STEP = Number(process.env.CHECKIN_S || 30) * 1000, BEAT = 15_000, MIN_SECONDS = 30;
 // EVICT=1: every request reaches a newly started object (only its storage survives), the worst a real one can see
 const EVICT = process.env.EVICT === '1';
 let now = Date.parse('2026-11-20T09:00:00Z');
@@ -109,21 +110,23 @@ async function run(mode) {
   for (let tick = t0 + STEP; tick <= end; tick += 1000) {
     now = tick;
     for (const p of players) {
-      if ((tick - p.at) % STEP !== 0 || tick <= p.at) continue;
-      checkins++; beats++; p.frames += 900;
+      if (tick <= p.at || (tick - p.at) % BEAT !== 0) continue;
+      const checking = (tick - p.at) % STEP === 0;
+      beats++; p.frames += 900; if (checking) checkins++;
       if (mode === 'database') {
         // the sign-in lookup the middleware does, then the check-in
-        await db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?').bind('login' + p.user.slice(3), tick).first();
-        const r = await checkIn(env, { play_min_seconds: MIN_SECONDS }, p.sid, p.user, STEP, tick);
-        if (!r.ok) refused++;
+        if (checking) {
+          await db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?').bind('login' + p.user.slice(3), tick).first();
+          const r = await checkIn(env, { play_min_seconds: MIN_SECONDS }, p.sid, p.user, STEP, tick);
+          if (!r.ok) refused++;
+        }
         // the heartbeat (src/routes/rt.ts): the binding check, the session, the update
         await bindingProblem(db, { s: p.sid, u: p.user, g: p.game, e: 'live', k: 'player' }, tick);
         const row = await db.prepare('SELECT * FROM plays WHERE id = ?').bind(p.sid).first();
         await db.batch([db.prepare('UPDATE plays SET last_beat_at = ?, frames = ?, ready = 1, errors = ? WHERE id = ?').bind(tick, p.frames, row.errors, p.sid)]);
       } else {
         const c = clocks.get(p.user);
-        const r = await c.checkIn(p.sid, p.user, STEP, tick, MIN_SECONDS);
-        if (!r.ok) refused++;
+        if (checking) { const r = await c.checkIn(p.sid, p.user, STEP, tick, MIN_SECONDS); if (!r.ok) refused++; }
         await c.beat({ sid: p.sid, player: p.user, frames: p.frames, errors: [], fatal: false, t: tick, human_min_seconds: 60, tok: { g: p.game, e: 'live', u: p.user, k: 'player', s: p.sid } });
       }
     }

@@ -72,7 +72,7 @@ export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null), ticket = useRef<string | null>(null);
-  // While the game is open, this page checks in with the platform every 15 seconds: the platform's own play clock, which
+  // While the game is open, this page checks in with the platform every 30 seconds: the platform's own play clock, which
   // every play number comes from (plays, play time, players online, trial and refund time), not the game's heartbeats.
   usePlayClock(url ? session.current : null, url ? ticket.current : null);
   const [rating, setRating] = useState(0), [body, setBody] = useState('');

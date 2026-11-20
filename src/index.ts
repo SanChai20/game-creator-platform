@@ -89,7 +89,7 @@ app.use('/api/*', async (c, next) => {
     // A browser always says where a cookie-carrying mutation comes from; one that says neither is refused.
     if (!o && sessionToken(c.req.raw) && site !== 'same-origin' && site !== 'none') throw new AppError(403, 'Cross-site request refused.', 'csrf');
   }
-  // A ticketed play-clock check-in (every 15 s per open game) needs no sign-in lookup: the route reads its ticket instead.
+  // A ticketed play-clock check-in (every 30 s per open game) needs no sign-in lookup: the route reads its ticket instead.
   const ticketed = m === 'POST' && c.req.header(CLOCK_HEADER) && /^\/api\/plays\/[^/]+\/seen$/.test(path);
   c.set('user', path === '/api/stripe/webhook' || ticketed ? null : await userFromRequest(c.env, c.req.raw));
   await next();

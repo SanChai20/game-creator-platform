@@ -1,7 +1,7 @@
 # The play clock at scale
 
 Every play number the platform shows (counted plays, play time, players online, the player's record, refund play time)
-comes from the play clock: the page showing a game checks in every 15 seconds, and the game sends a heartbeat every 15
+comes from the play clock: the page showing a game checks in every 30 seconds, and the game sends a heartbeat every 15
 seconds. With the database play clock (`src/play-clock.ts`), each check-in and heartbeat is about 11 database
 statements. At 20,000 players online that is roughly 14,500 statements a second on one D1 database, far more than one
 database can run.
@@ -22,7 +22,7 @@ and the database is written in batches:
 
 ## Restarts
 
-A Durable Object that is idle for 10 seconds can be shut down, and check-ins come every 15 seconds, so a clock can
+A Durable Object that is idle for 10 seconds can be shut down, and heartbeats come every 15 seconds, so a clock can
 start fresh before any request. It never trusts its memory: every check-in that changes the book is saved to the
 object's own storage before the answer goes back, and whatever was sent to a tally or written to the database is saved
 in the same turn, so a restored clock never owes anything twice. A GameTally saves each add before acknowledging it.
@@ -31,7 +31,7 @@ check that nothing is lost or counted twice.
 
 ## What it costs and saves
 
-`scripts/load/clock-sim.mjs 20000 30 500` runs both clocks' real code for 20,000 players in 500 games for 30 simulated
+`CHECKIN_S=15 node scripts/load/clock-sim.mjs 20000 30 500` (the first rhythm, check-ins every 15 seconds) runs both clocks' real code for 20,000 players in 500 games for 30 simulated
 minutes against an in-memory copy of the database, with every object restarted before every request:
 
 | Per minute, 20,000 players | Database clock | Durable Object clock |
@@ -43,10 +43,20 @@ minutes against an in-memory copy of the database, with every object restarted b
 
 Plays counted, session seconds, player records, game totals and daily totals are identical in both runs.
 
-At Workers Paid prices, 20,000 players online around the clock for a month cost about $1,200 in Durable Object
-requests, $4,800 in Durable Object storage writes and $450 in database writes for the play clock. The database clock
-would write $20,500 a month in rows and could not keep up. Most of the cost is one storage write per check-in, so
-checking in every 30 seconds instead of 15 would roughly halve it.
+Check-ins came every 15 seconds when this was first measured; they now come every 30 (heartbeats stay at 15, the game
+SDK's rhythm). `EVICT=1 CHECKIN_S=15|30 node scripts/load/clock-sim.mjs 2000 30 50`, per minute:
+
+| 2,000 players | Check-ins every 15 s | Check-ins every 30 s |
+| --- | --- | --- |
+| Durable Object requests | 18,396 | 14,267 (22% fewer) |
+| Durable Object storage writes | 11,094 | 7,032 (37% fewer) |
+| Database rows written | 1,018 | 1,020 |
+
+Totals are identical either way. At Workers Paid prices, 20,000 players online around the clock for a month cost about
+$900 in Durable Object requests, $3,000 in Durable Object storage writes and $450 in database writes for the play clock,
+about $4,350 in all (about $6,450 with 15-second check-ins, so a third less). The database clock would write $20,500 a month in rows and could not keep up.
+Most of what is left is one storage write per heartbeat, so a 30-second heartbeat in the game SDK would be the next
+halving.
 
 Numbers lag: game totals and players online by up to about a minute, a player's record by up to 5 minutes (refunds
 flush first, so they are exact).

@@ -19,7 +19,7 @@ Creator licenses (`POST /api/billing/license` with `plan` "term" or "lifetime", 
 **Refunds.** A buyer refunds a game themselves from its page (`POST /api/games/:slug/refund`) when it was bought less
 than `refund_window_hours` ago (default 24) and played less than `refund_max_play_minutes` (default 30, free trial
 included), once per game. Play time is the platform's own measure: each session counts from when the platform started
-it to the last check-in of the store page showing the game, which checks in every 15 seconds (`plays.seen_at`, see
+it to the last check-in of the store page showing the game, which checks in every 30 seconds (`plays.seen_at`, see
 `src/play-clock.ts`). The game's heartbeats and service calls do not count, so a game can neither hide play time nor
 keep a session going after the player left to block a refund. After that a purchase is final; an admin can still refund
 from the console where the law requires it. Game checkouts collect a required consent checkbox (Checkout's

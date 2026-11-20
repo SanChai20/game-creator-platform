@@ -17,7 +17,7 @@ import { trialOpenStmts } from './trials';
 import { playRecordStmt, scopeOf } from './player-data.js';
 
 /** How often the page showing a game checks in while the game is open. */
-export const CHECKIN_MS = 15_000;
+export const CHECKIN_MS = 30_000;
 /** One check-in never credits more than this, however long since the last one (the tab was throttled, the computer slept). */
 export const MAX_CREDIT_MS = 60_000;
 /** Check-ins closer together than this are ignored (a double send). */

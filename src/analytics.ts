@@ -8,7 +8,7 @@ import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
 import { getSettings } from './settings';
 
-export const ONLINE_WINDOW_MS = 60_000;        // four missed check-ins of the page showing the game and a player no longer counts as online
+export const ONLINE_WINDOW_MS = 90_000;        // three check-ins of the page showing the game missed and a player no longer counts as online
 const ROOM_STALE_MS = 12 * 3600_000;    // presence rows older than this are from a room that never said goodbye
 
 export type Device = 'phone' | 'tablet' | 'desktop' | 'other';
@@ -40,7 +40,7 @@ export async function onlineNow(env: Env, pid: string) {
     at: new Date(t).toISOString(),
     online: { live: of('live').players, preview: of('preview').players, live_sessions: of('live').sessions },
     rooms: { live: liveRooms.length, players_in_rooms: liveRooms.reduce((a, r) => a + r.players, 0), busiest: rooms.results.slice(0, 10).map((r) => ({ room: r.room, env: r.env, players: r.players, since: new Date(r.updated_at).toISOString() })) },
-    note: 'Online means the page showing the game checked in with the platform in the last minute (it does every 15 seconds while the game is open). The game\'s own heartbeats do not count. Rooms count players connected to GCP.room right now, as the room servers see them.',
+    note: 'Online means the page showing the game checked in with the platform in the last 90 seconds (it does every 30 seconds while the game is open). The game\'s own heartbeats do not count. Rooms count players connected to GCP.room right now, as the room servers see them.',
   };
 }
 
@@ -107,7 +107,7 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
     },
     definitions: {
       session: 'One launch of the live game by a signed-in player, started by the platform when they press Play (your own plays and the verifier are left out).',
-      play_time: 'Time the game was on screen on the page that shows it, measured by the platform from that page\'s check-ins every 15 seconds, never from the game. Sessions from before the platform measured it this way used the game\'s heartbeats.',
+      play_time: 'Time the game was on screen on the page that shows it, measured by the platform from that page\'s check-ins every 30 seconds, never from the game. Sessions from before the platform measured it this way used the game\'s heartbeats.',
       counted_play: 'A session with at least the platform\'s minimum play time, at most one per player an hour (a player\'s sessions open side by side share one clock); this is what the marketplace counts.',
       returning_player: 'A player in this window who had played on an earlier day too.',
       device: 'From the browser that pressed Play on the platform\'s page.',

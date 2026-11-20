@@ -4,7 +4,7 @@
 // session ends, and each game's GameTally writes the day's totals, the game's totals and who is online in one batch
 // every 30 seconds. The rules are the database play clock's (src/play-clock.ts), applied by src/clock-core.ts.
 //
-// A clock can be shut down whenever it is idle, even for the 15 seconds between two check-ins, so it never trusts its
+// A clock can be shut down whenever it is idle, even for the 30 seconds between two check-ins, so it never trusts its
 // memory: the book is saved to the object's own storage with every check-in that changed it (one row written), before
 // the answer goes back. Heartbeats only change what a lost heartbeat would not miss (frames, the time of the last one),
 // so they are saved with the next check-in, unless they change something that matters (the game started, an error).

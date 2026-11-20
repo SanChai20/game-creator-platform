@@ -1383,7 +1383,7 @@
  "Show more": "Mostrar más",
  "Bought, not played yet": "Comprados, sin jugar todavía",
  "{returning_players} of {players} players": "{returning_players} de {players} jugadores",
- "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 15 seconds while the game is on screen. Nothing the game reports about itself changes them.": "Las sesiones, el tiempo de juego y los jugadores los mide la plataforma: desde que un jugador pulsa Jugar y con los avisos que la página del juego envía cada 15 segundos mientras el juego está en pantalla. Nada de lo que el juego informa sobre sí mismo los cambia.",
+ "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 30 seconds while the game is on screen. Nothing the game reports about itself changes them.": "Las sesiones, el tiempo de juego y los jugadores los mide la plataforma: desde que un jugador pulsa Jugar y con los avisos que la página del juego envía cada 30 segundos mientras el juego está en pantalla. Nada de lo que el juego informa sobre sí mismo los cambia.",
  "Reported by the game": "Informado por el juego",
  "for finding bugs; not used in any number above": "para encontrar errores; no se usa en ninguna cifra de arriba",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "Esto lo envía el propio juego con su latido, así que la plataforma no puede confirmarlo: si llegó a GCP.ready y los errores que capturó.",

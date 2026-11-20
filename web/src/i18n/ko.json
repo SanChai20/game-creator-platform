@@ -1384,7 +1384,7 @@
  "Show more": "더 보기",
  "Bought, not played yet": "구매함, 아직 플레이 안 함",
  "{returning_players} of {players} players": "{players}명 중 {returning_players}명",
- "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 15 seconds while the game is on screen. Nothing the game reports about itself changes them.": "세션, 플레이 시간, 플레이어 수는 플랫폼이 직접 측정합니다. 플레이어가 플레이를 누른 시점부터, 그리고 게임이 화면에 있는 동안 게임 페이지가 15초마다 보내는 확인 신호로 측정합니다. 게임이 스스로 보고하는 내용은 이 숫자를 바꾸지 않습니다.",
+ "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 30 seconds while the game is on screen. Nothing the game reports about itself changes them.": "세션, 플레이 시간, 플레이어 수는 플랫폼이 직접 측정합니다. 플레이어가 플레이를 누른 시점부터, 그리고 게임이 화면에 있는 동안 게임 페이지가 30초마다 보내는 확인 신호로 측정합니다. 게임이 스스로 보고하는 내용은 이 숫자를 바꾸지 않습니다.",
  "Reported by the game": "게임이 보고한 내용",
  "for finding bugs; not used in any number above": "버그 찾기용이며 위의 어떤 숫자에도 쓰이지 않습니다",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "이 내용은 게임이 하트비트로 직접 보낸 것이라 플랫폼이 확인할 수 없습니다. GCP.ready에 도달했는지와 게임이 잡은 오류입니다.",

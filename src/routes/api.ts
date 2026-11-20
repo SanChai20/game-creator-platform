@@ -734,7 +734,7 @@ api.post('/games/:slug/buy', async (c) => {
   return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`, true);
 });
 
-// The page showing a game (the store page, or the console's preview) checks in every 15 seconds while the game is open,
+// The page showing a game (the store page, or the console's preview) checks in every 30 seconds while the game is open,
 // saying how long the game was on screen since the last check-in. This is the platform's play clock (src/play-clock.ts):
 // it runs on the platform's own origin with the player's sign-in, so the game, on another origin, cannot send it. Every
 // play number (counted plays, play time, players online, the player's record, trial time, refund play time) comes from it.

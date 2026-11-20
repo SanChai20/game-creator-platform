@@ -1,10 +1,10 @@
 // The platform's play clock, page side (the server side is src/play-clock.ts). While a game is open, the page showing it
-// checks in every 15 seconds with how long the game was on screen since the last check-in. The page runs on the
+// checks in every 30 seconds with how long the game was on screen since the last check-in. The page runs on the
 // platform's own origin with the player's sign-in, so the game cannot send or change these; every play number the
 // platform shows (plays, play time, players online, the player's record, trial and refund time) comes from them.
 import { useEffect } from 'react';
 
-export const CHECKIN_MS = 15_000;
+export const CHECKIN_MS = 30_000;
 
 /** `clock` is the ticket POST /play handed out with the session: with it a check-in needs no sign-in lookup on the server. */
 export function usePlayClock(session: string | null, clock?: string | null) {
