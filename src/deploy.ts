@@ -108,7 +108,7 @@ export async function gameBindings(env: Env, origin: string, p: Project, v: Vers
   return {
     PREFIX: verKey(p.id, v.n, ''), PLATFORM: origin, GAME_ID: p.id, SLUG: p.slug, TITLE: p.title, VERSION: String(v.n), ENV: e,
     // the game Worker needs the import map and flags, not the compatibility record (bindings are size-limited)
-    MANIFEST: (() => { try { const { compat: _c, meta: _m, ...m } = JSON.parse(v.manifest || '{}'); return JSON.stringify(m); } catch { return v.manifest; } })(), PLAY_KEY: await playKey(env, p.id), STORE_KEY: await storeKey(env, p.id, e),
+    MANIFEST: (() => { try { const { compat: _c, meta: _m, controls: _t, ...m } = JSON.parse(v.manifest || '{}'); return JSON.stringify(m); } catch { return v.manifest; } })(), PLAY_KEY: await playKey(env, p.id), STORE_KEY: await storeKey(env, p.id, e),
   };
 }
 

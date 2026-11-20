@@ -218,7 +218,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>

@@ -450,12 +450,14 @@ api.get('/games/:slug', async (c) => {
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
     // ...and the rest of what the build declares: languages, players, session, progress, accessibility, the age rating.
-    ...(v ? await ensureVersionMeta(c.env, v).then(({ compat, meta }) => ({
+    // ...and the on-screen controls the player hands the game on touch screens.
+    ...(v ? await ensureVersionMeta(c.env, v).then(({ compat, meta, controls }) => ({
+      controls,
       compat: { requirements: compat.requirements, declared: compat.declared, download_bytes: compat.download_bytes },
       meta: { ...meta.meta, rating: meta.rating, languages: meta.languages.languages, languages_declared: meta.languages.declared, declared: meta.declared, multiplayer: meta.detected.multiplayer },
       // adults only: the page blurs the cover and asks the player to confirm before the game starts (POST /play enforces it)
       mature: matureOf(meta.meta.content).categories,
-    })).catch(() => ({ compat: null, meta: null, mature: matureList(p) })) : { compat: null, meta: null, mature: matureList(p) }),
+    })).catch(() => ({ controls: null, compat: null, meta: null, mature: matureList(p) })) : { controls: null, compat: null, meta: null, mature: matureList(p) }),
   });
 });
 

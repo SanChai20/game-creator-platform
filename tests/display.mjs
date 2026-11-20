@@ -265,3 +265,52 @@ test('roundRect draws the standard path: corners, radius lists, oversize radii a
   assert.throws(() => draw(0, 0, 10, 10, [1, 2, 3, 4, 5]), RangeError);
   assert.deepEqual(draw(NaN, 0, 10, 10, 2), [], 'non-finite sizes draw nothing');
 });
+
+// ---- the touch layer: on-screen controls and the pixel-density guard ----
+const SCREEN = { innerWidth: 844, innerHeight: 390, screen: { width: 844, height: 390 } };
+const KB_CONTROLS = { v: 1, source: 'detected', mode: 'auto', show: true, stick: 'wasd', buttons: [{ code: 'Space', key: ' ', keyCode: 32, label: 'Space' }], gamepad: false, own_touch: false, evidence: '' };
+const touchDisplay = (extra) => ({ gcp: 'display', fullscreen: true, mode: 'fullscreen', touch: true, safe: {}, ...extra });
+const lastState = (posted) => posted.filter((m) => m.gcp === 'controls_state').pop();
+
+test('a keyboard game on a touch screen gets the on-screen controls, and the player can hide them', () => {
+  const { GCP, posted, send } = loadSdk(SCREEN);
+  send(touchDisplay({ controls: KB_CONTROLS, controlsOn: null }));
+  assert.deepEqual({ ...lastState(posted) }, { gcp: 'controls_state', available: true, shown: true });
+  send(touchDisplay({ controls: KB_CONTROLS, controlsOn: false }));
+  assert.equal(lastState(posted).shown, false);
+  assert.equal(GCP.controls.shown, false);
+});
+
+test('no controls on a computer, for a game with its own touch controls, or when the game turns them off', () => {
+  let { posted, send } = loadSdk(SCREEN);
+  send(touchDisplay({ touch: false, controls: KB_CONTROLS }));
+  assert.ok(!lastState(posted) || !lastState(posted).available);
+  ({ posted, send } = loadSdk(SCREEN));
+  send(touchDisplay({ controls: { ...KB_CONTROLS, show: false, own_touch: true } }));
+  assert.ok(!lastState(posted) || !lastState(posted).available);
+  const s = loadSdk(SCREEN);
+  s.send(touchDisplay({ controls: KB_CONTROLS }));
+  s.GCP.setDisplay({ touchControls: 'none' });
+  assert.equal(lastState(s.posted).available, false);
+});
+
+test('the game can bring the controls up and change them', () => {
+  const { GCP, posted, send } = loadSdk(SCREEN);
+  send(touchDisplay({ controls: { ...KB_CONTROLS, show: false } }));
+  assert.equal(lastState(posted).shown, false);
+  GCP.controls.show();
+  assert.equal(lastState(posted).shown, true);
+  GCP.controls.hide();
+  assert.equal(lastState(posted).shown, false);
+});
+
+test('on phones and tablets devicePixelRatio reads at most 2, unless the game asks for the real one', () => {
+  const touch = { matchMedia: () => ({ matches: true }), devicePixelRatio: 3 };
+  let { win, GCP } = loadSdk({ ...SCREEN, ...touch });
+  assert.equal(win.devicePixelRatio, 2);
+  assert.equal(GCP.device.screenPixelRatio, 3);
+  GCP.setDisplay({ pixelRatio: 'native' });
+  assert.equal(win.devicePixelRatio, 3);
+  ({ win } = loadSdk({ ...SCREEN, devicePixelRatio: 3 }));   // a computer: untouched
+  assert.equal(win.devicePixelRatio, 3);
+});

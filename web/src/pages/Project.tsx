@@ -258,7 +258,7 @@ export function Project({ id }: { id: string }) {
           // frame it no longer shows, which a game can take for a slow device and lower its picture quality for good.
           return <div className="fb-stack">
             <div ref={stageBox} inert={shot ? true : undefined} aria-hidden={shot ? true : undefined}>
-              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} />
+              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} />
             </div>
             {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} redraw={() => shot.alt ?? stage.current!.capture(true)} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
           </div>;

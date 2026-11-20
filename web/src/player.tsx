@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
 import { artStyle, getLang, t, useLang } from './lib';
 import { Button } from './ui';
+import { sanitizeControls, type TouchControls } from './touch-controls';
 import './player.css';
 
 // What a game may do inside the player. Never allow-top-navigation: a game must not be able to replace the platform's page
@@ -79,18 +80,32 @@ type Orient = ScreenOrientation & { lock?: (o: string) => Promise<void>; unlock?
 const lockOrientation = (o: Orientation) => { if (o === 'any') return; try { void (screen.orientation as Orient | undefined)?.lock?.(o)?.catch(() => {}); } catch { /* not supported */ } };
 const unlockOrientation = () => { try { (screen.orientation as Orient | undefined)?.unlock?.(); } catch { /* not supported */ } };
 
-// While immersive, the page under the game must not scroll or zoom: the viewport is pinned at scale 1.
+// While immersive, the page under the game must not scroll or zoom: the viewport is pinned at scale 1. While a game runs
+// on a phone or tablet at all, the page is kept from zooming too (maximum-scale): a double tap on the game, or a tap in one
+// of its text fields (iOS zooms into fields with small text), would otherwise zoom the whole page around it.
 const LOCKED_VIEWPORT = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+const vp = { orig: null as string | null, immersive: 0, pinned: 0 };
+function applyViewport() {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]'); if (!meta) return;
+  if (vp.orig == null) vp.orig = meta.content;
+  const base = vp.orig;
+  meta.content = vp.immersive ? LOCKED_VIEWPORT : vp.pinned ? base.replace(/,?\s*maximum-scale=[^,]*/i, '') + ', maximum-scale=1' : base;
+  if (!vp.immersive && !vp.pinned) vp.orig = null;
+}
 function lockPage(): () => void {
-  const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]'), was = meta?.content, y = scrollY;
-  if (meta) meta.content = LOCKED_VIEWPORT;
+  const y = scrollY;
+  vp.immersive++; applyViewport();
   document.documentElement.classList.add('gcp-play');
   return () => {
     document.documentElement.classList.remove('gcp-play');
-    if (meta && was != null) meta.content = was;
+    vp.immersive = Math.max(0, vp.immersive - 1); applyViewport();
     scrollTo(0, y);
   };
 }
+/** The player's own choice about the on-screen controls for one game (null: the platform's default for it). */
+const controlsKey = (seed: string) => 'gcp.controls.' + seed;
+function readControlsPref(seed: string): boolean | null { try { const v = localStorage.getItem(controlsKey(seed)); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } }
+function saveControlsPref(seed: string, on: boolean) { try { localStorage.setItem(controlsKey(seed), on ? '1' : '0'); } catch { /* private mode */ } }
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 /** The watchdog: how long a game may go without answering before the player offers Wait or Quit game (ms). */
@@ -119,7 +134,9 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools }: {
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls }: {
+  /** The version's on-screen controls for touch screens (from the API); the SDK in the game draws them. */
+  controls?: TouchControls | null;
   /** Extra buttons in the bar under the game (the console's preview puts its feedback capture there). */
   tools?: ReactNode;
   poster: string | null; seed: string; url: string | null; children?: ReactNode; onTrialOver?: () => void;
@@ -141,6 +158,10 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const [prefs, setPrefs] = useState<{ orientation?: Orientation; exit?: Corner; edge?: boolean }>({});
   const [insets, setInsets] = useState<Insets>(NO_INSETS);
   const [turned, setTurned] = useState(false), [portrait, setPortrait] = useState(() => innerHeight > innerWidth);
+  // On-screen controls: whether the game has any to offer here (the SDK says), and the player's choice for this game.
+  const [padState, setPadState] = useState<{ available: boolean; shown: boolean }>({ available: false, shown: false });
+  const [padPref, setPadPref] = useState<boolean | null>(() => readControlsPref(seed));
+  const padCfg = sanitizeControls(controls);
   // The watchdog: the game is asked every second whether it is alive (the SDK answers from the game's main thread).
   const [hung, setHung] = useState(false), waitBtn = useRef<HTMLButtonElement>(null), waitRef = useRef<() => void>(() => {});
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
@@ -169,7 +190,9 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   }, [want, goImmersive, pushPlay]);
   const exit = useCallback(() => {
     setMenu(false); exitFs();
-    if (unlock.current) { if (history.state?.gcpPlay) history.back(); else leaveImmersive(); }   // back: the popstate below cleans up
+    // Leave at once, then drop the play entry. Leaving first matters: Quit calls exit() twice (here and when the url
+    // clears), and a second back while the first is still in flight would take the player off the page.
+    if (unlock.current) { const entry = !!history.state?.gcpPlay; leaveImmersive(); if (entry) history.back(); }
   }, [leaveImmersive]);
   const toggle = useCallback(() => (fsElement() === box.current || unlock.current ? exit() : enter()), [enter, exit]);
   toggleRef.current = toggle;
@@ -234,8 +257,17 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung, menu }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung]);
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung, menu, controls: padCfg, controlsOn: padPref }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, JSON.stringify(padCfg), padPref]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
+  useEffect(() => { if (!url) setPadState({ available: false, shown: false }); }, [url]);
+  const togglePad = useCallback(() => { const next = !padState.shown; saveControlsPref(seed, next); setPadPref(next); setMenu(false); frame.current?.focus(); }, [padState.shown, seed]);
+  // No page zoom while a game runs on a phone or tablet (see applyViewport).
+  useEffect(() => {
+    if (!url || !handheld) return;
+    vp.pinned++; applyViewport();
+    return () => { vp.pinned = Math.max(0, vp.pinned - 1); applyViewport(); };
+  }, [url, handheld]);
   useEffect(() => { post(); }, [post]);
   // The platform language, switched on the page while the game runs: the game keeps running and is told (GCP.lang, GCP.onLang).
   const lang = useLang();
@@ -256,6 +288,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       }));
       if (d.gcp === 'display_query') { post(); postLang(); }
       if (d.gcp === 'escape') gameEsc.current = d.on === true;
+      if (d.gcp === 'controls_state') setPadState({ available: d.available === true, shown: d.shown === true });
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
     };
@@ -325,6 +358,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
               <b>{t('Paused', '已暂停')}</b>
               {badge && <span className="stage-badge">{badge}</span>}
               <button ref={menuBtn} type="button" className="stage-btn primary" onClick={resume}>{t('Resume', '继续游戏')}</button>
+              {padState.available && <button type="button" className="stage-btn" onClick={togglePad}>{padState.shown ? t('Hide on-screen controls', '隐藏屏幕按键') : t('Show on-screen controls', '显示屏幕按键')}</button>}
               <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
               {iosTip && <span className="stage-hint">{t('For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.', '想要不会被滑动打断的全屏，请点“分享”，再点“添加到主屏幕”，然后从主屏幕打开游玩。')}</span>}
