@@ -1891,6 +1891,85 @@
     // a game that is not drawing (paused, turn-based, a page of elements): take what the canvases hold now
     timer = setTimeout(function () { if (armed < 0) { compose(); finish(); } }, 500);
   }
+  // Where the platform's menu button may sit (web/src/menu-spot.ts). The player asks about a few spots over the game; for each
+  // the page says what is under it: 0 nothing, 1 a canvas (what it draws is unknown), 2 text or a picture, 3 something to tap
+  // (a button, a link, a field, anything with a pointer cursor or a click handler, the on-screen controls). Only the page's
+  // layout is read, never its content, and nothing is sent but the numbers.
+  var TAPPABLE = /^(A|BUTTON|INPUT|SELECT|TEXTAREA|LABEL|SUMMARY|DETAILS|OPTION)$/, ROLES = /^(button|link|tab|menuitem|checkbox|radio|switch|slider|option|combobox|spinbutton|textbox)$/;
+  function isBackdrop(el) { var r = el.getBoundingClientRect(); return r.width >= innerWidth * 0.9 && r.height >= innerHeight * 0.9; }
+  function alphaOf(c) { var m = /rgba?\(([^)]+)\)/.exec(c || ''); if (!m) return c && c !== 'transparent' ? 1 : 0; var p = m[1].split(/[\s,\/]+/).filter(Boolean); return p.length > 3 ? parseFloat(p[3]) : 1; }
+  // Something the player sees there: a picture, text, or a panel with a background, border or shadow of its own.
+  function painted(el) {
+    if (/^(IMG|PICTURE)$/.test(el.tagName) || (typeof SVGElement !== 'undefined' && el instanceof SVGElement)) return true;
+    for (var c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 3 && /\S/.test(c.nodeValue)) return true;
+    try {
+      var cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || +cs.opacity < 0.05) return false;
+      return cs.backgroundImage !== 'none' || alphaOf(cs.backgroundColor) > 0.05 || (parseFloat(cs.borderTopWidth) > 0 && alphaOf(cs.borderTopColor) > 0.05) || (cs.boxShadow && cs.boxShadow !== 'none');
+    } catch (e) { return false; }
+  }
+  function tappable(top) {
+    if (top.tagName === 'GCP-TOUCH-CONTROLS') return true;
+    // Up to the first layer over (nearly) the whole page: that is the game's root or a backdrop, often focusable or clickable
+    // as a whole, never a button.
+    for (var x = top, n = 0; x && x !== document.body && x !== document.documentElement && n < 12 && x.tagName !== 'CANVAS' && !isBackdrop(x); x = x.parentElement, n++) {
+      if (TAPPABLE.test(x.tagName) || ROLES.test(x.getAttribute('role') || '') || typeof x.onclick === 'function' || (x.hasAttribute('tabindex') && x.tabIndex >= 0) || x.isContentEditable) return true;
+    }
+    // A pointer cursor marks a thing to click, except on a canvas or a layer over the whole page (games set it there for the whole game).
+    if (top.tagName === 'CANVAS' || isBackdrop(top)) return false;
+    try { return getComputedStyle(top).cursor === 'pointer'; } catch (e) { return false; }
+  }
+  function pointScore(x, y) {
+    var top = document.elementFromPoint(x, y);
+    if (!top || top === document.documentElement || top === document.body) return 0;
+    if (tappable(top)) return 3;
+    var all = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [top];
+    for (var i = 0; i < all.length && i < 24; i++) {
+      var el = all[i];
+      if (el === document.documentElement || el === document.body) return 0;
+      if (/^(CANVAS|VIDEO|IFRAME|EMBED|OBJECT)$/.test(el.tagName)) return 1;
+      if (isBackdrop(el)) return 1;
+      if (painted(el)) return 2;
+    }
+    return 0;
+  }
+  // Panels, text and pictures of the game's own HUD: often pointer-events: none, which elementFromPoint does not see, so the
+  // page's elements are looked at directly (their boxes only, a few thousand at most).
+  function paintedBoxes() {
+    var out = [], all = document.body ? document.body.getElementsByTagName('*') : [];
+    for (var i = 0; i < all.length && i < 4000; i++) {
+      var el = all[i]; if (/^(SCRIPT|STYLE|LINK|META|CANVAS|VIDEO|IFRAME|GCP-TOUCH-CONTROLS)$/.test(el.tagName)) continue;
+      var r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2 || r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight) continue;
+      if (r.width >= innerWidth * 0.9 && r.height >= innerHeight * 0.9) continue;
+      out.push([el, r]);
+    }
+    return out;
+  }
+  function seen(el) { try { for (var x = el; x && x !== document.documentElement; x = x.parentElement) { var cs = getComputedStyle(x); if (cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity < 0.05) return false; } } catch (e) { return false; } return true; }
+  function menuProbe(rects) {
+    if (!rects || !rects.length || !document.elementFromPoint) return [];
+    var boxes = null;
+    return Array.prototype.slice.call(rects, 0, 16).map(function (r) {
+      var x = +r[0], y = +r[1], w = +r[2], h = +r[3], worst = 0;
+      if (!(isFinite(x) && isFinite(y) && w > 0 && h > 0)) return 1;
+      [[0.5, 0.5], [0.15, 0.15], [0.85, 0.15], [0.15, 0.85], [0.85, 0.85], [0.5, 0.15], [0.5, 0.85], [0.15, 0.5], [0.85, 0.5]].forEach(function (p) {
+        var px = Math.min(innerWidth - 1, Math.max(0, x + w * p[0])), py = Math.min(innerHeight - 1, Math.max(0, y + h * p[1]));
+        var s; try { s = pointScore(px, py); } catch (err) { s = 1; }
+        if (s > worst) worst = s;
+      });
+      if (worst < 2) {
+        try {
+          boxes = boxes || paintedBoxes();
+          var need = Math.min(w * h * 0.12, 120);
+          for (var i = 0; i < boxes.length; i++) {
+            var b = boxes[i][1], ow = Math.min(x + w, b.right) - Math.max(x, b.left), oh = Math.min(y + h, b.bottom) - Math.max(y, b.top);
+            if (ow > 0 && oh > 0 && ow * oh >= need && painted(boxes[i][0]) && seen(boxes[i][0])) { worst = 2; break; }
+          }
+        } catch (err) { /* layout not readable: keep what the points said */ }
+      }
+      return worst;
+    });
+  }
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (e.source === window.parent && d && d.gcp === 'capture') {
@@ -1903,6 +1982,7 @@
     if (e.source === window.parent && d && d.gcp === 'ping') { toParent({ gcp: 'pong', n: d.n, frames: S.frames }); return; }
     if (e.source === window.parent && d && d.gcp === 'escape_key' && escFn) { runEscape(null); return; }
     if (e.source === window.parent && d && d.gcp === 'lang') { setLang(d.lang); return; }
+    if (e.source === window.parent && d && d.gcp === 'menu_probe') { toParent({ gcp: 'menu_probe_result', id: String(d.id || '').slice(0, 40), scores: menuProbe(d.rects) }); return; }
     if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };

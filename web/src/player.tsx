@@ -13,10 +13,11 @@
 // open the platform menu (GCP.menu) or quit (GCP.quit), and can keep Esc for itself (GCP.onEscape). Switching the
 // platform language on the page does not restart the game: it is told the new language (GCP.lang, GCP.onLang). A watchdog pings it
 // every second and offers Wait or Quit game when it stops answering.
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode, type Ref } from 'react';
 import { artStyle, getLang, t, useLang } from './lib';
 import { Button } from './ui';
 import { sanitizeControls, type TouchControls } from './touch-controls';
+import { SIZE, candidates, choose, parseSpot, place, probeRect, spotAt, type Area, type Placed, type Spot } from './menu-spot';
 import './player.css';
 
 // What a game may do inside the player. Never allow-top-navigation: a game must not be able to replace the platform's page
@@ -106,6 +107,16 @@ function lockPage(): () => void {
 const controlsKey = (seed: string) => 'gcp.controls.' + seed;
 function readControlsPref(seed: string): boolean | null { try { const v = localStorage.getItem(controlsKey(seed)); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } }
 function saveControlsPref(seed: string, on: boolean) { try { localStorage.setItem(controlsKey(seed), on ? '1' : '0'); } catch { /* private mode */ } }
+/** Where the player dragged the menu button for one game, per orientation (null: the platform picks, see menu-spot.ts). */
+const spotKey = (seed: string, portrait: boolean) => 'gcp.menu.' + seed + (portrait ? '.p' : '.l');
+function readSpot(seed: string, portrait: boolean): Spot | null { try { return parseSpot(localStorage.getItem(spotKey(seed, portrait))); } catch { return null; } }
+function saveSpot(seed: string, portrait: boolean, s: Spot) { try { localStorage.setItem(spotKey(seed, portrait), JSON.stringify({ side: s.side, t: +s.t.toFixed(3) })); } catch { /* private mode */ } }
+/** The one-time note beside the menu button ("drag to move"), once per device. */
+const HINT_KEY = 'gcp.menu.hint';
+function hintSeen(): boolean { try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return true; } }
+function markHintSeen() { try { localStorage.setItem(HINT_KEY, '1'); } catch { /* private mode */ } }
+/** How often the spot is checked again while the game plays: its screens change, and a button may appear under ours. */
+const SPOT_RECHECK_MS = 1500;
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 /** The watchdog: how long a game may go without answering before the player offers Wait or Quit game (ms). */
@@ -340,16 +351,112 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const sideways = active && handheld && !turned && want !== 'any' && (want === 'landscape' ? portrait : !portrait);
   const corner = prefs.exit ?? 'top-left';
   const iosTip = active && handheld && isIOS() && !isInstalled();
+  // The menu button's spot (menu-spot.ts): a margin beside the game when the screen has one, otherwise the spot over the
+  // game that the game's page says is free, or wherever the player dragged it.
+  const declared = prefs.exit && prefs.exit !== 'none' ? prefs.exit : null;
+  const showBtn = active && !!url && !menu && !hung && corner !== 'none';
+  const [spot, setSpot] = useState<Placed | null>(null), spotRef = useRef<Placed | null>(null); spotRef.current = spot;
+  const [drag, setDrag] = useState<{ x: number; y: number } | null>(null), dragRef = useRef<{ x: number; y: number } | null>(null);
+  const grab = useRef<{ id: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null), noClick = useRef(0);
+  const [hint, setHint] = useState(false);
+  const area = useCallback((): Area | null => {
+    const el = box.current; if (!el || !el.clientWidth || !el.clientHeight) return null;
+    return { w: el.clientWidth, h: el.clientHeight, ...(edge ? NO_INSETS : insets) };
+  }, [edge, insets]);
+  const probe = useCallback((rects: number[][]) => new Promise<(number | undefined)[]>((resolve) => {
+    const win = frame.current?.contentWindow; if (!win || !rects.length) { resolve([]); return; }
+    const id = Math.random().toString(36).slice(2, 12);
+    const done = (e: MessageEvent) => {
+      if (e.source !== frame.current?.contentWindow || e.data?.gcp !== 'menu_probe_result' || e.data.id !== id) return;
+      clearTimeout(timer); removeEventListener('message', done);
+      resolve(Array.isArray(e.data.scores) ? e.data.scores.map((n: unknown) => (typeof n === 'number' ? n : undefined)) : []);
+    };
+    // A game that does not answer (busy, or an older page) leaves the spots in their usual order.
+    const timer = setTimeout(() => { removeEventListener('message', done); resolve([]); }, 600);
+    addEventListener('message', done);
+    win.postMessage({ gcp: 'menu_probe', id, rects }, '*');
+  }), []);
+  useEffect(() => {
+    if (!showBtn || drag) return;
+    let live = true, busy = false;
+    // The first check after a start, a rotation or a resize places the button afresh; the checks while the game plays only
+    // move it off something to tap (see choose).
+    // Text or a picture that stays under it for a few checks (a new screen, not a passing damage number) moves it too.
+    let settled = false, covered = 0;
+    const check = async (fresh = false) => {
+      if (fresh) { settled = false; covered = 0; }
+      const a = area(); if (busy || !a) return;
+      busy = true;
+      try {
+        const mine = readSpot(seed, a.h > a.w);
+        let pick: Placed | null;
+        if (mine) pick = place(mine, a);
+        else {
+          const cands = candidates(a, declared), scores: (number | undefined)[] = [];
+          const over = cands.map((p, i) => [p, i] as const).filter(([p]) => !p.margin);
+          if (!cands[0]?.margin && over.length) { const got = await probe(over.map(([p]) => probeRect(p, a))); over.forEach(([, i], k) => { scores[i] = got[k]; }); }
+          const cur = spotRef.current, at = cur ? cands.findIndex((p) => p.side === cur.side && Math.abs(p.t - cur.t) < 0.02) : -1;
+          covered = at >= 0 && (scores[at] ?? 0) >= 2 ? covered + 1 : 0;
+          pick = choose(cands, scores, cur, settled && covered < 3);
+        }
+        settled = true;
+        if (live) setSpot((o) => (o && pick && o.x === pick.x && o.y === pick.y && o.size === pick.size ? o : pick));
+      } finally { busy = false; }
+    };
+    void check(true);
+    const i = setInterval(() => void check(), SPOT_RECHECK_MS), r = () => void check(true);
+    addEventListener('resize', r); addEventListener('orientationchange', r);
+    return () => { live = false; clearInterval(i); removeEventListener('resize', r); removeEventListener('orientationchange', r); };
+  }, [showBtn, drag, area, seed, declared, probe]);
+  // The first time a player sees the button on this device, a note beside it says that it can be dragged.
+  useEffect(() => {
+    if (!showBtn || !spot || hintSeen()) return;
+    markHintSeen(); setHint(true);
+    const t1 = setTimeout(() => setHint(false), 5000);
+    return () => clearTimeout(t1);
+  }, [showBtn, !!spot]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Dragging the button: it follows the finger or mouse, then snaps to the nearest edge (or into the margin there) and stays.
+  const onBtnDown = (e: RPointerEvent<HTMLButtonElement>) => {
+    if (!spot || e.button > 0) return;
+    grab.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: spot.x, oy: spot.y, moved: false };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* old browser */ }
+  };
+  const onBtnMove = (e: RPointerEvent<HTMLButtonElement>) => {
+    const g = grab.current; if (!g || g.id !== e.pointerId) return;
+    const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
+    if (!g.moved && Math.hypot(dx, dy) < 10) return;
+    const a = area(); if (!a) return;
+    g.moved = true; setHint(false);
+    const pos = { x: Math.max(0, Math.min(a.w - SIZE, g.ox + dx)), y: Math.max(0, Math.min(a.h - SIZE, g.oy + dy)) };
+    dragRef.current = pos; setDrag(pos);
+  };
+  const onBtnUp = (e: RPointerEvent<HTMLButtonElement>) => {
+    const g = grab.current; if (!g || g.id !== e.pointerId) return;
+    grab.current = null;
+    if (!g.moved) return;   // a tap: the click that follows opens the menu
+    noClick.current = performance.now() + 400;
+    const a = area(), pos = dragRef.current;
+    if (a && pos && e.type === 'pointerup') { const s = spotAt(pos.x, pos.y, a); saveSpot(seed, a.h > a.w, s); setSpot(place(s, a)); }
+    dragRef.current = null; setDrag(null); frame.current?.focus();
+  };
+  const onBtnClick = () => { if (performance.now() < noClick.current) return; setMenu(true); };
+  const btn = drag ? { ...drag, size: SIZE, side: 'left' as const, margin: false } : spot;
   return (
     <div>
       <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '')} ref={box}>
         {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
-        {active && url && !menu && !hung && (corner !== 'none' || badge) && (
-          <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner)}>
-            {corner !== 'none' && <button type="button" onClick={() => setMenu(true)} aria-label={t('Game menu', '游戏菜单')} title={t('Game menu', '游戏菜单')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>}
-            {badge && <span className="stage-badge">{badge}</span>}
+        {active && url && !menu && !hung && corner === 'none' && badge && (
+          <div className="stage-exit top-left"><span className="stage-badge">{badge}</span></div>
+        )}
+        {showBtn && btn && (
+          <div className={'stage-exit placed ' + btn.side + (btn.margin ? ' margin' : '') + (drag ? ' dragging' : '')}
+            style={btn.side === 'right' ? { right: (box.current?.clientWidth ?? 0) - btn.x - btn.size, top: btn.y } : { left: btn.x, top: btn.y }}>
+            <button type="button" style={{ width: btn.size, height: btn.size }} onClick={onBtnClick} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}
+              aria-label={t('Game menu', '游戏菜单')} title={t('Game menu (drag to move)', '游戏菜单（可拖动）')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>
+            {hint && !drag && <span className="stage-tip">{t('Game menu · drag to move it', '游戏菜单 · 可拖动换位置')}</span>}
+            {badge && !hint && <span className="stage-badge">{badge}</span>}
           </div>
         )}
         {active && url && menu && (
@@ -362,6 +469,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
               <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
               {iosTip && <span className="stage-hint">{t('For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.', '想要不会被滑动打断的全屏，请点“分享”，再点“添加到主屏幕”，然后从主屏幕打开游玩。')}</span>}
+              {corner !== 'none' && <span className="stage-hint">{t('Menu button in the way? Drag it to another edge.', '菜单按钮挡住了画面？把它拖到别的边上。')}</span>}
               <span className="stage-hint">{handheld ? t('Tap outside this card to go back to the game.', '点击卡片外即可返回游戏。') : t('Press Esc to go back to the game.', '按 Esc 返回游戏。')}</span>
             </div>
           </div>
