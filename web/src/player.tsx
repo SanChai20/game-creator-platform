@@ -237,19 +237,28 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   }, []);
 
   const fsRef = useRef(false);
+  // Ask the game to pause itself; with no answer within half a second (an older page, a busy one), the platform holds it.
+  const askTimer = useRef(0);
+  const askPause = useCallback(() => {
+    const win = frame.current?.contentWindow; if (!win) { setHeld(true); return; }
+    clearTimeout(askTimer.current); askTimer.current = window.setTimeout(() => setHeld(true), 500);
+    win.postMessage({ gcp: 'pause_request' }, '*');
+  }, []);
   // Real fullscreen ends by itself too (holding Esc, the back or swipe gesture): follow it. Esc stays locked while it lasts.
   useEffect(() => {
     const f = () => {
       const on = !!box.current && fsElement() === box.current, was = fsRef.current; fsRef.current = on; setFs(on); escLock(on);
-      // Fullscreen ended by the browser, not by the menu: on a phone or tablet that was the player's Back or swipe, so the
-      // game pauses behind a card (Resume goes back to fullscreen, which needs that tap).
-      if (was && !on && !ourExit.current && urlRef.current && isHandheld()) setHeld(true);
+      // Fullscreen ended by the browser, not by the menu: the player's Esc (Firefox and Safari leave on it, Chrome on a held
+      // Esc), Back or a swipe. That is a request to stop, never a reason to keep playing unseen in a window: the game is
+      // asked to pause. A game with a pause menu of its own opens it; any other is held behind the Paused card (Resume goes
+      // back to fullscreen, which needs that tap). One pause owner at a time, as with Esc.
+      if (was && !on && !ourExit.current && urlRef.current && !hungRef.current) { setMenu(false); askPause(); }
       // Drop the play entry, once any back that ended fullscreen has landed (it may already have taken the entry).
       if (!on) { unlockOrientation(); setTimeout(() => { if (!fsElement() && !unlock.current && history.state?.gcpPlay) history.back(); }, 250); }
     };
     document.addEventListener('fullscreenchange', f); document.addEventListener('webkitfullscreenchange', f);
     return () => { document.removeEventListener('fullscreenchange', f); document.removeEventListener('webkitfullscreenchange', f); };
-  }, []);
+  }, [askPause]);
   // The back gesture or button pauses immersive play instead of leaving the page. In real fullscreen it only takes the play
   // entry: the game stays in fullscreen (a back that the browser itself turns into leaving fullscreen is handled above).
   useEffect(() => {
@@ -316,6 +325,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       }));
       if (d.gcp === 'display_query') { post(); postLang(); }
       if (d.gcp === 'escape') gameEsc.current = d.on === true;
+      if (d.gcp === 'pause_answer') { clearTimeout(askTimer.current); if (d.took !== true) setHeld(true); }
       if (d.gcp === 'controls_state') setPadState({ available: d.available === true, shown: d.shown === true });
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));

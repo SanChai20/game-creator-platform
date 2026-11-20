@@ -37,6 +37,8 @@ game at once, live ones included, with nothing for the creator to do and nothing
 | `pixel-ratio-cap` | Phones and tablets | `devicePixelRatio` reads at most 2 (1.5 with 2 GB of memory or less), lower while a game keeps dropping frames |
 | `pointer-lock-touch` | Phones and tablets | A pointer-lock stand-in: a finger dragging turns the view |
 | `touch-cleanup` | Touch screens | No long-press selection, callout or magnifier, no tap flash, no double-tap zoom |
+| `pause-audio` | Everywhere | While the platform pauses the game (its menu, a card) or the tab is hidden, every running audio context is suspended and every playing `<audio>`/`<video>` paused; exactly those start again afterwards. A context the game suspends or resumes itself meanwhile is the game's. `GCP.setDisplay({ pauseAudio: false })` turns it off |
+| `held-keys` | Everywhere | Keys held down when the game loses the keyboard (the platform menu opens, focus leaves the frame) get their `keyup`, so a character does not walk on after the menu closes. The mouse is released from pointer lock when the platform pauses, so it can reach the menu |
 | `near-miss-taps` | Touch screens | A tap just beside a button of the game's page counts as a tap on it |
 | `mouse-from-finger` | Touch screens, mouse-only games | Mouse events from the finger: drag, two-finger right click, pinch to wheel |
 | `touch-controls` | Touch screens, games played with keys and no touch controls of their own | The platform's stick and buttons press the game's keys (layout from `gcp.json` or the code) |
@@ -67,6 +69,12 @@ What no script can fix is caught before publishing:
   every live game gets it the moment it is deployed.
 
 ## Versions
+
+- **2.1.0** — One pause owner (`GCP.pauseMenu`, `GCP.setPaused`, `GCP.paused`, `GCP.onPause`; see the input guide). An
+  `onEscape` handler that returns nothing now counts as having used Esc (only `false` hands it to the platform), and a
+  game whose own menu comes up on Esc is never given the platform menu as well. When the browser leaves fullscreen by
+  itself the game is asked to pause. New: `pause-audio`, `held-keys`. On-screen controls hide while the game's own menu
+  is up.
 
 - **2.0.0** — The runtime is named and versioned, with `GCP.runtime`. New: `js-builtins`, `structured-clone`,
   `idle-callback`, `webkit-audio`, `vibrate`, `storage`, `fullscreen-api`, `orientation-lock`, `graphics-lost`. Already

@@ -282,12 +282,18 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const importKeys = Object.keys(manifest.imports);
   const mapped = (spec: string, extra: string[]) => [...importKeys, ...extra].some((k) => (k.endsWith('/') ? spec.startsWith(k) : spec === k));
   let sawReady = false, usesGPU = false, bareImports = false;
+  const pauseSeen = { esc: '', menu: false, contract: false };   // a pause menu of the game's own on Esc, and whether it uses the pause contract
   const deviceFiles: { file: string; syntax: unknown[]; apis: unknown[]; lineOffset: number }[] = [];   // what the game's code uses, for the iPhone and iPad checks (findings only: syntax trees are not kept)
 
   const checkJs = (file: string, src: string, kind: 'module' | 'script', lineOffset: number, extraMap: string[]): void => {
     if (/\bGCP\s*\.\s*ready\s*\(/.test(src) || /\bGCP\b/.test(src) && /\.\s*ready\s*\(\s*[^)]{0,80}\)/.test(src)) sawReady = true; // also matches an alias: const G = window.GCP; G.ready()
     if (/@gcp\/craft(2d)?(\.js|\/stage\.js)/.test(src) && /\.\s*run\s*\(/.test(src) && !/ready\s*:\s*false/.test(src)) sawReady = true;   // stage.run() from the craft blocks calls GCP.ready() after the first frames
     if (/navigator\s*\.\s*gpu\b|three\/webgpu|WebGPURenderer/.test(src)) usesGPU = true;
+    if (!/(^|\/)(vendor|libs?|node_modules)\/|\.min\.m?js$/.test(file)) {
+      if (!pauseSeen.esc && /["'`]Esc(ape)?["'`]|keyCode\s*===?\s*27\b/.test(src)) pauseSeen.esc = file;
+      if (/\b(open|show|toggle)_?Pause\w*\s*\(|\bpause_?(Menu|Screen|Overlay|Panel|Modal)\b/i.test(src)) pauseSeen.menu = true;
+      if (/\.\s*(pauseMenu|setPaused)\s*\(|@gcp\/play(\.js)?['"`]/.test(src)) pauseSeen.contract = true;
+    }
     let ast: unknown;
     try { ast = parse(src, { ecmaVersion: 'latest', sourceType: kind, locations: true, allowHashBang: true, allowAwaitOutsideFunction: kind === 'module', allowReturnOutsideFunction: kind === 'script' }); }
     catch (e) {
@@ -385,6 +391,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
     }
   }
 
+  if (pauseSeen.esc && pauseSeen.menu && !pauseSeen.contract) warn({ file: pauseSeen.esc, message: 'The game seems to open a pause menu of its own on Esc, but never tells the platform (GCP.pauseMenu, GCP.setPaused). In fullscreen, players can then get two menus at once, and the platform\'s Resume can run the game under its own menu.', hint: 'At boot call GCP.pauseMenu(() => openPause()); call GCP.setPaused(true) when your pause menu opens and GCP.setPaused(false) when it closes; freeze the game on GCP.onPause / GCP.paused, never open your menu from it. See the input guide, "One pause owner".' });
   if (files.length && !sawReady) err({ message: 'The game never calls GCP.ready().', hint: 'Call GCP.ready() once, right after the first playable frame is drawn (stage.run() from @gcp/craft.js or @gcp/craft2d.js does it for you, unless you pass { ready: false }). An engine export can call it from its index.html or a small JS plugin once the first scene is running. The platform uses it to know the game booted. See get_started {topic: "contract"}.' });
 
   const server = files.filter((f) => f.path.startsWith('server/'));
