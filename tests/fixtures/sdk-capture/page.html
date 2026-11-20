@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><title>sdk capture test</title>
+<style>html, body { margin: 0; background: #222; } iframe { width: 600px; height: 260px; border: 0; }</style></head><body>
+<iframe id="game" src="http://localhost:8932/game.html"></iframe>
+<script>
+  // what the console asks of a preview: a picture of the game, made by the game's own page
+  window.shoot = () => new Promise((ok) => {
+    const f = document.getElementById('game'), id = 'c' + Math.random().toString(36).slice(2);
+    const on = (e) => { if (e.data && e.data.gcp === 'capture_result' && e.data.id === id) { removeEventListener('message', on); ok(e.data); } };
+    addEventListener('message', on); f.contentWindow.postMessage({ gcp: 'capture', id, picture: true }, 'http://localhost:8932');
+    setTimeout(() => ok({ error: 'timeout' }), 15000);
+  });
+</script></body></html>

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
-import { handle, signPlayToken } from '../src/runtime/game-worker.js';
+import { handle, signPlayToken, WORKER_HELPER } from '../src/runtime/game-worker.js';
 import { saveOp, statOp, scopeOf } from '../src/player-data.js';
 import { bindingProblem, claimGuest, claimedGuestCleanupStmts, guestProgress } from '../src/session-binding.js';
 
@@ -228,6 +228,28 @@ test('a game opens and loads its files from the token in the path, with no cooki
   const old = await sign('u_alice', 'ps_1', now() - 10), fresh = await sign('u_alice', 'ps_1');
   assert.equal((await handle(new Request(`https://g.example/~t/${old}/src/main.js`), { ...env, ...files }, {})).status, 401);
   assert.equal((await handle(new Request(`https://g.example/~t/${old}/src/main.js`, { headers: { cookie: `__Host-gcp_t=${fresh}` } }), { ...env, ...files }, {})).status, 200);
+});
+
+// An iPad cannot share a tab, so a preview's feedback picture is drawn by the game's page, which cannot read a canvas a
+// Web Worker draws: a preview's worker scripts come with a helper that copies those canvases when the SDK asks
+test('a preview game’s worker scripts come with the capture helper; its page scripts and live games do not', async () => {
+  const files = { FILES: { get: async (k) => k.endsWith('.html') ? { text: async () => '<html></html>' } : { body: 'self.x=1', size: 8, httpEtag: '"e"', httpMetadata: {}, text: async () => 'self.x=1' } } };
+  const pv = { ...env, ...files, ENV: 'preview' };
+  const pt = await signPlayToken({ g: 'gamea1', e: 'preview', u: 'u_alice', n: 'a', k: 'owner', s: 'ps_1', x: now() + 3600 }, KEY);
+  await withPlatform(() => Response.json({ ok: true }), async () => {
+    const asWorker = { headers: { 'sec-fetch-dest': 'worker' } };
+    const w = await handle(new Request(`https://g.example/~t/${pt}/src/render.js`, asWorker), pv, {});
+    assert.equal(w.status, 200); assert.equal(await w.text(), 'self.x=1' + WORKER_HELPER);
+    assert.match(w.headers.get('vary'), /sec-fetch-dest/, 'a cache keeps the two versions apart');
+    assert.match(w.headers.get('content-type'), /javascript/); assert.equal(w.headers.get('cache-control'), 'no-store');
+    const plain = await handle(new Request(`https://g.example/~t/${pt}/src/render.js`, { headers: { 'sec-fetch-dest': 'script' } }), pv, {});
+    assert.equal(await plain.text(), 'self.x=1', 'the same file loaded by the page is as written');
+    const live = await handle(new Request(`https://g.example/~t/${await sign('u_alice', 'ps_1')}/src/render.js`, asWorker), { ...env, ...files }, {});
+    assert.equal(await live.text(), 'self.x=1', 'a live game is served as written');
+  });
+  // the helper is plain old JavaScript that runs in any worker, module or classic, and only answers the SDK
+  assert.doesNotThrow(() => new Function(WORKER_HELPER));
+  assert.match(WORKER_HELPER, /__gcpw/);
 });
 
 test('a page reopened from a cookie token after signing out shows the gate, not the previous player', async () => {

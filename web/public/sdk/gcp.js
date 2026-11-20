@@ -1688,12 +1688,120 @@
   // ---- creator feedback: the console asks for a picture of the game while its creator plays the preview. Only on the
   // preview, only for the game's owner, only when the platform's own page asks. The picture is what the creator sees:
   //   - every canvas is copied right after the game drew a frame (a WebGL canvas still holds that frame then, whatever
-  //     its settings), so the picture is one frame, frozen;
-  //   - when page elements are showing too (an HTML menu, a collection page, a HUD), the page is redrawn with them at
-  //     that same moment: each element with the styles it has right now (animations stopped where they are), each
-  //     canvas replaced by its copy. Where the browser refuses that (some Safari versions) the canvases alone are sent,
-  //     and the console says page elements are missing.
+  //     its settings), so the picture is one frame, frozen; a canvas the game draws in a Web Worker is copied by the
+  //     worker, right after it drew (see "Canvases the page cannot read" below);
+  //   - when page elements are showing too (an HTML menu, a collection page, a HUD), the browser redraws the page with
+  //     them at that same moment, from the page's own style sheets (pagePicture), each canvas showing its copy. If that
+  //     fails, the older redraw (domPicture: computed styles written on each element) is tried, then the canvases alone
+  //     are sent and the console says page elements are missing.
   var platformOrigin = ''; try { platformOrigin = new URL(cfg.api || location.origin, location.href).origin; } catch (e) { /* no platform */ }
+  // Canvases the page cannot read by itself, seen from the start on the preview (the only place pictures are taken):
+  //   - a canvas handed to a Web Worker (transferControlToOffscreen) is drawn there, and the page only holds a stand-in
+  //     whose pixels it cannot read. The platform adds a small helper to the preview's worker scripts (WORKER_HELPER in
+  //     src/runtime/game-worker.js) that answers on a private channel with a copy of each such canvas, taken right
+  //     after the worker drew a frame on it;
+  //   - a WebGL canvas without preserveDrawingBuffer holds its picture only until the frame is shown. Asked for a
+  //     picture, the page copies it right after the game's next draw call on it, wherever the game draws from (an
+  //     animation frame, a message, a timer).
+  var cap = { ctx: typeof WeakMap === 'function' ? new WeakMap() : null, stand: typeof WeakMap === 'function' ? new WeakMap() : null, workers: [] };
+  // OffscreenCanvas objects in a message, in the order the worker helper finds them in its copy of the message
+  function offscreensIn(v, out, b, d) {
+    if (!v || typeof v !== 'object' || d > 4 || ++b.n > 300 || out.length > 8) return;
+    if (typeof OffscreenCanvas === 'function' && v instanceof OffscreenCanvas) { out.push(v); return; }
+    if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer || (typeof MessagePort === 'function' && v instanceof MessagePort) || (typeof ImageBitmap === 'function' && v instanceof ImageBitmap) || (typeof Blob === 'function' && v instanceof Blob) || v instanceof Date || v instanceof RegExp || (typeof Map === 'function' && v instanceof Map) || (typeof Set === 'function' && v instanceof Set)) return;
+    if (Array.isArray(v)) { for (var i = 0; i < v.length && i < 64; i++) offscreensIn(v[i], out, b, d + 1); return; }
+    var ks = Object.keys(v); for (var j = 0; j < ks.length && j < 64; j++) offscreensIn(v[ks[j]], out, b, d + 1);
+  }
+  if (cfg.env === 'preview' && cap.ctx) (function () {
+    try {
+      var gcx = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function () { var c = gcx.apply(this, arguments); try { if (c && !cap.ctx.has(this)) cap.ctx.set(this, c); } catch (e) { /* kept as it is */ } return c; };
+      var tco = HTMLCanvasElement.prototype.transferControlToOffscreen;
+      if (tco) HTMLCanvasElement.prototype.transferControlToOffscreen = function () { var off = tco.apply(this, arguments); try { cap.stand.set(off, this); } catch (e) { /* kept as it is */ } return off; };
+      var Native = window.Worker; if (typeof Native !== 'function' || typeof Reflect !== 'object' || typeof MessageChannel !== 'function') return;
+      var PM = Native.prototype.postMessage;
+      var recOf = function (w) { for (var i = 0; i < cap.workers.length; i++) if (cap.workers[i].w === w) return cap.workers[i]; return null; };
+      // the worker's canvases, in the order the page handed them over (only a message that transfers one is looked at)
+      Native.prototype.postMessage = function (msg, transfer) {
+        try {
+          var rec = recOf(this), list = transfer && !Array.isArray(transfer) ? transfer.transfer : transfer, has = false;
+          if (rec && list && list.length) for (var i = 0; i < list.length; i++) if (typeof OffscreenCanvas === 'function' && list[i] instanceof OffscreenCanvas) has = true;
+          if (has) { var found = []; offscreensIn(msg, found, { n: 0 }, 0); for (var j = 0; j < found.length; j++) rec.canvases.push(cap.stand.get(found[j]) || null); }
+        } catch (e) { /* the message goes as it is */ }
+        return PM.apply(this, arguments);
+      };
+      var GW = function () {
+        var w = Reflect.construct(Native, arguments, this instanceof GW && this.constructor ? this.constructor : Native), rec = { w: w, port: null, canvases: [], asks: {} };
+        cap.workers.push(rec);
+        // the helper says hello once it runs; the game never sees that, nor anything on the private channel
+        w.addEventListener('message', function (e) {
+          var d = e.data; if (!d || d.__gcpw !== 1) return;
+          e.stopImmediatePropagation(); if (rec.port) return;
+          var ch = new MessageChannel(); rec.port = ch.port1;
+          ch.port1.onmessage = function (m) { var a = m.data && rec.asks[m.data.cap]; if (a) { delete rec.asks[m.data.cap]; a(m.data.frames || []); } };
+          PM.call(w, { __gcpw: 2, port: ch.port2 }, [ch.port2]);
+        }, true);
+        return w;
+      };
+      GW.prototype = Native.prototype;
+      try { Object.setPrototypeOf(GW, Native); } catch (e) { /* static members stay on Worker */ }
+      window.Worker = GW;
+    } catch (e) { /* pictures of worker canvases are left out */ }
+  })();
+  // copies of the canvases drawn by workers: Map(stand-in canvas -> ImageBitmap), whatever arrived within the wait
+  function workerFrames(max) {
+    var out = typeof Map === 'function' ? new Map() : null, waits = [];
+    if (!out) return Promise.resolve(null);
+    cap.workers.forEach(function (rec) {
+      if (!rec.port || !rec.canvases.some(Boolean)) return;
+      var id = Math.random().toString(36).slice(2);
+      waits.push(new Promise(function (ok) {
+        var t = setTimeout(function () { delete rec.asks[id]; ok(); }, 1200);
+        rec.asks[id] = function (frames) { clearTimeout(t); for (var i = 0; i < frames.length && i < rec.canvases.length; i++) if (frames[i] && rec.canvases[i]) out.set(rec.canvases[i], frames[i]); ok(); };
+        try { rec.port.postMessage({ cap: id, max: max }); } catch (e) { clearTimeout(t); ok(); }
+      }));
+    });
+    return Promise.all(waits).then(function () { return out; });
+  }
+  // WebGL canvases on the page that lose their picture once a frame is shown: Map(canvas -> copy) taken right after the
+  // game's next draw call on each (the copy runs once the game's code that drew has returned, before the frame is shown)
+  function glFrames(list, max) {
+    var out = typeof Map === 'function' ? new Map() : null, want = [], saved = [];
+    if (!out || !cap.ctx) return Promise.resolve(null);
+    list.forEach(function (c) {
+      var g = cap.ctx.get(c); if (!g || typeof g.getContextAttributes !== 'function') return;
+      var a = null; try { a = g.getContextAttributes(); } catch (e) { /* lost */ }
+      if (a && !a.preserveDrawingBuffer) want.push(c);
+    });
+    if (!want.length) return Promise.resolve(out);
+    return new Promise(function (ok) {
+      var over = false, queued = false;
+      function copy() {
+        queued = false;
+        for (var i = 0; i < want.length; i++) {
+          var c = want[i]; if (out.has(c) || !c.__gcpDrew) continue;
+          try { var k = Math.min(1, max / Math.max(c.width, c.height)), o = document.createElement('canvas'); o.width = Math.max(1, Math.round(c.width * k)); o.height = Math.max(1, Math.round(c.height * k)); o.getContext('2d').drawImage(c, 0, 0, o.width, o.height); out.set(c, o); } catch (e) { /* left to the direct copy */ }
+        }
+        if (out.size >= want.length) end();
+      }
+      function end() { if (over) return; over = true; clearTimeout(t); saved.forEach(function (s) { s[0][s[1]] = s[2]; }); want.forEach(function (c) { try { delete c.__gcpDrew; } catch (e) { /* fine */ } }); ok(out); }
+      [window.WebGLRenderingContext, window.WebGL2RenderingContext].forEach(function (G) {
+        if (!G) return;
+        ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements', 'clear'].forEach(function (n) {
+          var f = G.prototype[n]; if (typeof f !== 'function') return;
+          saved.push([G.prototype, n, f]);
+          G.prototype[n] = function () {
+            var r = f.apply(this, arguments);
+            try {
+              if (!over && want.indexOf(this.canvas) >= 0 && !this.getParameter(this.FRAMEBUFFER_BINDING)) { this.canvas.__gcpDrew = true; if (!queued) { queued = true; Promise.resolve().then(copy); } }
+            } catch (e) { /* the draw went through */ }
+            return r;
+          };
+        });
+      });
+      var t = setTimeout(end, 700);
+    });
+  }
   var fpsAt = 0, fpsN = 0, fpsNow = 0;
   frameHooks.push(function () { var t = performance.now(); fpsN++; if (!fpsAt) fpsAt = t; if (t - fpsAt >= 1000) { fpsNow = Math.round(fpsN * 1000 / (t - fpsAt)); fpsN = 0; fpsAt = t; } });
   var shown = function (el, st) { st = st || getComputedStyle(el); return st.display !== 'none' && st.visibility !== 'hidden' && +st.opacity !== 0; };
@@ -1848,6 +1956,224 @@
     }
   }
   /**
+   * The page as it is now, drawn by the browser itself from the page's own elements and style sheets, inside an SVG
+   * picture. Styles are not copied onto elements one by one (a browser draws hundreds of copied properties differently
+   * from the rules that made them: Safari squared off shapes and doubled panels that way); the picture gets the page's
+   * rules instead, and only what the rules alone cannot give is added:
+   *   - animations and transitions stop where they are: what each one is animating is written on its element (or its
+   *     ::before / ::after) at its current value, and every other animation is switched off;
+   *   - :hover, :focus, :focus-visible, :focus-within and :active hold for the elements that are in that state now;
+   *   - scrolled boxes keep their scroll, the page keeps its own;
+   *   - each canvas shows its copy (snaps), form fields their values, pictures and fonts of the game's own site are
+   *     embedded (a picture drawn this way cannot load files).
+   * done(dataUrl) or done(null) when the browser cannot draw it.
+   */
+  function pagePicture(snaps, vw, vh, w, h, bg, done) {
+    // copies are made in a document of their own, which loads nothing (a copied <img> or <video> would fetch again)
+    var doc = document.implementation.createHTMLDocument(''), here = location.href.split('#')[0], files = {}, nfiles = 0, n = 0, imgs = 0, ids = typeof Map === 'function' ? new Map() : null, extra = [];
+    var STATES = { hover: ':hover', active: ':active', 'focus-visible': ':focus-visible', 'focus-within': ':focus-within', focus: ':focus' };
+    if (!ids) { done(null); return; }
+    function idOf(el) { var k = ids.get(el); if (!k) { k = String(ids.size + 1); ids.set(el, k); } return k; }
+    function addStyle(el, css) { var k = idOf(el); extra.push({ k: k, css: css }); }
+    function kebab(p) { return /^--/.test(p) ? p : p.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }).replace(/^(webkit|moz)-/, '-$1-'); }
+    // url(...) in a style: a file of this site is fetched below and embedded; a reference into this page stays
+    function urls(v, base) {
+      return v.replace(/url\(\s*(["']?)(.*?)\1\s*\)/g, function (all, q, u) {
+        if (/^(data:|#)/.test(u)) return all;
+        var abs; try { abs = new URL(u, base || here).href; } catch (e) { return 'none'; }
+        var i = abs.indexOf('#'); if (i >= 0 && abs.slice(0, i) === here) return 'url("' + abs.slice(i) + '")';
+        if (/^https?:/.test(abs) && !files[abs] && nfiles < 80) { files[abs] = 1; nfiles++; }
+        return files[abs] ? 'url("' + abs + '")' : 'none';
+      });
+    }
+    // 1. what the rules alone cannot give
+    var anims = []; try { anims = document.getAnimations ? document.getAnimations() : []; } catch (e) { /* none */ }
+    var pseudoCss = [];
+    for (var a = 0; a < anims.length && a < 400; a++) {
+      try {
+        var ef = anims[a].effect, el = ef && ef.target; if (!el || el.nodeType !== 1) continue;
+        var props = {}, kfs = ef.getKeyframes ? ef.getKeyframes() : [];
+        for (var f = 0; f < kfs.length; f++) for (var key in kfs[f]) if (!/^(offset|computedOffset|easing|composite)$/.test(key)) props[kebab(key)] = 1;
+        if (anims[a].transitionProperty) props[anims[a].transitionProperty] = 1;
+        var pe = ef.pseudoElement || null, cs = getComputedStyle(el, pe), decl = '';
+        for (var pname in props) { var val = cs.getPropertyValue(pname); if (val) decl += pname + ':' + urls(val) + ' !important;'; }
+        if (!decl) continue;
+        if (pe) pseudoCss.push('[data-gcp="' + idOf(el) + '"]' + pe + '{' + decl + '}'); else addStyle(el, decl);
+      } catch (e) { /* that one runs on in the picture */ }
+    }
+    var states = {};
+    for (var sname in STATES) { try { var on = document.querySelectorAll(STATES[sname]); for (var o = 0; o < on.length; o++) { var sk = idOf(on[o]); (states[sk] = states[sk] || []).push(sname); } } catch (e) { /* not supported here */ } }
+    // 2. the page's style sheets, in the page's order, with :root as the copied <html> and the held states as attributes
+    var css = [], lost = [], probe = doc.createElement('div').style, covers = {};
+    var SHORT = ['border-radius', 'inset', 'gap', 'place-items', 'place-content', 'place-self', 'grid-area', 'grid-row', 'grid-column', 'border-image', 'font-variant', 'columns', 'border-block', 'border-inline', 'margin-block', 'margin-inline', 'padding-block', 'padding-inline', 'inset-block', 'inset-inline', 'scroll-margin', 'scroll-padding', 'text-emphasis', 'container', 'offset'];
+    function coversIt(sh, name) {
+      var key = sh + '|' + name;
+      if (!(key in covers)) { try { probe.cssText = ''; probe.setProperty(sh, 'inherit'); covers[key] = probe.getPropertyValue(name) === 'inherit'; } catch (e) { covers[key] = false; } }
+      return covers[key];
+    }
+    // A shorthand that uses var() (background: linear-gradient(var(--gold) ...)) is written back by the browser as
+    // empty longhands ("background-image: ;"), which would leave it out of the picture: write such a shorthand whole
+    function decls(st, lostNames) {
+      var out = '', done = {}, fixed = false;
+      for (var i = 0; i < st.length; i++) {
+        var name = st[i], v = st.getPropertyValue(name), pr = st.getPropertyPriority(name) ? ' !important' : '';
+        if (v !== '') { out += name + ': ' + v + pr + '; '; continue; }
+        fixed = true;
+        var parts = name.split('-'), cand = [];
+        for (var j = parts.length - 1; j >= 1; j--) if (parts.slice(0, j).join('-').replace(/^-/, '')) cand.push(parts.slice(0, j).join('-'));
+        cand = cand.concat(SHORT);
+        var found = false;
+        for (var c = 0; c < cand.length && !found; c++) {
+          var sh = cand[c], sv = st.getPropertyValue(sh);
+          if (!sv || !coversIt(sh, name)) continue;
+          if (!done[sh]) { done[sh] = 1; out += sh + ': ' + sv + pr + '; '; }
+          found = true;
+        }
+        if (!found && lostNames) lostNames.push(name);
+      }
+      return fixed ? out : null;
+    }
+    function ruleText(r) {
+      var t = r.cssText, open = t.indexOf('{');
+      try {
+        if (open < 0) return t;
+        if (r.cssRules && r.cssRules.length) {   // @media, @supports, @layer, @keyframes, a nested rule ...
+          var kids = '';
+          for (var k2 = 0; k2 < r.cssRules.length; k2++) kids += ruleText(r.cssRules[k2]) + '\n';
+          return t.slice(0, open) + '{' + (r.style ? decls(r.style) || r.style.cssText : '') + kids + '}';
+        }
+        if (r.style) {
+          var gone = [], d = decls(r.style, gone);
+          if (gone.length && r.selectorText) lost.push({ sel: r.selectorText, names: gone });
+          if (d !== null) return t.slice(0, open) + '{' + d + '}';
+        }
+      } catch (e) { /* as written */ }
+      return t;
+    }
+    function rules(sheet, media, depth) {
+      if (!sheet || depth > 4 || sheet.disabled) return;
+      var list; try { list = sheet.cssRules; } catch (e) { return; }   // another site's sheet: left out
+      var base = sheet.href || here, part = '';
+      for (var i = 0; i < list.length; i++) {
+        var r = list[i];
+        if (r.type === 3) { rules(r.styleSheet, r.media && r.media.mediaText, depth + 1); continue; }   // @import
+        part += ruleText(r) + '\n';
+      }
+      part = urls(part, base);
+      css.push(media && media !== 'all' ? '@media ' + media + '{' + part + '}' : part);
+    }
+    try { for (var si = 0; si < document.styleSheets.length; si++) { var sh = document.styleSheets[si]; rules(sh, sh.media && sh.media.mediaText, 0); } } catch (e) { /* none */ }
+    try { (document.adoptedStyleSheets || []).forEach(function (sh) { rules(sh, sh.media && sh.media.mediaText, 0); }); } catch (e) { /* none */ }
+    // what such a shorthand gave the elements it applies to, from their computed styles (the value the game shows)
+    var PSEUDO = /::?(before|after|marker|placeholder|first-line|first-letter|backdrop|file-selector-button)\s*$/i, nLost = 0;
+    for (var l = 0; l < lost.length && nLost < 3000; l++) {
+      var sels = lost[l].sel.split(/,(?![^(]*\))/);
+      for (var q = 0; q < sels.length; q++) {
+        try {
+          var one = sels[q].trim(), pm = one.match(PSEUDO), pse = pm ? '::' + pm[1].toLowerCase() : null;
+          if (pm) one = one.slice(0, pm.index) || '*';
+          var hits = document.querySelectorAll(one);
+          for (var hh = 0; hh < hits.length && nLost < 3000; hh++, nLost++) {
+            var hcs = getComputedStyle(hits[hh], pse), hd = '';
+            for (var nn = 0; nn < lost[l].names.length; nn++) { var hv = hcs.getPropertyValue(lost[l].names[nn]); if (hv) hd += lost[l].names[nn] + ':' + urls(hv) + ' !important;'; }
+            if (!hd) continue;
+            if (pse) pseudoCss.unshift('[data-gcp="' + idOf(hits[hh]) + '"]' + pse + '{' + hd + '}'); else extra.unshift({ k: idOf(hits[hh]), css: hd });
+          }
+        } catch (e) { /* a selector this page cannot look up */ }
+      }
+    }
+    // 3. the page's elements, as they are (a script, a style or a link stays as an empty element, so :nth-child holds)
+    function pictureOf(el) {
+      if (++imgs > 80) return '';
+      try { var c = document.createElement('canvas'), iw = el.naturalWidth || el.videoWidth, ih = el.naturalHeight || el.videoHeight; if (!iw || !ih) return ''; var k = Math.min(1, 1600 / Math.max(iw, ih)); c.width = Math.max(1, Math.round(iw * k)); c.height = Math.max(1, Math.round(ih * k)); c.getContext('2d').drawImage(el, 0, 0, c.width, c.height); return c.toDataURL('image/png'); } catch (e) { return ''; }
+    }
+    function copy(src) {
+      if (src.nodeType === 3) return doc.importNode(src, false);
+      if (src.nodeType !== 1 || ++n > 8000) return null;
+      var tag = src.tagName.toUpperCase(), el = doc.importNode(src, false), k = ids.get(src);
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE' || tag === 'NOSCRIPT') { el.removeAttribute('src'); return el; }
+      if (tag === 'LINK') { el.removeAttribute('href'); return el; }
+      if (tag === 'IFRAME' || tag === 'OBJECT' || tag === 'EMBED') { el.removeAttribute('src'); el.removeAttribute('srcdoc'); el.removeAttribute('data'); return el; }
+      var style = el.getAttribute('style') || '';
+      if (tag === 'CANVAS') {
+        var u = snaps.get(src) || '', st = getComputedStyle(src), fit = st.objectFit;
+        // the copy as the canvas's background, placed as its picture is (object-fit and object-position)
+        if (u) style += ';background-image:url("' + u + '") !important;background-repeat:no-repeat !important;background-origin:content-box !important;background-position:' + (st.objectPosition || '50% 50%') + ' !important;background-size:' + (fit === 'contain' || fit === 'cover' ? fit : fit === 'none' ? 'auto' : fit === 'scale-down' ? 'contain' : '100% 100%') + ' !important';
+      } else if (tag === 'IMG') {
+        var iu = pictureOf(src); el.removeAttribute('srcset'); el.removeAttribute('sizes'); el.removeAttribute('loading');
+        if (iu) el.setAttribute('src', iu); else el.removeAttribute('src');
+      } else if (tag === 'VIDEO') {
+        var vu = pictureOf(src); el.removeAttribute('src'); el.removeAttribute('poster');
+        if (vu) style += ';background-image:url("' + vu + '") !important;background-repeat:no-repeat !important;background-position:50% 50% !important;background-size:contain !important';
+      } else if (tag === 'INPUT') {
+        if (src.type === 'checkbox' || src.type === 'radio') { if (src.checked) el.setAttribute('checked', ''); else el.removeAttribute('checked'); } else if (src.type !== 'file') el.setAttribute('value', src.value);
+      } else if (tag === 'OPTION') { if (src.selected) el.setAttribute('selected', ''); else el.removeAttribute('selected'); }
+      else if (tag === 'IMAGE' || src.namespaceURI === 'http://www.w3.org/2000/svg' && src.localName === 'image') {
+        var hr = src.getAttribute('href') || src.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || '', hu = urls('url("' + hr + '")').match(/^url\("(.*)"\)$/);
+        el.removeAttributeNS('http://www.w3.org/1999/xlink', 'href'); if (hu) el.setAttribute('href', hu[1]); else el.removeAttribute('href');
+      }
+      if (style.indexOf('url(') >= 0) style = urls(style);
+      if (k) { el.setAttribute('data-gcp', k); if (states[k]) for (var s2 = 0; s2 < states[k].length; s2++) el.setAttribute('data-gcp-' + states[k][s2], ''); }
+      // a scrolled box: its contents move by its scroll, which a picture would otherwise lose
+      var sx = src.scrollLeft || 0, sy = src.scrollTop || 0;
+      for (var c = (tag === 'TEXTAREA' ? null : src.firstChild); c; c = c.nextSibling) {
+        var kid = copy(c); if (!kid) continue;
+        if ((sx || sy) && kid.nodeType === 1 && src !== document.documentElement && src !== document.body) {
+          var tr = getComputedStyle(c).translate, p = tr && tr !== 'none' ? tr.split(/\s+/) : ['0px', '0px'];
+          kid.setAttribute('style', (kid.getAttribute('style') || '') + ';translate:calc(' + (p[0] || '0px') + ' - ' + sx + 'px) calc(' + (p[1] || '0px') + ' - ' + sy + 'px) !important');
+        }
+        el.appendChild(kid);
+      }
+      if (tag === 'TEXTAREA') el.textContent = src.value;
+      if (style) el.setAttribute('style', style);
+      return el;
+    }
+    var html = doc.importNode(document.documentElement, false), body = document.body ? copy(document.body) : null;
+    if (scrollX || scrollY) html.setAttribute('style', (html.getAttribute('style') || '') + ';translate:' + (-scrollX) + 'px ' + (-scrollY) + 'px !important');
+    var hk = ids.get(document.documentElement); if (hk) html.setAttribute('data-gcp', hk);
+    var text = css.join('\n').replace(/:root(?![\w-])/g, 'html').replace(/:(hover|active|focus-visible|focus-within|focus)(?![\w-])/g, function (m, st) { return '[data-gcp-' + st + ']'; });
+    text += '\n*,*::before,*::after{animation:none!important;transition:none!important}\n' + pseudoCss.join('\n');
+    for (var x = 0; x < extra.length; x++) text += '\n[data-gcp="' + extra[x].k + '"]{' + extra[x].css + '}';
+    var styleEl = doc.createElement('style'); styleEl.textContent = text;
+    var head = doc.createElement('head'); head.appendChild(styleEl); html.appendChild(head);
+    if (body) html.appendChild(body);
+    var xml = new XMLSerializer().serializeToString(html);
+    // 4. this site's files the picture names, embedded
+    var list = Object.keys(files), got = {}, budget = 8e6, over = false;
+    var giveUp = setTimeout(function () { render(); }, 3500);
+    function load(u) {
+      var same; try { same = new URL(u).origin === location.origin; } catch (e) { return Promise.resolve(); }
+      return fetch(u, same ? { credentials: 'same-origin' } : { mode: 'cors', credentials: 'omit' }).then(function (r) { return r.ok ? r.blob() : null; }).then(function (b) {
+        if (!b || b.size > budget) return; budget -= b.size;
+        return new Promise(function (ok) { var fr = new FileReader(); fr.onload = function () { got[u] = fr.result; ok(); }; fr.onerror = function () { ok(); }; fr.readAsDataURL(b); });
+      }).catch(function () { /* left out */ });
+    }
+    Promise.all(list.map(load)).then(function () { clearTimeout(giveUp); render(); });
+    function render() {
+      if (over) return; over = true;
+      var x2 = xml.replace(/url\((?:&quot;|")(https?:[^"&]*?(?:&amp;[^"&]*?)*)(?:&quot;|")\)/g, function (all, u) { var d = got[u.replace(/&amp;/g, '&')]; return d ? 'url(&quot;' + d + '&quot;)' : 'none'; });
+      x2 = x2.replace(/ href="(https?:[^"]*)"/g, function (all, u) { var d = got[u.replace(/&amp;/g, '&')]; return d ? ' href="' + d + '"' : ''; });
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + vw + '" height="' + vh + '"><foreignObject x="0" y="0" width="100%" height="100%">' + x2 + '</foreignObject></svg>';
+      var img = new Image(), fin = false, t = setTimeout(function () { if (!fin) { fin = true; done(null); } }, 6000);
+      var draw = function () {
+        var c = document.createElement('canvas'); c.width = w; c.height = h;
+        var cg = c.getContext('2d'); cg.fillStyle = bg; cg.fillRect(0, 0, w, h); cg.drawImage(img, 0, 0, w, h); return c;
+      };
+      img.onload = function () {
+        if (fin) return;
+        // Safari may draw a picture like this before the pictures and fonts inside it are ready: wait for it to be
+        // decoded, draw once, give it a moment and draw again
+        var go = function () {
+          try { draw(); } catch (e) { /* tried again below */ }
+          setTimeout(function () { if (fin) return; fin = true; clearTimeout(t); try { done(draw().toDataURL('image/jpeg', 0.86)); } catch (e) { done(null); } }, 150);
+        };
+        if (img.decode) img.decode().then(go, go); else go();
+      };
+      img.onerror = function () { if (!fin) { fin = true; clearTimeout(t); done(null); } };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }
+  }
+  /**
    * Where a canvas's picture is drawn on screen: inside its border and padding, and inside the bars object-fit leaves
    * (contain, scale-down) or beyond the box it crops to (cover), at its object-position. A canvas stretched to its box
    * (the default) fills it.
@@ -1869,57 +2195,78 @@
   // picture false: only the game's state and counters (the console took the picture itself, from the browser's tab capture)
   function captureGame(id, picture) {
     var vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight), dpr = window.devicePixelRatio || 1;
-    var scale = Math.min(dpr, 1600 / vw, 1600 / vh), out = document.createElement('canvas');
+    var scale = Math.min(dpr, 1600 / vw, 1600 / vh), out = document.createElement('canvas'), max = Math.ceil(Math.max(vw, vh) * scale);
     out.width = Math.round(vw * scale); out.height = Math.round(vh * scale);
-    var g = out.getContext('2d'), drew = 0, done = false, timer = 0, copies = [], bg = '#000';
+    var g = out.getContext('2d'), drew = 0, done = false, timer = 0, grabbed = [], bg = '#000';
     try { var b = getComputedStyle(document.body).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; else { b = getComputedStyle(document.documentElement).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; } } catch (e) { /* no body */ }
-    // every canvas on screen, copied as it is at this moment: the composite for the canvas-only picture, and one copy per
-    // canvas for the picture of the whole page
-    function compose() {
-      g.fillStyle = bg; g.fillRect(0, 0, out.width, out.height); drew = 0; copies = [];
-      var cs = document.querySelectorAll('canvas');
+    function visible() {
+      var cs = document.querySelectorAll('canvas'), list = [];
       for (var i = 0; i < cs.length; i++) {
         var c = cs[i], r = c.getBoundingClientRect(); if (!c.width || !c.height || !onScreen(r, vw, vh)) continue;
-        var st = getComputedStyle(c); if (!shown(c, st)) continue;
+        var st = getComputedStyle(c); if (shown(c, st)) list.push({ c: c, r: r, st: st });
+      }
+      return list;
+    }
+    // asked first, so a worker or a WebGL canvas can hand over the very next frame it draws
+    var fromWorkers = picture ? workerFrames(max) : null, fromGL = picture ? glFrames(visible().map(function (v) { return v.c; }), max) : null;
+    // every canvas on screen, copied as it is at this moment (right after the game drew a frame, when there is one)
+    function grab(inFrame) {
+      grabbed = visible();
+      for (var i = 0; i < grabbed.length; i++) {
+        var it = grabbed[i], c = it.c; it.fresh = inFrame;
+        try { var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(c.width, it.r.width * scale))); k.height = Math.max(1, Math.round(Math.min(c.height, it.r.height * scale))); k.getContext('2d').drawImage(c, 0, 0, k.width, k.height); it.copy = k; } catch (e) { /* not drawable */ }
+      }
+    }
+    // the canvas-only picture and one picture per canvas: a worker's copy for a canvas a worker draws, the copy taken
+    // after the next draw call for a WebGL canvas copied outside a frame, else the copy taken above
+    function paint(wf, gf) {
+      g.fillStyle = bg; g.fillRect(0, 0, out.width, out.height); drew = 0;
+      var snaps = typeof Map === 'function' ? new Map() : null, from = { worker: 0, draw: 0, page: 0 };
+      for (var i = 0; i < grabbed.length; i++) {
+        var it = grabbed[i], c = it.c, src = null;
+        if (wf && wf.get(c)) { src = wf.get(c); from.worker++; } else if (!it.fresh && gf && gf.get(c)) { src = gf.get(c); from.draw++; } else if (it.copy) { src = it.copy; from.page++; }
+        if (!src) continue;
         try {
-          var bx = canvasBox(c, r, st);
+          var bx = canvasBox(c, it.r, it.st);
           g.save();
           if (bx.clip) { g.beginPath(); g.rect(bx.clip.x * scale, bx.clip.y * scale, bx.clip.w * scale, bx.clip.h * scale); g.clip(); }
-          g.globalAlpha = Math.max(0, Math.min(1, +st.opacity || 1)); g.drawImage(c, bx.x * scale, bx.y * scale, bx.w * scale, bx.h * scale); drew++;
+          g.globalAlpha = Math.max(0, Math.min(1, +it.st.opacity || 1)); g.drawImage(src, bx.x * scale, bx.y * scale, bx.w * scale, bx.h * scale); drew++;
           g.restore();
-          var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(c.width, r.width * scale))); k.height = Math.max(1, Math.round(Math.min(c.height, r.height * scale)));
-          k.getContext('2d').drawImage(c, 0, 0, k.width, k.height); copies.push([c, k]);
-        } catch (e) { /* not drawable */ }
+          if (snaps) { var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(src.width, it.r.width * scale))); k.height = Math.max(1, Math.round(Math.min(src.height, it.r.height * scale))); k.getContext('2d').drawImage(src, 0, 0, k.width, k.height); snaps.set(c, k.toDataURL('image/png')); }
+        } catch (e) { /* not drawable, or tainted: left blank */ }
       }
       g.globalAlpha = 1;
+      return { snaps: snaps, from: from };
     }
-    function send(image, error, method) {
+    function send(image, error, method, from) {
       var state = null; try { state = S.debugState(); } catch (e) { state = 'onState threw: ' + (e && e.message || e); }
-      toParent({ gcp: 'capture_result', id: id, image: image, error: error, canvases: drew, method: method,
+      toParent({ gcp: 'capture_result', id: id, image: image, error: error, canvases: drew, method: method, sources: from || null,
         state: state, frames: S.frames, fps: fpsNow, ready: S.ready, label: S.label || '', errors: S.errors.slice(0, 10), warnings: S.warnings.slice(0, 10),
         viewport: { width: vw, height: vh } });
     }
     function finish() {
       if (done) return; done = true; afterDraw = null; clearTimeout(timer);
       if (!picture) { send('', '', 'game'); return; }
-      var canvasOnly = '', error = '';
+      Promise.all([fromWorkers, fromGL]).then(function (got) { picturesFrom(got[0], got[1]); }, function () { picturesFrom(null, null); });
+    }
+    function picturesFrom(wf, gf) {
+      var p = paint(wf, gf), canvasOnly = '', error = '';
       if (drew) { try { canvasOnly = out.toDataURL('image/jpeg', 0.86); } catch (e) { error = 'tainted'; } }
       var page = false; try { page = pageShowsElements(vw, vh); } catch (e) { /* keep the canvases */ }
-      if (!page) { send(canvasOnly, error || (drew ? '' : 'no_canvas'), 'game'); return; }
-      var snaps = new Map();
-      for (var i = 0; i < copies.length; i++) { try { snaps.set(copies[i][0], copies[i][1].toDataURL('image/png')); } catch (e) { /* tainted: left blank */ } }
-      try {
-        domPicture(snaps, vw, vh, out.width, out.height, bg, function (full) {
-          if (full) send(full, '', 'page');
-          else send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game');
-        });
-      } catch (e) { send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game'); }
+      if (!page || !p.snaps) { send(canvasOnly, error || (drew ? '' : 'no_canvas'), 'game', p.from); return; }
+      var fallback = function () {
+        // the older way (each element with its computed styles written on it), then the canvases alone
+        try { domPicture(p.snaps, vw, vh, out.width, out.height, bg, function (full) { if (full) send(full, '', 'page', p.from); else send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game', p.from); }); }
+        catch (e) { send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game', p.from); }
+      };
+      try { pagePicture(p.snaps, vw, vh, out.width, out.height, bg, function (full) { if (full) send(full, '', 'page', p.from); else fallback(); }); }
+      catch (e) { fallback(); }
     }
     // the frame being drawn now: copy after every callback of it, and finish once the frame is over
     var armed = -1;
-    afterDraw = function (t) { if (armed < 0) { armed = t; setTimeout(finish, 0); } if (t === armed) compose(); };
-    // a game that is not drawing (paused, turn-based, a page of elements): take what the canvases hold now
-    timer = setTimeout(function () { if (armed < 0) { compose(); finish(); } }, 500);
+    afterDraw = function (t) { if (armed < 0) { armed = t; setTimeout(finish, 0); } if (t === armed) grab(true); };
+    // a game that is not drawing on this page (paused, turn-based, drawn by a worker, a page of elements)
+    timer = setTimeout(function () { if (armed < 0) { grab(false); finish(); } }, 500);
   }
   // The platform menu from a three-finger tap anywhere in the game, while it fills the screen. Nothing of the platform sits
   // over the game: this, Back, Esc and GCP.menu() open the menu. Three fingers that stay put and lift within half a second;

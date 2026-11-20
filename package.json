@@ -14,6 +14,7 @@
     "test:live": "node tests/mcp-live.mjs",
     "test:debug": "node tests/debug-feedback-live.mjs",
     "test:capture": "node tests/capture-browser.mjs",
+    "test:sdk-capture": "node tests/sdk-capture-browser.mjs",
     "test:attach": "node tests/feedback-attach-browser.mjs",
     "db:local": "wrangler d1 migrations apply gcp-db --local",
     "db:remote": "wrangler d1 migrations apply gcp-db --remote",

@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script>window.__GCP_CONFIG = { env: 'preview', kind: 'owner', gameId: 'capturetest', version: '1', api: 'http://127.0.0.1:8932', player: { id: 'u_test', name: 'Test' } };</script>
+<script src="/sdk/gcp.js"></script>
+<style>
+  :root { --red: #e01010; --ink: #101060; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #808080; }
+  canvas, .box { position: absolute; width: 120px; height: 120px; top: 40px; }
+  /* drawn by a module worker on an OffscreenCanvas, WebGL, not kept between frames */
+  #w { left: 20px; }
+  /* drawn on this page, WebGL, not kept between frames */
+  #g { left: 160px; }
+  /* a shorthand with var() followed by one of its own longhands: the browser writes this rule back as empty longhands */
+  .v { left: 300px; background: linear-gradient(var(--red), var(--red)); background-size: 100% 100%; }
+  /* a round shape with a border from a variable: its corners must stay the page's grey, not square */
+  .round { left: 440px; border-radius: 50%; background: #10c0c0; border: 6px solid var(--ink); box-sizing: border-box; }
+  /* an animated bar, frozen where it is */
+  .bar { position: absolute; left: 20px; top: 200px; width: 540px; height: 30px; background: #303030; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: #f0d020; transition: width 5s linear; }
+</style></head><body>
+<canvas id="w" width="120" height="120"></canvas>
+<canvas id="g" width="120" height="120"></canvas>
+<div class="box v"></div>
+<div class="box round"></div>
+<div class="bar"><i id="fill"></i></div>
+<script>
+  // a worker that draws green
+  var off = document.getElementById('w').transferControlToOffscreen();
+  var wk = new Worker('/worker.js', { type: 'module' });
+  wk.postMessage({ canvas: off }, [off]);
+  setInterval(function () { wk.postMessage({ frame: 1 }); }, 16);
+  // this page draws blue
+  var gl = document.getElementById('g').getContext('webgl', { preserveDrawingBuffer: false });
+  (function loop() { gl.clearColor(0.06, 0.2, 0.9, 1); gl.clear(gl.COLOR_BUFFER_BIT); requestAnimationFrame(loop); })();
+  // the bar is half-way when the picture is taken (inline width, transitioning)
+  requestAnimationFrame(function () { document.getElementById('fill').style.width = '50%'; });
+  setTimeout(function () { var f = document.getElementById('fill'); f.style.transition = 'none'; f.style.width = '50%'; window.ready = true; }, 300);
+</script>
+</body></html>
