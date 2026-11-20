@@ -1606,9 +1606,9 @@
         (a small platform menu button in that corner, for a game that keeps the corner free; left out, there is none and the
         menu opens from Back, a three-finger tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
         itself: they no longer open the platform menu),
-        edgeToEdge: true (in fullscreen the game covers the whole screen, under the notch and the rounded corners too, and
-        keeps its own buttons inside display.safe; left out, the platform keeps the whole frame clear of them, which leaves
-        black bars on phones with a notch) }. */
+        edgeToEdge: false (in fullscreen the platform keeps the frame inside the notch, camera hole and rounded corners,
+        which leaves black bars on those phones; left out, the game covers the whole screen and keeps its own buttons
+        inside display.safe) }. */
     setDisplay: function (prefs) {
       prefs = prefs || {};
       // touchControls: 'none' when the game has touch controls of its own (the platform's stick and buttons never show);
