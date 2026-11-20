@@ -1603,7 +1603,9 @@
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
-        (where the platform's small exit-fullscreen button sits on touch screens; 'none' if the game has its own),
+        (a small platform menu button in that corner, for a game that keeps the corner free; left out, there is none and the
+        menu opens from Back, a three-finger tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
+        itself: they no longer open the platform menu),
         edgeToEdge: true (in fullscreen the game covers the whole screen, under the notch and the rounded corners too, and
         keeps its own buttons inside display.safe; left out, the platform keeps the whole frame clear of them, which leaves
         black bars on phones with a notch) }. */
@@ -1613,6 +1615,7 @@
       // pixelRatio: 'native' to see the screen's real devicePixelRatio on phones and tablets (set it before reading it).
       if (prefs.touchControls === 'none' || prefs.touchControls === 'auto') { ui.off = prefs.touchControls === 'none'; refreshControls(); }
       if (prefs.pixelRatio === 'native') { TL.dprCap = 0; S.pixelRatio = 0; }
+      if (typeof prefs.menuGesture === 'boolean') menuGesture = prefs.menuGesture;
       try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ }
     },
     /** The platform's on-screen controls for touch screens: a stick and buttons that press the game's keys. They show by
@@ -1891,6 +1894,26 @@
     // a game that is not drawing (paused, turn-based, a page of elements): take what the canvases hold now
     timer = setTimeout(function () { if (armed < 0) { compose(); finish(); } }, 500);
   }
+  // The platform menu from a three-finger tap anywhere in the game, while it fills the screen. Nothing of the platform sits
+  // over the game: this, Back, Esc and GCP.menu() open the menu. Three fingers that stay put and lift within half a second;
+  // the game still gets the touches (a game that uses three fingers can say GCP.setDisplay({ menuGesture: false })).
+  var menuTap = null, menuGesture = true;
+  function touchMid(l) { var x = 0, y = 0; for (var i = 0; i < l.length; i++) { x += l[i].clientX; y += l[i].clientY; } return [x / l.length, y / l.length]; }
+  document.addEventListener('touchstart', function (e) {
+    var n = e.touches ? e.touches.length : 0;
+    if (n === 1) menuTap = null;
+    if (n >= 3 && !menuTap) menuTap = { at: performance.now(), mid: touchMid(e.touches), moved: false };
+  }, { capture: true, passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (!menuTap || !e.touches || e.touches.length < 3) return;
+    var m = touchMid(e.touches); if (Math.abs(m[0] - menuTap.mid[0]) + Math.abs(m[1] - menuTap.mid[1]) > 40) menuTap.moved = true;
+  }, { capture: true, passive: true });
+  document.addEventListener('touchcancel', function () { menuTap = null; }, { capture: true, passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (!menuTap || (e.touches && e.touches.length)) return;
+    var tap = menuTap; menuTap = null;
+    if (menuGesture && !tap.moved && performance.now() - tap.at < 600 && display.fullscreen && !display.menu) toParent({ gcp: 'menu', on: true });
+  }, { capture: true, passive: true });
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (e.source === window.parent && d && d.gcp === 'capture') {
