@@ -1405,7 +1405,7 @@
  "Show more": "顯示更多",
  "Bought, not played yet": "已購買，尚未遊玩",
  "{returning_players} of {players} players": "{players} 位玩家中的 {returning_players} 位",
- "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 15 seconds while the game is on screen. Nothing the game reports about itself changes them.": "會話、遊玩時長和玩家數由平台自己測量：從玩家點擊「開始」起，並由遊戲頁面在遊戲顯示期間每 15 秒報到一次。遊戲自己上報的內容不會改變這些數字。",
+ "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 30 seconds while the game is on screen. Nothing the game reports about itself changes them.": "會話、遊玩時長和玩家數由平台自己測量：從玩家點擊「開始」起，並由遊戲頁面在遊戲顯示期間每 30 秒報到一次。遊戲自己上報的內容不會改變這些數字。",
  "Reported by the game": "遊戲自己上報的",
  "for finding bugs; not used in any number above": "用於排查問題；不計入上面的任何數字",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "這些來自遊戲本身的心跳，平台無法核實：遊戲是否呼叫了 GCP.ready，以及它捕獲到的錯誤。",
@@ -1686,5 +1686,6 @@
  "Go back, or tap with three fingers, for the game menu.": "使用返回手勢或返回鍵，或三指輕點，開啟遊戲選單。",
  "Game menu (drag to move)": "遊戲選單（可拖動）",
  "Keep playing here": "在此繼續玩",
- "Back, or a three-finger tap, also opens this menu.": "返回手勢或三指輕點也能開啟此選單。"
+ "Back, or a three-finger tap, also opens this menu.": "返回手勢或三指輕點也能開啟此選單。",
+ "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "在 Durable Objects 中執行遊戲時鐘（數萬玩家同時在線時需要；數據最多可能延遲約一分鐘）"
 }

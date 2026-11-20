@@ -1384,7 +1384,7 @@
  "Show more": "もっと見る",
  "Bought, not played yet": "購入済み・未プレイ",
  "{returning_players} of {players} players": "{players} 人中 {returning_players} 人",
- "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 15 seconds while the game is on screen. Nothing the game reports about itself changes them.": "セッション、プレイ時間、プレイヤー数はプラットフォームが測定します。プレイヤーがプレイを押した時点からと、ゲームが表示されている間ゲームページが15秒ごとに送る報告からです。ゲームが自分について報告する内容はこれらに影響しません。",
+ "Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 30 seconds while the game is on screen. Nothing the game reports about itself changes them.": "セッション、プレイ時間、プレイヤー数はプラットフォームが測定します。プレイヤーがプレイを押した時点からと、ゲームが表示されている間ゲームページが30秒ごとに送る報告からです。ゲームが自分について報告する内容はこれらに影響しません。",
  "Reported by the game": "ゲームからの報告",
  "for finding bugs; not used in any number above": "不具合の調査用。上の数字には使われません",
  "These come from the game itself, through its heartbeat, so the platform cannot confirm them: whether it reached GCP.ready, and the errors it caught.": "これらはゲーム自身がハートビートで送ったもので、プラットフォームは確認できません。GCP.ready に到達したかどうかと、ゲームが捕捉したエラーです。",
@@ -1665,5 +1665,6 @@
  "Go back, or tap with three fingers, for the game menu.": "戻る操作をするか、3本指でタップするとゲームメニューが開きます。",
  "Game menu (drag to move)": "ゲームメニュー（ドラッグで移動）",
  "Keep playing here": "このまま続ける",
- "Back, or a three-finger tap, also opens this menu.": "戻る操作や3本指のタップでもこのメニューが開きます。"
+ "Back, or a three-finger tap, also opens this menu.": "戻る操作や3本指のタップでもこのメニューが開きます。",
+ "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "プレイ時間の計測を Durable Objects で行う（数万人の同時プレイに必要。数値は最大1分ほど遅れることがあります）"
 }

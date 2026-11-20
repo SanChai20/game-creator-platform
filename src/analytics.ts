@@ -6,8 +6,9 @@
 // Only real players of the live game are counted in the history; the creator's own plays and the verifier are not.
 import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
+import { getSettings } from './settings';
 
-export const ONLINE_WINDOW_MS = 60_000;        // four missed check-ins of the page showing the game and a player no longer counts as online
+export const ONLINE_WINDOW_MS = 90_000;        // three check-ins of the page showing the game missed and a player no longer counts as online
 const ROOM_STALE_MS = 12 * 3600_000;    // presence rows older than this are from a room that never said goodbye
 
 export type Device = 'phone' | 'tablet' | 'desktop' | 'other';
@@ -26,8 +27,10 @@ const LENGTHS: [string, number][] = [['under 30 s', 30], ['30 s to 2 min', 120],
 
 /** Players online now: a session whose page checked in under a minute ago. */
 export async function onlineNow(env: Env, pid: string) {
-  const t = now(), since = t - ONLINE_WINDOW_MS;
+  const t = now(), since = t - ONLINE_WINDOW_MS, atScale = (await getSettings(env)).play_clock_do;
   const [online, rooms] = await Promise.all([
+    // at scale the game's tally keeps the numbers (src/clock-do.ts); otherwise they come from the sessions' check-ins
+    atScale ? env.DB.prepare("SELECT 'live' AS env, live_players AS players, live_sessions AS sessions FROM game_online WHERE project_id = ?1 AND updated_at > ?2 UNION ALL SELECT 'preview', preview_players, 0 FROM game_online WHERE project_id = ?1 AND updated_at > ?2").bind(pid, t - 6 * 60_000).all<{ env: string; players: number; sessions: number }>() :
     env.DB.prepare("SELECT env, COUNT(DISTINCT user_id) AS players, COUNT(*) AS sessions FROM plays WHERE project_id = ? AND seen_at > ? AND kind != 'verify' GROUP BY env").bind(pid, since).all<{ env: string; players: number; sessions: number }>(),
     env.DB.prepare('SELECT env, room, players, updated_at FROM room_presence WHERE project_id = ? AND players > 0 AND updated_at > ? ORDER BY players DESC, updated_at DESC LIMIT 50').bind(pid, t - ROOM_STALE_MS).all<{ env: string; room: string; players: number; updated_at: number }>(),
   ]);
@@ -37,7 +40,7 @@ export async function onlineNow(env: Env, pid: string) {
     at: new Date(t).toISOString(),
     online: { live: of('live').players, preview: of('preview').players, live_sessions: of('live').sessions },
     rooms: { live: liveRooms.length, players_in_rooms: liveRooms.reduce((a, r) => a + r.players, 0), busiest: rooms.results.slice(0, 10).map((r) => ({ room: r.room, env: r.env, players: r.players, since: new Date(r.updated_at).toISOString() })) },
-    note: 'Online means the page showing the game checked in with the platform in the last minute (it does every 15 seconds while the game is open). The game\'s own heartbeats do not count. Rooms count players connected to GCP.room right now, as the room servers see them.',
+    note: 'Online means the page showing the game checked in with the platform in the last 90 seconds (it does every 30 seconds while the game is open). The game\'s own heartbeats do not count. Rooms count players connected to GCP.room right now, as the room servers see them.',
   };
 }
 
@@ -104,7 +107,7 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
     },
     definitions: {
       session: 'One launch of the live game by a signed-in player, started by the platform when they press Play (your own plays and the verifier are left out).',
-      play_time: 'Time the game was on screen on the page that shows it, measured by the platform from that page\'s check-ins every 15 seconds, never from the game. Sessions from before the platform measured it this way used the game\'s heartbeats.',
+      play_time: 'Time the game was on screen on the page that shows it, measured by the platform from that page\'s check-ins every 30 seconds, never from the game. Sessions from before the platform measured it this way used the game\'s heartbeats.',
       counted_play: 'A session with at least the platform\'s minimum play time, at most one per player an hour (a player\'s sessions open side by side share one clock); this is what the marketplace counts.',
       returning_player: 'A player in this window who had played on an earlier day too.',
       device: 'From the browser that pressed Play on the platform\'s page.',

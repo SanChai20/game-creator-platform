@@ -12,7 +12,7 @@ export const projectTabs = (id: string, on: 'overview' | 'analytics') => (
   <Tabs active={on} items={[{ key: 'overview', to: `/console/p/${id}`, label: t('Overview', '概览') }, { key: 'analytics', to: `/console/p/${id}/analytics`, label: t('Analytics', '数据分析') }]} />
 );
 
-/** Players online now, refreshed every 15 seconds (the rate the page showing a game checks in). */
+/** Players online now, refreshed every 15 seconds. */
 function LiveNow({ id, first }: { id: string; first: any }) {
   const [now, setNow] = useState(first);
   useEffect(() => { const i = setInterval(() => { void api(`/console/projects/${id}/online`).then(setNow).catch(() => { }); }, 15000); return () => clearInterval(i); }, [id]);
@@ -57,7 +57,7 @@ export function Analytics({ id }: { id: string }) {
             <Stat label={t('Time played', '游玩时长')} value={mins(x.minutes_played)} sub={t('{avg_session_minutes} min average · {median_session_minutes} min median', '平均 {avg_session_minutes} 分钟 · 中位 {median_session_minutes} 分钟', { avg_session_minutes: x.avg_session_minutes, median_session_minutes: x.median_session_minutes })} />
             <Stat label={t('Returning players', '回访玩家')} value={pct(x.returning_share)} sub={t('{returning_players} of {players} players', '{players} 位玩家中的 {returning_players} 位', { returning_players: num(x.returning_players), players: num(x.players) })} />
           </StatGrid>
-          <p className="dim fs-sm">{t('Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 15 seconds while the game is on screen. Nothing the game reports about itself changes them.', '会话、游玩时长和玩家数由平台自己测量：从玩家点击“开始”起，并由游戏页面在游戏显示期间每 15 秒报到一次。游戏自己上报的内容不会改变这些数字。')}</p>
+          <p className="dim fs-sm">{t('Sessions, play time and players are measured by the platform: from when a player presses Play, and from the game page checking in every 30 seconds while the game is on screen. Nothing the game reports about itself changes them.', '会话、游玩时长和玩家数由平台自己测量：从玩家点击“开始”起，并由游戏页面在游戏显示期间每 30 秒报到一次。游戏自己上报的内容不会改变这些数字。')}</p>
 
           <div className="cols">
             <div className="stack l">

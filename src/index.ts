@@ -9,7 +9,12 @@ import { eachStmt, purgeOldVersions, purgeRemovedGameData, retireIdlePreviews } 
 import { reapDebugSessions } from './debug';
 import { purgeOldFeedback } from './feedback';
 import { dispatchGame, type Namespace } from './dispatch';
-import { hostKind, matchGameRequest } from './hosting';
+import { gameHostName, hostKind, matchGameRequest, type OutboundParams } from './hosting';
+import { serveSharedGame } from './game-host';
+import { CLOCK_HEADER } from './clock-ticket';
+import { WorkerEntrypoint } from 'cloudflare:workers';
+// @ts-ignore plain JS module
+import { outboundDecision } from './runtime/outbound-worker.js';
 
 const DAILY_CRON = '17 3 * * *';   // must match the first cron in wrangler.jsonc
 const MINUTE_CRON = '* * * * *';
@@ -40,6 +45,7 @@ import { ensurePicks, oldPicksStmt, runJob } from './rankings';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
 export { Pipeline } from './pipeline';
+export { PlayClock, GameTally } from './clock-do';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 const app = new Hono<App>();
@@ -56,7 +62,15 @@ export function canonicalRedirect(env: Pick<Env, 'PUBLIC_ORIGIN'>, url: URL): Re
 
 app.onError((e, c) => {
   if (e instanceof AppError) return c.json({ error: e.message, code: e.code, hint: e.hint }, e.status as any);
-  console.error('unhandled', e);
+  // A burst the database cannot take right now (D1 refuses work over a 10-second window): the page retries in a moment
+  // (web/src/lib.tsx api), so a rush of players turns into a short wait instead of an error.
+  if (/D1 DB is overloaded|D1_ERROR: .*(overloaded|Too many requests)/i.test(String((e as Error)?.message || ''))) {
+    console.warn('busy', c.req.method, new URL(c.req.url).pathname);
+    c.header('retry-after', '1');
+    return c.json({ error: 'The platform is very busy right now. Try again in a moment.', code: 'busy' }, 503);
+  }
+  // the message first: Workers Logs keep an Error's stack but not always its message
+  console.error('unhandled', c.req.method, new URL(c.req.url).pathname, String((e as Error)?.message || e), (e as Error)?.stack);
   return c.json({ error: 'Something went wrong on our side.', code: 'internal' }, 500);
 });
 
@@ -75,7 +89,9 @@ app.use('/api/*', async (c, next) => {
     // A browser always says where a cookie-carrying mutation comes from; one that says neither is refused.
     if (!o && sessionToken(c.req.raw) && site !== 'same-origin' && site !== 'none') throw new AppError(403, 'Cross-site request refused.', 'csrf');
   }
-  c.set('user', path === '/api/stripe/webhook' ? null : await userFromRequest(c.env, c.req.raw));
+  // A ticketed play-clock check-in (every 30 s per open game) needs no sign-in lookup: the route reads its ticket instead.
+  const ticketed = m === 'POST' && c.req.header(CLOCK_HEADER) && /^\/api\/plays\/[^/]+\/seen$/.test(path);
+  c.set('user', path === '/api/stripe/webhook' || ticketed ? null : await userFromRequest(c.env, c.req.raw));
   await next();
 });
 app.route('/api/admin', admin);
@@ -265,12 +281,41 @@ function isolated(res: Response): Response {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
-export default {
+/** Every fetch() a game's Dynamic Worker makes (its server code, and the runtime's calls to the platform) comes here
+    (src/game-host.ts): the admin's blocked hosts are refused, calls to the platform are answered in-process (one Worker
+    does not reach itself over HTTP) and say which game made them, whatever the game's code put in the headers. */
+export class GameOutbound extends WorkerEntrypoint<Env, OutboundParams> {
+  async fetch(request: Request): Promise<Response> {
+    const p = this.ctx.props;
+    const d = outboundDecision(request.url, p);
+    if (!d.allow) {
+      console.log(JSON.stringify({ outbound: 'blocked', game: p.game, env: p.env, url: request.url.split('?')[0], reason: d.reason }));
+      return Response.json({ error: d.reason, code: 'outbound_blocked' }, { status: 403 });
+    }
+    if (!d.platform) return fetch(request);
+    const r = new Request(request);
+    r.headers.set('x-gcp-game', String(p.game || ''));
+    r.headers.set('x-gcp-env', String(p.env || ''));
+    return handler.fetch(r, this.env, this.ctx);
+  }
+}
+
+const handler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (!env.SESSION_SECRET) return new Response('Server is missing the SESSION_SECRET secret.', { status: 500 });
     let s;
     try { s = await getSettings(env); } catch { return new Response('Database is not initialised. Run the D1 migrations.', { status: 500 }); }
-    const origin = originOf(env, request), url = new URL(request.url), p = provider(origin, s.oauth_access_ttl_s, s.oauth_grant_ttl_s);
+    const origin = originOf(env, request), url = new URL(request.url);
+    // The shared game host (src/game-host.ts): requests for <script>.<GAME_HOST> are games and nothing else, so a game's
+    // address never reaches the platform's pages, API or cookies. Games still on a Worker of their own are not routed here
+    // (their per-script route is more specific than the wildcard).
+    const gh = gameHostName(env);
+    if (gh && hostKind(env) !== 'local' && url.host.toLowerCase().endsWith('.' + gh)) {
+      const exp = (ctx as unknown as { exports?: { GameOutbound?: (o: { props: OutboundParams }) => Fetcher } }).exports;
+      const lc = env.LOADER && exp?.GameOutbound ? { loader: env.LOADER, outbound: (props: OutboundParams) => exp.GameOutbound!({ props }) } : null;
+      return serveSharedGame(request, env, ctx, matchGameRequest(env, url) || { script: null }, env.PUBLIC_ORIGIN || origin, lc);
+    }
+    const p = provider(origin, s.oauth_access_ttl_s, s.oauth_grant_ttl_s);
     const moved = canonicalRedirect(env, url);
     if (moved) return moved;
 
@@ -340,3 +385,4 @@ export default {
     job('old feedback', () => purgeOldFeedback(env));
   },
 } satisfies ExportedHandler<Env>;
+export default handler;

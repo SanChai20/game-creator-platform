@@ -122,8 +122,8 @@ function FreeTrial({ id, paid, trial, max, reload }: { id: string; paid: boolean
 export function Project({ id }: { id: string }) {
   const { config } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
-  const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [previewSession, setPreviewSession] = useState<string | null>(null), [priceText, setPriceText] = useState<string | null>(null);
-  usePlayClock(preview ? previewSession : null);   // the platform's play clock for the preview session (src/play-clock.ts)
+  const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [previewSession, setPreviewSession] = useState<string | null>(null), [previewClock, setPreviewClock] = useState<string | null>(null), [priceText, setPriceText] = useState<string | null>(null);
+  usePlayClock(preview ? previewSession : null, preview ? previewClock : null);   // the platform's play clock for the preview session (src/play-clock.ts)
   // creator feedback: a capture being marked up (the game keeps its place, hidden, behind the editor), and a counter that
   // refreshes the queue card after an item was added
   const stage = useRef<StageCtl>(null), stageBox = useRef<HTMLDivElement>(null), [shot, setShot] = useState<Shot | null>(null), [fbStamp, setFbStamp] = useState(0);
@@ -136,7 +136,7 @@ export function Project({ id }: { id: string }) {
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <ProjectSkeleton />;
   const p = data.project, versions = data.versions as any[];
-  const playPreview = () => act('pv', async () => { const r = await api<{ url: string; session: string }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreviewSession(r.session); setPreview(r.url); });
+  const playPreview = () => act('pv', async () => { const r = await api<{ url: string; session: string; clock?: string }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreviewSession(r.session); setPreviewClock(r.clock || null); setPreview(r.url); });
   const offline = () => { if (confirm(t('Take this game offline? Players will not be able to open it until you put it back.', '确定下线这款游戏吗？在重新上线之前，玩家将无法打开它。'))) void act('off', async () => { await api(`/console/projects/${id}/offline`, { method: 'POST' }); await reload(); }, t('The game is offline.', '游戏已下线。')); };
   const online = () => act('on', async () => { await api(`/console/projects/${id}/online`, { method: 'POST' }); await reload(); }, t('Going back online. This takes a moment.', '正在重新上线，请稍候。'));
   const savePrice = () => act('price', async () => {

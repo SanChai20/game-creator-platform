@@ -58,6 +58,13 @@ export async function userById(env: Env, id: string): Promise<User | null> {
 export const GUEST_PREFIX = 'guest_';
 const GUEST_COOKIE = 'gcp_guest';
 export const isGuestId = (id: unknown) => typeof id === 'string' && id.startsWith(GUEST_PREFIX);
+/** The guest id this browser's signed cookie carries, if the signature is good. No database read: whether it was claimed
+    by an account is checked by whoever uses it (existingGuestId, or the player's clock through the session binding). */
+export async function guestCookieId(env: Env, req: Request): Promise<string | null> {
+  const raw = readCookie(req, cookieName(req, GUEST_COOKIE)), [id, sig] = (raw || '').split('.');
+  if (!id || !sig || !/^guest_[a-z0-9]{12,40}$/.test(id) || !safeEqual(sig, await hmacHex(env.SESSION_SECRET, 'guest:' + id))) return null;
+  return id;
+}
 /** The guest id this browser's signed cookie carries, if it is valid and has not been claimed by an account. Never mints one. */
 export async function existingGuestId(env: Env, req: Request): Promise<string | null> {
   const raw = readCookie(req, cookieName(req, GUEST_COOKIE)), [id, sig] = (raw || '').split('.');

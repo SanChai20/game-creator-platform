@@ -4,6 +4,7 @@ import type { Env } from './env';
 import { now } from './util';
 import { trendStmt } from './rankings';
 import { ONLINE_WINDOW_MS } from './analytics';
+import { getSettings } from './settings';
 
 /** Players whose page checked in during the last minute (the platform's play clock, not the game's heartbeat), per live game (runs every minute). */
 export function playingStmts(db: D1Database, t = now()): D1PreparedStatement[] {
@@ -19,7 +20,11 @@ export function playingStmts(db: D1Database, t = now()): D1PreparedStatement[] {
 export const recentStmt = (db: D1Database, t = now()) => trendStmt(db, t);
 
 export async function refreshCatalog(env: Env, withRecent: boolean): Promise<void> {
-  await env.DB.batch([...playingStmts(env.DB), ...(withRecent ? [recentStmt(env.DB)] : [])]);
+  // at scale each game's tally keeps projects.playing itself (src/clock-do.ts); this only clears games whose tally stopped
+  const playing = (await getSettings(env)).play_clock_do
+    ? [env.DB.prepare('UPDATE projects SET playing = 0 WHERE playing != 0 AND id NOT IN (SELECT project_id FROM game_online WHERE updated_at > ?)').bind(now() - 6 * 60_000)]
+    : playingStmts(env.DB);
+  await env.DB.batch([...playing, ...(withRecent ? [recentStmt(env.DB)] : [])]);
 }
 
 /**

@@ -8,6 +8,8 @@ export interface Env {
   ROOMS: DurableObjectNamespace;
   MATCHMAKER: DurableObjectNamespace;
   PIPELINE: DurableObjectNamespace;
+  PLAY_CLOCK?: DurableObjectNamespace;   // one per player: check-ins and heartbeats (src/clock-do.ts, setting play_clock_do)
+  GAME_TALLY?: DurableObjectNamespace;   // one per game: play totals and players online, written in batches
   BROWSER?: Fetcher;
   PLAY_RL?: RateLimit;               // game service calls per play session (wrangler.jsonc ratelimits)
   SERVER_RL?: RateLimit;             // game server code's store calls per game and environment
@@ -15,9 +17,10 @@ export interface Env {
   EMAIL?: { send(m: { from: { email: string; name: string }; to: string; subject: string; text: string; html: string }): Promise<{ messageId: string }> };
   AI?: Ai;                          // Workers AI: plain-language summaries of open implementations
   OAUTH_PROVIDER: OAuthHelpers;
-  DEPLOY_DRIVER: string;            // cloudflare | dispatch | local (src/hosting.ts)
+  DEPLOY_DRIVER: string;            // cloudflare | dispatch | shared | local (src/hosting.ts)
   DISPATCHER?: DispatchNamespace;   // Workers for Platforms: the dispatch namespace games are deployed to (driver "dispatch")
   DISPATCH_NAMESPACE?: string;      // its name, for the upload API
+  LOADER?: WorkerLoader;            // Worker Loader: games' server code runs as Dynamic Workers (driver "shared", src/game-host.ts)
   GAME_HOST?: string;               // games are served at <script>.<GAME_HOST> (needed for "dispatch"; optional otherwise)
   GAME_OUTBOUND?: string;           // set when the DISPATCHER binding has the outbound Worker (outbound/wrangler.jsonc)
   GAME_ZONE_ID?: string;            // zone of GAME_HOST, for per-script routes while games are still standard Workers
