@@ -548,6 +548,7 @@ export function chunks2d({ seed = 1, chunk = 16, radius = 2, fill, stage, around
 export function cropSprites(stage) { return (x, y, c) => (stage || CURRENT).add(sprite2d('crop', { type: c.type, stage: c.stage, soil: true, wet: c.watered, seed: 7 }), x, y + 0.15); }
 
 export { createHud } from './hud.js';
+export { createUi, createAtlas, loadImage, sharedUi, panelOpen, panelUp, pageCanvases, roundRectPath, paintOf } from './ui.js';
 export { createSound, SOUNDS, AMBIENCES, MUSIC } from './sound.js';
 export { createInput } from './input.js';
 export { run, createLoop, createBoot, clamp, lerp, smoothstep, TAU, store } from './core.js';

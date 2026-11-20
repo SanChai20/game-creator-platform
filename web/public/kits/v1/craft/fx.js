@@ -3,6 +3,7 @@
 //   const fx = createFx();   fx.sparkle(coin.position, 0xffd84a);   fx.floatText(coin.position, '+1');   fx.pop(chest);
 import * as THREE from 'three';
 import { currentStage } from './stage.js';
+import { sharedUi } from '../ui.js';
 
 const V = (p) => (p && p.isObject3D ? p.position : p);
 /**
@@ -26,7 +27,8 @@ export function createFx(opts = {}) {
   });
   const points = new THREE.Points(geo, mat); points.frustumCulled = false; points.renderOrder = 6; st.scene.add(points);
   let head = 0; const c = new THREE.Color(), rings = [], texts = [], pops = [], emitters = [], tmp = new THREE.Vector3();
-  const layer = document.createElement('div'); layer.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:35;overflow:hidden'; document.body.appendChild(layer);
+  // floating text is drawn in the page's interface canvas (@gcp/ui.js), part of the frame the platform captures
+  let offText = null; const textLayer = (u) => { for (const t of texts) if (t.a > 0.003) u.text(t.text, t.sx, t.sy, { size: t.size, weight: 800, color: t.color, align: 'center', base: 'middle', alpha: t.a, shadow: { color: 'rgba(0,0,0,.7)', blur: 6, y: 2 }, scale: t.k }); };
   const fx = {
     points,
     burst(p, o = {}) {
@@ -48,7 +50,7 @@ export function createFx(opts = {}) {
     smoke: (p) => fx.burst(p, { count: 6, colors: [0x8a8680, 0x6a6660], speed: 0.5, up: 1.2, size: 0.9, life: 2, gravity: -0.6, glow: false, drag: 1, spread: 0.3 }),
     confetti: (p) => fx.burst(p, { count: 60, colors: [0xff5a5a, 0xffd84a, 0x5ad06a, 0x5aa8ff, 0xc878ff], speed: 6, up: 6, spread: 0.6, size: 0.24, life: 1.8, gravity: 7, glow: false, drag: 1.5 }),
     ring(p, color = 0xffffff, radius = 3, seconds = 0.5) { p = V(p); const m = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })); m.position.set(p.x, p.y + 0.12, p.z); st.scene.add(m); rings.push({ m, t: 0, d: seconds, r: radius }); return fx; },
-    floatText(p, text, { color = '#fff', size = 22, seconds = 1.1, rise = 1.4 } = {}) { p = V(p); const e = document.createElement('div'); e.textContent = text; e.style.cssText = `position:absolute;left:0;top:0;font:800 ${size}px system-ui,sans-serif;color:${color};text-shadow:0 2px 6px rgba(0,0,0,.7);will-change:transform;white-space:nowrap`; layer.appendChild(e); texts.push({ e, x: p.x, y: p.y + 1.2, z: p.z, t: 0, d: seconds, rise }); return fx; },
+    floatText(p, text, { color = '#fff', size = 22, seconds = 1.1, rise = 1.4 } = {}) { p = V(p); if (!offText) offText = sharedUi().layer(textLayer, { z: -5 }); texts.push({ text: String(text), color, size, x: p.x, y: p.y + 1.2, z: p.z, t: 0, d: seconds, rise, a: 0, sx: -999, sy: -999, k: 1 }); return fx; },
     pop(obj, amount = 0.35, seconds = 0.3) { if (!obj.userData._s) obj.userData._s = obj.scale.clone(); pops.push({ obj, t: 0, d: seconds, a: amount }); return fx; },
     emitter(p, o = {}) { const em = { p, o: { count: 1, ...o }, rate: o.rate ?? 8, acc: 0, on: true, stop() { em.on = false; } }; emitters.push(em); return em; },
     update(dt) {
@@ -57,11 +59,11 @@ export function createFx(opts = {}) {
       geo.attributes.position.needsUpdate = geo.attributes.pcolor.needsUpdate = geo.attributes.psize.needsUpdate = true;
       for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; r.t += dt; const u = r.t / r.d; if (u >= 1) { st.scene.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); rings.splice(i, 1); } else { r.m.scale.setScalar(0.2 + u * r.r); r.m.material.opacity = 1 - u; } }
       const w = innerWidth, h = innerHeight;
-      for (let i = texts.length - 1; i >= 0; i--) { const t = texts[i]; t.t += dt; const u = t.t / t.d; if (u >= 1) { t.e.remove(); texts.splice(i, 1); continue; } tmp.set(t.x, t.y + u * t.rise, t.z).project(st.camera); t.e.style.opacity = tmp.z > 1 ? '0' : String(Math.min(1, (1 - u) * 2)); t.e.style.transform = `translate(${(tmp.x * 0.5 + 0.5) * w}px,${(-tmp.y * 0.5 + 0.5) * h}px) translate(-50%,-50%) scale(${1 + Math.sin(Math.min(1, u * 4) * Math.PI) * 0.3})`; }
+      for (let i = texts.length - 1; i >= 0; i--) { const t = texts[i]; t.t += dt; const u = t.t / t.d; if (u >= 1) { texts.splice(i, 1); continue; } tmp.set(t.x, t.y + u * t.rise, t.z).project(st.camera); t.a = tmp.z > 1 ? 0 : Math.min(1, (1 - u) * 2); t.sx = (tmp.x * 0.5 + 0.5) * w; t.sy = (-tmp.y * 0.5 + 0.5) * h; t.k = 1 + Math.sin(Math.min(1, u * 4) * Math.PI) * 0.3; }
       for (let i = pops.length - 1; i >= 0; i--) { const p = pops[i]; p.t += dt; const u = p.t / p.d, s0 = p.obj.userData._s; if (u >= 1) { p.obj.scale.copy(s0); pops.splice(i, 1); } else { const k = Math.sin(u * Math.PI) * p.a * (1 - u * 0.5); p.obj.scale.set(s0.x * (1 + k), s0.y * (1 - k * 0.6), s0.z * (1 + k)); } }
       for (let i = emitters.length - 1; i >= 0; i--) { const e = emitters[i]; if (!e.on) { emitters.splice(i, 1); continue; } e.acc += dt * e.rate; while (e.acc >= 1) { e.acc -= 1; fx.burst(e.p, e.o); } }
     },
-    remove() { st.scene.remove(points); layer.remove(); if (off) off(); },
+    remove() { st.scene.remove(points); if (offText) offText(); texts.length = 0; if (off) off(); },
   };
   const off = st.onUpdate((dt) => fx.update(dt));
   return fx;

@@ -1,6 +1,8 @@
 // @gcp/input.js — one object for keyboard, mouse and touch.
 // Conventions: read keys by physical code (KeyW, Space), clear state on blur so keys never stick,
-// touch-action none on the play surface, and a virtual stick that appears where the thumb lands.
+// touch-action none on the play surface, and a virtual stick that appears where the thumb lands. The stick and the
+// touch buttons are drawn in the page's interface canvas (@gcp/ui.js), so they are part of the frame the platform captures.
+import { sharedUi, panelUp } from './ui.js';
 
 /**
  * Keyboard, mouse and touch behind one object. target: the element that receives pointer input (usually the canvas).
@@ -23,7 +25,6 @@
  */
 export function createInput(target = document.body, { pointerLock = false, sensitivity = 0.0022 } = {}) {
   // A panel over the game (a title or end screen, a menu, the backpack) wants the cursor, so capture waits until it is gone.
-  const panelUp = () => !!document.querySelector('.gh-s,.gp-win');
   let lockFailed = false, panelAtPress = false;
   const keys = new Set(), fresh = new Set(), stick = { id: -1, x: 0, y: 0, ox: 0, oy: 0 }, ac = new AbortController(), on = { signal: ac.signal };
   const inp = {
@@ -53,7 +54,7 @@ export function createInput(target = document.body, { pointerLock = false, sensi
     setPointerLock(on) { pointerLock = !!on; if (!pointerLock && inp.locked && document.exitPointerLock) document.exitPointerLock(); return inp; },
     get pointerLock() { return pointerLock; },
     endFrame() { if (inp.locked && panelUp()) document.exitPointerLock();   // a menu or the backpack needs the cursor
-      fresh.clear(); inp.pointer.clicked = false; inp.wheel = 0; pollPad(); if (buttons.length && ++tick % 3 === 0) { const hide = !!document.querySelector('.gh-s,.gp-win'); if (hide !== hidden) { hidden = hide; for (const b of buttons) b.style.display = hide ? 'none' : ''; } } },
+      fresh.clear(); inp.pointer.clicked = false; inp.wheel = 0; pollPad(); },
     /**
      * Names the things the player can do, so game code asks input.action('interact') instead of testing keys, and
      * touch and gamepad players get the same actions. bind({ interact: ['KeyE'], attack: ['Space', 'Mouse0'],
@@ -74,10 +75,10 @@ export function createInput(target = document.body, { pointerLock = false, sensi
     /** True while the action is held. */
     held: (name) => { const a = inp.actions[name]; return !!a && a.codes.some((c) => keys.has(c)); },
     /** A short label for the action's main key, for prompts: 'E', 'Space', 'Click', or the gamepad button when a pad is in use. */
-    keyOf(name) { const a = inp.actions[name]; if (!a) return ''; if (inp.pad) { const p = a.codes.find((c) => c.startsWith('Pad')); if (p) return ['A', 'B', 'X', 'Y'][+p.slice(3)] || p; } if (inp.touch && a.button) return a.button.textContent; const c = a.codes[0] || ''; return c.startsWith('Key') ? c.slice(3) : c.startsWith('Digit') ? c.slice(5) : c === 'Mouse0' ? 'Click' : c === 'Mouse2' ? 'Right click' : c.replace('Left', '').replace('Arrow', ''); },
+    keyOf(name) { const a = inp.actions[name]; if (!a) return ''; if (inp.pad) { const p = a.codes.find((c) => c.startsWith('Pad')); if (p) return ['A', 'B', 'X', 'Y'][+p.slice(3)] || p; } if (inp.touch && a.button) return a.button.label; const c = a.codes[0] || ''; return c.startsWith('Key') ? c.slice(3) : c.startsWith('Digit') ? c.slice(5) : c === 'Mouse0' ? 'Click' : c === 'Mouse2' ? 'Right click' : c.replace('Left', '').replace('Arrow', ''); },
     /** Simulates a press of an action for one frame (play-throughs use it). */
     trigger(name) { const a = inp.actions[name]; if (a && a.codes[0]) { fresh.add(a.codes[0]); } return inp; },
-    dispose() { ac.abort(); stickEl.remove(); buttons.forEach((b) => b.remove()); },
+    dispose() { ac.abort(); if (offLayer) offLayer(); buttons.length = 0; },
     addButton,
   };
 
@@ -112,18 +113,40 @@ export function createInput(target = document.body, { pointerLock = false, sensi
   target.addEventListener('contextmenu', (e) => e.preventDefault(), on);
   target.style.touchAction = 'none';
 
-  // Virtual stick: left half of the screen moves, right half looks.
-  const stickEl = document.createElement('div');
-  stickEl.style.cssText = 'position:fixed;width:110px;height:110px;margin:-55px 0 0 -55px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);display:none;pointer-events:none;z-index:50';
-  stickEl.innerHTML = '<i style="position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;background:rgba(255,255,255,.5)"></i>';
-  document.body.appendChild(stickEl);
-  const knob = stickEl.firstChild, looks = new Map();
+  // Virtual stick: left half of the screen moves, right half looks. It and the touch buttons are drawn in the shared
+  // interface canvas, only on touch devices and only while they are in use.
+  const looks = new Map(); let offLayer = null;
+  function drawTouch(u) {
+    if (stick.id !== -1) {
+      u.panel(stick.ox - 55, stick.oy - 55, 110, 110, { fill: 'rgba(255,255,255,.08)', stroke: 'rgba(255,255,255,.35)', line: 2, radius: 55 });
+      u.panel(stick.ox + stick.x * 40 - 23, stick.oy + stick.y * 40 - 23, 46, 46, { fill: 'rgba(255,255,255,.5)', radius: 23 });
+    }
+    if (!inp.touch || panelUp()) return;
+    const sf = u.safe;
+    for (const b of buttons) {
+      if (b.hidden) continue;
+      const x = u.w - b.right - sf.right - b.size, y = u.h - b.bottom - sf.bottom - b.size; b.box = { x, y, s: b.size };
+      u.panel(x, y, b.size, b.size, { fill: b.held.size ? 'rgba(255,255,255,.28)' : 'rgba(255,255,255,.1)', stroke: 'rgba(255,255,255,.35)', line: 2, radius: b.size / 2 });
+      u.text(b.label, x + b.size / 2, y + b.size / 2, { size: 13, weight: 700, color: '#fff', align: 'center', base: 'middle', width: b.size - 8, lines: 2 });
+    }
+  }
+  const touchUi = () => { if (!offLayer) offLayer = sharedUi().layer(drawTouch, { z: 50 }); };
+  // a press on a touch button is the button's (before the game, or the stick, sees it)
+  const btnAt = (x, y) => { if (!inp.touch || panelUp()) return null; for (const b of buttons) if (!b.hidden && b.box && Math.hypot(x - b.box.x - b.box.s / 2, y - b.box.y - b.box.s / 2) <= b.box.s / 2) return b; return null; };
+  addEventListener('pointerdown', (e) => {
+    const b = btnAt(e.clientX, e.clientY); if (!b) return;
+    e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault();
+    b.held.add(e.pointerId); if (!keys.has(b.code)) fresh.add(b.code); keys.add(b.code);
+  }, { signal: ac.signal, capture: true, passive: false });
+  const release = (e) => { for (const b of buttons) if (b.held.delete(e.pointerId)) { e.stopImmediatePropagation(); if (!b.held.size) keys.delete(b.code); } };
+  addEventListener('pointerup', release, { signal: ac.signal, capture: true }); addEventListener('pointercancel', release, { signal: ac.signal, capture: true });
+  addEventListener('touchstart', (e) => { const t = e.touches && e.touches[e.touches.length - 1]; if (t && btnAt(t.clientX, t.clientY) && e.cancelable) e.preventDefault(); }, { signal: ac.signal, capture: true, passive: false });
 
   target.addEventListener('pointerdown', (e) => {
     inp.pointer.x = e.clientX; inp.pointer.y = e.clientY; inp.pointer.down = true; inp.pointer.clicked = true;
     if (e.pointerType === 'touch') {
       inp.touch = true;
-      if (e.clientX < innerWidth / 2 && stick.id === -1) { stick.id = e.pointerId; stick.ox = e.clientX; stick.oy = e.clientY; stick.x = stick.y = 0; stickEl.style.display = 'block'; stickEl.style.left = e.clientX + 'px'; stickEl.style.top = e.clientY + 'px'; knob.style.transform = ''; }
+      if (e.clientX < innerWidth / 2 && stick.id === -1) { stick.id = e.pointerId; stick.ox = e.clientX; stick.oy = e.clientY; stick.x = stick.y = 0; touchUi(); }
       else looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
       try { target.setPointerCapture(e.pointerId); } catch { /* gone */ }
     } else if (pointerLock && !inp.locked && !panelUp()) inp.requestLock();
@@ -132,27 +155,28 @@ export function createInput(target = document.body, { pointerLock = false, sensi
     inp.pointer.x = e.clientX; inp.pointer.y = e.clientY;
     if (e.pointerId === stick.id) {
       const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy, l = Math.hypot(dx, dy), m = Math.min(1, l / 50), a = Math.atan2(dy, dx);
-      stick.x = Math.cos(a) * m; stick.y = Math.sin(a) * m; knob.style.transform = `translate(${stick.x * 40}px,${stick.y * 40}px)`;
+      stick.x = Math.cos(a) * m; stick.y = Math.sin(a) * m;
     } else if (looks.has(e.pointerId)) {
       const p = looks.get(e.pointerId); inp.look.dx += (e.clientX - p.x) * inp.sensitivity * 2.2; inp.look.dy += (e.clientY - p.y) * inp.sensitivity * 2.2; p.x = e.clientX; p.y = e.clientY;
     } else if (inp.locked || (e.pointerType === 'mouse' && e.buttons)) { inp.look.dx += e.movementX * inp.sensitivity; inp.look.dy += e.movementY * inp.sensitivity; }   // dragging still looks where capture is refused
   }, on);
   const up = (e) => {
     inp.pointer.down = false; looks.delete(e.pointerId);
-    if (e.pointerId === stick.id) { stick.id = -1; stick.x = stick.y = 0; stickEl.style.display = 'none'; }
+    if (e.pointerId === stick.id) { stick.id = -1; stick.x = stick.y = 0; }
   };
   target.addEventListener('pointerup', up, on); target.addEventListener('pointercancel', up, on);
 
-  /** An on-screen button for touch players that behaves like a key. Returns the element so you can restyle it. */
-  const buttons = []; let tick = 0, hidden = false;   // on-screen buttons step aside while a menu, the backpack or a title screen is up
+  /**
+   * An on-screen button for touch players that behaves like a key, drawn in the interface canvas (touch devices only;
+   * it steps aside while a menu, the backpack or a title screen is up). Returns { label, code, right, bottom, size,
+   * hidden, remove() }: change label or hidden to restyle it.
+   */
+  const buttons = [];
   function addButton(label, code, { right = 24, bottom = 24, size = 68 } = {}) {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.style.cssText = `position:fixed;right:calc(${right}px + env(safe-area-inset-right,0px));bottom:calc(${bottom}px + env(safe-area-inset-bottom,0px));width:${size}px;height:${size}px;border-radius:50%;border:2px solid rgba(255,255,255,.35);background:rgba(255,255,255,.1);color:#fff;font:700 13px system-ui;z-index:50;touch-action:none;-webkit-user-select:none;user-select:none;display:${inp.touch ? 'block' : 'none'}`;
-    b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (!keys.has(code)) fresh.add(code); keys.add(code); }, on);
-    const off = () => keys.delete(code);
-    b.addEventListener('pointerup', off, on); b.addEventListener('pointercancel', off, on); b.addEventListener('pointerleave', off, on);
-    document.body.appendChild(b); buttons.push(b);
+    const b = { label: String(label), code, right, bottom, size, hidden: false, held: new Set(), box: null,
+      get textContent() { return b.label; }, set textContent(v) { b.label = String(v); },
+      remove() { const i = buttons.indexOf(b); if (i >= 0) buttons.splice(i, 1); keys.delete(code); } };
+    buttons.push(b); if (inp.touch) touchUi();
     return b;
   }
   return inp;

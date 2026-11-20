@@ -35,24 +35,42 @@ export function createLoop({ update, render, maxDt = 0.1, fixedStep = 0 }) {
 }
 
 /**
- * A boot overlay that appears immediately. set(0..1, label) updates it and GCP.progress;
- * done() fades it out; fail(err) shows the error and reports GCP.fatal.
+ * A boot screen that appears immediately, drawn in its own canvas over the page (the platform contract: everything
+ * the player sees is drawn in canvases). set(0..1, label) updates it and GCP.progress; done() fades it out;
+ * fail(err) shows the error and reports GCP.fatal.
  */
 export function createBoot({ title = document.title, accent = '#ffb347', background = '#0b0d0f', color = '#e8e4da' } = {}) {
-  const el = document.createElement('div');
-  el.style.cssText = `position:fixed;inset:0;z-index:1000;display:grid;place-items:center;background:${background};color:${color};font:14px/1.4 system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;transition:opacity .4s`;
-  el.innerHTML = `<div style="width:min(360px,80vw);text-align:center"><div data-t style="font-size:26px;font-weight:800;letter-spacing:.02em;margin-bottom:14px"></div><div style="height:4px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden"><i style="display:block;height:100%;width:0;background:${accent};transition:width .25s"></i></div><p style="opacity:.65;min-height:20px;margin:10px 0 0"></p></div>`;
-  el.querySelector('[data-t]').textContent = title;
-  const bar = el.querySelector('i'), msg = el.querySelector('p');
+  const el = document.createElement('canvas'), c = el.getContext('2d');
+  el.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:1000;pointer-events:auto;touch-action:none';
+  el.setAttribute('aria-label', title);
   (document.body || document.documentElement).appendChild(el);
+  const FONT = "system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif";
+  let f = 0, shown = 0, label = '', err = '', alpha = 1, gone = false;
+  function draw() {
+    if (gone) return;
+    const w = innerWidth, h = innerHeight, d = Math.min(3, devicePixelRatio || 1);
+    if (el.width !== Math.round(w * d) || el.height !== Math.round(h * d)) { el.width = Math.round(w * d); el.height = Math.round(h * d); }
+    c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h); c.globalAlpha = alpha;
+    c.fillStyle = background; c.fillRect(0, 0, w, h);
+    const bw = Math.min(360, w * 0.8), x = (w - bw) / 2, y = h / 2;
+    c.fillStyle = color; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.font = `800 26px ${FONT}`;
+    let t = String(title); while (t.length > 1 && c.measureText(t).width > w - 32) t = t.slice(0, -2) + '…';
+    c.fillText(t, w / 2, y - 18);
+    c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.roundRect(x, y - 2, bw, 4, 2); c.fill();
+    if (shown > 0) { c.fillStyle = accent; c.beginPath(); c.roundRect(x, y - 2, Math.max(4, bw * shown), 4, 2); c.fill(); }
+    const m = err || label; if (m) { c.font = `14px ${FONT}`; c.fillStyle = err ? '#ff8a70' : color; c.globalAlpha = alpha * (err ? 1 : 0.65); let line = '', ly = y + 28; for (const word of m.split(' ')) { const tt = line ? line + ' ' + word : word; if (c.measureText(tt).width > Math.max(bw, w - 40) && line) { c.fillText(line, w / 2, ly); line = word; ly += 20; } else line = tt; } c.fillText(line, w / 2, ly); }
+  }
+  let raf = 0; const tick = () => { raf = 0; shown += (f - shown) * 0.35; if (Math.abs(f - shown) < 0.002) shown = f; draw(); if (shown !== f || alpha < 1) raf = requestAnimationFrame(tick); };
+  const kick = () => { if (!raf) raf = requestAnimationFrame(tick); };
+  addEventListener('resize', draw); draw();
   const G = () => window.GCP;
   return {
     el,
-    set(f, label = '') { bar.style.width = Math.round(clamp(f) * 100) + '%'; msg.textContent = label; if (G()) G().progress(f, label); },
+    set(v, text = '') { f = clamp(v); label = text; draw(); kick(); if (G()) G().progress(v, text); },
     /** Yields to the browser so the bar actually repaints between heavy steps. */
-    async step(f, label) { this.set(f, label); await new Promise((r) => setTimeout(r, 16)); },
-    done() { bar.style.width = '100%'; el.style.opacity = '0'; el.style.pointerEvents = 'none'; setTimeout(() => el.remove(), 450); },
-    fail(err) { msg.style.opacity = '1'; msg.style.color = '#ff8a70'; msg.textContent = 'Could not start: ' + (err && err.message || err); if (G()) G().fatal(err); },
+    async step(v, text) { this.set(v, text); await new Promise((r) => setTimeout(r, 16)); },
+    done() { f = shown = 1; el.style.pointerEvents = 'none'; const t0 = performance.now(); const fade = () => { alpha = Math.max(0, 1 - (performance.now() - t0) / 400); draw(); if (alpha > 0) requestAnimationFrame(fade); else { gone = true; removeEventListener('resize', draw); el.remove(); } }; requestAnimationFrame(fade); setTimeout(() => { if (!gone) { gone = true; el.remove(); } }, 1500); },
+    fail(e) { err = 'Could not start: ' + (e && e.message || e); draw(); if (G()) G().fatal(e); },
   };
 }
 

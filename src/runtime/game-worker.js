@@ -66,7 +66,7 @@ export const WORKER_HELPER = `
       for (var i = 0; i < offs.length; i++) { var b = null; try { if (ctxs.has(offs[i])) b = snap(offs[i], r.max); } catch (e) {} frames.push(b); if (b) give.push(b); }
       try { port.postMessage({ cap: r.id, frames: frames }, give); } catch (e) { try { port.postMessage({ cap: r.id, frames: [] }); } catch (x) {} }
     }
-    function needsDraw(c) { var g = ctxs.get(c), a = null; if (!g || typeof g.getContextAttributes !== 'function') return false; try { a = g.getContextAttributes(); } catch (e) {} return !!a && !a.preserveDrawingBuffer; }
+    function needsDraw(c) { var g = ctxs.get(c), a = null; if (!g) return false; if (typeof G.GPUCanvasContext === 'function' && g instanceof G.GPUCanvasContext) return true; if (typeof g.getContextAttributes !== 'function') return false; try { a = g.getContextAttributes(); } catch (e) {} return !!a && !a.preserveDrawingBuffer; }
     function ask(e) {
       var d = e.data || {}; if (!d.cap) return;
       if (want) reply(want);
@@ -83,6 +83,11 @@ export const WORKER_HELPER = `
           };
         });
       });
+      // WebGPU: the frame is in the canvas from the queue submit that draws it until it is shown
+      if (G.GPUQueue && typeof G.GPUQueue.prototype.submit === 'function') {
+        var sub = G.GPUQueue.prototype.submit; r.saved.push([G.GPUQueue.prototype, 'submit', sub]);
+        G.GPUQueue.prototype.submit = function () { var out = sub.apply(this, arguments); if (want === r && !r.queued) { r.queued = true; Promise.resolve().then(function () { reply(r); }); } return out; };
+      }
       r.t = setTimeout(function () { reply(r); }, 800);
     }
     G.addEventListener('message', function (e) {

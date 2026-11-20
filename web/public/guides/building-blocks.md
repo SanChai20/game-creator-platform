@@ -30,7 +30,7 @@ Three tools cover them:
 | Player and camera | `control(actor, { input, heightAt, solids })` | movement, running, jumping, collision and a follow camera; `player.moveTo(x, z)` for play-throughs |
 | Other creatures | `wander(actor, { flee, chase, onReach })` | walking around, running away, hunting |
 | Feedback | `createFx()` | bursts, sparkles, smoke, confetti, floating text |
-| Interface | `createHud()` | counters, bars, timer, objective, hints, toasts, a title screen and an end screen |
+| Interface | `createHud()` | counters, bars, timer, objective, hints, toasts, a title screen and an end screen, drawn in a canvas over the game |
 | Sound | `createSound()` | 28 effects, 10 ambiences, 8 music moods, no audio files |
 
 A **kind** is the one idea to learn: `tree()`, `rock()`, `bush()`, `groundCover()` and `prop()` do not return a mesh, they return a description (merged geometry + materials + size) that `place` and `scatter` turn into objects. That is why two hundred trees cost a handful of draw calls.
@@ -116,7 +116,7 @@ Nothing is all-or-nothing.
 - **Your own models with painted surfaces.** `new THREE.Mesh(tbox(4, 3, 0.3), surface('brick'))` is a wall: `tbox`, `tplane` and `tcylinder` are primitives whose texture keeps one real-world size on every face. `surface(kind, { color: 0x8a5a3a, relief: 2 })` repaints any surface and adds a normal map.
 - **Your own kinds.** Build parts with `mergeParts([[geometry, colour, matrix], ...])` and hand `{ parts: [{ geometry, material }], radius, height }` to `place` or `scatter`. The procedural-generation guide shows how.
 - **Your own renderer.** `surface`, `tree`, `prop`, `humanoid`, `createHud` and `createSound` do not need a stage. `place(kind, x, y, z, { scene })` and `scatter(scene, kinds, opts)` take your scene.
-- **Other engines and 2D.** `@gcp/hud.js` and `@gcp/sound.js` are plain DOM and WebAudio. From `@gcp/procgen.js`, `paint(kind).toCanvas()` gives any painted texture as a canvas for tiles and patterns, `noise()` gives maps and variation, `rng(seed)` gives repeatable levels.
+- **Other engines and 2D.** `@gcp/hud.js` draws in its own canvas over any renderer and `@gcp/sound.js` is plain WebAudio. From `@gcp/procgen.js`, `paint(kind).toCanvas()` gives any painted texture as a canvas for tiles and patterns, `noise()` gives maps and variation, `rng(seed)` gives repeatable levels.
 - **Change a block.** `get_kit_file {file: "craft/props.js"}` returns the source. Copy it into your bundle and edit it.
 
 ## 2D and 2.5D worlds
@@ -149,7 +149,7 @@ Your own art mixes in: `bake(w, h, draw)` from the same module turns any canvas 
 ## Games with depth: controls, interface and systems
 
 A world that looks finished still needs things to do. The `play` group holds the systems most games with depth share,
-as plain data and DOM, so the same code serves 2D and 3D. Both `@gcp/craft.js` and `@gcp/craft2d.js` export them.
+as plain data and a canvas interface, so the same code serves 2D and 3D. Both `@gcp/craft.js` and `@gcp/craft2d.js` export them.
 `design_scene` with goal `homestead` writes a complete game on all of them; the parts also work one at a time.
 
 **Controls.** Name the actions once and ask for them by name. Keyboard, mouse buttons, on-screen buttons on phones
@@ -230,7 +230,43 @@ const { mode, code } = await lobbyUI(hud, { title });   // host, join by code, o
 ```
 
 They fit a phone held upright, on-screen buttons step aside while a window is open, and item icons are painted in
-code (`ITEMS` lists the 32 built-in kinds; any other id gets a tile, or give it your own `icon`).
+code (`ITEMS` lists the 32 built-in kinds; any other id gets a tile, or give it your own `icon`). Everything is drawn in
+the hud's canvas, so feedback screenshots show it exactly. Give the game its voice with `createHud({ accent, ink, panel,
+titleFont, titleColor, titleShadow, windowFill, windowLine, slotFill, slotLine })`. For a panel of your own (a shop, a
+dialogue) use the same pieces: `hud.window((u, x, y, w, h) => …, { width, height })`, `hud.item(corner, { measure, draw })`,
+`hud.label(corner, () => text)`, and `drawSlot`, `itemImage`, `smallButton`, `windowHeading`, `windowClose` from the kit.
+
+## Your own interface in a canvas: @gcp/ui.js
+
+Everything the player sees is drawn in the game's canvases (the platform contract, "Hand over the frame"). `@gcp/hud.js`
+covers the common widgets; for a game's own menus, dialogues, shops and HUD, `@gcp/ui.js` is the toolkit underneath it:
+a canvas over the page, drawn every frame from the game's state (immediate mode), with presses on the interface kept away
+from the game.
+
+```js
+import { createUi, createAtlas } from '@gcp/ui.js';
+const ui = createUi({ font: '"Cinzel", Georgia, serif' });   // registers GCP.test.onCapture with the page's canvases for you
+await ui.font('Cinzel', [400, 700], (w) => `fonts/cinzel-${w}.woff2`);
+// the interface art, painted once in code into one sprite sheet (one texture, batched draws, sharp at the sheet's scale)
+const atlas = createAtlas();
+atlas.add('frame', 48, 48, (c, w, h) => { c.fillStyle = '#2a2116'; c.beginPath(); c.roundRect(1, 1, w - 2, h - 2, 10); c.fill(); c.strokeStyle = '#c9a25a'; c.lineWidth = 2; c.stroke(); }, { slice: 14 });
+atlas.add('coin', 20, 20, (c) => { c.fillStyle = '#f2c230'; c.beginPath(); c.arc(10, 10, 8, 0, 7); c.fill(); });
+ui.layer((u) => {
+  u.sprite(atlas, 'frame', 16, 16, 180, 48);                       // a 9-slice frame stretched to any size
+  u.sprite(atlas, 'coin', 30, 30); u.text(String(coins), 58, 40, { size: 20, weight: 700, base: 'middle' });
+  if (shopOpen) {
+    u.block(0, 0, u.w, u.h);                                        // the game gets no presses while it is open
+    u.scroll('wares', x, y, 300, 260, wares.length * 52, (u, top) => wares.forEach((w, i) => { if (u.button('buy' + i, x, top + i * 52, 300, 46, w.name)) buy(w); }));
+  }
+});
+GCP.test.onState(() => ({ scene, shopOpen }));
+```
+
+`u.text` wraps (words, and characters for Chinese and Japanese), clips to a number of lines and draws outlines and
+shadows; `u.button`, `u.hit`, `u.scroll`, `u.panel`, `u.bar`, `u.image`, `u.clip`, `u.anim` cover the rest. Tab, the
+arrow keys and Enter move through buttons while `ui.nav` is on. Play-throughs can press a button with `ui.click(id)` and
+read the screen with `ui.texts` and `ui.shown(id)`. Mark a menu of your own with `panelOpen('shop', true)` so the mouse is
+freed and touch buttons step aside.
 
 ## Templates for farming, endless maps and two players
 

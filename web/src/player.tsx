@@ -45,6 +45,10 @@ export interface StageCtl {
 export interface GameCapture {
   image: string; error: string; canvases: number; method?: 'game' | 'page'; state: string | null; frames: number; fps: number; ready: boolean; label: string;
   errors: string[]; warnings: string[]; viewport: { width: number; height: number };
+  /** The version registers GCP.test.onCapture: the picture is the frame the game handed over (the capture contract). */
+  contract?: boolean;
+  /** The picture is the game's frame alone, nothing redrawn. redrawn: what was drawn from the page instead (text fields, or 'page'). */
+  exact?: boolean; redrawn?: string[]; hookError?: string;
 }
 
 const mq = (q: string) => typeof matchMedia === 'function' && matchMedia(q).matches;

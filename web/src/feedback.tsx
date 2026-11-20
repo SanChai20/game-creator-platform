@@ -20,6 +20,8 @@ import { canCaptureTab, grabTab, onTabShare, startTabShare, stopTabShare, tabSha
 export type Tool = 'circle' | 'arrow' | 'box' | 'pen';
 export interface Mark { type: Tool; x?: number; y?: number; w?: number; h?: number; x1?: number; y1?: number; x2?: number; y2?: number; points?: [number, number][]; label?: string }
 export interface Shot { image: string; method: 'game' | 'page' | 'screen' | 'upload'; capture: Partial<GameCapture>; fullscreen: boolean; version: number | null; partial?: boolean; why?: 'declined' | 'unsupported' | 'fullscreen' | 'failed'; diag?: CaptureDiag;
+  /** The frame the game handed over under the capture contract, nothing redrawn. */
+  exact?: boolean;
   /** With an exact picture: the game's own drawing of the same moment, ready in case the exact one looks wrong. */
   alt?: Promise<GameCapture> }
 type Pic = { image: string; method: Shot['method']; partial?: boolean };
@@ -270,7 +272,8 @@ function Editor({ projectId, shot, onDone, onCancel, redraw }: {
       marks: clean(shotMarks), ...(attached.length ? { attachments: attached } : {}),
       context: { method, viewport: c.viewport, frames: c.frames, fps: c.fps, ready: c.ready, label: c.label, errors: c.errors, warnings: c.warnings, state: c.state,
         fullscreen: shot.fullscreen, touch: matchMedia('(pointer: coarse)').matches, lang: navigator.language, browser: navigator.userAgent,
-        dpr: devicePixelRatio || 1, ...(method === 'screen' && shot.diag ? { capture: shot.diag } : {}) },
+        dpr: devicePixelRatio || 1, ...(method === 'screen' && shot.diag ? { capture: shot.diag } : {}),
+        ...(!pic && shot.exact ? { exact: true, redrawn: c.redrawn } : {}) },
     };
     let r: { pending: number };
     try { r = await api<{ pending: number }>(`/console/projects/${projectId}/feedback`, { body }); }
@@ -317,7 +320,9 @@ function Editor({ projectId, shot, onDone, onCancel, redraw }: {
       <canvas ref={canvas} className={'fb-canvas' + (cur ? ' paper' : '')} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={(e) => { if (e.pointerId !== pointer.current) return; pointer.current = null; start.current = null; setDrawing(null); }}
         aria-label={cur ? t('Your attached picture. Drag on it to circle or point at something.', '你附加的图片。在上面拖动即可圈出或指向某处。') : t('Screenshot of the game. Drag on it to circle or point at something.', '游戏截图。在上面拖动即可圈出或指向某处。')} />
       {cur && <p className="dim fs-sm">{t('Your own picture{name}. Your agent sees it next to the screenshot, as what you want rather than what the game shows. Mark it up the same way.', '你自己的图片{name}。智能体会在截图旁看到它，并理解为你想要的效果，而不是游戏当前的画面。可以同样进行标注。', { name: cur.name ? ` (${cur.name})` : '' })}</p>}
-      {!cur && (method === 'game' || method === 'page') && <p className="dim fs-sm fb-approx">{t('This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).', '这张图由游戏页面重新绘制，并非直接截取屏幕，因此可能与你看到的画面有出入（图标、字体、特效等）。')}
+      {!cur && !pic && shot.exact && <p className="dim fs-sm fb-exact">{t('The exact frame the game drew when you pressed Capture.', '这是你按下截图时游戏绘制的那一帧，完全一致。')}
+        {shot.capture.redrawn?.length ? ' ' + t('Text fields over the game are drawn from the page.', '游戏上方的文本输入框由页面绘制。') : ''}</p>}
+      {!cur && !(shot.exact && !pic) && (method === 'game' || method === 'page') && <p className="dim fs-sm fb-approx">{t('This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).', '这张图由游戏页面重新绘制，并非直接截取屏幕，因此可能与你看到的画面有出入（图标、字体、特效等）。')}
         {partial ? ' ' + t('Only the game\'s canvas is in it: this browser could not draw the menus and panels over it.', '图中只有游戏画布：此浏览器无法绘制其上方的菜单和面板。') : ''}
         {' '}{shot.why === 'unsupported' ? t('This browser cannot share a tab, so an exact picture is not possible here.', '此浏览器无法共享标签页，因此这里无法截取完全一致的画面。')
           : shot.why === 'fullscreen' ? t('For exact pictures in fullscreen, turn on Exact screenshots below the game first.', '如需在全屏时截取完全一致的画面，请先在游戏下方开启“精确截图”。')
@@ -366,6 +371,9 @@ export function CaptureButtons({ onShot, capture, frame, version, fullscreen, di
   };
   const fromGame = () => act('cap', async () => {
     const base = { fullscreen: fullscreen(), version };
+    // A version made to the capture contract hands over the exact frame itself, on every device: no tab to share.
+    const own = await capture(true).catch(() => null);
+    if (own && own.contract && own.image && !own.error) { onShot({ ...base, image: own.image, method: 'game', capture: own, exact: !!own.exact }); return; }
     let why: Shot['why'] = !canCaptureTab() ? 'unsupported' : 'declined';
     if (tabShareOn()) {
       try { await exact(base); return; } catch { why = 'failed'; }
@@ -378,7 +386,7 @@ export function CaptureButtons({ onShot, capture, frame, version, fullscreen, di
         try { await exact(base); return; } catch { why = 'failed'; }
       }
     }
-    const c = await capture();
+    const c = own && !own.contract ? own : await capture();
     if (c.error === 'not_allowed') throw new Error(t('Only the preview can be captured, by the game\'s creator.', '只有游戏创作者才能截取预览画面。'));
     if ((c.error && c.error !== 'page_elements_missing') || !c.image) throw new Error(t('The game has no canvas this can capture (or it draws pictures from another site).', '游戏没有可截取的画布（或使用了其他网站的图片）。'));
     onShot({ ...base, image: c.image, method: c.method === 'page' ? 'page' : 'game', capture: c, partial: c.error === 'page_elements_missing', why });

@@ -101,6 +101,15 @@ The report lists each address. Fix the path or upload the file. Remember that pa
 
 Any uncaught exception or unhandled promise rejection after load fails this check, with the message and location in `errors`. Fix the cause; do not hide it with an empty global handler. Messages you log with `console.error` are listed as warnings and do not fail the check.
 
+## capture: the game does not hand over its exact frame
+
+Every game hands the platform its frame so the creator's feedback screenshots are exactly what they saw, on every device (get_started {topic: "contract"}, "Hand over the frame"). The detail says which part failed:
+
+- **"it registers no GCP.test.onCapture / GCP.test.onState"**: register both, once, at start-up: `GCP.test.onCapture(() => [world, ui])` and `GCP.test.onState(() => ({ scene, level, menu }))`.
+- **"the page paints its own elements over the game: …"**: each element is named with what it paints (text, a background, a border, a picture). Draw that part of the UI in a canvas instead (text with `fillText`, panels and buttons as shapes, hit-tested from your own layout) and remove the element, or make it paint nothing. Text fields are allowed. The check looks at the start screen, after the play-through and after input, so menus that only open later must follow the rule too.
+- **"the picture it hands over does not match the screen"**: the hook returns only some of the canvases (a HUD canvas left out), the wrong ones, or a picture of another moment. Return every canvas the player sees, bottom to top. A WebGL canvas without `preserveDrawingBuffer` that is not redrawn every frame comes out blank: set it, or draw a frame inside `onCapture`.
+- **"GCP.test.onCapture threw" or "returned something that cannot be drawn"**: return canvas elements, an `OffscreenCanvas`, `ImageBitmap` or `ImageData`, or a promise of one.
+
 ## original: the version matches another creator's game
 
 The platform compares each verified version with the live games of other creators: fingerprints of your own code that survive renamed variables and reformatting, files that are identical byte for byte, and how the first screen looks. Platform templates, kits and common libraries are left out of the comparison, so two games built on the same template do not match each other. The detail names the game it matches and how much it shares. A clear copy cannot be published; make the game your own (your own code, rules and look) and deploy again. Sharing some code or a similar look is allowed and only noted. Borderline cases are reviewed by an AI model that sees the listings, facts about how both games are built (never code) and the measurements. If the other game is yours under another account, ask the platform to look at it.

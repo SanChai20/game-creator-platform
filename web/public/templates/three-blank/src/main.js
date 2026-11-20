@@ -35,12 +35,27 @@ try {
 
   // ---- rules ----
   let score = 0;
-  const hud = document.getElementById('score');
+  // ---- interface: a 2D canvas over the 3D one. Everything the player sees is drawn in canvases, so the platform can hand
+  // the exact frame to feedback screenshots on every device (GCP.test.onCapture below) ----
+  const hud = document.getElementById('hud'), hctx = hud.getContext('2d');
+  function drawHud() {
+    const d = Math.min(window.devicePixelRatio || 1, 2), w = innerWidth, h = innerHeight;
+    if (hud.width !== Math.round(w * d) || hud.height !== Math.round(h * d)) { hud.width = Math.round(w * d); hud.height = Math.round(h * d); }
+    const safe = (G && G.display && G.display.safe) || { left: 0, top: 0 }, x = Math.max(14, safe.left), y = Math.max(14, safe.top);
+    hctx.setTransform(d, 0, 0, d, 0, 0); hctx.clearRect(0, 0, w, h);
+    hctx.textBaseline = 'top'; hctx.fillStyle = '#e8e4da'; hctx.shadowColor = '#000'; hctx.shadowBlur = 3; hctx.shadowOffsetY = 1;
+    hctx.font = '700 16px system-ui, sans-serif'; hctx.fillText('Beacons: ' + score, x, y);
+    hctx.globalAlpha = 0.75; hctx.font = '13px system-ui, sans-serif'; hctx.fillText('WASD or arrows, or drag', x, y + 22); hctx.globalAlpha = 1;
+  }
+  if (G) {
+    G.test.onCapture(() => [canvas, hud]);       // the canvases bottom to top
+    G.test.onState(() => ({ score, player: { x: +player.position.x.toFixed(1), z: +player.position.z.toFixed(1) } }));
+  }
   function placeBeacon() {                      // the first beacon is always straight ahead, later ones move around
     const a = score * 2.4, d = 6;
     beacon.position.set(player.position.x + Math.cos(a) * d, 1.2, player.position.z + Math.sin(a) * d);
   }
-  function restart() { score = 0; player.position.set(0, 0.5, 0); placeBeacon(); hud.textContent = 'Beacons: 0'; }
+  function restart() { score = 0; player.position.set(0, 0.5, 0); placeBeacon(); }
   restart();
 
   // ---- input: keys by physical position (works on every layout), and a drag for touch and mouse ----
@@ -65,9 +80,10 @@ try {
     player.position.x += mx * 6 * dt; player.position.z += mz * 6 * dt;
     if (len > 0.01) player.rotation.y = Math.atan2(mx, mz);
     beacon.rotation.y = now * 1.5; beacon.position.y = 1.2 + Math.sin(now * 2) * 0.2;
-    if (Math.hypot(beacon.position.x - player.position.x, beacon.position.z - player.position.z) < 1.2) { score++; hud.textContent = 'Beacons: ' + score; placeBeacon(); }
+    if (Math.hypot(beacon.position.x - player.position.x, beacon.position.z - player.position.z) < 1.2) { score++; placeBeacon(); }
     camera.position.set(player.position.x, 9, player.position.z + 11); camera.lookAt(player.position);
     renderer.render(scene, camera);
+    drawHud();
     if (G) G.stats({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles });   // shows up in verification reports
   }
 
@@ -78,7 +94,6 @@ try {
     t.step('walk right to the first beacon');
     for (let i = 0; i < 60 && score < 1; i++) await t.key('KeyD', 200);
     t.assert(score === 1, `the beacon was not reached (player at x=${player.position.x.toFixed(1)}, beacon at x=${beacon.position.x.toFixed(1)})`);
-    t.step('the score shows on screen'); t.assert(hud.textContent === 'Beacons: 1', `the HUD says "${hud.textContent}"`);
     t.step('a new beacon appears somewhere else'); t.assert(Math.hypot(beacon.position.x - player.position.x, beacon.position.z - player.position.z) > 3, 'the beacon did not move');
     restart();
   });

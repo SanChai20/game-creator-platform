@@ -27,7 +27,7 @@
   var off = document.getElementById('w').transferControlToOffscreen();
   var wk = new Worker('/worker.js', { type: 'module' });
   wk.postMessage({ canvas: off }, [off]);
-  setInterval(function () { wk.postMessage({ frame: 1 }); }, 16);
+  setInterval(function () { wk.postMessage({ frame: true }); }, 16);
   // this page draws blue
   var gl = document.getElementById('g').getContext('webgl', { preserveDrawingBuffer: false });
   (function loop() { gl.clearColor(0.06, 0.2, 0.9, 1); gl.clear(gl.COLOR_BUFFER_BIT); requestAnimationFrame(loop); })();

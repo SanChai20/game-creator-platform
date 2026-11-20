@@ -131,6 +131,9 @@ export function cleanContext(v) {
   if (vw && vh) out.viewport = { width: vw, height: vh };
   for (const k of ['frames', 'fps', 'played_ms']) { const n = int(c[k], 1e9); if (n !== undefined) out[k] = n; }
   if (typeof c.ready === 'boolean') out.ready = c.ready;
+  // the frame the game handed over under the capture contract (GCP.test.onCapture), and what was drawn from the page
+  if (out.method === 'game' && c.exact === true) out.exact = true;
+  if (Array.isArray(c.redrawn) && c.redrawn.length) out.redrawn = c.redrawn.slice(0, 8).map((x) => str(x, 60)).filter(Boolean);
   if (typeof c.fullscreen === 'boolean') out.fullscreen = c.fullscreen;
   if (typeof c.touch === 'boolean') out.touch = c.touch;
   const dpr = Number(c.dpr); if (Number.isFinite(dpr) && dpr > 0 && dpr <= 8) out.dpr = Math.round(dpr * 100) / 100;

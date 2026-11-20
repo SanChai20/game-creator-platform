@@ -1665,5 +1665,8 @@
  "Game menu (drag to move)": "Menú del juego (arrastra para moverlo)",
  "Keep playing here": "Seguir jugando aquí",
  "Back, or a three-finger tap, also opens this menu.": "Volver atrás o tocar con tres dedos también abre este menú.",
- "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "Ejecutar el reloj de juego en Durable Objects (necesario para decenas de miles de jugadores en línea; las cifras pueden tardar hasta un minuto)"
+ "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "Ejecutar el reloj de juego en Durable Objects (necesario para decenas de miles de jugadores en línea; las cifras pueden tardar hasta un minuto)",
+ "The exact frame the game drew when you pressed Capture.": "El fotograma exacto que dibujó el juego cuando pulsaste Capturar.",
+ "Text fields over the game are drawn from the page.": "Los campos de texto sobre el juego se dibujan a partir de la página.",
+ "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); off reports it without failing": "Rechazar una versión que no entrega su fotograma exacto (la comprobación de captura: todo lo visible dibujado en lienzos, GCP.test.onCapture y onState registrados); desactivada, solo lo informa sin rechazarla"
 }

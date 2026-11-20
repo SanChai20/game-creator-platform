@@ -1,0 +1,47 @@
+# Feedback screenshots on every engine: the SDK's frame capture (worker WebGL, page WebGL, page elements) is checked in
+# Chromium, Firefox and WebKit (Safari's engine), and the preview "capture" check is run against its fixtures and every
+# starter template. Runs when the SDK, the runtime, the verifier, the kits or the templates change.
+name: capture
+on:
+  pull_request:
+    paths: ['web/public/sdk/**', 'web/public/kits/**', 'web/public/templates/**', 'src/runtime/**', 'src/verify-core.js', 'tests/**capture**', 'tests/fixtures/sdk-capture/**', '.github/workflows/capture.yml']
+  push:
+    branches: [main]
+    paths: ['web/public/sdk/**', 'web/public/kits/**', 'web/public/templates/**', 'src/runtime/**', 'src/verify-core.js', 'tests/**capture**', 'tests/fixtures/sdk-capture/**', '.github/workflows/capture.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sdk-capture:
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save playwright@1.63.0
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - run: npm run test:sdk-capture
+        env:
+          BROWSER: ${{ matrix.browser }}
+  capture-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save playwright@1.63.0
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/prepare.mjs   # copies three.js into web/public/vendor, as the build does
+      - run: npm run test:capture-contract

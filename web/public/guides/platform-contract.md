@@ -8,9 +8,11 @@ This page is the whole set of rules. Everything in the other guides is advice th
 2. **Call `GCP.ready()` once**, right after the first frame a player could act on is drawn. Not at script start, not when a menu is still loading.
 3. **Stay alive.** After ready the page must keep rendering frames through `requestAnimationFrame`, must not throw uncaught errors, and must survive keyboard, mouse and touch input.
 
-4. **Fit the game's storage.** All of a game's files together may use the game's storage (50 MB by default, the largest file 20 MB; `get_started` shows this platform's numbers under `storage`). Uploads that would go over are refused, and a version over it cannot be deployed or published. Generate content from code, load large or optional content at run time from your own host, and tell the developer about the limit when planning. `get_started {topic: "storage"}`.
+4. **Hand over the frame.** Draw everything the player sees (the world, the HUD, menus, dialogs, text) in your canvases, never as page elements over the game, and register `GCP.test.onCapture(fn)` and `GCP.test.onState(fn)`. Text fields (`<input>`, `<textarea>`, `<select>`) are the one exception. See "Hand over the frame" below.
 
-That is all. Genre, art style, camera, engine, rendering technique, file layout, UI and controls are yours.
+5. **Fit the game's storage.** All of a game's files together may use the game's storage (50 MB by default, the largest file 20 MB; `get_started` shows this platform's numbers under `storage`). Uploads that would go over are refused, and a version over it cannot be deployed or published. Generate content from code, load large or optional content at run time from your own host, and tell the developer about the limit when planning. `get_started {topic: "storage"}`.
+
+That is all. Genre, art style, camera, engine, rendering technique, file layout, controls and the look of the UI are yours; the UI is drawn in your canvases.
 
 ## What the platform gives the page
 
@@ -50,7 +52,8 @@ GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the 
 GCP.test.onPlaythrough(fn) // fn(t) plays the game to its end; the verifier runs it and reports each step
 GCP.test.twoPlayers       // { role: 'host' | 'guest', code } when the verifier opened this page for the two-player check, else null
 GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages, two different players, that meet on twoPlayers.code (GCP.room or GCP.match.find); return { players, world } (see the multiplayer and matches guides)
-GCP.test.onState(fn)      // fn() returns where the game is (level, scene, player position, open menu); attached to the creator's feedback screenshots and returned by debug_preview, never called for players
+GCP.test.onCapture(fn)    // required: fn() returns the canvas, or canvases bottom to top, that hold everything the player sees (see "Hand over the frame")
+GCP.test.onState(fn)      // required: fn() returns where the game is (level, scene, player position, open menu); attached to the creator's feedback screenshots and returned by debug_preview, never called for players
 GCP.lang          // the player's platform language: 'en' | 'zh' | 'zh-TW' | 'ja' | 'ko' | 'es'
 GCP.onLang(fn)    // fn(lang, previous) when the player switches the platform language mid-game; the game is never restarted for it
 GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch, paused, menu }, kept current
@@ -97,6 +100,7 @@ With WebGPU, create pipelines with `createRenderPipelineAsync` / `createComputeP
 | files | Every file the page asked for was served. Calls to the game's own server code (`/api/*`) are not counted here. |
 | server | Only when the game calls its server code: no request made it throw. A crash in `server/index.js` is listed with its message and, in a preview, the line it came from. |
 | clean | No uncaught errors and no unhandled promise rejections. |
+| capture | The game registers `GCP.test.onCapture` and `GCP.test.onState`; no page element is painted over the game at the moments the checks look (start, after the play-through, after input), text fields aside; and with the loop held, the picture the hook hands over for one frame matches that frame on screen. |
 | device_iphone, device_ipad | Once the checks above pass: the game is opened again on an emulated iPhone and iPad (touch screen, phone and tablet size, high pixel density, Safari's user agent; held sideways unless `orientation` is `portrait`), and must start, keep drawing, survive taps and a drag and throw no errors. These fail the version only for the device kinds listed in `requirements.devices`; otherwise, and for layout findings (part of the game off screen, text under 9 px, buttons under 20 px), they are notes in the report. |
 | original | Once the checks above pass: the game is not a copy of another creator's live game. Code everyone starts from (platform templates, kits, libraries such as three.js) is ignored, so building on them is fine. |
 | is_game | Once the checks above pass: it is a game the player acts on, not a page, a form or a link to somewhere else. |
@@ -115,6 +119,31 @@ Just before the play-through the browser clicks once in the top-left corner pixe
 ### The screenshot
 
 The checks run on a CPU renderer, where a well-made game rightly draws less. After the checks the browser loads the game once more with `?gcp_portrait=1` and takes one picture, which becomes the version's screenshot and the default marketplace cover. `GCP.portrait` is `true` on that load: draw at full quality however slow the frame is. The picture waits until the game is past its loading screen: up to 20 seconds while a full-screen element covers the canvas, or while the game reports loading again with `GCP.progress(f)` after `ready()` (call `GCP.progress(1)` when play is on screen). Publishing never depends on it, and `update_project {cover}` sets your own cover instead.
+
+## Hand over the frame
+
+When the game's creator plays a preview and presses **Capture feedback**, the picture they mark up and send to you must be exactly the frame they saw, on every device. A page can always read back what it draws into its canvases (2D, WebGL, WebGPU, in the page or in a Web Worker). It can never read the page's own elements as pixels, and iPhone and iPad Safari cannot capture the screen at all. So the contract is:
+
+1. **Everything the player sees is drawn in your canvases**: the world, the HUD, menus, dialogs, buttons, tooltips, text. Page elements (`div`, `button`, `img`, `svg`, text in the page) may exist for layout or accessibility but must not paint over the game: no text, background, border, shadow or picture of their own. A box that holds a canvas may have a plain background colour (a letterbox); it is drawn into the picture. **Text fields** (`<input>`, `<textarea>`, `<select>`, `contenteditable`) are the one exception: they are drawn into the picture from their boxes, colours and value, and the picture says so.
+2. **`GCP.test.onCapture(fn)`**: `fn()` returns the canvas that holds the frame, or the canvases bottom to top (`[world, ui]`). The platform copies them right after the game draws its next frame, wherever they are drawn, and places each where it is on the page. A canvas handed to a Web Worker with `transferControlToOffscreen()` works too: return the page's canvas element. `fn` may also return a picture made for the purpose (a canvas, `OffscreenCanvas`, `ImageBitmap` or `ImageData` of the whole frame), or a promise of one.
+3. **`GCP.test.onState(fn)`**: `fn()` returns a small object that says where the game is (scene, level, open menu, player position). It goes with every feedback screenshot so you know what the picture shows.
+
+```js
+const world = document.getElementById('world');   // WebGL, three.js, or a worker's OffscreenCanvas
+const ui = document.getElementById('ui');          // a 2D canvas over it: HUD, menus, dialogs, text
+GCP.test.onCapture(() => [world, ui]);
+GCP.test.onState(() => ({ scene: game.scene, level: game.level, menu: ui.openMenu || null }));
+```
+
+Drawing UI in a canvas, in short (or use the platform's toolkit: `@gcp/ui.js` gives a canvas interface layer with text, buttons, scrolling lists and a sprite atlas painted in code, and `@gcp/hud.js` the common widgets on top of it; `get_started {topic: "building-blocks"}`):
+
+- **Text**: `ctx.font`, `fillText`, `measureText`; wrap lines yourself. Load web fonts first (`await document.fonts.load('700 24px "Your Font"')`) or the first frames draw the fallback font.
+- **Buttons and panels**: shapes (`roundRect`, gradients, shadows) with a layout pass that keeps each widget's rectangle. Hit-test `pointerdown`/`pointerup` against those rectangles in CSS pixels; scale by `devicePixelRatio` only when drawing.
+- **Scrolling lists**: keep a scroll offset per list, clip with `ctx.rect` + `clip()`, move it with `wheel` and pointer drags.
+- **Keyboard and screen readers**: you may keep invisible page elements (no paint, `opacity: 0` or clipped) as focus targets or labels; they do not count as painting.
+- **A WebGL or WebGPU canvas that does not redraw every frame** (a paused or turn-based game): set `preserveDrawingBuffer: true`, or draw a frame inside `onCapture` before returning the canvas.
+
+The `capture` check holds the game to this in every preview: it fails a version that registers no hooks, that paints page elements over the game, or whose handed-over picture does not match the screen. Its detail names the elements it found (`div.menu (text "Single Player")`).
 
 ## Prove the game can be played: the play-through
 
@@ -233,6 +262,7 @@ function frame(now) {
   if (!told) { told = true; if (window.GCP) GCP.ready(); }   // after the first real frame
 }
 requestAnimationFrame(frame);
+if (window.GCP) { GCP.test.onCapture(() => c); GCP.test.onState(() => ({ t: Math.round(t) })); }   // hand over the frame
 </script>
 </body>
 </html>

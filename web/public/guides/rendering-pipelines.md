@@ -10,7 +10,7 @@ There is no platform pipeline. Pick the one that fits the game you are making, a
 | Custom deferred / G-buffer | Many dynamic lights, screen-space effects, a very specific look | High. You own the shaders and every material. |
 | Raw WebGL2 | Full control, tiny bundles, shader-driven games, voxel engines | You write everything, including matrices and state handling. |
 | WebGPU (raw or `three/webgpu`) | Compute-heavy worlds, huge instance counts, modern techniques | Not available in every browser. Needs a fallback or the manual verification path. |
-| DOM / SVG | Text games, card games, idle games, interfaces as gameplay | Fine. Still drive something from `requestAnimationFrame` so the game counts as alive. |
+| Canvas interface (`@gcp/ui.js`) | Text games, card games, idle games, interfaces as gameplay | Low. Everything visible must be drawn in canvases (the platform contract, "Hand over the frame"), so these games draw their cards, text and panels in a 2D canvas too, not in page elements. |
 
 Two things hold for all of them: size the drawing surface from the element's CSS size times a capped device pixel ratio, and clamp the frame time so a background tab does not teleport the player.
 

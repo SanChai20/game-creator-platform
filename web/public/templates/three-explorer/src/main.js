@@ -6,6 +6,7 @@ import { run, createLoop, Simplex, mulberry32, pickQuality, clamp, lerp, smooths
 import { createRenderer, fitRenderer, mergeParts, M4, lumpy, instances, makeSky, makeSun, terrainGeometry, cachedMaterial } from '@gcp/three-kit.js';
 import { createInput } from '@gcp/input.js';
 import { createAudio } from '@gcp/audio.js';
+import { createUi } from '@gcp/ui.js';
 
 const G = window.GCP;                       // injected by the platform; undefined when opened from disk
 const $ = (id) => document.getElementById(id);
@@ -86,24 +87,45 @@ run(async (boot) => {
   const jumpBtn = input.addButton('Jump', 'Space');
   let found = 0, t0 = 0, time = 0, done = false, hintGone = false;
   const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  const hud = () => { $('n').textContent = `${found} / ${shards.length}`; $('time').textContent = fmt(time); };
-  hud();
+  let board = [], hintA = 0.8;
+
+  // ---- interface: drawn every frame in a canvas over the 3D view (@gcp/ui.js). Everything the player sees is in the
+  // game's canvases, so feedback screenshots are the exact frame; createUi hands the platform both canvases ----
+  const ui = createUi(), BONE = '#f2ecdc', GLOW = '#7fe3ff', SH = { color: 'rgba(0,0,0,.8)', blur: 4, y: 1 }, MONO = 'ui-monospace, Menlo, monospace';
+  ui.layer((u) => {
+    const sl = Math.max(14, u.safe.left), st = Math.max(14, u.safe.top), sr = Math.max(14, u.safe.right);
+    u.text('Shards', sl, st, { size: 12, weight: 500, upper: true, spacing: 1, alpha: 0.75, color: BONE, base: 'top', shadow: SH });
+    u.text(`${found} / ${shards.length}`, sl, st + 16, { size: 22, weight: 800, color: BONE, base: 'top', shadow: SH });
+    u.text(fmt(time), u.w - sr, st, { size: 18, weight: 700, family: MONO, color: BONE, align: 'right', base: 'top', shadow: SH });
+    hintA = u.anim('hint', hintGone ? 0 : 0.8, 1.6);
+    if (hintA > 0.01) u.text('WASD to move · drag to look · Space to jump', u.w / 2, u.h - Math.max(18, u.safe.bottom), { size: 14, color: BONE, align: 'center', base: 'bottom', alpha: hintA, shadow: SH, width: u.w - 32 });
+    const a = u.anim('banner', done ? 1 : 0, 2);
+    if (a > 0.01) u.alpha(a, () => {                  // the end screen
+      u.panel(0, 0, u.w, u.h, { fill: 'rgba(8,12,16,.55)' }); if (done) u.block(0, 0, u.w, u.h);
+      const big = clamp(u.w * 0.08, 34, 64), bw = Math.min(280, u.w * 0.8), rows = board.length;
+      let y = u.h / 2 - (big + 30 + (rows ? 14 + rows * 25 : 0) + 60) / 2;
+      u.text('All shards found', u.w / 2, y, { size: big, weight: 700, color: BONE, align: 'center', base: 'top', shadow: SH, width: u.w - 32 }); y += big + 6;
+      u.text(`Your time: ${fmt(time)}`, u.w / 2, y, { size: 14, color: BONE, align: 'center', base: 'top', shadow: SH }); y += 24;
+      if (rows) { y += 14; for (const r of board) { const x = u.w / 2 - bw / 2; u.text(r.name, x, y + 3, { size: 14, family: MONO, color: BONE, base: 'top', width: bw - 70, lines: 1 }); u.text(fmt(r.score), x + bw, y + 3, { size: 14, weight: 700, family: MONO, color: BONE, align: 'right', base: 'top' }); u.panel(x, y + 24, bw, 1, { fill: 'rgba(255,255,255,.12)' }); y += 25; } }
+      y += 16; const label = 'Play again', w = u.measure(label, { size: 14, weight: 700 }) + 44;
+      if (u.button('again', u.w / 2 - w / 2, y, w, 42, label, { fill: GLOW, color: '#06222b', size: 14, weight: 700, radius: 21 }) && done) restart();
+    });
+  });
+  if (G) G.test.onState(() => ({ found, of: shards.length, time: Math.round(time * 10) / 10, done, player: { x: Math.round(p.x), z: Math.round(p.z) } }));
 
   async function finish() {
     done = true; audio.chord([523, 659, 784, 1047]);
-    $('bs').textContent = `Your time: ${fmt(time)}`;
-    $('banner').classList.add('on');
+    board = [];
     if (!G) return;
     await G.leaderboard.submit('time', Math.round(time * 10) / 10, 'asc');     // lower is better
     const rows = await G.leaderboard.top('time', 5, 'asc');
-    $('board').innerHTML = ''; for (const r of rows) { const li = document.createElement('li'); li.innerHTML = '<span></span><b></b>'; li.firstChild.textContent = r.name; li.lastChild.textContent = fmt(r.score); $('board').appendChild(li); }
+    if (done) board = rows.slice(0, 5);
   }
   function restart() {            // a new run in place: the world stays, only the run's state is reset
     for (const s of shards) { s.got = false; s.m.visible = true; }
     found = 0; t0 = 0; time = 0; done = false; p.x = 0; p.z = 0; p.y = height(0, 0); p.vy = 0;
-    $('banner').classList.remove('on'); hud();
+    board = [];
   }
-  $('again').onclick = restart;
 
   // ---- frame --------------------------------------------------------------------------------
   const fwd = new THREE.Vector3(), slow = { n: 0, acc: 0 };
@@ -113,7 +135,7 @@ run(async (boot) => {
     // move relative to the camera
     const mv = input.move, sp = (input.down('ShiftLeft') ? 11 : 7) * dt;
     if (mv.x || mv.y) {
-      if (!hintGone) { hintGone = true; $('hint').style.opacity = 0; if (!t0) t0 = now; }
+      if (!hintGone) { hintGone = true; if (!t0) t0 = now; }
       const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw), dx = (-s * mv.y + c * mv.x) * sp, dz = (-c * mv.y - s * mv.x) * sp;
       let nx = p.x + dx, nz = p.z + dz;
       for (const o of solid) { const ox = nx - o.x, oz = nz - o.z, d = Math.hypot(ox, oz), r = o.r + 0.35; if (d < r && d > 0.0001) { nx = o.x + ox / d * r; nz = o.z + oz / d * r; } }   // slide around props
@@ -135,7 +157,6 @@ run(async (boot) => {
       if (Math.hypot(s.x - p.x, s.z - p.z) < 1.5 && Math.abs(s.y - p.y) < 3) { s.got = true; s.m.visible = false; found++; audio.chord([660, 990], { step: 0.06 }); if (found === shards.length) finish(); }
     }
     if (t0 && !done) time = now - t0;
-    hud();
 
     // third-person camera that stays above the ground
     const cp = Math.cos(cam.pitch);
@@ -167,10 +188,10 @@ run(async (boot) => {
     t.step(`collect all ${shards.length} shards`);
     for (const s of shards) { const before = found; p.x = s.x; p.z = s.z; p.y = height(p.x, p.z); await t.until(() => found > before, 6000, 'a shard to be collected'); }
     t.step('the end screen appears with the time');
-    await t.until(() => done && $('banner').classList.contains('on'), 3000, 'the end screen');
-    t.assert($('bs').textContent.startsWith('Your time'), 'the end screen does not show the time');
-    t.step('Play again starts a new run'); $('again').click(); await t.frames(2);
-    t.assert(found === 0 && !done && !$('banner').classList.contains('on') && shards.every((s) => s.m.visible), 'the run did not reset');
+    await t.until(() => done && ui.shown('again'), 3000, 'the end screen');
+    t.assert(ui.texts.some((s) => s.startsWith('Your time')), 'the end screen does not show the time');
+    t.step('Play again starts a new run'); ui.click('again'); await t.frames(3);
+    t.assert(found === 0 && !done && shards.every((s) => s.m.visible), 'the run did not reset');
   });
 
   await boot.step(0.95, 'Almost there');

@@ -25,7 +25,10 @@ const server = await new Promise((ok) => { const s = createServer((q, r) => {
 }).listen(8932, '127.0.0.1', () => ok(s)); });
 
 let failed = 0;
-const browser = await playwright.chromium.launch({ args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+// BROWSER=chromium (default) | firefox | webkit: the same checks in each engine (CI runs all three)
+const engine = process.env.BROWSER || 'chromium';
+const browser = await playwright[engine].launch(engine === 'chromium' ? { args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : {});
+console.log('engine:', engine, browser.version());
 try {
   for (const dpr of [1, 2]) {
     const name = `pixel ratio ${dpr}`;
