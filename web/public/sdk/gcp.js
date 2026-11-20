@@ -1752,7 +1752,7 @@
           var d = e.data; if (!d || d.__gcpw !== 1) return;
           e.stopImmediatePropagation(); if (rec.port) return;
           var ch = new MessageChannel(); rec.port = ch.port1;
-          ch.port1.onmessage = function (m) { var a = m.data && rec.asks[m.data.cap]; if (a) { delete rec.asks[m.data.cap]; a(m.data.frames || []); } };
+          ch.port1.onmessage = function (m) { var a = m.data && rec.asks[m.data.cap]; if (a) { delete rec.asks[m.data.cap]; a(m.data.frames || [], m.data.why); } };
           PM.call(w, { __gcpw: 2, port: ch.port2 }, [ch.port2]);
         }, true);
         return w;
@@ -1765,13 +1765,15 @@
   // copies of the canvases drawn by workers: Map(stand-in canvas -> ImageBitmap), whatever arrived within the wait
   function workerFrames(max) {
     var out = typeof Map === 'function' ? new Map() : null, waits = [];
+    cap.why = null;
     if (!out) return Promise.resolve(null);
     cap.workers.forEach(function (rec) {
-      if (!rec.port || !rec.canvases.some(Boolean)) return;
+      if (!rec.canvases.some(Boolean)) return;
+      if (!rec.port) { cap.why = cap.why || 'the helper is not running in the worker'; return; }
       var id = Math.random().toString(36).slice(2);
       waits.push(new Promise(function (ok) {
-        var t = setTimeout(function () { delete rec.asks[id]; ok(); }, 1200);
-        rec.asks[id] = function (frames) { clearTimeout(t); for (var i = 0; i < frames.length && i < rec.canvases.length; i++) if (frames[i] && rec.canvases[i]) out.set(rec.canvases[i], frames[i]); ok(); };
+        var t = setTimeout(function () { delete rec.asks[id]; cap.why = cap.why || 'the worker did not answer'; ok(); }, 1200);
+        rec.asks[id] = function (frames, why) { clearTimeout(t); if (why) cap.why = cap.why || String(why); for (var i = 0; i < frames.length && i < rec.canvases.length; i++) if (frames[i] && rec.canvases[i]) out.set(rec.canvases[i], frames[i]); ok(); };
         try { rec.port.postMessage({ cap: id, max: max }); } catch (e) { clearTimeout(t); ok(); }
       }));
     });
@@ -2337,6 +2339,7 @@
       g.fillStyle = bg; g.fillRect(0, 0, out.width, out.height); drew = 0;
       if (hooked) holders().forEach(function (h) { g.fillStyle = h.c; g.fillRect(h.r.left * scale, h.r.top * scale, h.r.width * scale, h.r.height * scale); });
       var snaps = typeof Map === 'function' ? new Map() : null, from = { worker: 0, draw: 0, page: 0, given: 0 };
+      if (cap.why) from.why = cap.why;   // why a worker's canvas was not copied by the worker
       for (var i = 0; i < grabbed.length; i++) {
         var it = grabbed[i], c = it.c, src = null;
         if (wf && wf.get(c)) { src = wf.get(c); from.worker++; } else if (!it.fresh && gf && gf.get(c)) { src = gf.get(c); from.draw++; } else if (it.copy) { src = it.copy; from.page++; }

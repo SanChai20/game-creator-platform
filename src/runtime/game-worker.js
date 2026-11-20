@@ -54,17 +54,33 @@ export const WORKER_HELPER = `
     }
     var DRAW = ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements', 'clear'];
     var GLS = [G.WebGLRenderingContext, G.WebGL2RenderingContext].filter(Boolean);
+    // a copy of the canvas: drawn into a 2D canvas, or, where the browser cannot draw a WebGL canvas that way, read back
+    // from its frame (the frame is still there: this runs right after the game's draw call)
     function snap(c, max) {
       var w = c.width, h = c.height; if (!w || !h) return null;
-      var k = Math.min(1, max / Math.max(w, h)), o = new OffscreenCanvas(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
-      o.getContext('2d').drawImage(c, 0, 0, o.width, o.height); return o.transferToImageBitmap();
+      var k = Math.min(1, max / Math.max(w, h)), o = new OffscreenCanvas(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k))), og = o.getContext('2d'), err = null;
+      try { og.drawImage(c, 0, 0, o.width, o.height); if (!blank(og, o)) return o.transferToImageBitmap(); } catch (e) { err = e; }
+      var g = ctxs.get(c), full = g && typeof g.readPixels === 'function' ? pixels(g, w, h) : null;
+      if (!full) { if (err) throw err; return o.transferToImageBitmap(); }
+      og.clearRect(0, 0, o.width, o.height); og.drawImage(full, 0, 0, o.width, o.height); return o.transferToImageBitmap();
+    }
+    // nothing at all drawn (every pixel clear): a browser that copies a WebGL canvas as empty
+    function blank(og, o) { var d = og.getImageData(0, 0, o.width, o.height).data, step = Math.max(4, (d.length / 4096 | 0) * 4); for (var i = 3; i < d.length; i += step) if (d[i]) return false; return true; }
+    function pixels(g, w, h) {
+      var fb = g.getParameter(g.FRAMEBUFFER_BINDING), px = new Uint8Array(w * h * 4), row = w * 4;
+      if (fb) g.bindFramebuffer(g.FRAMEBUFFER, null);
+      try { g.readPixels(0, 0, w, h, g.RGBA, g.UNSIGNED_BYTE, px); } finally { if (fb) g.bindFramebuffer(g.FRAMEBUFFER, fb); }
+      var full = new OffscreenCanvas(w, h), fg = full.getContext('2d'), id = fg.createImageData(w, h);
+      for (var y = 0; y < h; y++) id.data.set(px.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+      fg.putImageData(id, 0, 0); return full;
     }
     function reply(r) {
       if (want !== r) return; want = null; clearTimeout(r.t);
       for (var s = 0; s < r.saved.length; s++) r.saved[s][0][r.saved[s][1]] = r.saved[s][2];
-      var frames = [], give = [];
-      for (var i = 0; i < offs.length; i++) { var b = null; try { if (ctxs.has(offs[i])) b = snap(offs[i], r.max); } catch (e) {} frames.push(b); if (b) give.push(b); }
-      try { port.postMessage({ cap: r.id, frames: frames }, give); } catch (e) { try { port.postMessage({ cap: r.id, frames: [] }); } catch (x) {} }
+      var frames = [], give = [], why = null;
+      for (var i = 0; i < offs.length; i++) { var b = null; try { if (ctxs.has(offs[i])) b = snap(offs[i], r.max); else why = why || 'no context'; } catch (e) { why = why || String(e && e.message || e).slice(0, 160); } frames.push(b); if (b) give.push(b); }
+      if (!offs.length) why = 'no canvas';
+      try { port.postMessage({ cap: r.id, frames: frames, why: why }, give); } catch (e) { try { port.postMessage({ cap: r.id, frames: [], why: String(e && e.message || e).slice(0, 160) }); } catch (x) {} }
     }
     function needsDraw(c) { var g = ctxs.get(c), a = null; if (!g) return false; if (typeof G.GPUCanvasContext === 'function' && g instanceof G.GPUCanvasContext) return true; if (typeof g.getContextAttributes !== 'function') return false; try { a = g.getContextAttributes(); } catch (e) {} return !!a && !a.preserveDrawingBuffer; }
     function ask(e) {
