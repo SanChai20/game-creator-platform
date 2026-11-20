@@ -7,6 +7,7 @@ import { THREE_VERSION } from './generated/runtime-source';
 import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf } from './util';
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
+import { regionBlockedRefs, regionWarning } from './region-hosts.js';
 // @ts-ignore plain JS module shared with the tests
 import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
@@ -338,6 +339,8 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
     if (file.startsWith('server/')) continue;
     // web games only: the page is the game, not a way to a native download, an app store or another site
     if (ext === 'html' || ext === 'js' || ext === 'mjs') for (const i of nonWebPage(src)) err({ file, line: src.slice(0, i.index).split('\n').length, message: i.message, hint: i.hint });
+    // hosts some regions block (Google Fonts, YouTube, analytics…): the game would fail there, so say what to bundle instead
+    if (ext === 'html' || ext === 'js' || ext === 'mjs' || ext === 'css') for (const r of regionBlockedRefs(src)) warn(regionWarning(file, r));
     if (ext === 'js' || ext === 'mjs') {
       // A file is a module if anything imports it or it uses import/export; parse as module first.
       const isModule = moduleFiles.has(file) || /^\s*(import|export)\b/m.test(src);
