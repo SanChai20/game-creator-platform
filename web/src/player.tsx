@@ -369,12 +369,13 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   // and the player can drag it anywhere; the spot is kept per game and orientation. Back, a three-finger tap, Esc and the
   // game itself (GCP.menu) open the menu too.
   const corner = prefs.exit ?? 'top-left';
-  const [pos, setPos] = useState<BtnPos | null>(null), [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
+  const [pressing, setPressing] = useState(false), [pos, setPos] = useState<BtnPos | null>(null), [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const grab = useRef<{ id: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null), dragAt = useRef<{ x: number; y: number } | null>(null), noClick = useRef(0);
   useEffect(() => { setPos(active ? readPos(seed, portrait) : null); }, [active, seed, portrait]);
   const room = () => ({ w: Math.max(0, (box.current?.clientWidth ?? 0) - BTN - 2 * BTN_EDGE), h: Math.max(0, (box.current?.clientHeight ?? 0) - BTN - 2 * BTN_EDGE) });
   const onBtnDown = (e: RPointerEvent<HTMLButtonElement>) => {
     if (e.button > 0) return;
+    setPressing(true);
     const r = e.currentTarget.getBoundingClientRect(), b = box.current?.getBoundingClientRect();
     grab.current = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left - (b?.left ?? 0), oy: r.top - (b?.top ?? 0), moved: false };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* old browser */ }
@@ -389,7 +390,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   };
   const onBtnUp = (e: RPointerEvent<HTMLButtonElement>) => {
     const g = grab.current; if (!g || g.id !== e.pointerId) return;
-    grab.current = null;
+    grab.current = null; setPressing(false);
     if (!g.moved) return;   // a tap: the click that follows opens the menu
     noClick.current = performance.now() + 400;
     const { w, h } = room(), at = dragAt.current;
@@ -424,7 +425,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
         {active && url && !menu && !hung && (corner !== 'none' || badge) && (
-          <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner) + (pos || drag ? ' moved' : '') + (drag ? ' dragging' : '')} style={corner === 'none' ? undefined : btnStyle()}>
+          <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner) + (pos || drag ? ' moved' : '') + (drag ? ' dragging' : '') + (pressing ? ' pressing' : '')} style={corner === 'none' ? undefined : btnStyle()}>
             {corner !== 'none' && <button type="button" onClick={() => { if (performance.now() >= noClick.current) setMenu(true); }} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}
               aria-label={t('Game menu', '游戏菜单')} title={t('Game menu (drag to move)', '游戏菜单（可拖动）')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>}
             {badge && <span className="stage-badge">{badge}</span>}

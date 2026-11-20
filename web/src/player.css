@@ -13,8 +13,12 @@
 .stage iframe { touch-action: manipulation; }
 html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none; }
 
-.stage-exit { position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; pointer-events: none; animation: stage-exit-dim 4s ease forwards; }
-.stage-exit:hover, .stage-exit:focus-within { animation: none; opacity: 1; }
+.stage-exit { position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+/* The menu button is plain at first, then fades until it is barely there; touching or dragging it brings it back, and left
+   alone it fades again. Only the button: the trial clock beside it stays readable. */
+.stage-exit button { animation: stage-exit-dim 5s ease forwards; }
+@media (hover: hover) { .stage-exit button:hover, .stage-exit button:focus-visible { animation: none; opacity: 1; } }
+.stage-exit.pressing button, .stage-exit.dragging button { animation: none; opacity: 1; }
 .stage-exit.top-left { top: calc(8px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); }
 .stage-exit.top-right { top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); flex-direction: row-reverse; }
 .stage-exit.bottom-left { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); }
@@ -23,13 +27,12 @@ html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none;
 .stage-exit button { touch-action: none; }
 /* Dragged by the player (player.tsx): left and top come from the spot they chose. */
 .stage-exit.moved { flex-direction: row; }
-.stage-exit.dragging { animation: none; opacity: 1; }
 .stage-exit.dragging button { cursor: grabbing; transform: scale(1.12); box-shadow: 0 6px 22px rgb(0 0 0 / .5); }
 .stage-exit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .stage-tip { position: absolute; z-index: 3; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); max-width: min(440px, calc(100% - 32px)); padding: 8px 14px; border-radius: 12px; background: rgb(12 10 18 / .8); color: #fff; font: 600 13px/1.35 system-ui, -apple-system, sans-serif; text-align: center; pointer-events: none; animation: stage-tip 5s ease forwards; }
 @keyframes stage-tip { 0% { opacity: 0; } 6%, 85% { opacity: 1; } 100% { opacity: 0; } }
 .stage-badge { --pl: rgb(14 12 18 / .78); display: inline-flex; align-items: center; height: 26px; padding: 0 11px; color: #fff; font: 600 12.5px/1 var(--font-mono, ui-monospace, monospace); }
-@keyframes stage-exit-dim { 0%, 70% { opacity: 1; } 100% { opacity: .45; } }
+@keyframes stage-exit-dim { 0%, 60% { opacity: 1; } 100% { opacity: .16; } }
 
 .stage-turn { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; text-align: center; color: #fff; background: rgb(12 10 18 / .92); }
 .stage-turn b { font-size: 18px; }
@@ -40,7 +43,7 @@ html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none;
 .turn-ico.portrait i { animation-name: turn-phone-up; }
 @keyframes turn-phone { 0%, 25% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
 @keyframes turn-phone-up { 0%, 25% { transform: rotate(-90deg); } 55%, 100% { transform: rotate(0); } }
-@media (prefers-reduced-motion: reduce) { .turn-ico i { animation: none; } .stage-exit { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .turn-ico i { animation: none; } .stage-exit button { animation: none; opacity: .16; } }
 
 /* In the player, swipes and pinches act on the game, never on the page around it. */
 .stage.filled { touch-action: none; overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
