@@ -27,7 +27,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install --no-save playwright@1.63.0
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      # the system packages come from apt, which now and then hangs on a runner: give up after a few minutes and try
+      # once more rather than sit out the whole job
+      - run: timeout 360 npx playwright install --with-deps ${{ matrix.browser }} || timeout 480 npx playwright install --with-deps ${{ matrix.browser }}
       # headless Firefox and WebKit have no WebGL on a runner without a GPU; a headed browser on a virtual display gets
       # Mesa's software renderer
       - run: xvfb-run -a npm run test:sdk-capture
