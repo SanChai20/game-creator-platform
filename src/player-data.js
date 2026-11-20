@@ -267,11 +267,13 @@ export async function serverStoreOp(db, game, envName, b, t = Date.now()) {
 
 /** Daily cleanup: progress of guests who have not played for `before` (ms epoch) and never signed in to keep it. */
 export const idleGuestCleanupStmts = (db, before) => [
-  ...['saves', 'player_stats', 'scores', 'player_games'].map((tb) => db.prepare(`DELETE FROM ${tb} WHERE user_id LIKE 'guest\\_%' ESCAPE '\\' AND user_id IN (SELECT user_id FROM player_games WHERE user_id LIKE 'guest\\_%' ESCAPE '\\' GROUP BY user_id HAVING MAX(last_at) < ?)`).bind(before)),
+  // a range on user_id rather than LIKE 'guest_%', so each table is read through its user index, not scanned whole
+  ...['saves', 'player_stats', 'scores', 'player_games'].map((tb) => db.prepare(`DELETE FROM ${tb} WHERE user_id >= 'guest_' AND user_id < 'guest\`' AND user_id IN (SELECT user_id FROM player_games WHERE user_id >= 'guest_' AND user_id < 'guest\`' GROUP BY user_id HAVING MAX(last_at) < ?)`).bind(before)),
 ];
 
 /** Daily cleanup: verifier sessions' throwaway data. */
 export const verifierCleanupStmts = (db, before) => [
-  db.prepare("DELETE FROM saves WHERE user_id LIKE 'verify:%' AND updated_at < ?").bind(before),
-  db.prepare("DELETE FROM player_stats WHERE user_id LIKE 'verify:%' AND updated_at < ?").bind(before),
+  // 'verify:' up to 'verify;' (the next character) is every verifier id, read through the user index instead of a scan
+  db.prepare("DELETE FROM saves WHERE user_id >= 'verify:' AND user_id < 'verify;' AND updated_at < ?").bind(before),
+  db.prepare("DELETE FROM player_stats WHERE user_id >= 'verify:' AND user_id < 'verify;' AND updated_at < ?").bind(before),
 ];

@@ -5,7 +5,7 @@ import { userById } from '../auth';
 import { importZip } from '../mcp/tools';
 import { ownedProject, putFile } from '../projects';
 import { getSettings } from '../settings';
-import { now, sha256 } from '../util';
+import { now, readCapped, sha256 } from '../util';
 import { budgetOf, mb, storageLine } from '../storage';
 import { storageHint } from '../storage-rules';
 
@@ -25,7 +25,8 @@ upload.put('/:token', async (c) => {
   if (!path) throw bad('Add ?path=<file path>, e.g. ?path=index.html');
   const declared = Number(c.req.header('content-length') || 0);   // refuse an oversized file before reading it
   if (declared > s.file_max_bytes) throw new AppError(413, `${path} is ${mb(declared)}; the largest file a game can hold is ${mb(s.file_max_bytes)}.`, 'file_too_large', storageHint(s.storage_requests_open));
-  const buf = new Uint8Array(await c.req.arrayBuffer());
+  const buf = await readCapped(c.req.raw, s.file_max_bytes);   // also without a Content-Length (chunked), never more than the limit
+  if (!buf) throw new AppError(413, `${path} is larger than ${mb(s.file_max_bytes)}, the largest file a game can hold.`, 'file_too_large', storageHint(s.storage_requests_open));
   const row = await putFile(c.env, project, path, buf);   // checks the file and the game's storage
   return c.json({ written: [{ path: row.path, bytes: row.size }], storage: await storageLine(c.env, project) });
 });
@@ -36,7 +37,7 @@ upload.post('/:token/zip', async (c) => {
   // refused before the body is read; unpacking then goes by the sizes in the zip's directory, which importZip checks
   // first (fflate never writes more than an entry's declared size, so a zip that lies about its sizes cannot grow)
   if (declared > room) throw new AppError(413, `The zip is ${mb(declared)}; this game has ${mb(room)} of storage in all.`, 'storage_full', storageHint(s.storage_requests_open));
-  const buf = new Uint8Array(await c.req.arrayBuffer());
-  if (buf.byteLength > room) throw new AppError(413, `The zip is ${mb(buf.byteLength)}; this game has ${mb(room)} of storage in all.`, 'storage_full', storageHint(s.storage_requests_open));
+  const buf = await readCapped(c.req.raw, room);
+  if (!buf || buf.byteLength > room) throw new AppError(413, `The zip is ${buf ? mb(buf.byteLength) : `over ${mb(room)}`}; this game has ${mb(room)} of storage in all.`, 'storage_full', storageHint(s.storage_requests_open));
   return c.json(await importZip(c.env, user, project.id, buf, c.req.query('clean') === '1'));
 });

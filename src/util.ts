@@ -74,3 +74,27 @@ export function cleanPath(p: string): string | null {
   if (!ALLOWED_EXT.includes(extOf(p))) return null;
   return p;
 }
+
+/**
+ * A request body read up to `max` bytes, or null when it is larger. A declared Content-Length over the limit is refused
+ * before anything is read, and a body sent without one (chunked) is read only until it passes the limit, so no caller
+ * holds more than `max` bytes in memory whatever the client sends.
+ */
+export async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
+  const declared = Number(req.headers.get('content-length') || 0);
+  if (declared > max) { req.body?.cancel().catch(() => {}); return null; }
+  if (!req.body) return new Uint8Array(0);
+  const reader = req.body.getReader(), parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) { reader.cancel().catch(() => {}); return null; }
+    parts.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.byteLength; }
+  return out;
+}

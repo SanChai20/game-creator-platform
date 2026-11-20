@@ -18,7 +18,7 @@ import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, log
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
 import { grantLicense, isPlan, licenseOf, licenseView, offerOf, planName, syncLicense } from '../license';
-import { freeTrendingOrder } from '../catalog';
+import { freeTrendingArgs, freeTrendingOrder, freeTrendingQuery } from '../catalog';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { currentPicks } from '../rankings';
 import { checkIn, sessionStartStmt } from '../play-clock';
@@ -30,7 +30,7 @@ import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../st
 import { startWithdrawal } from '../payouts';
 export { autoPayouts, retryTransfers, reverseWithdrawal, sendTransfer } from '../payouts';
 import { beginTrial, trialMinutes, trialState } from '../trials';
-import { addDays, dayOf, now, parseJson, rid, safeEqual, sha256 } from '../util';
+import { addDays, dayOf, now, parseJson, readCapped, rid, safeEqual, sha256 } from '../util';
 // @ts-ignore plain JS module
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
@@ -125,10 +125,15 @@ async function signIn(c: Ctx, userId: string) {
 
 // The second step of a sign-in with two-factor on: the challenge from the password step and a code from the
 // authenticator app, or one of the recovery codes (src/two-factor.ts). Five wrong codes and the password is asked again.
+/** Codes one account may try at the second step of signing in, from anywhere: ample for a person, too few to guess with. */
+export const TWO_FACTOR_CODES_PER_15_MIN = 10, TWO_FACTOR_CODES_PER_DAY = 30;
 api.post('/auth/login/code', async (c) => {
   const b = await c.req.json<{ challenge?: string; code?: string }>().catch(() => ({} as any));
   await rateLimit(c.env, 'login2fa:' + clientNet(c.req.raw), 30, 900);
-  const r = await answerChallenge(c.env, String(b.challenge || ''), String(b.code || ''));
+  const r = await answerChallenge(c.env, String(b.challenge || ''), String(b.code || ''), now(), async (userId) => {
+    await rateLimit(c.env, '2falogin:' + userId, TWO_FACTOR_CODES_PER_15_MIN, 900);
+    await rateLimit(c.env, '2falogind:' + userId, TWO_FACTOR_CODES_PER_DAY, 86400);
+  });
   if (!r.ok) throw r.reason === 'expired'
     ? new AppError(401, 'This sign-in timed out or had too many wrong codes. Enter your password again.', 'challenge_expired')
     : new AppError(401, 'That code is not right. Check the time on your phone, or use a recovery code.', 'bad_code');
@@ -301,6 +306,15 @@ const ORDER: Record<string, string> = {
   // the trending score (src/rankings.ts); admin-featured games go into today's picks instead of being pinned here
   trending: 'p.recent DESC, p.plays DESC, p.published_at DESC',
 };
+/** One page of live games. recent and playing are columns kept fresh by cron (src/catalog.ts), so the sort can use an
+ *  index; the Top sort is read in order from its own index (migration 0030), which the planner would not choose by
+ *  itself. Before that migration has run, the Top sort simply sorts. */
+async function pageOf(c: Ctx, sort: string, w: string, order: string, args: unknown[], limit: number, offset: number) {
+  const q = (hint: string) => c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p${hint} JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...args, limit, offset).all();
+  if (sort !== 'top') return q('');
+  try { return await q(' INDEXED BY projects_top'); }
+  catch (e) { if (/no such index|no query solution/i.test(String((e as Error).message))) return q(''); throw e; }
+}
 async function listGames(c: Ctx, o: ListOpts) {
   const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
   const limit = Math.max(1, Math.min(60, o.limit || 24)), offset = Math.max(0, Math.min(100000, o.offset || 0));
@@ -314,11 +328,12 @@ async function listGames(c: Ctx, o: ListOpts) {
   if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
   const w = where.join(' AND ');
   // among free games, those that share their Open Implementation get a moderate lift (src/catalog.ts)
-  const order = sort === 'trending' && o.price === 'free' ? freeTrendingOrder((await getSettings(c.env)).open_impl_free_boost_percent) : ORDER[sort];
+  const freeTrending = sort === 'trending' && o.price === 'free', boost = freeTrending ? (await getSettings(c.env)).open_impl_free_boost_percent : 0;
+  const order = freeTrending ? freeTrendingOrder(boost) : ORDER[sort];
+  // the Free shelf's boosted order, merged from two index-ordered lists instead of sorting every free game (src/catalog.ts)
+  const merged = freeTrending ? freeTrendingQuery(boost, 'p.*, u.name AS author', 'projects p JOIN users u ON u.id = p.owner_id', w) : null;
   const [rows, total] = await Promise.all([
-    c.env.DB.prepare(
-      // recent and playing are columns kept fresh by cron (src/catalog.ts), so the sort can use an index
-      `SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...args, limit, offset).all(),
+    merged ? c.env.DB.prepare(merged).bind(...freeTrendingArgs(args, limit, offset)).all() : pageOf(c, sort, w, order, args, limit, offset),
     c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${w}`).bind(...args).first<{ n: number }>(),
   ]);
   const games = rows.results.map((r) => card(c.get('origin'), r)), n = total?.n || 0;
@@ -329,7 +344,19 @@ async function listGames(c: Ctx, o: ListOpts) {
  * in each (for the category tiles). With `within`, only games carrying that tag count: its related genres.
  * Reads the 5,000 most played games, which is plenty to rank genres however big the catalogue grows.
  */
-async function genreCounts(c: Ctx, top = 16, within = '') {
+// Genre counts move slowly and are the same for everyone, so each isolate keeps them for a minute: the facets of every
+// store request (and each data centre's cache refills) then read the 5,000 rows once a minute, not once a request.
+const GENRE_TTL_MS = 60_000, genreMemo = new Map<string, { at: number; value: ReturnType<typeof readGenreCounts> }>();
+function genreCounts(c: Ctx, top = 16, within = '') {
+  const key = `${c.get('origin')}|${top}|${within}`, hit = genreMemo.get(key), t = now();
+  if (hit && t - hit.at < GENRE_TTL_MS) return hit.value;
+  if (genreMemo.size > 500) genreMemo.clear();
+  const value = readGenreCounts(c, top, within);
+  genreMemo.set(key, { at: t, value });
+  value.catch(() => genreMemo.delete(key));
+  return value;
+}
+async function readGenreCounts(c: Ctx, top: number, within: string) {
   const w = within ? " AND tags LIKE ? ESCAPE '\\'" : '', a = within ? ['%"' + within.replace(/[\\%_]/g, '\\$&') + '"%'] : [];
   const rows = await c.env.DB.prepare(`SELECT tags, cover_key, mature FROM projects WHERE status = 'live'${w} ORDER BY plays DESC LIMIT 5000`).bind(...a).all<{ tags: string; cover_key: string | null; mature: string }>();
   const counts = new Map<string, { n: number; covers: string[] }>(), origin = c.get('origin');
@@ -343,18 +370,21 @@ async function genreCounts(c: Ctx, top = 16, within = '') {
 }
 const num = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) : undefined);
 
-api.get('/games', async (c) => {
+// The same for everyone (nothing in it depends on who asks), so each data centre answers it from its cache for half a
+// minute: browsing, search and the category pages then cost the database one read per address per half minute, not one
+// per visitor. The genre facets alone read the 5,000 most played games.
+api.get('/games', (c) => edgeCached(c, 30, async () => {
   const qy = (k: string) => c.req.query(k);
   const [list, genres] = await Promise.all([
     listGames(c, { sort: qy('sort'), q: qy('q'), tag: qy('tag'), price: qy('price'), limit: num(qy('limit')) || 60, offset: num(qy('offset')), newSince: num(qy('since')), by: qy('by'), minRating: Number(qy('rating')) || undefined }),
     num(qy('offset')) || qy('facets') === '0' ? Promise.resolve(null) : genreCounts(c),   // facets=0: just the games (instant search, shelves)
   ]);
   return c.json({ ...list, ...(genres && { tags: genres.map((g) => g.tag), genres }) });
-});
+}));
 
 /** Every genre with its count and covers (the categories index), or one genre's numbers and related genres. */
 api.get('/categories', (c) => edgeCached(c, 60, async () => { c.header('cache-control', 'public, max-age=60'); return c.json({ genres: await genreCounts(c, 200) }); }));
-api.get('/categories/:tag', async (c) => {
+api.get('/categories/:tag', (c) => edgeCached(c, 30, async () => {
   const tag = c.req.param('tag').trim().toLowerCase().slice(0, 24), like = '%"' + tag.replace(/[\\%_]/g, '\\$&') + '"%', t = now();
   const [related, nums] = await Promise.all([
     genreCounts(c, 14, tag),
@@ -364,7 +394,7 @@ api.get('/categories/:tag', async (c) => {
   ]);
   c.header('cache-control', 'public, max-age=30');
   return c.json({ tag, games: nums?.games || 0, free: nums?.free || 0, new_week: nums?.new_week || 0, playing: nums?.playing || 0, related });
-});
+}));
 
 /** Everything the home page shows, in one request: the spotlight, the shelves, the genres and the key numbers. */
 /** Public, same for everyone: answered from this data centre's cache for a few seconds, so a rush does not reach D1. */
@@ -952,9 +982,9 @@ api.post('/console/projects/:id/feedback', async (c) => {
   const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
   // the pictures travel as data URLs (the screenshot and any attached, FEEDBACK_LIMITS.item_bytes together): refuse an
   // oversized body before reading it
-  if (Number(c.req.header('content-length') || 0) > FEEDBACK_BODY_MAX) throw new AppError(413, 'The pictures are too large together.', 'too_large');
-  const text = await c.req.text();
-  if (text.length > FEEDBACK_BODY_MAX) throw new AppError(413, 'The pictures are too large together.', 'too_large');
+  const raw = await readCapped(c.req.raw, FEEDBACK_BODY_MAX);   // with or without a Content-Length, never more than the limit
+  if (!raw) throw new AppError(413, 'The pictures are too large together.', 'too_large');
+  const text = new TextDecoder().decode(raw);
   const b = parseJson<Record<string, unknown> | null>(text, null);
   if (!b || typeof b !== 'object') throw bad('Send the feedback as JSON.');
   return c.json(await addFeedback(c.env, u, p, b));

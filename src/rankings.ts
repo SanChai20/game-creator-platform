@@ -28,13 +28,22 @@ const BAYES = (p = '') => `((${p}rating_sum + ${PRIOR_MEAN * PRIOR_N}) * 1.0 / (
  * instead of a flat seven-day sum that drops a game off a cliff on day eight. The rating factor runs from 0.7 (1 star)
  * to 1.1 (5 stars), 0.95 with no ratings, so a well-liked game edges ahead of an equally played one.
  * Games that are not live get 0.
+ *
+ * Only rows whose score changes are written. The score of a game nobody played in the last 14 days stays 0, and within a
+ * day only games played since the last run move, so at tens of thousands of games the job writes a few hundred rows a
+ * run instead of every live game every 10 minutes (D1 bills and serializes every row written).
  */
 export function trendStmt(db: D1Database, t = now()): D1PreparedStatement {
   const today = dayOf(t);
-  return db.prepare(`UPDATE projects SET recent = CASE WHEN status = 'live' THEN CAST(ROUND(
-      COALESCE((SELECT SUM((d.plays * 4 + d.seconds / 60.0) * 2.0 / (2 + julianday(?1) - julianday(d.day))) FROM game_daily d WHERE d.project_id = projects.id AND d.day >= ?2 AND d.day <= ?1), 0)
-      * (0.6 + 0.1 * ${BAYES()})) AS INTEGER) ELSE 0 END
-    WHERE status = 'live' OR recent != 0`).bind(today, addDays(today, -(TREND_DAYS - 1)));
+  return db.prepare(`UPDATE projects SET recent = n.score FROM (
+      SELECT p.id, CASE WHEN p.status = 'live' THEN CAST(ROUND(COALESCE(d.s, 0) * (0.6 + 0.1 * ${BAYES('p.')})) AS INTEGER) ELSE 0 END AS score
+      FROM projects p LEFT JOIN (
+        SELECT project_id, SUM((plays * 4 + seconds / 60.0) * 2.0 / (2 + julianday(?1) - julianday(day))) AS s
+        FROM game_daily WHERE day >= ?2 AND day <= ?1 GROUP BY project_id
+      ) d ON d.project_id = p.id
+      WHERE p.recent != 0 OR d.project_id IS NOT NULL
+    ) AS n
+    WHERE projects.id = n.id AND projects.recent != n.score`).bind(today, addDays(today, -(TREND_DAYS - 1)));
 }
 
 // ---- today's picks -------------------------------------------------------------------------------

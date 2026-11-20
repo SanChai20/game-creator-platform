@@ -2,6 +2,7 @@ import puppeteer from '@cloudflare/puppeteer';
 import type { Env } from './env';
 import { getSettings } from './settings';
 import { b64, unb64 } from './util';
+import { launchWithRetry } from './browser-limit';
 // @ts-ignore plain JS module shared with the Node test harness
 import { applyDeviceResults, verifyDevices, verifyPage } from './verify-core.js';
 
@@ -25,7 +26,7 @@ export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: s
   if (!env.BROWSER) return { report: { ok: false, browser: 'unavailable', summary: 'No verification browser is configured on this deployment.', checks: [], errors: [] }, shot: null, frames: [] };
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
   try {
-    browser = await puppeteer.launch(env.BROWSER as any, { keep_alive: 60000 });
+    browser = await launchWithRetry(() => puppeteer.launch(env.BROWSER as any, { keep_alive: 60000 }));
     const page = await browser.newPage();
     await page.setViewport({ width: 960, height: 540, deviceScaleFactor: 1 });
     // a game with rooms is opened in two more pages of this browser, which meet in one room (GCP.test.onTwoPlayers)
@@ -51,3 +52,4 @@ export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: s
   }
 }
 export { b64 };
+
