@@ -1655,5 +1655,14 @@
  "{n} pictures": "{n} imágenes",
  "Attached picture {n}": "Imagen adjunta {n}",
  "The feedback editor ran into a problem.": "El editor de comentarios tuvo un problema.",
- "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "No se envió nada. Vuelve al juego y captura de nuevo. Si vuelve a pasar, cuéntanos qué hiciste."
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "No se envió nada. Vuelve al juego y captura de nuevo. Si vuelve a pasar, cuéntanos qué hiciste.",
+ "Menu button in the way? Drag it anywhere.": "¿El botón del menú estorba? Arrástralo a donde quieras.",
+ "Menu button in the way? Drag it anywhere. Esc opens the menu too.": "¿El botón del menú estorba? Arrástralo a donde quieras. Esc también abre el menú.",
+ "Press Esc for the game menu.": "Pulsa Esc para abrir el menú del juego.",
+ "Tap with three fingers for the game menu.": "Toca con tres dedos para abrir el menú del juego.",
+ "Swipe in from the left edge, or tap with three fingers, for the game menu.": "Desliza desde el borde izquierdo o toca con tres dedos para abrir el menú del juego.",
+ "Go back, or tap with three fingers, for the game menu.": "Vuelve atrás o toca con tres dedos para abrir el menú del juego.",
+ "Game menu (drag to move)": "Menú del juego (arrastra para moverlo)",
+ "Keep playing here": "Seguir jugando aquí",
+ "Back, or a three-finger tap, also opens this menu.": "Volver atrás o tocar con tres dedos también abre este menú."
 }

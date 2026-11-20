@@ -1677,5 +1677,14 @@
  "{n} pictures": "{n} 張圖片",
  "Attached picture {n}": "附加圖片 {n}",
  "The feedback editor ran into a problem.": "回饋編輯器發生問題。",
- "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "沒有送出任何內容。請返回遊戲重新截圖。如果再次發生，請告訴我們你做了什麼。"
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "沒有送出任何內容。請返回遊戲重新截圖。如果再次發生，請告訴我們你做了什麼。",
+ "Menu button in the way? Drag it anywhere.": "選單按鈕擋住畫面了？可以把它拖到任何位置。",
+ "Menu button in the way? Drag it anywhere. Esc opens the menu too.": "選單按鈕擋住畫面了？可以把它拖到任何位置。按 Esc 也能開啟選單。",
+ "Press Esc for the game menu.": "按 Esc 開啟遊戲選單。",
+ "Tap with three fingers for the game menu.": "三指輕點開啟遊戲選單。",
+ "Swipe in from the left edge, or tap with three fingers, for the game menu.": "從螢幕左邊緣向內滑，或三指輕點，開啟遊戲選單。",
+ "Go back, or tap with three fingers, for the game menu.": "使用返回手勢或返回鍵，或三指輕點，開啟遊戲選單。",
+ "Game menu (drag to move)": "遊戲選單（可拖動）",
+ "Keep playing here": "在此繼續玩",
+ "Back, or a three-finger tap, also opens this menu.": "返回手勢或三指輕點也能開啟此選單。"
 }
