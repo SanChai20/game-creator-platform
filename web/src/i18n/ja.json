@@ -834,6 +834,7 @@
  "Searching…": "検索中…",
  "Seconds a game has to call GCP.ready()": "ゲームが GCP.ready() を呼び出すまでの制限時間（秒）",
  "Seconds a game's own play-through script may take": "ゲーム独自のプレイスルースクリプトにかけられる秒数",
+ "Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off": "各バージョンが合格した後に追加でプレイするタッチ端末（エミュレーション）：iphone、ipad、android をカンマ区切りで。空欄にすると端末チェックをオフにします",
  "Seconds before a session counts as a play": "セッションが1プレイとしてカウントされるまでの秒数",
  "Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it": "自動ブラウザで実行できない場合に、バージョンを合格とするのに必要な、実ブラウザでのエラーのないプレビュープレイの秒数",
  "See all": "すべて見る",

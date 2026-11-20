@@ -849,6 +849,7 @@
  "Searching…": "搜尋中…",
  "Seconds a game has to call GCP.ready()": "遊戲呼叫 GCP.ready() 的時限（秒）",
  "Seconds a game's own play-through script may take": "遊戲自帶試玩指令碼的最長執行時間（秒）",
+ "Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off": "每個版本通過檢查後還會在這些觸控裝置上試玩（模擬）：iphone、ipad、android，以逗號分隔；留空則關閉裝置檢查",
  "Seconds before a session counts as a play": "場次計為一次遊玩所需的秒數",
  "Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it": "自動瀏覽器無法執行時，創作者在真實瀏覽器中無錯誤試玩預覽達到多少秒即可讓版本通過",
  "See all": "查看全部",

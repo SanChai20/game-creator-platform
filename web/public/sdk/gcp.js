@@ -18,6 +18,20 @@
   var q = new URLSearchParams(location.search);
   var S = window.__GCP = { boot: performance.now(), ready: false, readyAt: 0, frames: 0, fatal: null, errors: [], warnings: [], progress: 0, label: '', missing: [], stats: null };
 
+  // ---- The game runtime. This script is the one place where the platform makes games work the same in every browser
+  // and on every device: the platform serves it to every game it hosts, live ones included, so a fix made here reaches
+  // every game at once, without a game doing anything or being published again. Each fix is registered below by name
+  // with fix(id, active): active is whether it is doing something on this device (a fill-in for a missing feature is only
+  // active where the browser lacks it). GCP.runtime tells a game which fixes are on, and the verifier stores the list
+  // with each version's report. The version moves with every change to what the fixes do; docs/game-runtime.md lists
+  // every fix and what changed in each version. Rules every fix keeps:
+  //   - it never changes what a game sees in a browser that already behaves (fill-ins only where something is missing,
+  //     behaviour only on the devices that need it);
+  //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
+  //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
+  var RT = S.runtime = { version: '2.0.0', fixes: {} };
+  function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
+
   // Keep the play token out of the address bar (the game Worker also set it as a cookie).
   if (q.has('gcp_t')) { try { q.delete('gcp_t'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); } catch (e) { /* sandboxed */ } }
 
@@ -130,11 +144,109 @@
       this.closePath();
       this.moveTo(x, y);
     }
+    var filled = 0;
     [window.CanvasRenderingContext2D, window.OffscreenCanvasRenderingContext2D, window.Path2D].forEach(function (C) {
       if (C && C.prototype && typeof C.prototype.roundRect !== 'function') {
-        try { Object.defineProperty(C.prototype, 'roundRect', { value: roundRect, writable: true, configurable: true }); } catch (e) { /* frozen */ }
+        try { Object.defineProperty(C.prototype, 'roundRect', { value: roundRect, writable: true, configurable: true }); filled++; } catch (e) { /* frozen */ }
       }
     });
+    fix('canvas-roundrect', filled > 0);
+  })();
+
+  // ---- Fill-ins for standard JavaScript and browser features that browsers players still use lack. Each one is only
+  // added where the browser has none, and behaves like the standard one for what games do with it:
+  //   js-builtins   at(), findLast(), findLastIndex(), Object.hasOwn() (Safari and iOS before 15.4), toSorted(),
+  //                 toReversed(), with() (before 16), Promise.withResolvers(), Object.groupBy() and Map.groupBy()
+  //                 (before 17.4), AbortSignal.timeout() (before 16)
+  //   structured-clone   structuredClone() (Safari and iOS before 15.4): plain data, arrays, Date, RegExp, Map, Set,
+  //                 typed arrays and ArrayBuffer, with shared and circular references kept
+  //   idle-callback requestIdleCallback() and cancelIdleCallback() (Safari and iOS have none): run right after the
+  //                 current task with a few milliseconds of budget
+  //   webkit-audio  AudioContext where only webkitAudioContext exists (Safari and iOS before 14.1)
+  //   vibrate       navigator.vibrate() on iPhone and iPad, where it is missing and a game that calls it throws: it does
+  //                 nothing and returns false, as browsers do where vibration is off
+  //   storage       localStorage and sessionStorage that keep working (in memory, for this visit) where the browser
+  //                 refuses them to the game's frame (Safari with all cookies blocked throws on every access)
+  (function () {
+    var def = function (o, k, v) { if (!o || typeof o[k] !== 'undefined') return 0; try { Object.defineProperty(o, k, { value: v, writable: true, configurable: true }); return 1; } catch (e) { return 0; } };
+    var n = 0, AP = Array.prototype;
+    var TA = window.Int8Array ? Object.getPrototypeOf(Int8Array.prototype) : null;
+    var rel = function (i, len) { i = Math.trunc(+i) || 0; return i < 0 ? i + len : i; };
+    var at = function (i) { var len = this.length >>> 0, k = rel(i, len); return k < 0 || k >= len ? undefined : this[k]; };
+    var findLast = function (fn, that) { for (var i = (this.length >>> 0) - 1; i >= 0; i--) if (fn.call(that, this[i], i, this)) return this[i]; return undefined; };
+    var findLastIndex = function (fn, that) { for (var i = (this.length >>> 0) - 1; i >= 0; i--) if (fn.call(that, this[i], i, this)) return i; return -1; };
+    [AP, String.prototype, TA].forEach(function (p) { n += def(p, 'at', at); });
+    [AP, TA].forEach(function (p) { n += def(p, 'findLast', findLast); n += def(p, 'findLastIndex', findLastIndex); });
+    n += def(AP, 'toSorted', function (cmp) { return AP.slice.call(this).sort(cmp); });
+    n += def(AP, 'toReversed', function () { return AP.slice.call(this).reverse(); });
+    n += def(AP, 'with', function (i, v) { var a = AP.slice.call(this), k = rel(i, a.length); if (k < 0 || k >= a.length) throw new RangeError('Invalid index : ' + i); a[k] = v; return a; });
+    n += def(Object, 'hasOwn', function (o, k) { if (o == null) throw new TypeError('Cannot convert undefined or null to object'); return Object.prototype.hasOwnProperty.call(o, k); });
+    if (window.Promise) n += def(Promise, 'withResolvers', function () { var r = {}; r.promise = new this(function (a, b) { r.resolve = a; r.reject = b; }); return r; });
+    var groupBy = function (items, fn, map) { var out = map ? new Map() : Object.create(null), i = 0; for (var it = items[Symbol.iterator](), s = it.next(); !s.done; s = it.next(), i++) { var k = fn(s.value, i); if (map) { if (!out.has(k)) out.set(k, []); out.get(k).push(s.value); } else { k = typeof k === 'symbol' ? k : String(k); (out[k] = out[k] || []).push(s.value); } } return out; };
+    n += def(Object, 'groupBy', function (items, fn) { return groupBy(items, fn, false); });
+    if (window.Map) n += def(Map, 'groupBy', function (items, fn) { return groupBy(items, fn, true); });
+    if (window.AbortSignal && window.AbortController) n += def(AbortSignal, 'timeout', function (ms) {
+      var c = new AbortController();
+      setTimeout(function () { var why; try { why = new DOMException('signal timed out', 'TimeoutError'); } catch (e) { why = new Error('signal timed out'); } try { c.abort(why); } catch (e) { c.abort(); } }, +ms || 0);
+      return c.signal;
+    });
+    fix('js-builtins', n > 0);
+
+    // structuredClone
+    fix('structured-clone', def(window, 'structuredClone', function (value) {
+      var seen = new Map();
+      var copy = function (v) {
+        if (v === null || (typeof v !== 'object' && typeof v !== 'function')) return v;
+        if (typeof v === 'function' || typeof v === 'symbol') throw new DOMException(String(v).slice(0, 60) + ' could not be cloned.', 'DataCloneError');
+        if (seen.has(v)) return seen.get(v);
+        var out, t = Object.prototype.toString.call(v).slice(8, -1);
+        if (t === 'Date') out = new Date(v.getTime());
+        else if (t === 'RegExp') out = new RegExp(v.source, v.flags);
+        else if (t === 'ArrayBuffer') out = v.slice(0);
+        else if (ArrayBuffer.isView(v)) { var buf = copy(v.buffer); out = t === 'DataView' ? new DataView(buf, v.byteOffset, v.byteLength) : new v.constructor(buf, v.byteOffset, v.length); }
+        else if (t === 'Map') { out = new Map(); seen.set(v, out); v.forEach(function (x, k) { out.set(copy(k), copy(x)); }); return out; }
+        else if (t === 'Set') { out = new Set(); seen.set(v, out); v.forEach(function (x) { out.add(copy(x)); }); return out; }
+        else if (t === 'Boolean' || t === 'Number' || t === 'String') out = Object(v.valueOf());
+        else if (t === 'Error') { out = new Error(v.message); out.name = v.name; }
+        else if (Array.isArray(v)) { out = new Array(v.length); seen.set(v, out); for (var i = 0; i < v.length; i++) if (i in v) out[i] = copy(v[i]); return out; }
+        else if (t === 'Object') { out = {}; seen.set(v, out); Object.keys(v).forEach(function (k) { out[k] = copy(v[k]); }); return out; }
+        else throw new DOMException(t + ' object could not be cloned.', 'DataCloneError');
+        seen.set(v, out); return out;
+      };
+      return copy(value);
+    }) > 0);
+
+    // requestIdleCallback
+    var idle = 0, idleIds = {};
+    fix('idle-callback', def(window, 'requestIdleCallback', function (fn) {
+      var id = ++idle;
+      idleIds[id] = setTimeout(function () { delete idleIds[id]; var start = performance.now(); fn({ didTimeout: false, timeRemaining: function () { return Math.max(0, 8 - (performance.now() - start)); } }); }, 1);
+      return id;
+    }) + def(window, 'cancelIdleCallback', function (id) { if (idleIds[id]) { clearTimeout(idleIds[id]); delete idleIds[id]; } }) > 0);
+
+    // webkitAudioContext only
+    fix('webkit-audio', typeof window.AudioContext !== 'function' && typeof window.webkitAudioContext === 'function' && def(window, 'AudioContext', window.webkitAudioContext) > 0);
+
+    // navigator.vibrate
+    var NP = window.Navigator && Navigator.prototype;
+    fix('vibrate', typeof navigator.vibrate !== 'function' && NP && def(NP, 'vibrate', function () { return false; }) > 0);
+
+    // storage that the browser refuses to the frame
+    var refused = 0;
+    ['localStorage', 'sessionStorage'].forEach(function (name) {
+      try { var st = window[name]; st.setItem('__gcp_probe', '1'); st.removeItem('__gcp_probe'); return; } catch (e) { /* refused: replaced below */ }
+      var data = {}, keys = function () { return Object.keys(data); };
+      var mem = {
+        getItem: function (k) { k = String(k); return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+        setItem: function (k, v) { data[String(k)] = String(v); },
+        removeItem: function (k) { delete data[String(k)]; },
+        clear: function () { data = {}; },
+        key: function (i) { var k = keys()[i]; return k === undefined ? null : k; },
+        get length() { return keys().length; },
+      };
+      try { Object.defineProperty(window, name, { configurable: true, enumerable: true, get: function () { return mem; } }); refused++; } catch (e) { /* cannot be replaced */ }
+    });
+    fix('storage', refused > 0);
   })();
 
   // ---- Touch screens, part 1: what has to be in place before any game code runs (part 2, the controls, is further down).
@@ -166,6 +278,7 @@
         get: function () { if (own != null) return own; var r = TL.dprReal(); return TL.dprCap && r > TL.dprCap ? TL.dprCap : r; },
         set: function (v) { own = v; } });
     } catch (e) { TL.dprCap = 0; }
+    fix('pixel-ratio-cap', TL.dprCap > 0);
     // pointer lock stand-in
     var EP = window.Element && Element.prototype, DP = window.Document && Document.prototype;
     if (!EP || !DP) return;
@@ -178,6 +291,7 @@
     };
     DP.exitPointerLock = function () { if (TL.lockEl) { TL.lockEl = null; setTimeout(change, 0); return; } return exit ? exit.apply(this, arguments) : undefined; };
     if (pd && pd.get) try { Object.defineProperty(DP, 'pointerLockElement', { configurable: true, enumerable: true, get: function () { return TL.lockEl || pd.get.call(this); } }); } catch (e) { /* locked down */ }
+    fix('pointer-lock-touch', true);
   })();
   TL.touchNow = function () { return coarse0; };   // replaced by the display's own answer once the platform page has spoken
 
@@ -221,6 +335,7 @@
       }
     };
     ['pointerup', 'touchend', 'click', 'keydown', 'mousedown'].forEach(function (t) { window.addEventListener(t, unlock, { capture: true, passive: true }); });
+    fix('audio-unlock', true);
   })();
 
   // Count frames for any engine by wrapping requestAnimationFrame. Frames are what "alive" means.
@@ -725,6 +840,162 @@
     if (used) return;
     if (display.fullscreen) toParent({ gcp: 'menu', on: true });   // nothing of the game's was open: the platform menu
   }
+  // ---- Fullscreen through the platform's player (fix "fullscreen-api"). A game in the player is a frame inside the
+  // platform's page, and the fullscreen it can ask the browser for itself is the wrong one: on iPhone there is none at all
+  // (element.requestFullscreen is missing, so a game that calls it throws), and elsewhere it puts only the game's own
+  // element on the screen, without the platform's menu, exit button and safe-area handling, while the player around it
+  // does not know. So, in the player, the standard fullscreen API of the game's document is the player's fullscreen:
+  //   element.requestFullscreen() (and webkitRequestFullscreen)  asks the player to go fullscreen (on iPhone: the game
+  //                       fills the visible screen) and resolves when it did; the element fills the frame while it lasts,
+  //                       as the browser's own fullscreen would show it
+  //   document.exitFullscreen() (and webkitExitFullscreen)  goes back to the window on the page
+  //   document.fullscreenElement, fullscreenEnabled (and the webkit names)  follow the player
+  //   fullscreenchange (and webkitfullscreenchange)  fire on the element and the document when the player enters or leaves
+  // Opened outside the player, the browser's own fullscreen is left alone.
+  var FS = { el: null, waits: [], on: false };
+  function fsChanged() {
+    var on = !!display.fullscreen; if (on === FS.on) return; FS.on = on;
+    var el = FS.el && FS.el.isConnected ? FS.el : document.documentElement;
+    try { if (FS.el && FS.el !== document.documentElement && FS.el !== document.body) { if (on) FS.el.setAttribute('data-gcp-fullscreen', ''); else FS.el.removeAttribute('data-gcp-fullscreen'); } } catch (e) { /* gone */ }
+    if (!on) FS.el = null;
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (t) { try { el.dispatchEvent(new Event(t, { bubbles: true })); } catch (e) { /* old browser */ } });
+    var w = FS.waits; FS.waits = []; w.forEach(function (f) { f(); });
+  }
+  (function () {
+    if (standalone || window.parent === window) return;
+    var EP = window.Element && Element.prototype, DP = window.Document && Document.prototype;
+    if (!EP || !DP) return;
+    // resolves once the player has gone in or out (or after 2 s: a player that could not, without a tap, say)
+    var settle = function (el) { return new Promise(function (res) { FS.waits.push(res); setTimeout(function () { if (el && FS.el === el && !display.fullscreen) FS.el = null; res(); }, 2000); }); };
+    var css = '[data-gcp-fullscreen]{position:fixed!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;box-sizing:border-box!important;min-width:0!important;max-width:none!important;min-height:0!important;max-height:none!important;transform:none!important;object-fit:contain;z-index:2147483646!important}';
+    var request = function () {
+      var el = this;
+      if (!(el instanceof Element)) return Promise.reject(new TypeError('Not an element'));
+      if (!document.getElementById('gcp-fs')) try { var st = document.createElement('style'); st.id = 'gcp-fs'; st.textContent = css; (document.head || document.documentElement).appendChild(st); } catch (e) { /* no DOM yet */ }
+      if (display.fullscreen) {
+        if (FS.el !== el) { if (FS.el) try { FS.el.removeAttribute('data-gcp-fullscreen'); } catch (e) { /* gone */ } FS.el = el; FS.on = false; fsChanged(); }
+        return Promise.resolve();
+      }
+      FS.el = el; toParent({ gcp: 'fullscreen', on: true });
+      return settle(el);
+    };
+    var exit = function () {
+      if (!display.fullscreen) return Promise.resolve();
+      toParent({ gcp: 'fullscreen', on: false });
+      return settle();
+    };
+    var current = function () { return display.fullscreen ? (FS.el && FS.el.isConnected ? FS.el : document.documentElement) : null; };
+    var set = function (o, k, v) { try { Object.defineProperty(o, k, { value: v, writable: true, configurable: true }); } catch (e) { /* locked down */ } };
+    var get = function (o, k, g) { try { Object.defineProperty(o, k, { get: g, configurable: true, enumerable: true }); } catch (e) { /* locked down */ } };
+    ['requestFullscreen', 'webkitRequestFullscreen', 'webkitRequestFullScreen'].forEach(function (k) { set(EP, k, request); });
+    ['exitFullscreen', 'webkitExitFullscreen', 'webkitCancelFullScreen'].forEach(function (k) { set(DP, k, exit); });
+    ['fullscreenElement', 'webkitFullscreenElement', 'webkitCurrentFullScreenElement'].forEach(function (k) { get(DP, k, current); });
+    ['fullscreenEnabled', 'webkitFullscreenEnabled'].forEach(function (k) { get(DP, k, function () { return true; }); });
+    get(DP, 'fullscreen', function () { return !!display.fullscreen; });
+    get(DP, 'webkitIsFullScreen', function () { return !!display.fullscreen; });
+    fix('fullscreen-api', true);
+  })();
+
+  // ---- Screen orientation (fix "orientation-lock"). A game in a frame cannot lock the screen itself (the browser refuses
+  // it, and iPhone and iPad have no lock at all), so screen.orientation.lock() asks the player instead: it locks the screen
+  // in fullscreen where the browser allows and asks the player to turn the phone where it does not, and the promise
+  // resolves. Where screen.orientation is missing (Safari and iOS before 16.4) a stand-in reports the frame's orientation,
+  // with change events, so a game that reads screen.orientation.type does not throw.
+  (function () {
+    if (!window.screen) return;
+    var framed = !standalone && window.parent !== window;
+    var kind = function (o) { o = String(o || ''); return /^landscape/.test(o) ? 'landscape' : /^portrait/.test(o) ? 'portrait' : 'any'; };
+    var lock = function (o) { toParent({ gcp: 'display_prefs', orientation: kind(o) }); return Promise.resolve(); };
+    var so = screen.orientation, made = false;
+    if (!so && typeof EventTarget === 'function') {
+      try {
+        var et = new EventTarget(), mq = matchMedia('(orientation: portrait)');
+        var type = function () { return mq.matches ? 'portrait-primary' : 'landscape-primary'; }, last = type();
+        so = et; et.onchange = null;
+        Object.defineProperty(et, 'type', { get: type, enumerable: true });
+        Object.defineProperty(et, 'angle', { get: function () { var a = +window.orientation; return isFinite(a) ? (a + 360) % 360 : 0; }, enumerable: true });
+        et.lock = framed ? lock : function () { return Promise.reject(new DOMException('Screen orientation lock is not supported.', 'NotSupportedError')); };
+        et.unlock = function () { };
+        var changed = function () { var t = type(); if (t === last) return; last = t; var ev = new Event('change'); try { if (typeof et.onchange === 'function') et.onchange(ev); } catch (err) { console.error(err); } et.dispatchEvent(ev); };
+        if (mq.addEventListener) mq.addEventListener('change', changed); else if (mq.addListener) mq.addListener(changed);
+        Object.defineProperty(screen, 'orientation', { value: et, configurable: true, enumerable: true });
+        made = true;
+      } catch (e) { so = null; }
+    }
+    if (so && framed && !made) {
+      var SOP = window.ScreenOrientation && ScreenOrientation.prototype;
+      try { if (SOP) Object.defineProperty(SOP, 'lock', { value: lock, writable: true, configurable: true }); else so.lock = lock; } catch (e) { /* locked down */ }
+    }
+    fix('orientation-lock', made || (!!so && framed));
+  })();
+
+  // ---- Graphics the device took away (fix "graphics-lost"). Phones and tablets, iPhone and iPad most of all, take the
+  // WebGL context from a page that was in the background or when memory runs short. A game that handles it (it calls
+  // preventDefault() on webglcontextlost and rebuilds on webglcontextrestored, as three.js and PixiJS do) is left to it;
+  // a game that does not would show a black or frozen picture for good. For that game, once the page is visible again
+  // and the context has not come back, a card asks the player to tap, and the game's page reloads (cloud saves and the
+  // play record carry over). A context the game threw away itself (WEBGL_lose_context, a renderer it disposed) or a canvas
+  // no longer on the page never brings up the card.
+  (function () {
+    var HC = window.HTMLCanvasElement; if (!HC || typeof WeakSet !== 'function') return;
+    var intended = new WeakSet(), lost = [], card = null;
+    var gx = function (C) {
+      var P0 = C && C.prototype, g = P0 && P0.getExtension; if (!g || g.__gcpLost) return;
+      P0.getExtension = function (name) {
+        var ext = g.apply(this, arguments), gl = this;
+        if (ext && /^WEBGL_lose_context$/i.test(String(name)) && !ext.__gcpLost) {
+          var lc = ext.loseContext;
+          try { ext.loseContext = function () { try { if (gl.canvas) intended.add(gl.canvas); } catch (e) { /* offscreen */ } return lc.apply(this, arguments); }; ext.__gcpLost = 1; } catch (e) { /* frozen */ }
+        }
+        return ext;
+      };
+      P0.getExtension.__gcpLost = 1;
+    };
+    gx(window.WebGLRenderingContext); gx(window.WebGL2RenderingContext);
+    var TXT = {
+      en: ['The graphics were reset', 'Your device took the game\'s graphics away while it was in the background. Tap to reload the game; your progress is kept.'],
+      zh: ['画面已被重置', '游戏在后台时，设备回收了它的图形资源。轻点即可重新载入游戏，进度会保留。'],
+      'zh-TW': ['畫面已被重設', '遊戲在背景時，裝置收回了它的圖形資源。輕點即可重新載入遊戲，進度會保留。'],
+      ja: ['画面がリセットされました', 'バックグラウンドにある間に、端末がゲームのグラフィックを解放しました。タップするとゲームを再読み込みします。進行状況は保持されます。'],
+      ko: ['화면이 초기화되었습니다', '게임이 백그라운드에 있는 동안 기기가 그래픽 자원을 회수했습니다. 탭하면 게임을 다시 불러오며, 진행 상황은 유지됩니다.'],
+      es: ['Los gráficos se reiniciaron', 'Tu dispositivo retiró los gráficos del juego mientras estaba en segundo plano. Toca para recargar el juego; tu progreso se conserva.'],
+    };
+    var text = function () { var l = String(window.GCP && GCP.lang || navigator.language || 'en'); return TXT[l] || (/^zh-(TW|HK|MO|Hant)/i.test(l) ? TXT['zh-TW'] : TXT[l.split('-')[0]]) || TXT.en; };
+    var show = function () {
+      if (card) return;
+      var t = text();
+      try {
+        card = document.createElement('div');
+        card.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:rgba(11,13,15,.92);color:#e8e4da;font:15px/1.5 system-ui,-apple-system,sans-serif;text-align:center;padding:24px;cursor:pointer;touch-action:manipulation');
+        card.innerHTML = '<div><b style="display:block;font-size:20px;margin-bottom:6px"></b><span style="opacity:.75"></span></div>';
+        card.querySelector('b').textContent = t[0]; card.querySelector('span').textContent = t[1];
+        card.addEventListener('click', function () { try { location.reload(); } catch (e) { /* sandboxed */ } });
+        (document.body || document.documentElement).appendChild(card);
+        note(S.warnings, 'The WebGL context was lost and the game did not restore it; the platform offered the player a reload.');
+      } catch (e) { card = null; }
+    };
+    var check = function () {
+      if (document.visibilityState === 'hidden') return;
+      var now = performance.now();
+      for (var i = lost.length - 1; i >= 0; i--) {
+        var L = lost[i], c = L.canvas;
+        if (L.restored || intended.has(c) || !c.isConnected || !c.offsetWidth || !c.offsetHeight) { lost.splice(i, 1); continue; }
+        if (!L.visibleAt) L.visibleAt = now;
+        // a game that said it would restore (preventDefault) gets longer to do it
+        if (now - L.visibleAt > (L.handled ? 6000 : 2500)) { lost.splice(i, 1); show(); }
+      }
+    };
+    window.addEventListener('webglcontextlost', function (e) {
+      var c = e.target; if (!(c instanceof HC)) return;
+      var L = { canvas: c, handled: false, restored: false, visibleAt: 0 };
+      lost.push(L);
+      setTimeout(function () { L.handled = !!e.defaultPrevented; }, 0);   // after the game's own listeners ran
+    }, true);
+    window.addEventListener('webglcontextrestored', function (e) { lost.forEach(function (L) { if (L.canvas === e.target) L.restored = true; }); }, true);
+    setInterval(function () { if (lost.length) check(); }, 500);
+    fix('graphics-lost', true);
+  })();
+
   // ---- Touch screens, part 2: every game playable with a finger, without the game doing anything.
   //   Clean-up      on phones and tablets: no text selection, callout or magnifier on a long press, no grey flash on a tap,
   //                 no double-tap zoom (all with no specificity, so a game's own CSS wins), and a tap that lands just
@@ -1167,8 +1438,20 @@
     try { var u = new URLSearchParams(location.search); u.set('gcp_lang', l); history.replaceState(history.state, '', location.pathname + '?' + u + location.hash); } catch (e) { /* sandboxed */ }
     langFns.slice().forEach(function (fn) { try { fn(l, was); } catch (err) { console.error(err); } });
   }
+  // The runtime's fixes that depend on how the game is shown are read when asked: they change as the player moves between
+  // the window on the page and fullscreen, or a game takes over its own touch controls.
+  function runtimeInfo() {
+    var touch = !!display.touch;
+    fix('touch-cleanup', touch); fix('near-miss-taps', touch); fix('mouse-from-finger', bridged()); fix('touch-controls', !!ui.shown);
+    fix('gesture-guard', !!display.fullscreen); fix('safe-area', !!(display.safe.top || display.safe.right || display.safe.bottom || display.safe.left));
+    fix('gpu-warmup', !!GPU.auto);
+    return { version: RT.version, fixes: Object.keys(RT.fixes).filter(function (k) { return RT.fixes[k]; }).sort() };
+  }
   var GCP = window.GCP = {
     sdk: 1,
+    /** The game runtime this page runs on: { version, fixes }, fixes being the compatibility fixes active on this device
+        right now (docs/game-runtime.md lists them). For information only: a game never has to read it or do anything. */
+    get runtime() { return runtimeInfo(); },
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
     /** The player's platform language as a BCP 47 tag (en, zh, zh-TW, ja, ko, es), from ?gcp_lang or the browser. A game that
         declares languages.follows_platform in gcp.json opens in this language when it has it, and otherwise in its default. */
@@ -1625,7 +1908,7 @@
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
     display.paused = !!d.paused; display.menu = !!d.menu;
-    markDisplay(); guard(); controlsFromPage(d);
+    markDisplay(); guard(); controlsFromPage(d); fsChanged();
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
   toParent({ gcp: 'display_query' });
@@ -1635,6 +1918,7 @@
   var view = {};
   ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
+  Object.defineProperty(view, 'runtime', { get: runtimeInfo, enumerable: true });
   ['hold', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }
 })();

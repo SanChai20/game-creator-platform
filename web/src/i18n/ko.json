@@ -834,6 +834,7 @@
  "Searching…": "검색 중…",
  "Seconds a game has to call GCP.ready()": "게임이 GCP.ready()를 호출해야 하는 제한 시간(초)",
  "Seconds a game's own play-through script may take": "게임 자체 플레이스루 스크립트에 허용되는 시간(초)",
+ "Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off": "각 버전이 통과한 뒤 추가로 플레이해 보는 터치 기기(에뮬레이션): iphone, ipad, android를 쉼표로 구분. 비워 두면 기기 검사를 끕니다",
  "Seconds before a session counts as a play": "세션이 1회 플레이로 집계되기까지의 초",
  "Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it": "자동 브라우저가 실행할 수 없을 때 버전을 통과시키는 데 필요한, 실제 브라우저에서 오류 없이 프리뷰를 플레이한 시간(초)",
  "See all": "모두 보기",

@@ -76,7 +76,9 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
     await env.DB.batch([play.bind(sid, p.id, v.n, p.owner_id, now(), now()), play.bind(sid2, p.id, v.n, p.owner_id, now(), now())]);
     const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Verifier', k: 'verify', s: sid, x }, key);
     const guestToken = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid2), n: 'Verifier 2', k: 'verify', s: sid2, x }, key);
-    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!parseJson<{ usesWebGPU?: boolean }>(v.manifest, {}).usesWebGPU, job.origin, `${url}?gcp_t=${guestToken}&gcp_autostart=1`);
+    const mf = parseJson<{ usesWebGPU?: boolean; compat?: { requirements?: { devices?: string[]; orientation?: string } } }>(v.manifest, {}), req = mf.compat?.requirements || {};
+    const device = { devices: Array.isArray(req.devices) && req.devices.length ? req.devices : ['desktop', 'tablet', 'mobile'], orientation: String(req.orientation || 'any') };
+    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!mf.usesWebGPU, job.origin, `${url}?gcp_t=${guestToken}&gcp_autostart=1`, device);
     report = out.report; shot = out.shot; frames = out.frames || [];
     report.deploy = health.detail;
   }
