@@ -44,7 +44,11 @@ try {
       const res = await page.evaluate(() => window.shoot());
       assert.ok(res.image, `${name}: a picture (${res.error})`);
       assert.equal(res.method, 'page', `${name}: the page redrew itself`);
-      assert.equal(res.sources?.worker, 1, `${name}: the worker's canvas was copied by the worker (${JSON.stringify(res.sources)})`);
+      // an engine with no WebGL in workers (Playwright's WebKit on Linux) has nothing in the worker's canvas to copy:
+      // the helper must say so rather than hand back an empty picture
+      const workerGL = await game.evaluate(() => window.workerGL);
+      if (workerGL === false) assert.match(String(res.sources?.why), /contexts 0/, `${name}: why the worker's canvas is missing (${JSON.stringify(res.sources)})`);
+      else assert.equal(res.sources?.worker, 1, `${name}: the worker's canvas was copied by the worker (${JSON.stringify(res.sources)})`);
       const px = await page.evaluate(async (src) => {
         const img = new Image(); img.src = src; await img.decode();
         const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
@@ -54,7 +58,8 @@ try {
       }, res.image);
       const is = (got, rgb, what) => assert.ok(got.every((v, i) => Math.abs(v - rgb[i]) < 40), `${name}: ${what} is ${got}, expected ${rgb}`);
       assert.ok(Math.abs(px.w / px.h - 600 / 260) < 0.02, `${name}: the game's shape (${px.w}×${px.h})`);
-      is(px.worker, [26, 204, 26], 'the canvas drawn by the worker');
+      if (workerGL !== false) is(px.worker, [26, 204, 26], 'the canvas drawn by the worker');
+      else console.log('    (no WebGL in this engine\'s workers: the worker\'s canvas is not checked)');
       is(px.gl, [15, 51, 230], 'the WebGL canvas of the page');
       is(px.vbox, [224, 16, 16], 'the box whose background uses a CSS variable');
       is(px.round, [16, 192, 192], 'the round box');

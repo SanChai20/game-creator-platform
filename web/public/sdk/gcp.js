@@ -1941,7 +1941,7 @@
       if (!rec.port) { cap.why = cap.why || 'the helper is not running in the worker'; return; }
       var id = Math.random().toString(36).slice(2);
       waits.push(new Promise(function (ok) {
-        var t = setTimeout(function () { delete rec.asks[id]; cap.why = cap.why || 'the worker did not answer'; ok(); }, 1200);
+        var t = setTimeout(function () { delete rec.asks[id]; cap.why = cap.why || 'the worker did not answer'; ok(); }, 2500);
         rec.asks[id] = function (frames, why) { clearTimeout(t); if (why) cap.why = cap.why || String(why); for (var i = 0; i < frames.length && i < rec.canvases.length; i++) if (frames[i] && rec.canvases[i]) out.set(rec.canvases[i], frames[i]); ok(); };
         try { rec.port.postMessage({ cap: id, max: max }); } catch (e) { clearTimeout(t); ok(); }
       }));
