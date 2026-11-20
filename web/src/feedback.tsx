@@ -11,7 +11,7 @@
 // Beside the screenshot the creator can attach a few pictures of their own (design mockups, references: chosen, pasted
 // or dropped), each marked up with the same tools. Every picture is flattened to a JPEG within one item's budget, so the
 // item always fits the queue and one answer to the agent (FEEDBACK_LIMITS in src/feedback-rules.js).
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent as RDragEvent, type PointerEvent as RPointerEvent } from 'react';
+import { Component, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type DragEvent as RDragEvent, type PointerEvent as RPointerEvent } from 'react';
 import { ago, api, bytes, t, useAct, useData } from './lib';
 import { Badge, Button, Card, EmptyState, Segmented, Textarea } from './ui';
 import type { GameCapture } from './player';
@@ -116,8 +116,29 @@ const toolName = (k: Tool) => ({ circle: t('Circle', '圈选'), arrow: t('Arrow'
 interface Attachment { key: number; src: string; name: string; marks: Mark[] }
 const typing = (e: EventTarget | null) => e instanceof HTMLElement && (e.tagName === 'TEXTAREA' || e.tagName === 'INPUT' || e.isContentEditable);
 
-/** Mark up a capture, attach pictures of the creator's own, and add it all to the queue as one item. */
-export function FeedbackEditor({ projectId, shot, onDone, onCancel, redraw }: {
+type EditorProps = Parameters<typeof Editor>[0];
+/**
+ * Mark up a capture, attach pictures of the creator's own, and add it all to the queue as one item. A failure inside the
+ * editor shows a message with the way back to the game, never a blank console.
+ */
+export function FeedbackEditor(props: EditorProps) {
+  return <EditorGuard onCancel={props.onCancel}><Editor {...props} /></EditorGuard>;
+}
+class EditorGuard extends Component<{ onCancel: () => void; children: ReactNode }, { failed: string | null }> {
+  state = { failed: null as string | null };
+  static getDerivedStateFromError(e: unknown) { return { failed: String((e as Error)?.message || e) }; }
+  componentDidCatch(e: unknown) { console.error('feedback editor', e); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <div className="stack fb-editor">
+      <b>{t('The feedback editor ran into a problem.', '反馈编辑器出现了问题。')}</b>
+      <p className="dim fs-sm">{t('Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.', '没有发送任何内容。请返回游戏重新截图。如果再次出现，请告诉我们你做了什么。')} ({this.state.failed})</p>
+      <div className="row"><Button variant="primary" onClick={() => { this.setState({ failed: null }); this.props.onCancel(); }}>{t('Back to the game', '返回游戏')}</Button></div>
+    </div>;
+  }
+}
+
+function Editor({ projectId, shot, onDone, onCancel, redraw }: {
   projectId: string; shot: Shot; onDone: (pending: number) => void; onCancel: () => void;
   /** The game page's own drawing of itself (the SDK), offered when the exact picture looks wrong. */
   redraw?: () => Promise<GameCapture>;
@@ -154,7 +175,7 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel, redraw }: {
       }
       if (got.length) {
         const first = attsRef.current.length + 1;
-        setAtts((as) => [...as, ...got]); setSel(first); setDraft(null);
+        setAtts((as) => [...as, ...got]); setSel(first); setDrawing(null);
       }
       if (failed) throw failed;
       if (files.length > room) throw new Error(t('At most {n} pictures can be attached to one item.', '每条反馈最多可附加 {n} 张图片。', { n: MAX_ATTACH }));
@@ -163,7 +184,7 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel, redraw }: {
   const detach = (k: number) => {
     const i = atts.findIndex((a) => a.key === k); if (i < 0) return;
     URL.revokeObjectURL(atts[i].src);
-    setAtts((as) => as.filter((a) => a.key !== k)); setDraft(null);
+    setAtts((as) => as.filter((a) => a.key !== k)); setDrawing(null);
     setSel((s) => (s === i + 1 ? Math.min(i, atts.length - 1) : s > i + 1 ? s - 1 : s));
   };
   const useRedraw = () => act('redraw', async () => {
@@ -191,7 +212,7 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel, redraw }: {
   }, [img, marks, draft, cur]);
   // Esc closes this editor, never the preview (and the game) behind it.
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key !== 'Escape') return; e.stopImmediatePropagation(); e.preventDefault(); if (draft) setDraft(null); else onCancel(); };
+    const k = (e: KeyboardEvent) => { if (e.key !== 'Escape') return; e.stopImmediatePropagation(); e.preventDefault(); if (draft) setDrawing(null); else onCancel(); };
     addEventListener('keydown', k, true); return () => removeEventListener('keydown', k, true);
   }, [draft, onCancel]);
 
@@ -207,20 +228,25 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel, redraw }: {
   const shape = (a: [number, number], b: [number, number]): Mark => tool === 'arrow' ? { type: 'arrow', x1: a[0], y1: a[1], x2: b[0], y2: b[1] }
     : { type: tool, x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) };
   // One pointer draws at a time: a second finger, or a pen and a palm together, cannot start a second shape mid-way.
+  // The shape being drawn is worked out in the event itself and kept in a ref, never in a state updater: React may run an
+  // updater after a later event (a move and the release in the same frame), when the drag it belonged to has ended.
+  const drafting = useRef<Mark | null>(null);
+  const setDrawing = (d: Mark | null) => { drafting.current = d; setDraft(d); };
   const down = (e: RPointerEvent<HTMLCanvasElement>) => {
     if (marks.length >= MAX_MARKS || pointer.current !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
     pointer.current = e.pointerId; try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ }
     const p = at(e); start.current = p;
-    setDraft(tool === 'pen' ? { type: 'pen', points: [p] } : shape(p, p));
+    setDrawing(tool === 'pen' ? { type: 'pen', points: [p] } : shape(p, p));
   };
   const move = (e: RPointerEvent<HTMLCanvasElement>) => {
-    if (!start.current || e.pointerId !== pointer.current) return; const p = at(e);
-    setDraft((d) => (d?.type === 'pen' ? (d.points!.length < 2000 ? { ...d, points: [...d.points!, p] } : d) : shape(start.current!, p)));
+    const s = start.current, d = drafting.current;
+    if (!s || !d || e.pointerId !== pointer.current) return; const p = at(e);
+    setDrawing(d.type === 'pen' ? (d.points!.length < 2000 ? { ...d, points: [...d.points!, p] } : d) : shape(s, p));
   };
   const up = (e: RPointerEvent<HTMLCanvasElement>) => {
     if (e.pointerId !== pointer.current) return;
     pointer.current = null;
-    const d = draft; start.current = null; setDraft(null); if (!d) return;
+    const d = drafting.current; start.current = null; setDrawing(null); if (!d) return;
     // a click without a drag still marks the spot: a small circle (or a short arrow) around it
     const tiny = d.type === 'pen' ? d.points!.length < 2 : d.type === 'arrow' ? Math.hypot(d.x2! - d.x1!, d.y2! - d.y1!) < 0.01 : d.w! < 0.01 && d.h! < 0.01;
     let m = d;
@@ -276,7 +302,7 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel, redraw }: {
       <div className="fb-pics" role="tablist" aria-label={t('Pictures in this feedback', '此反馈中的图片')}>
         {[{ key: 0, src: image, name: '', marks: shotMarks } as Attachment, ...atts].map((a, i) => (
           <div className={'fb-pic' + (i ? ' own' : '') + (sel === i ? ' on' : '')} key={a.key}>
-            <button type="button" role="tab" aria-selected={sel === i} className="fb-pic-pick" onClick={() => { setSel(i); setDraft(null); }} title={a.name || picName(i)}>
+            <button type="button" role="tab" aria-selected={sel === i} className="fb-pic-pick" onClick={() => { setSel(i); setDrawing(null); }} title={a.name || picName(i)}>
               <img src={a.src} alt="" />
               <span className="fb-pic-label">{picName(i)}{a.marks.length ? <span className="fb-num sm">{a.marks.length}</span> : null}</span>
             </button>
@@ -288,7 +314,7 @@ export function FeedbackEditor({ projectId, shot, onDone, onCancel, redraw }: {
           <span aria-hidden="true">+</span>{t('Attach images', '附加图片')}</button>}
         <input ref={attachInput} type="file" accept={ACCEPT} multiple hidden onChange={(e) => { attach([...(e.target.files || [])]); e.target.value = ''; }} />
       </div>
-      <canvas ref={canvas} className={'fb-canvas' + (cur ? ' paper' : '')} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={(e) => { if (e.pointerId !== pointer.current) return; pointer.current = null; start.current = null; setDraft(null); }}
+      <canvas ref={canvas} className={'fb-canvas' + (cur ? ' paper' : '')} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={(e) => { if (e.pointerId !== pointer.current) return; pointer.current = null; start.current = null; setDrawing(null); }}
         aria-label={cur ? t('Your attached picture. Drag on it to circle or point at something.', '你附加的图片。在上面拖动即可圈出或指向某处。') : t('Screenshot of the game. Drag on it to circle or point at something.', '游戏截图。在上面拖动即可圈出或指向某处。')} />
       {cur && <p className="dim fs-sm">{t('Your own picture{name}. Your agent sees it next to the screenshot, as what you want rather than what the game shows. Mark it up the same way.', '你自己的图片{name}。智能体会在截图旁看到它，并理解为你想要的效果，而不是游戏当前的画面。可以同样进行标注。', { name: cur.name ? ` (${cur.name})` : '' })}</p>}
       {!cur && (method === 'game' || method === 'page') && <p className="dim fs-sm fb-approx">{t('This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).', '这张图由游戏页面重新绘制，并非直接截取屏幕，因此可能与你看到的画面有出入（图标、字体、特效等）。')}

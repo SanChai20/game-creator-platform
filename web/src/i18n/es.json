@@ -1653,5 +1653,7 @@
  "Drop to attach": "Suelta para adjuntar",
  "Show attached picture {n}": "Ver imagen adjunta {n}",
  "{n} pictures": "{n} imágenes",
- "Attached picture {n}": "Imagen adjunta {n}"
+ "Attached picture {n}": "Imagen adjunta {n}",
+ "The feedback editor ran into a problem.": "El editor de comentarios tuvo un problema.",
+ "Nothing was sent. Go back to the game and capture again. If it happens again, tell us what you did.": "No se envió nada. Vuelve al juego y captura de nuevo. Si vuelve a pasar, cuéntanos qué hiciste."
 }
