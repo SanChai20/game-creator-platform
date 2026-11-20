@@ -44,7 +44,7 @@ export const WORKER_HELPER = `
     G.__gcpw = 1;
     var offs = [], ctxs = new WeakMap(), port = null, want = null;
     var gc = OffscreenCanvas.prototype.getContext;
-    var calls = 0, hook = function () { var c = gc.apply(this, arguments); calls++; try { if (c && !ctxs.has(this)) ctxs.set(this, c); } catch (e) {} return c; };
+    var calls = 0, got = 0, seen = [], hook = function () { var c = gc.apply(this, arguments); calls++; try { if (c) { got++; if (!ctxs.has(this)) { ctxs.set(this, c); seen.push(this); } } } catch (e) {} return c; };
     OffscreenCanvas.prototype.getContext = hook;
     function walk(v, out, b, d) {
       if (!v || typeof v !== 'object' || d > 4 || ++b.n > 300 || out.length > 8) return;
@@ -75,15 +75,18 @@ export const WORKER_HELPER = `
       for (var y = 0; y < h; y++) id.data.set(px.subarray((h - 1 - y) * row, (h - y) * row), y * row);
       fg.putImageData(id, 0, 0); return full;
     }
+    // a browser can hand the game a different object for the same canvas than the one this helper saw in the message:
+    // the canvas with a context, not seen in a message, of the same size
+    function twin(c) { if (!c) return null; for (var i = 0; i < seen.length; i++) if (offs.indexOf(seen[i]) < 0 && seen[i].width === c.width && seen[i].height === c.height) return seen[i]; return null; }
     function reply(r) {
       if (want !== r) return; want = null; clearTimeout(r.t);
       for (var s = 0; s < r.saved.length; s++) r.saved[s][0][r.saved[s][1]] = r.saved[s][2];
       var frames = [], give = [], why = null;
-      for (var i = 0; i < offs.length; i++) { var b = null; try { if (ctxs.has(offs[i])) b = snap(offs[i], r.max); else why = why || 'no context (hooked ' + (OffscreenCanvas.prototype.getContext === hook) + ', calls ' + calls + ', canvases ' + offs.length + ')'; } catch (e) { why = why || String(e && e.message || e).slice(0, 160); } frames.push(b); if (b) give.push(b); }
+      for (var i = 0; i < offs.length; i++) { var b = null; try { var oc = ctxs.has(offs[i]) ? offs[i] : twin(offs[i]); if (oc) b = snap(oc, r.max); else why = why || 'no context (calls ' + calls + ', contexts ' + got + ', seen ' + seen.length + ', canvases ' + offs.length + ')'; } catch (e) { why = why || String(e && e.message || e).slice(0, 160); } frames.push(b); if (b) give.push(b); }
       if (!offs.length) why = 'no canvas';
       try { port.postMessage({ cap: r.id, frames: frames, why: why }, give); } catch (e) { try { port.postMessage({ cap: r.id, frames: [], why: String(e && e.message || e).slice(0, 160) }); } catch (x) {} }
     }
-    function needsDraw(c) { var g = ctxs.get(c), a = null; if (!g) return false; if (typeof G.GPUCanvasContext === 'function' && g instanceof G.GPUCanvasContext) return true; if (typeof g.getContextAttributes !== 'function') return false; try { a = g.getContextAttributes(); } catch (e) {} return !!a && !a.preserveDrawingBuffer; }
+    function needsDraw(c) { var g = ctxs.get(c) || ctxs.get(twin(c)), a = null; if (!g) return false; if (typeof G.GPUCanvasContext === 'function' && g instanceof G.GPUCanvasContext) return true; if (typeof g.getContextAttributes !== 'function') return false; try { a = g.getContextAttributes(); } catch (e) {} return !!a && !a.preserveDrawingBuffer; }
     function ask(e) {
       var d = e.data || {}; if (!d.cap) return;
       if (want) reply(want);
@@ -95,7 +98,7 @@ export const WORKER_HELPER = `
           r.saved.push([GL.prototype, n, f]);
           GL.prototype[n] = function () {
             var out = f.apply(this, arguments);
-            try { if (want === r && !r.queued && offs.indexOf(this.canvas) >= 0 && !this.getParameter(this.FRAMEBUFFER_BINDING)) { r.queued = true; Promise.resolve().then(function () { reply(r); }); } } catch (x) {}
+            try { if (want === r && !r.queued && (offs.indexOf(this.canvas) >= 0 || seen.indexOf(this.canvas) >= 0) && !this.getParameter(this.FRAMEBUFFER_BINDING)) { r.queued = true; Promise.resolve().then(function () { reply(r); }); } } catch (x) {}
             return out;
           };
         });
