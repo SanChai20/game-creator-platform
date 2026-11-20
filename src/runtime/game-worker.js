@@ -334,8 +334,11 @@ export async function handle(request, env, ctx, base = '') {
   // Every other file needs the same play token as the page (the page's cookie comes along with its own requests), so a
   // paid game's code and assets cannot be fetched without a session, and a trial that ended stops loading them.
   if (!(await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV))) return new Response('A play session is needed.', { status: 401, headers: { 'cache-control': 'no-store' } });
-  // a worker script of the preview: whole, with the feedback-picture helper at its end (see WORKER_HELPER)
-  if (env.ENV === 'preview' && (ext === 'js' || ext === 'mjs') && request.headers.get('sec-fetch-dest') === 'worker' && request.method !== 'HEAD') {
+  // a worker script of the preview: whole, with the feedback-picture helper at its end (see WORKER_HELPER). The browser
+  // marks a worker's script Sec-Fetch-Dest: worker; the SDK also adds ?__gcpw=1 to the scripts the page starts workers
+  // with, for browsers that leave the header out
+  const asWorker = request.headers.get('sec-fetch-dest') === 'worker' || url.searchParams.get('__gcpw') === '1';
+  if (env.ENV === 'preview' && (ext === 'js' || ext === 'mjs') && asWorker && request.method !== 'HEAD') {
     const whole = await readFile(env, rel);
     if (!whole || typeof whole.text !== 'function') return new Response('Not found: ' + path, { status: 404 });
     return new Response((await whole.text()) + WORKER_HELPER, { headers: { 'content-type': TYPES[ext], 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', vary: 'cookie, sec-fetch-dest' } });

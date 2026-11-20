@@ -1737,8 +1737,15 @@
         } catch (e) { /* the message goes as it is */ }
         return PM.apply(this, arguments);
       };
+      // the platform adds its helper to a worker's script (the request is marked Sec-Fetch-Dest: worker, and this mark is for
+      // browsers that leave that header out); only the page's own http(s) scripts, never a blob: or data: one
+      var marked = function (a) {
+        try { var u = new URL(String(a && a.href ? a.href : a), location.href); if (u.origin === location.origin && /^https?:$/.test(u.protocol) && !u.searchParams.has('__gcpw')) { u.searchParams.set('__gcpw', '1'); return u.href; } } catch (e) { /* as it is */ }
+        return a;
+      };
       var GW = function () {
-        var w = Reflect.construct(Native, arguments, this instanceof GW && this.constructor ? this.constructor : Native), rec = { w: w, port: null, canvases: [], asks: {} };
+        var args = Array.prototype.slice.call(arguments); if (args.length) args[0] = marked(args[0]);
+        var w = Reflect.construct(Native, args, this instanceof GW && this.constructor ? this.constructor : Native), rec = { w: w, port: null, canvases: [], asks: {} };
         cap.workers.push(rec);
         // the helper says hello once it runs; the game never sees that, nor anything on the private channel
         w.addEventListener('message', function (e) {

@@ -19,7 +19,8 @@ const server = await new Promise((ok) => { const s = createServer((q, r) => {
   const p = new URL(q.url, 'http://x').pathname;
   const send = (body, type) => { r.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' }); r.end(body); };
   if (p === '/sdk/gcp.js') return send(SDK, 'text/javascript');
-  if (p === '/worker.js') return send(q.headers['sec-fetch-dest'] === 'worker' ? fx('worker.js') + WORKER_HELPER : fx('worker.js'), 'text/javascript');
+  // as the platform serves a preview's worker scripts (src/runtime/game-worker.js): the browser's mark or the SDK's
+  if (p === '/worker.js') return send(q.headers['sec-fetch-dest'] === 'worker' || new URL(q.url, 'http://x').searchParams.get('__gcpw') === '1' ? fx('worker.js') + WORKER_HELPER : fx('worker.js'), 'text/javascript');
   if (p === '/page.html' || p === '/game.html') return send(fx(p.slice(1)), 'text/html');
   r.writeHead(404); r.end();
 }).listen(8932, '127.0.0.1', () => ok(s)); });
