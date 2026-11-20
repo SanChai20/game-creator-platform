@@ -17,7 +17,13 @@ run(async (boot) => {
     ctx.fillStyle = '#10151a'; ctx.fillRect(0, 0, view.w, view.h);
     for (let i = 0; i < 40; i++) { ctx.fillStyle = `hsl(${(i * 9 + time * 40) % 360} 70% 60% / .5)`; ctx.fillRect((i * 97 + time * 30) % view.w, (i * 53) % view.h, 6, 6); }
     ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.arc(dot.x, dot.y, 18, 0, Math.PI * 2); ctx.fill();
+    // the interface is drawn in the canvas too (the contract: everything the player sees is in your canvases)
+    const safe = (window.GCP && GCP.display && GCP.display.safe) || { left: 0, top: 0 };
+    ctx.font = '14px system-ui, sans-serif'; ctx.textBaseline = 'top'; ctx.fillStyle = '#e8e4da'; ctx.shadowColor = '#000'; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
+    ctx.fillText('Move the pointer', Math.max(12, safe.left), Math.max(12, safe.top)); ctx.shadowColor = 'transparent';
   }
+  // hand the platform the exact frame for feedback screenshots, and say where the game is
+  if (window.GCP) { GCP.test.onCapture(() => canvas); GCP.test.onState(() => ({ dot: { x: Math.round(dot.x), y: Math.round(dot.y) } })); }
 
   update(0, 0);                                    // draw the first frame…
   if (window.GCP) GCP.ready();                     // …then tell the platform the game is playable

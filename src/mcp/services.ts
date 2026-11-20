@@ -267,13 +267,13 @@ export function platformServices(s: Settings, origin: string): Service[] {
     },
     {
       id: 'verification', name: 'Verification and test hooks', category: 'quality', status: 'automatic',
-      what: 'Every preview is opened in a real browser (Cloudflare Browser Rendering) and must boot, keep rendering, show a picture, survive keyboard, mouse and touch, load every file and throw no uncaught errors; then it is played on an emulated iPhone and iPad, which must not fail for the devices the game lists. Only a verified version can be published.',
+      what: 'Every preview is opened in a real browser (Cloudflare Browser Rendering) and must boot, keep rendering, show a picture, survive keyboard, mouse and touch, load every file, throw no uncaught errors and hand over its exact frame (all of it drawn in canvases, GCP.test.onCapture and GCP.test.onState); then it is played on an emulated iPhone and iPad, which must not fail for the devices the game lists. Only a verified version can be published.',
       how_it_works: 'deploy_preview runs static checks (syntax, imports, missing files, web-only content), deploys, then the browser check. A game can register a play-through that plays its own rules to the end, and a two-player check that the verifier runs in two pages, two different players, that meet on one code: a room (GCP.room) or a private server-run match (GCP.match.find({ code })). The report and a screenshot are stored with the version. WebGPU-only games are verified by a short clean play of the preview by their creator.',
       use_for: ['Proof that the game is playable before it goes live', 'Automated end-to-end tests of your own rules'],
-      sdk: ['GCP.test.onAutostart(fn)', 'GCP.test.onStart(fn)', 'GCP.test.onPlaythrough(fn)', 'GCP.test.onTwoPlayers(fn)', 'GCP.test.twoPlayers', 'GCP.test.autostart', 'GCP.test.seed', 'GCP.test.param(name)', 'GCP.test.onState(fn)'],
+      sdk: ['GCP.test.onCapture(fn)', 'GCP.test.onState(fn)', 'GCP.test.onAutostart(fn)', 'GCP.test.onStart(fn)', 'GCP.test.onPlaythrough(fn)', 'GCP.test.onTwoPlayers(fn)', 'GCP.test.twoPlayers', 'GCP.test.autostart', 'GCP.test.seed', 'GCP.test.param(name)'],
       mcp_tools: ['deploy_preview', 'list_versions', 'debug_preview'],
       limits: { ready_timeout_seconds: s.verify_ready_timeout_s, min_frames: s.verify_min_frames, observe_seconds: s.verify_observe_s, playthrough_seconds: Math.min(45, Math.max(3, s.verify_playthrough_s)), playthrough_steps: 60, human_preview_seconds: s.verify_human_min_seconds },
-      guidelines: ['deploy_preview {dry_run: true} runs only the static checks.', 'The verification browser has no GPU: keep the first scene light or adapt quality.', 'Register onPlaythrough; without it the report says only start-up, rendering and input were checked.'],
+      guidelines: ['Draw all of the game (world, HUD, menus, text) in canvases and register GCP.test.onCapture and GCP.test.onState: the "capture" check fails a version without them, with page elements painted over the game, or whose handed-over frame does not match the screen.', 'deploy_preview {dry_run: true} runs only the static checks.', 'The verification browser has no GPU: keep the first scene light or adapt quality.', 'Register onPlaythrough; without it the report says only start-up, rendering and input were checked.'],
       guide: 'versions',
     },
     {

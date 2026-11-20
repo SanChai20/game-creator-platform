@@ -5,6 +5,7 @@ import { run, createLoop, mulberry32, Simplex, clamp, TAU } from '@gcp/core.js';
 import { setupCanvas, bake, Camera2D, drawSorted, ChunkCache } from '@gcp/canvas2d.js';
 import { createInput } from '@gcp/input.js';
 import { createAudio } from '@gcp/audio.js';
+import { createUi } from '@gcp/ui.js';
 
 const G = window.GCP, $ = (id) => document.getElementById(id);
 
@@ -52,17 +53,33 @@ run(async (boot) => {
   // ---- state --------------------------------------------------------------------------------
   const p = { x: 0, y: 0, vx: 0, vy: 0, flap: 0, hurt: 0 };
   let motes = [], wisps = [], score = 0, lives = 3, over = false, best = 0, spawn = 0;
-  const hud = () => { $('score').textContent = score; $('lives').textContent = '♥'.repeat(lives); $('best').textContent = best ? `Best ${best}` : ''; };
-  if (G) G.save.get('best').then((v) => { best = v || 0; hud(); });
+  // ---- interface: drawn every frame in a canvas over the game (@gcp/ui.js), so feedback screenshots show it exactly ----
+  const ui = createUi({ font: "Georgia, 'Songti SC', serif" }), ACC = '#f0b64a', SH = { color: 'rgba(0,0,0,.8)', blur: 3, y: 1 };
+  ui.layer((u) => {
+    const sl = Math.max(12, u.safe.left), st = Math.max(12, u.safe.top), sr = Math.max(12, u.safe.right);
+    u.text(String(score), sl, st, { size: 26, weight: 700, color: ACC, base: 'top', shadow: SH });
+    u.text('♥'.repeat(lives), sl, st + 36, { size: 14, color: '#e8604c', spacing: 2.8, base: 'top', shadow: SH });
+    if (best) u.text(`Best ${best}`, u.w - sr, st, { size: 14, color: '#f1e6cf', align: 'right', base: 'top', alpha: 0.8, shadow: SH });
+    if (over) {                                       // the end screen: a dim veil, the result and a button
+      u.panel(0, 0, u.w, u.h, { fill: 'rgba(12,10,6,.6)' }); u.block(0, 0, u.w, u.h);
+      const big = clamp(u.w * 0.08, 32, 56), cy = u.h / 2;
+      u.text('Night falls', u.w / 2, cy - 30, { size: big, weight: 700, color: '#f1e6cf', align: 'center', base: 'bottom', shadow: SH });
+      u.text(`You gathered ${score} motes`, u.w / 2, cy - 18, { size: 14, color: '#f1e6cf', align: 'center', base: 'top', shadow: SH });
+      if (u.button('again', u.w / 2 - 66, cy + 12, 132, 42, 'Fly again', { fill: ACC, color: '#2a1c05', size: 16, weight: 700, radius: 8 })) reset();
+    }
+  });
+  if (G) {
+    G.save.get('best').then((v) => { best = v || 0; });
+    // createUi already hands over the frame (the game's canvas, then its own); say where the game is too
+    G.test.onState(() => ({ score, lives, best, over, motes: motes.length, wisps: wisps.length }));
+  }
   const around = (min, max) => { const a = rand() * TAU, d = min + rand() * (max - min); return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }; };
-  function reset() { p.x = p.y = p.vx = p.vy = 0; motes = []; wisps = []; score = 0; lives = 3; over = false; spawn = 0; $('over').classList.remove('on'); hud(); }
+  function reset() { p.x = p.y = p.vx = p.vy = 0; motes = []; wisps = []; score = 0; lives = 3; over = false; spawn = 0; }
   async function end() {
     over = true; audio.noise({ dur: 0.6, vol: 0.3, freq: 300 });
     if (score > best) { best = score; if (G) G.save.set('best', best); }
-    $('final').textContent = `You gathered ${score} motes`; $('over').classList.add('on'); hud();
     if (G) G.leaderboard.submit('motes', score);
   }
-  $('again').onclick = reset;
 
   // ---- frame --------------------------------------------------------------------------------
   function update(dt, time) {
@@ -72,12 +89,12 @@ run(async (boot) => {
       const drag = Math.exp(-4 * dt); p.vx *= drag; p.vy *= drag; p.x += p.vx * dt; p.y += p.vy * dt; p.flap += dt * (8 + Math.hypot(p.vx, p.vy)); p.hurt = Math.max(0, p.hurt - dt);
       spawn -= dt;
       if (spawn <= 0) { spawn = 0.5; if (motes.length < 14) motes.push({ ...around(4, 11), t: rand() * 9 }); if (wisps.length < 3 + Math.min(9, score / 6)) { const w = around(10, 14); wisps.push({ ...w, a: rand() * TAU, sp: 2 + rand() * 1.5 + score * 0.03 }); } }
-      for (let i = motes.length - 1; i >= 0; i--) { const m = motes[i]; const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < 0.8) { motes.splice(i, 1); score++; audio.tone({ freq: 620 + (score % 8) * 60, slide: 0.5, dur: 0.12, vol: 0.2, type: 'triangle' }); hud(); } else if (d > 18) motes.splice(i, 1); }
+      for (let i = motes.length - 1; i >= 0; i--) { const m = motes[i]; const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < 0.8) { motes.splice(i, 1); score++; audio.tone({ freq: 620 + (score % 8) * 60, slide: 0.5, dur: 0.12, vol: 0.2, type: 'triangle' }); } else if (d > 18) motes.splice(i, 1); }
       for (let i = wisps.length - 1; i >= 0; i--) {
         const w = wisps[i], want = Math.atan2(p.y - w.y, p.x - w.x); let da = want - w.a; da = Math.atan2(Math.sin(da), Math.cos(da)); w.a += clamp(da, -1.6 * dt, 1.6 * dt);   // they turn slowly, so you can out-fly them
         w.x += Math.cos(w.a) * w.sp * dt; w.y += Math.sin(w.a) * w.sp * dt;
         const d = Math.hypot(w.x - p.x, w.y - p.y);
-        if (d < 0.75 && p.hurt <= 0) { lives--; p.hurt = 1.2; cam.shake = 1; wisps.splice(i, 1); audio.tone({ freq: 180, slide: -1, dur: 0.3, vol: 0.3, type: 'sawtooth' }); hud(); if (lives <= 0) end(); } else if (d > 22) wisps.splice(i, 1);
+        if (d < 0.75 && p.hurt <= 0) { lives--; p.hurt = 1.2; cam.shake = 1; wisps.splice(i, 1); audio.tone({ freq: 180, slide: -1, dur: 0.3, vol: 0.3, type: 'sawtooth' }); if (lives <= 0) end(); } else if (d > 22) wisps.splice(i, 1);
       }
     }
     cam.follow(p.x, p.y, dt);
@@ -103,10 +120,10 @@ run(async (boot) => {
   if (G) G.test.onPlaythrough(async (t) => {
     t.step('start a fresh round'); reset(); await t.frames(2);
     t.step('gather a mote'); motes.push({ x: p.x + 0.3, y: p.y, t: 0 }); await t.until(() => score >= 1, 5000, 'the score to go up');
-    t.assert($('score').textContent === String(score), 'the score on screen is wrong');
+    await t.frames(2); t.assert(ui.texts.includes(String(score)), 'the score on screen is wrong');
     t.step('lose the last life to a wisp'); lives = 1; p.hurt = 0; wisps.push({ x: p.x + 0.2, y: p.y, a: 0, sp: 0 }); await t.until(() => over, 5000, 'the round to end');
-    t.step('the end screen shows the result'); t.assert($('over').classList.contains('on') && $('final').textContent.includes(String(score)), 'the end screen is missing or shows the wrong score');
-    t.step('Play again starts a new round'); $('again').click(); await t.frames(2); t.assert(!over && score === 0 && lives === 3, 'the round did not reset');
+    t.step('the end screen shows the result'); await t.frames(2); t.assert(ui.shown('again') && ui.texts.includes(`You gathered ${score} motes`), 'the end screen is missing or shows the wrong score');
+    t.step('Play again starts a new round'); ui.click('again'); await t.frames(3); t.assert(!over && score === 0 && lives === 3, 'the round did not reset');
   });
 
   update(0, 0);               // first frame

@@ -129,5 +129,8 @@
  "Require a valid creator license to publish (preview stays free)": "发布前须持有有效的创作者许可（预览仍免费）",
  "Require a valid creator license before creating projects at all": "创建项目前就须持有有效的创作者许可",
  "Creator license": "创作者许可",
- "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "在 Durable Objects 中运行游戏时钟（数万玩家同时在线时需要；数据最多可能延迟约一分钟）"
+ "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "在 Durable Objects 中运行游戏时钟（数万玩家同时在线时需要；数据最多可能延迟约一分钟）",
+ "The exact frame the game drew when you pressed Capture.": "你按下截图时游戏画出的那一帧，原样保存。",
+ "Text fields over the game are drawn from the page.": "游戏上方的输入框是根据页面重新绘制的。",
+ "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); off reports it without failing": "版本未交出它画出的那一帧时判为不通过（截帧检查：所有可见内容都画在画布里，并注册了 GCP.test.onCapture 和 onState）；关闭后只报告不判失败"
 }

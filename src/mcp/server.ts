@@ -15,7 +15,7 @@ This server deploys, verifies, publishes and versions web games for the account 
 Call get_started first: it returns the rules a game must meet, the workflow, the account status and the platform services. platform_services (or the gcp://services resource) lists every service with its SDK calls, tools and limits, and what the platform does not provide.
 Typical loop: create_project → upload_files (or create_upload_url for big files and folders) → deploy_preview → read the report → fix → deploy_preview → publish.
 To see and debug the game: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game's state). creator_feedback returns the annotated screenshots and notes the creator left while playing the preview; read it at the start of a session and whenever an answer says feedback is waiting.
-A game is index.html plus the files it loads. The platform injects a global GCP; call GCP.ready() after the first playable frame.`;
+A game is index.html plus the files it loads. The platform injects a global GCP; call GCP.ready() after the first playable frame. Every game draws everything the player sees (world, HUD, menus, text) in its canvases and registers GCP.test.onCapture and GCP.test.onState, so the creator's feedback screenshots are the exact frame on every device; previews without that fail the "capture" check (get_started {topic: "contract"}).`;
 
 const MAX_BATCH = 20;           // JSON-RPC messages in one POST
 const CALLS_PER_HOUR = 1200;    // tools/call per account (a busy agent makes a few hundred an hour)

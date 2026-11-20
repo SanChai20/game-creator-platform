@@ -15,6 +15,7 @@
 //   hotbarUI, inventoryUI, needsUI, clockUI, questUI, minimapUI, pauseMenu      the panels for them, on a createHud()
 //   lobbyUI           the start screen of a game with rooms: host with a code, join with a code, or play alone
 import { store } from './core.js';
+import { loadImage, panelOpen } from './ui.js';
 
 const emitter = () => { const L = new Set(); return { on: (fn) => { L.add(fn); return () => L.delete(fn); }, emit: (...a) => { for (const fn of [...L]) fn(...a); } }; };
 const D = typeof document !== 'undefined' ? document : null, el = (tag, cls, text) => { const e = D.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -61,6 +62,13 @@ const ICON = {
 /** The item kinds that come with a painted icon. Any other id works too: give it { name, color } or your own icon. */
 export const ITEMS = Object.keys(ICON);
 const ICONS = new Map();
+function iconCanvas(id, def) {
+  const key = id + '|' + (def.color || '') + '|' + (def.like || ''); if (ICONS.has(key)) return ICONS.get(key);
+  const cv = D.createElement('canvas'); cv.width = cv.height = 72; const c = cv.getContext('2d', { willReadFrequently: true }); c.scale(72, 72); c.lineJoin = 'round';   // read back at once, so keep it off the GPU
+  const draw = typeof def.icon === 'function' ? def.icon : ICON[def.like || id];
+  if (draw) draw(c); else { R(c, 0.16, 0.16, 0.68, 0.68, def.color || '#8a94a6', 0.14); c.fillStyle = '#fff'; c.font = '700 0.42px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(def.name || id).charAt(0).toUpperCase(), 0.5, 0.52); }
+  ICONS.set(key, cv); return cv;
+}
 /**
  * An item's icon as an image URL. Built-in kinds (wood, stone, fiber, berry, meat, cooked_meat, water, ore, ingot,
  * plank, rope, seed, wheat, axe, pickaxe, sword, hoe, torch, campfire, wall, floor, door, fence, tent, chest, bed, workbench,
@@ -68,11 +76,13 @@ const ICONS = new Map();
  * def.icon may be your own: an image URL, a canvas, or a function (ctx) that draws in a 1 × 1 square.
  */
 export function itemIcon(id, def = {}) {
-  const key = id + '|' + (def.color || ''); if (typeof def.icon === 'string') return def.icon; if (def.icon && def.icon.toDataURL) return def.icon.toDataURL(); if (ICONS.has(key)) return ICONS.get(key);
-  const cv = D.createElement('canvas'); cv.width = cv.height = 72; const c = cv.getContext('2d', { willReadFrequently: true }); c.scale(72, 72);   // read back at once, so keep it off the GPU c.lineJoin = 'round';
-  const draw = typeof def.icon === 'function' ? def.icon : ICON[def.like || id];
-  if (draw) draw(c); else { R(c, 0.16, 0.16, 0.68, 0.68, def.color || '#8a94a6', 0.14); c.fillStyle = '#fff'; c.font = '700 0.42px system-ui'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(String(def.name || id).charAt(0).toUpperCase(), 0.5, 0.52); }
-  const url = cv.toDataURL(); ICONS.set(key, url); return url;
+  if (typeof def.icon === 'string') return def.icon; if (def.icon && def.icon.toDataURL) return def.icon.toDataURL();
+  const cv = iconCanvas(id, def); return cv.__url || (cv.__url = cv.toDataURL());
+}
+/** An item's icon as something u.image() draws (a canvas, or an image loading from def.icon's URL). */
+export function itemImage(id, def = {}) {
+  if (typeof def.icon === 'string') return loadImage(def.icon); if (def.icon && def.icon.getContext) return def.icon;
+  return iconCanvas(id, def);
 }
 const nice = (id) => id.replace(/_/g, ' ').replace(/^./, (ch) => ch.toUpperCase());
 
@@ -468,43 +478,30 @@ export function createSave(key = 'save', parts = {}, { version = 1, cloud = true
 }
 
 // ---- the panels ----
-const CSS = `
-.gp-hot{display:flex;gap:6px;pointer-events:auto}
-.gp-slot{position:relative;flex:none;width:min(52px,calc(94vw / var(--gp-n,8) - 6px));aspect-ratio:1;border-radius:11px;background:var(--gh-panel);border:2px solid var(--gh-line);display:grid;place-items:center;cursor:pointer;transition:transform .1s,border-color .1s}
-.gp-slot img{width:74%;height:74%;pointer-events:none}
-.gp-slot b{position:absolute;right:4px;bottom:1px;font-size:12px;font-weight:800;text-shadow:0 1px 2px #000,0 0 3px #000}
-.gp-slot u{position:absolute;left:5px;top:2px;font-size:10px;opacity:.6;text-decoration:none}
-.gp-slot.on{border-color:var(--gh-accent);transform:translateY(-4px);box-shadow:0 6px 16px rgba(0,0,0,.4)}
-.gp-slot.pick{border-color:#fff;border-style:dashed}
-.gp-win{position:absolute;inset:0;display:grid;place-items:center;background:rgba(8,10,14,.55);pointer-events:auto;animation:gh-fade .18s ease-out;padding:14px}
-.gp-box{background:rgba(22,25,31,.96);border:1px solid var(--gh-line);border-radius:16px;padding:16px 18px;box-shadow:0 18px 60px rgba(0,0,0,.5);max-width:96vw;max-height:92vh;overflow:auto;display:flex;gap:20px;flex-wrap:wrap;justify-content:center}
-.gp-h{font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.65;margin:0 0 10px;font-weight:800;display:flex;justify-content:space-between;gap:20px}
-.gp-grid{display:grid;grid-template-columns:repeat(var(--gp-cols,6),52px);gap:6px;--gp-n:1}
-.gp-info{min-height:34px;margin-top:10px;font-size:13px;font-weight:500;max-width:342px;display:flex;align-items:center;gap:8px}.gp-info span{flex:1;opacity:.85}
-.gp-x{pointer-events:auto;cursor:pointer;border:0;background:none;color:inherit;font-size:14px;opacity:.7;padding:0 2px}
-.gp-btn.gp-ghost{background:rgba(255,255,255,.14);color:inherit}.gp-rec.off{opacity:.62}.gp-craft{max-height:70vh;overflow:auto}
-.gp-rec{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:10px;border:1px solid transparent;min-width:250px}
-.gp-rec:hover{border-color:var(--gh-line);background:rgba(255,255,255,.04)}
-.gp-rec img{width:34px;height:34px}.gp-rec div{flex:1;font-size:14px}.gp-rec small{display:block;font-weight:500;font-size:12px;opacity:.9}
-.gp-rec small i{font-style:normal;margin-right:8px}.gp-rec small i.no{color:#ff8a70}
-.gp-btn{pointer-events:auto;cursor:pointer;border:0;border-radius:9px;padding:7px 13px;font:800 13px system-ui,sans-serif;background:var(--gh-accent);color:#16181c}
-.gp-btn:disabled{opacity:.3;cursor:default}
-.gp-needs{display:flex;flex-direction:column;gap:5px;background:var(--gh-panel);border:1px solid var(--gh-line);border-radius:12px;padding:9px 11px}
-.gp-need{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
-.gp-need span{width:54px;opacity:.75}.gp-need div{width:min(150px,20vw);height:9px;border-radius:5px;background:rgba(255,255,255,.14);overflow:hidden}
-.gp-need i{display:block;height:100%;border-radius:5px;transition:width .3s}
-.gp-need.low i{animation:gp-pulse .7s infinite alternate}
-.gp-q{background:var(--gh-panel);border:1px solid var(--gh-line);border-radius:12px;padding:9px 12px;font-size:13px;font-weight:600;display:flex;flex-direction:column;gap:4px;max-width:260px;white-space:normal;text-align:left}
-.gp-q p{margin:0;display:flex;gap:7px;opacity:.55}.gp-q p.now{opacity:1}.gp-q p.ok{opacity:.5;text-decoration:line-through}
-.gp-map{border-radius:12px;border:2px solid var(--gh-line);box-shadow:0 4px 18px rgba(0,0,0,.3);display:block;image-rendering:pixelated;background:#1a1d24}
-.gp-menu{display:flex;flex-direction:column;gap:10px;align-items:stretch;min-width:240px;text-align:center}
-.gp-menu h2{margin:0 0 6px;font-size:26px}.gp-row{display:flex;gap:8px}.gp-code{flex:1;min-width:0;width:150px;pointer-events:auto;border:1px solid var(--gh-line);border-radius:9px;background:rgba(255,255,255,.08);color:inherit;font:800 16px system-ui,sans-serif;letter-spacing:.18em;text-align:center;padding:8px;text-transform:uppercase;-webkit-user-select:text;user-select:text}.gp-err{color:#ff8a70;min-height:1em}.gp-menu table{font-size:13px;font-weight:500;opacity:.85;margin:4px auto;text-align:left;border-spacing:10px 3px}
-@keyframes gp-pulse{from{opacity:1}to{opacity:.45}}
-@media (max-width:600px){.gp-grid{--gp-n:8.6;grid-template-columns:repeat(var(--gp-cols,6),auto)}.gp-box{padding:12px}.gp-rec{min-width:0}}
-`;
-const css = () => { if (!D.getElementById('gp-css')) { const s = el('style'); s.id = 'gp-css'; s.textContent = CSS; D.head.appendChild(s); } };
-const corner = (hud, c) => hud.el.querySelector('.gh-' + c);
-const slotEl = (inv, i, label) => { const d = el('div', 'gp-slot'), s = inv.slots[i]; if (label) d.appendChild(el('u', null, label)); if (s) { const im = el('img'); im.src = itemIcon(s.id, inv.def(s.id)); im.alt = s.id; d.appendChild(im); if (s.n > 1) d.appendChild(el('b', null, String(s.n))); d.title = inv.def(s.id).name; } return d; };
+// Drawn in the hud's canvas (@gcp/hud.js on @gcp/ui.js), so they are in the frame the platform captures for feedback.
+// A game can draw its own panels with the same pieces: hud.window(draw), drawSlot(hud, u, …), itemImage(id, def),
+// smallButton(hud, u, …), windowHeading(hud, u, …), windowClose(hud, u, …).
+
+const slotSize = (u, n) => Math.max(30, Math.min(52, (u.w * 0.94) / n - 6));
+/**
+ * One inventory slot at x, y of size s: the item's icon, its count, an optional key label; on (the held one, raised
+ * with the accent border), pick (picked up: a dashed white border), hover.
+ */
+export function drawSlot(hud, u, inv, i, x, y, s, { label = '', on = false, pick = false, hover = false } = {}) {
+  const it = inv.slots[i], c = u.ctx;
+  if (on) y -= 4;
+  u.panel(x, y, s, s, { fill: hud.slotFill || hud.panel, radius: 11, shadow: on ? { color: 'rgba(0,0,0,.4)', blur: 16, y: 6 } : null });
+  if (pick) { c.save(); c.setLineDash([5, 4]); u.panel(x, y, s, s, { stroke: '#fff', line: 2, radius: 11 }); c.restore(); }
+  else u.panel(x, y, s, s, { stroke: on ? hud.accent : hover ? 'rgba(255,255,255,.32)' : hud.slotLine || hud.line, line: 2, radius: 11 });
+  if (it) { const k = s * 0.74; u.image(itemImage(it.id, inv.def(it.id)), x + (s - k) / 2, y + (s - k) / 2, k, k); if (it.n > 1) u.text(String(it.n), x + s - 4, y + s - 3, { size: 12, weight: 800, align: 'right', base: 'bottom', color: hud.ink, stroke: { color: 'rgba(0,0,0,.85)', width: 2 } }); }
+  if (label) u.text(label, x + 5, y + 3, { size: 10, weight: 600, base: 'top', color: hud.ink, alpha: 0.6 });
+}
+/** A small accent (or ghost) button, as in the backpack: true when pressed. */
+export function smallButton(hud, u, id, x, y, label, { ghost = false, disabled = false, w } = {}) {
+  const bw = w || u.measure(label, { size: 13, weight: 800 }) + 26;
+  return { w: bw, pressed: u.button(id, x, y, bw, 30, label, { fill: ghost ? 'rgba(255,255,255,.14)' : hud.accent, color: ghost ? hud.ink : '#16181c', size: 13, weight: 800, radius: 9, shadow: null, disabled }) && !disabled };
+}
+let uid = 0;
 
 /**
  * The hotbar: the first slots of the inventory along the bottom, the held one raised. Click or tap selects; with
@@ -512,11 +509,18 @@ const slotEl = (inv, i, label) => { const d = el('div', 'gp-slot'), s = inv.slot
  * frame). Returns { el, update(), remove() }.
  */
 export function hotbarUI(hud, inv, { input, corner: at = 'bc' } = {}) {
-  css(); const bar = el('div', 'gp-hot'); bar.style.setProperty('--gp-n', inv.hotbar); corner(hud, at).appendChild(bar);
-  const draw = () => { bar.textContent = ''; for (let i = 0; i < inv.hotbar; i++) { const d = slotEl(inv, i, String((i + 1) % 10)); if (i === inv.selected) d.classList.add('on'); d.addEventListener('pointerdown', (e) => { e.stopPropagation(); inv.select(i); }); bar.appendChild(d); } };
-  const off = inv.onChange(draw); draw();
-  return { el: bar, update() { if (!input) return; for (let i = 0; i < inv.hotbar; i++) if (input.pressed('Digit' + ((i + 1) % 10))) inv.select(i); if (input.wheel) inv.select(inv.selected + input.wheel); if (input.pressed('Pad4')) inv.select(inv.selected - 1); if (input.pressed('Pad5')) inv.select(inv.selected + 1); }, remove() { off(); bar.remove(); } };
+  const id = 'hot' + (++uid);
+  const item = hud.item(at, {
+    measure(u) { const s = slotSize(u, inv.hotbar); return { w: inv.hotbar * s + (inv.hotbar - 1) * 6, h: s + 4 }; },
+    draw(u, x, y) { const s = slotSize(u, inv.hotbar); for (let i = 0; i < inv.hotbar; i++) { const sx = x + i * (s + 6), r = u.hit(id + ':' + i, sx, y, s, s + 4, { focusable: false }); if (r.clicked) inv.select(i); drawSlot(hud, u, inv, i, sx, y + 4, s, { label: String((i + 1) % 10), on: i === inv.selected, hover: r.hover }); } },
+  });
+  return { el: item, update() { if (!input) return; for (let i = 0; i < inv.hotbar; i++) if (input.pressed('Digit' + ((i + 1) % 10))) inv.select(i); if (input.wheel) inv.select(inv.selected + input.wheel); if (input.pressed('Pad4')) inv.select(inv.selected - 1); if (input.pressed('Pad5')) inv.select(inv.selected + 1); }, remove() { item.remove(); } };
 }
+
+/** A section heading in a window ("BACKPACK"), with room on its right. */
+export const windowHeading = (hud, u, text, x, y) => u.text(text, x, y, { size: 12, weight: 800, upper: true, spacing: 1.2, alpha: 0.65, base: 'top', color: hud.ink });
+/** The ✕ that closes a window, its right edge at x: true when pressed. */
+export const windowClose = (hud, u, id, x, y) => { const r = u.hit(id, x - 22, y - 4, 26, 24); u.text('✕', x - 9, y + 8, { size: 14, weight: 700, align: 'center', base: 'middle', color: hud.ink, alpha: r.hover || r.focused ? 1 : 0.7 }); return r.clicked; };
 
 /**
  * The inventory window, with a crafting list beside it when you pass { crafting }. Click or tap a slot to pick it
@@ -527,48 +531,91 @@ export function hotbarUI(hud, inv, { input, corner: at = 'bc' } = {}) {
  * Returns { open(), close(), toggle(), isOpen, refresh() }. Escape closes it.
  */
 export function inventoryUI(hud, inv, { crafting, stations, title = 'Backpack', onOpen, onClose, onUse, onDrop, canUse } = {}) {
-  css(); let win = null, pick = -1, offInv = null;
+  const id = 'inv' + (++uid); let W = null, pick = -1, hoverSlot = -1, lastClick = { i: -1, t: 0 };
   const usable = (it) => (canUse ? canUse(it) : !!(it.def.food || it.def.water || it.def.heal || it.def.place)), about = (f) => f.name + (f.about ? ': ' + f.about : f.food ? ': food' : f.tool ? ': a tool' : f.place ? ': place it in the world' : '');
-  const draw = () => {
-    if (!win) return; const box = win.firstChild; box.textContent = '';
-    const left = el('div'), h = el('p', 'gp-h', title), x = el('button', 'gp-x', '✕'); x.addEventListener('click', () => U.close()); h.appendChild(x); left.appendChild(h);
-    const grid = el('div', 'gp-grid'), info = el('div', 'gp-info'); grid.style.setProperty('--gp-cols', inv.slots.length > 30 ? 8 : 6);
-    const tell = (i) => { info.textContent = ''; const s = inv.slots[i]; if (!s) { info.appendChild(el('span', null, 'Pick a thing up, then choose where it goes.')); return; } const it = { ...s, def: inv.def(s.id) }; info.appendChild(el('span', null, about(it.def)));
-      if (i === pick) { if (onUse && usable(it)) { const b = el('button', 'gp-btn', 'Use'); b.addEventListener('click', () => { pick = -1; onUse(i, it); draw(); }); info.appendChild(b); } if (onDrop) { const b = el('button', 'gp-btn gp-ghost', 'Drop'); b.addEventListener('click', () => { pick = -1; onDrop(i, it); draw(); }); info.appendChild(b); } } };
-    inv.slots.forEach((s, i) => { const d = slotEl(inv, i, i < inv.hotbar ? String((i + 1) % 10) : ''); if (i === pick) d.classList.add('pick'); if (i === inv.selected) d.classList.add('on');
-      d.addEventListener('pointerenter', () => { if (pick < 0 && s) tell(i); });
-      d.addEventListener('click', () => { if (pick < 0) { if (s) pick = i; } else if (pick === i) pick = -1; else { inv.move(pick, i); pick = -1; } draw(); });
-      d.addEventListener('dblclick', () => { pick = -1; if (s && onUse) onUse(i, { ...s, def: inv.def(s.id) }); draw(); });
-      grid.appendChild(d); });
-    left.appendChild(grid); left.appendChild(info); tell(pick); box.appendChild(left);
-    if (crafting) { const near = stations ? stations() : undefined, right = el('div', 'gp-craft'); right.appendChild(el('p', 'gp-h', 'Craft'));
-      for (const r of crafting.recipes) { const f = inv.def(r.makes), ok = crafting.can(r, near), row = el('div', 'gp-rec' + (ok ? '' : ' off')), im = el('img'), tx = el('div'), need = el('small'), b = el('button', 'gp-btn', 'Make'); im.src = itemIcon(r.makes, f); im.alt = ''; tx.textContent = (r.name || f.name) + (r.n > 1 ? ' × ' + r.n : '');
-        for (const id in r.needs) need.appendChild(el('i', inv.has(id, r.needs[id]) ? '' : 'no', `${Math.min(inv.count(id), 99)}/${r.needs[id]} ${inv.def(id).name.toLowerCase()}`));
-        if (r.station) need.appendChild(el('i', near && !near.includes(r.station) ? 'no' : '', 'at a ' + nice(r.station).toLowerCase())); tx.appendChild(need);
-        b.disabled = !ok; b.addEventListener('click', () => { crafting.make(r, near); }); row.appendChild(im); row.appendChild(tx); row.appendChild(b); right.appendChild(row); }
-      box.appendChild(right); }
+  const lay = (u) => {
+    const cols = inv.slots.length > 30 ? 8 : 6, rows = Math.ceil(inv.slots.length / cols), s = Math.min(52, Math.max(28, (Math.min(u.w * 0.96 - 8, 600) - 36 - 12 - (cols - 1) * 6) / cols));
+    const gw = cols * s + (cols - 1) * 6, gh = rows * s + (rows - 1) * 6, leftH = 22 + gh + 10 + 34;
+    const rw = 290, recH = 52, rh = crafting ? 22 + crafting.recipes.length * recH : 0;
+    const side = crafting && gw + rw + 20 + 36 <= u.w * 0.96 - 8;
+    const bw = side ? gw + rw + 20 + 36 : Math.max(gw, crafting ? Math.min(rw, u.w * 0.96 - 44) : 0) + 36;
+    const inner = side ? Math.max(leftH, Math.min(rh, u.h * 0.7)) : leftH + (crafting ? 20 + rh : 0);
+    return { cols, s, gw, gh, rw: side ? rw : bw - 36, rh, recH, side, bw, bh: Math.min(inner + 32, u.h * 0.92 - 8), inner };
   };
-  const key = (e) => { if (e.code === 'Escape' && win) { e.stopPropagation(); U.close(); } };
-  const U = { get isOpen() { return !!win; },
-    open() { if (win) return U; win = el('div', 'gp-win'); win.appendChild(el('div', 'gp-box')); win.addEventListener('pointerdown', (e) => { if (e.target === win) U.close(); }); hud.el.appendChild(win); offInv = inv.onChange(draw); addEventListener('keydown', key, true); pick = -1; draw(); if (onOpen) onOpen(); return U; },
-    close() { if (!win) return U; win.remove(); win = null; if (offInv) offInv(); removeEventListener('keydown', key, true); if (onClose) onClose(); return U; },
-    toggle() { return win ? U.close() : U.open(); }, refresh: draw };
+  function drawLeft(u, x, y, L) {
+    windowHeading(hud, u, title, x, y); if (windowClose(hud, u, id + ':x', x + L.gw, y)) { U.close(); return; }
+    let hov = -1;
+    inv.slots.forEach((sl, i) => {
+      const sx = x + (i % L.cols) * (L.s + 6), sy = y + 22 + Math.floor(i / L.cols) * (L.s + 6), r = u.hit(id + ':s' + i, sx, sy, L.s, L.s, { focusable: false });
+      if (r.hover && sl) hov = i;
+      if (r.clicked) { const t = performance.now(); if (lastClick.i === i && t - lastClick.t < 380 && sl && onUse) { pick = -1; onUse(i, { ...sl, def: inv.def(sl.id) }); lastClick.i = -1; } else { lastClick = { i, t }; if (pick < 0) { if (sl) pick = i; } else if (pick === i) pick = -1; else { inv.move(pick, i); pick = -1; } } }
+      drawSlot(hud, u, inv, i, sx, sy, L.s, { label: i < inv.hotbar ? String((i + 1) % 10) : '', on: i === inv.selected && false, pick: i === pick, hover: r.hover });
+      if (i === inv.selected && i !== pick) u.panel(sx, sy, L.s, L.s, { stroke: hud.accent, line: 2, radius: 11 });
+    });
+    hoverSlot = hov;
+    // the line under the grid: what the picked (or hovered) thing is, and what you can do with it
+    const iy = y + 22 + L.gh + 10, show = pick >= 0 ? pick : hoverSlot, sl = show >= 0 ? inv.slots[show] : null;
+    let bx = x + L.gw;
+    if (sl && show === pick) {
+      const it = { ...sl, def: inv.def(sl.id) };
+      if (onDrop) { const w = u.measure('Drop', { size: 13, weight: 800 }) + 26; bx -= w; if (smallButton(hud, u, id + ':drop', bx, iy + 2, 'Drop', { ghost: true, w }).pressed) { pick = -1; onDrop(show, it); } bx -= 8; }
+      if (onUse && usable(it)) { const w = u.measure('Use', { size: 13, weight: 800 }) + 26; bx -= w; if (smallButton(hud, u, id + ':use', bx, iy + 2, 'Use', { w }).pressed) { pick = -1; onUse(show, it); } bx -= 8; }
+    }
+    u.text(sl ? about(inv.def(sl.id)) : 'Pick a thing up, then choose where it goes.', x, iy + 17, { size: 13, weight: 500, base: 'middle', alpha: 0.85, color: hud.ink, width: Math.max(80, bx - x - 6), lines: 2 });
+  }
+  function drawCraft(u, x, top, L) {
+    const near = stations ? stations() : undefined;
+    windowHeading(hud, u, 'Craft', x, top);
+    crafting.recipes.forEach((r, k) => {
+      const y = top + 22 + k * L.recH, f = inv.def(r.makes), ok = crafting.can(r, near), rh = L.recH - 4;
+      const hv = u.hit(id + ':r' + k, x, y, L.rw, rh, { focusable: false, cursor: '' });
+      if (hv.hover) u.panel(x, y, L.rw, rh, { fill: 'rgba(255,255,255,.04)', stroke: hud.line, radius: 10 });
+      u.alpha(ok ? 1 : 0.62, () => {
+        u.image(itemImage(r.makes, f), x + 8, y + (rh - 34) / 2, 34, 34);
+        const bw = u.measure('Make', { size: 13, weight: 800 }) + 26, tx = x + 52, tw = L.rw - 52 - bw - 16;
+        u.text((r.name || f.name) + (r.n > 1 ? ' × ' + r.n : ''), tx, y + 16, { size: 14, weight: 600, base: 'middle', color: hud.ink, width: tw, lines: 1 });
+        let nx = tx; const parts = [];
+        for (const nid in r.needs) parts.push([`${Math.min(inv.count(nid), 99)}/${r.needs[nid]} ${inv.def(nid).name.toLowerCase()}`, inv.has(nid, r.needs[nid])]);
+        if (r.station) parts.push(['at a ' + nice(r.station).toLowerCase(), !(near && !near.includes(r.station))]);
+        for (const [t, have] of parts) { if (nx > tx + tw) break; const m = u.text(t, nx, y + 34, { size: 12, weight: 500, base: 'middle', color: have ? hud.ink : '#ff8a70', alpha: 0.9 }); nx += m.w + 8; }
+        if (smallButton(hud, u, id + ':m' + k, x + L.rw - bw - 8, y + (rh - 30) / 2, 'Make', { disabled: !ok, w: bw }).pressed) crafting.make(r, near);
+      });
+    });
+  }
+  const U = { get isOpen() { return !!W && W.isOpen; },
+    open() { if (U.isOpen) return U; pick = -1;
+      W = hud.window((u, x, y, bw, bh) => {
+        const L = lay(u), px = x + 18, py = y + 16;
+        if (L.side) { drawLeft(u, px, py, L); if (!W || !W.isOpen) return; const cx = px + L.gw + 20, ch = bh - 32; if (L.rh > ch) u.scroll(id + ':cs', cx, py, L.rw, ch, L.rh, (uu, top) => drawCraft(u, cx, top, L), { bar: 'rgba(255,255,255,.3)' }); else drawCraft(u, cx, py, L); }
+        else { const ch = bh - 32; u.scroll(id + ':all', px - 4, py, bw - 28, ch, L.inner, (uu, top) => { drawLeft(u, px, top, L); if (crafting && W && W.isOpen) drawCraft(u, px, top + 22 + L.gh + 10 + 34 + 20, L); }, { bar: 'rgba(255,255,255,.3)' }); }
+      }, { width: (u) => lay(u).bw, height: (u) => lay(u).bh, onClose: () => { W = null; if (onClose) onClose(); } });
+      if (onOpen) onOpen(); return U; },
+    close() { if (W) W.close(); return U; },
+    toggle() { return U.isOpen ? U.close() : U.open(); }, refresh() { return U; } };
   return U;
 }
 
 /** Bars for a createNeeds(), stacked in a corner (default top left). A bar pulses when it is under a quarter. Options: corner, colors ({ food: '#e8a23a' }), labels. */
 export function needsUI(hud, needs, { corner: at = 'tl', colors = {}, labels = {} } = {}) {
-  css(); const COL = { health: '#e5484d', food: '#e8a23a', water: '#4aa6e8', stamina: '#6ad86a', warmth: '#ff8a4a', energy: '#c8a0ff' }, box = el('div', 'gp-needs'), rows = {};
-  for (const k of needs.keys) { const r = el('div', 'gp-need'), b = el('div'), f = el('i'); f.style.background = colors[k] || needs.defs[k].color || COL[k] || '#c8ccd2'; b.appendChild(f); r.appendChild(el('span', null, labels[k] || needs.defs[k].label || nice(k))); r.appendChild(b); box.appendChild(r); rows[k] = [r, f]; }
-  const set = (k) => { const [r, f] = rows[k], t = needs.ratio(k); f.style.width = (t * 100) + '%'; r.classList.toggle('low', t < 0.25); };
-  needs.keys.forEach(set); const off = needs.onChange(set); corner(hud, at).appendChild(box);
-  return { el: box, remove() { off(); box.remove(); } };
+  const COL = { health: '#e5484d', food: '#e8a23a', water: '#4aa6e8', stamina: '#6ad86a', warmth: '#ff8a4a', energy: '#c8a0ff' }, id = 'needs' + (++uid);
+  const name = (k) => labels[k] || needs.defs[k].label || nice(k), col = (k) => colors[k] || needs.defs[k].color || COL[k] || '#c8ccd2';
+  const item = hud.item(at, {
+    measure(u) { const bw = Math.min(150, u.w * 0.2), lw = Math.max(54, ...needs.keys.map((k) => u.measure(name(k).toUpperCase(), { size: 11, weight: 800, spacing: 0.66 }))); return { w: 22 + lw + 8 + bw, h: 18 + needs.keys.length * 14 + (needs.keys.length - 1) * 5 }; },
+    draw(u, x, y, w, h) {
+      u.panel(x, y, w, h, { fill: hud.panel, stroke: hud.line, radius: 12, shadow: { color: 'rgba(0,0,0,.25)', blur: 18, y: 4 } });
+      const bw = Math.min(150, u.w * 0.2), bx = x + w - 11 - bw;
+      needs.keys.forEach((k, i) => { const cy = y + 9 + i * 19 + 7, t = needs.ratio(k), low = t < 0.25, a = low ? 0.45 + 0.55 * (0.5 + 0.5 * Math.cos(u.time * Math.PI / 0.7)) : 1;
+        u.text(name(k), x + 11, cy, { size: 11, weight: 800, upper: true, spacing: 0.66, alpha: 0.75, base: 'middle', color: hud.ink });
+        u.alpha(a, () => u.bar(bx, cy - 4.5, bw, 9, u.anim(id + k, t, 8), { color: col(k), radius: 5 })); });
+    },
+  });
+  return { el: item, remove() { item.remove(); } };
 }
 
 /** The day and the hour of a createClock() as a small panel (default top right). Call ui.update() every frame or so. */
 export function clockUI(hud, clock, { corner: at = 'tr' } = {}) {
-  const p = el('div', 'gh-p'), ic = el('span', 'gh-i'), tx = el('span'); p.appendChild(ic); p.appendChild(tx); corner(hud, at).appendChild(p); let last = '';
-  const U = { el: p, update() { const s = clock.label; if (s !== last) { last = s; tx.textContent = s; ic.textContent = clock.phase === 'night' ? '☾' : clock.phase === 'day' ? '☀' : '◐'; } }, remove() { p.remove(); } }; U.update(); return U;
+  const l = hud.label(at, () => [[clock.phase === 'night' ? '☾' : clock.phase === 'day' ? '☀' : '◐', clock.label]]);
+  return { el: l.el, update() {}, remove() { l.remove(); } };
 }
 
 /**
@@ -577,12 +624,28 @@ export function clockUI(hud, clock, { corner: at = 'tr' } = {}) {
  * at once, default 4; 0 shows every step).
  */
 export function questUI(hud, quests, { corner: at = 'tr', title = 'Quests', max = 4 } = {}) {
-  css(); const box = el('div', 'gp-q'); corner(hud, at).appendChild(box);
-  const draw = () => { box.textContent = ''; const S = quests.steps, cur = quests.current, i = cur ? S.indexOf(cur) : S.length, n = S.filter((s) => s.complete).length;
-    const head = el('span', 'gh-l', title + ' '); head.appendChild(el('b', null, n + ' / ' + S.length)); box.appendChild(head);
-    const from = max ? Math.max(0, Math.min(i - 1, S.length - max)) : 0, to = max ? Math.min(S.length, from + max) : S.length;
-    for (let k = from; k < to; k++) { const s = S[k], p = el('p', s.complete ? 'ok' : s === cur ? 'now' : ''); p.appendChild(el('span', null, s.complete ? '✔' : s === cur ? '▸' : '·')); p.appendChild(el('span', null, s.text)); box.appendChild(p); } };
-  const off = quests.onChange ? quests.onChange(draw) : quests.onStep(draw); draw(); return { el: box, refresh: draw, remove() { off(); box.remove(); } };
+  const rows = (u, tw) => { const S = quests.steps, cur = quests.current, i = cur ? S.indexOf(cur) : S.length;
+    const from = max ? Math.max(0, Math.min(i - 1, S.length - max)) : 0, to = max ? Math.min(S.length, from + max) : S.length, out = [];
+    for (let k = from; k < to; k++) { const s = S[k], lines = u.wrap(s.text, tw - 16, { size: 13, weight: 600 }); out.push({ s, lines, cur: s === cur }); } return out; };
+  const item = hud.item(at, {
+    measure(u, maxW) { const w = Math.min(260, maxW), rs = rows(u, w - 24); return { w, h: 18 + 17 + rs.reduce((t, r) => t + r.lines.length * 17 + 4, 0) }; },
+    draw(u, x, y, w, h) {
+      const S = quests.steps, n = S.filter((s) => s.complete).length;
+      u.panel(x, y, w, h, { fill: hud.panel, stroke: hud.line, radius: 12, shadow: { color: 'rgba(0,0,0,.25)', blur: 18, y: 4 } });
+      const hd = u.text(title + ' ', x + 12, y + 9, { size: 11, weight: 700, upper: true, spacing: 0.9, alpha: 0.7, base: 'top', color: hud.ink });
+      u.text(n + ' / ' + S.length, x + 12 + hd.w + 2, y + 9, { size: 11, weight: 800, alpha: 0.7, base: 'top', color: hud.ink });
+      let ry = y + 9 + 17 + 4;
+      for (const r of rows(u, w - 24)) {
+        const a = r.s.complete ? 0.5 : r.cur ? 1 : 0.55;
+        u.alpha(a, () => {
+          u.text(r.s.complete ? '✔' : r.cur ? '▸' : '·', x + 12, ry, { size: 13, weight: 600, base: 'top', color: hud.ink });
+          r.lines.forEach((l, j) => { const m = u.text(l, x + 28, ry + j * 17, { size: 13, weight: 600, base: 'top', color: hud.ink }); if (r.s.complete) u.panel(x + 28, ry + j * 17 + 8, m.w, 1.5, { fill: hud.ink }); });
+        });
+        ry += r.lines.length * 17 + 4;
+      }
+    },
+  });
+  return { el: item, refresh() {}, remove() { item.remove(); } };
 }
 
 /**
@@ -592,37 +655,63 @@ export function questUI(hud, quests, { corner: at = 'tr', title = 'Quests', max 
  * corner. It redraws a few times a second by itself. Returns { el, remove() }.
  */
 export function minimapUI(hud, { size = 132, range = 40, center, color, markers, corner: at = 'tr', cells = 44 } = {}) {
-  css(); const cv = el('canvas', 'gp-map'); cv.width = cv.height = cells; cv.style.width = cv.style.height = `min(${size}px, 30vw)`; corner(hud, at).appendChild(cv); const c = cv.getContext('2d'), img = c.createImageData(cells, cells);
+  const cv = el('canvas'); cv.width = cv.height = cells; const c = cv.getContext('2d', { willReadFrequently: true }), img = c.createImageData(cells, cells);
   const hexOf = new Map(), parse = (v) => { if (typeof v !== 'string') return [Math.sqrt(v.r) * 255, Math.sqrt(v.g) * 255, Math.sqrt(v.b) * 255]; let o = hexOf.get(v); if (!o) { c.fillStyle = v; const h = c.fillStyle; o = [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; hexOf.set(v, o); } return o; };
   const draw = () => { const p = center ? center() : { x: 0, y: 0 }, d = img.data;
-    if (color) { for (let j = 0; j < cells; j++) for (let i = 0; i < cells; i++) { const o = parse(color(p.x + (i / (cells - 1) * 2 - 1) * range, p.y + (j / (cells - 1) * 2 - 1) * range)), k = (j * cells + i) * 4; d[k] = o[0]; d[k + 1] = o[1]; d[k + 2] = o[2]; d[k + 3] = 255; } c.putImageData(img, 0, 0); } else c.clearRect(0, 0, cells, cells);
+    if (color) { for (let j = 0; j < cells; j++) for (let i = 0; i < cells; i++) { const o = parse(color(p.x + (i / (cells - 1) * 2 - 1) * range, p.y + (j / (cells - 1) * 2 - 1) * range)), k = (j * cells + i) * 4; d[k] = o[0]; d[k + 1] = o[1]; d[k + 2] = o[2]; d[k + 3] = 255; } c.putImageData(img, 0, 0); } else { c.fillStyle = '#1a1d24'; c.fillRect(0, 0, cells, cells); }
     for (const m of markers ? markers() : []) { const x = ((m.x - p.x) / range + 1) / 2 * cells, y = ((m.y - p.y) / range + 1) / 2 * cells; if (x < 0 || y < 0 || x >= cells || y >= cells) continue; c.fillStyle = m.color || '#fff'; c.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2); }
     c.fillStyle = '#fff'; c.fillRect(cells / 2 - 1, cells / 2 - 1, 3, 3); c.fillStyle = '#16181c'; c.fillRect(cells / 2, cells / 2, 1, 1); };
-  draw(); const id = setInterval(draw, 300); return { el: cv, refresh: draw, remove() { clearInterval(id); cv.remove(); } };
+  draw(); const timer = setInterval(draw, 300);
+  const item = hud.item(at, {
+    measure(u) { const s = Math.min(size, u.w * 0.3); return { w: s, h: s }; },
+    draw(u, x, y, w, h) {
+      u.panel(x, y, w, h, { fill: '#1a1d24', radius: 12, shadow: { color: 'rgba(0,0,0,.3)', blur: 18, y: 4 } });
+      u.clip(x + 2, y + 2, w - 4, h - 4, () => { u.ctx.imageSmoothingEnabled = false; u.ctx.drawImage(cv, x + 2, y + 2, w - 4, h - 4); u.ctx.imageSmoothingEnabled = true; }, { radius: 10 });
+      u.panel(x, y, w, h, { stroke: hud.line, line: 2, radius: 12 });
+    },
+  });
+  return { el: item, canvas: cv, refresh: draw, remove() { clearInterval(timer); item.remove(); } };
 }
 
 // The platform's Escape rule for everything this kit opens: Esc closes an open window first. A game with a pauseMenu keeps
 // Esc for it (the menu offers Quit game in the platform's player); without one, an Esc with nothing open opens the
 // platform's menu.
 let escRule = false, pauseOwnsEsc = false;
-function escapeRule(hud) { if (escRule || !window.GCP || typeof GCP.onEscape !== 'function') return; escRule = true; GCP.onEscape(() => pauseOwnsEsc || !!hud.el.querySelector('.gp-win')); }
+function escapeRule(hud) { if (escRule || !window.GCP || typeof GCP.onEscape !== 'function') return; escRule = true; GCP.onEscape(() => pauseOwnsEsc || hud.windowOpen); }
 const inPlayer = () => !!(window.GCP && typeof GCP.quit === 'function' && window.parent !== window);
+
+/** A column of menu rows, centred: [{ h, draw(x, y, w) }] -> total height. */
+const stack = (rows, gap = 10) => rows.reduce((t, r) => t + r.h, 0) + gap * Math.max(0, rows.length - 1);
+const bigBtn = (hud, u, id, label, x, y, w, onPress) => { if (u.button(id, x, y, w, 46, label, { fill: hud.accent, color: '#16181c', size: 17, weight: 800, radius: 12, shadow: { color: 'rgba(0,0,0,.35)', blur: 22, y: 6 }, family: hud.font })) onPress(); };
+const subBtn = (hud, u, id, label, x, y, w, onPress) => { if (u.button(id, x, y, w, 36, label, { fill: hud.panel, color: hud.ink, size: 14, weight: 700, radius: 10, stroke: hud.line, line: 1, shadow: null, hover: 'rgba(40,44,52,.9)', family: hud.font })) onPress(); };
+function keyCap(hud, u, k, x, cy) { const w = Math.max(26, u.measure(k, { size: 13, weight: 800 }) + 14); u.panel(x, cy - 13, w, 26, { fill: hud.ink, radius: 7 }); u.text(k, x + w / 2, cy + 0.5, { size: 13, weight: 800, color: '#16181c', align: 'center', base: 'middle' }); return w; }
 
 /**
  * A pause menu on Escape (or P): Resume, the controls, your own buttons, Restart, and Quit game in the platform's player. Options: title, controls ([['WASD',
  * 'Move'], ['E', 'Use']]), buttons ([['Save', fn], ['Sound', fn]]), onPause, onResume, onRestart. Returns { open(), close(), isOpen }.
  */
 export function pauseMenu(hud, { title = 'Paused', controls = [], buttons = [], onPause, onResume, onRestart } = {}) {
-  css(); let win = null; escapeRule(hud); pauseOwnsEsc = true;
-  const M = { get isOpen() { return !!win; },
-    open() { if (win || hud.screenOpen) return M; win = el('div', 'gp-win'); const box = el('div', 'gp-box'), m = el('div', 'gp-menu'); m.appendChild(el('h2', null, title));
-      const b = (label, fn, main) => { const x = el('button', main ? 'gh-b' : 'gh-sb', label); x.addEventListener('click', fn); m.appendChild(x); };
-      b('Resume', () => M.close(), true); if (controls.length) { const t = el('table'); for (const [k, what] of controls) { const r = el('tr'), a = el('td'); a.appendChild(el('span', 'gh-key', k)); r.appendChild(a); r.appendChild(el('td', null, what)); t.appendChild(r); } m.appendChild(t); }
-      for (const [label, fn] of buttons) b(label, fn); if (onRestart) b('Restart', () => { M.close(); onRestart(); });
-      if (inPlayer()) b('Quit game', () => GCP.quit());
-      box.appendChild(m); win.appendChild(box); hud.el.appendChild(win); if (onPause) onPause(); return M; },
-    close() { if (!win) return M; win.remove(); win = null; if (onResume) onResume(); return M; } };
-  addEventListener('keydown', (e) => { if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return; if (e.code === 'Escape' || e.code === 'KeyP') { if (win) M.close(); else if (!hud.el.querySelector('.gp-win')) M.open(); } });
+  escapeRule(hud); pauseOwnsEsc = true; const id = 'pause' + (++uid); let W = null;
+  const rows = () => {
+    const r = [{ h: 32, draw: (u, x, y, w) => u.text(title, x + w / 2, y + 16, { size: 26, weight: 800, align: 'center', base: 'middle', color: hud.titleColor || hud.ink, family: hud.titleFont, shadow: hud.titleShadow, width: w, lines: 1 }) }];
+    r.push({ h: 46, draw: (u, x, y, w) => bigBtn(hud, u, id + ':resume', 'Resume', x, y, w, () => M.close()) });
+    if (controls.length) r.push({ h: controls.length * 32, draw: (u, x, y, w) => { const kw = Math.max(...controls.map(([k]) => Math.max(26, u.measure(k, { size: 13, weight: 800 }) + 14))), tw = Math.max(...controls.map(([, t]) => u.measure(t, { size: 13, weight: 500 }))), sx = x + (w - kw - 12 - tw) / 2;
+      controls.forEach(([k, t], i) => { const cy = y + i * 32 + 16; keyCap(hud, u, k, sx, cy); u.text(t, sx + kw + 12, cy, { size: 13, weight: 500, base: 'middle', color: hud.ink, alpha: 0.85 }); }); } });
+    buttons.forEach(([label, fn], i) => r.push({ h: 36, draw: (u, x, y, w) => subBtn(hud, u, id + ':b' + i, label, x, y, w, fn) }));
+    if (onRestart) r.push({ h: 36, draw: (u, x, y, w) => subBtn(hud, u, id + ':restart', 'Restart', x, y, w, () => { M.close(); onRestart(); }) });
+    if (inPlayer()) r.push({ h: 36, draw: (u, x, y, w) => subBtn(hud, u, id + ':quit', 'Quit game', x, y, w, () => GCP.quit()) });
+    return r;
+  };
+  const M = { get isOpen() { return !!W && W.isOpen; },
+    open() { if (M.isOpen || hud.screenOpen || hud.windowOpen) return M;
+      const width = (u) => Math.max(276, ...controls.map(([k, t]) => u.measure(k, { size: 13, weight: 800 }) + u.measure(t, { size: 13 }) + 80));
+      W = hud.window((u, x, y, bw, bh) => { const rs = rows(); let ry = y + 18; u.nav = true; for (const r of rs) { r.draw(u, x + 18, ry, bw - 36); ry += r.h + 10; } },
+        { width, height: () => stack(rows()) + 36, escape: false, closeOnBackdrop: false, onClose: () => { hud.ui.nav = false; W = null; globalThis.GCP?.setPaused?.(false); if (onResume) onResume(); } });
+      globalThis.GCP?.setPaused?.(true); if (onPause) onPause(); return M; },
+    close() { if (W) W.close(); return M; } };
+  addEventListener('keydown', (e) => { if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return; if (e.code === 'Escape' || e.code === 'KeyP') { if (M.isOpen) M.close(); else if (!hud.windowOpen) M.open(); } });
+  // the platform's one pause owner: Esc, Back and the platform's pause open this menu, never the platform's as well
+  globalThis.GCP?.pauseMenu?.(() => M.open());
   return M;
 }
 
@@ -635,20 +724,32 @@ export function pauseMenu(hud, { title = 'Paused', controls = [], buttons = [], 
  * Options: title, subtitle, solo (false hides Play alone), codeLength (default 4), code (prefilled, e.g. from GCP.test.param('room')),
  * hint (a small line under the buttons, e.g. the controls: 'WASD move · E use · F place').
  * A link that carries ?room=CODE fills the code in, so a host can share the page address with it.
+ * The code box is the one page element: a text field (the platform contract allows them), placed over the canvas.
  */
 export function lobbyUI(hud, { title = '', subtitle = 'Play together', solo = true, codeLength = 4, code = '', hint = '' } = {}) {
-  css(); const make = () => Array.from({ length: codeLength }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[(Math.random() * 24) | 0]).join('');
+  const make = () => Array.from({ length: codeLength }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[(Math.random() * 24) | 0]).join(''), id = 'lobby' + (++uid);
   let api = null; const out = new Promise((res) => {
-    const win = el('div', 'gp-win'), box = el('div', 'gp-box'), m = el('div', 'gp-menu'), inp = el('input', 'gp-code'), err = el('small', 'gp-err', '');
-    const done = (mode, c) => { win.remove(); res({ mode, code: c }); }, clean = () => inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
-    const b = (label, fn, main) => { const x = el('button', main ? 'gh-b' : 'gh-sb', label); x.addEventListener('click', fn); m.appendChild(x); return x; };
-    if (title) m.appendChild(el('h2', null, title)); if (subtitle) m.appendChild(el('small', null, subtitle));
-    b('Host a room', () => done('host', make()), true);
-    const row = el('div', 'gp-row'); inp.placeholder = 'ROOM CODE'; inp.maxLength = 8; inp.autocapitalize = 'characters'; inp.spellcheck = false; inp.value = code || new URLSearchParams(location.search).get('room') || ''; row.appendChild(inp); m.appendChild(row);
-    const join = () => { const c = clean(); if (c.length < 2) { err.textContent = 'Type the code the host shared'; inp.focus(); return; } done('join', c); };
-    const jb = el('button', 'gp-btn', 'Join'); jb.addEventListener('click', join); row.appendChild(jb); inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.code === 'Enter') join(); }); m.appendChild(err);
-    if (solo) b('Play alone', () => done('solo', '')); if (hint) m.appendChild(el('small', 'gp-hint', hint));
-    box.appendChild(m); win.appendChild(box); hud.el.appendChild(win);
+    let err = '', W = null, settled = false;
+    const inp = el('input'); inp.placeholder = 'ROOM CODE'; inp.maxLength = 8; inp.autocapitalize = 'characters'; inp.spellcheck = false; inp.autocomplete = 'off'; inp.setAttribute('aria-label', 'Room code');
+    inp.value = code || new URLSearchParams(location.search).get('room') || '';
+    inp.style.cssText = `position:fixed;z-index:45;box-sizing:border-box;margin:0;border:1px solid ${hud.line};border-radius:9px;background:rgba(255,255,255,.08);color:${hud.ink};font:800 16px system-ui,sans-serif;letter-spacing:.18em;text-align:center;padding:0 8px;text-transform:uppercase;outline:none;-webkit-user-select:text;user-select:text;display:none`;
+    D.body.appendChild(inp);
+    const done = (mode, c) => { if (settled) return; settled = true; inp.remove(); if (W) W.close(); res({ mode, code: c }); }, clean = () => inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const join = () => { const c = clean(); if (c.length < 2) { err = 'Type the code the host shared'; inp.focus(); return; } done('join', c); };
+    inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.code === 'Enter') join(); });
+    const rows = (u, w) => {
+      const r = [];
+      if (title) r.push({ h: 32, draw: (x, y) => u.text(title, x + w / 2, y + 16, { size: 26, weight: 800, align: 'center', base: 'middle', color: hud.titleColor || hud.ink, family: hud.titleFont, shadow: hud.titleShadow, width: w, lines: 1 }) });
+      if (subtitle) { const n = Math.min(3, u.wrap(subtitle, w, { size: 13, weight: 500 }).length); r.push({ h: n * 17, draw: (x, y) => u.text(subtitle, x + w / 2, y, { size: 13, weight: 500, align: 'center', base: 'top', color: hud.ink, alpha: 0.8, width: w, lines: 3 }) }); }
+      r.push({ h: 46, draw: (x, y) => bigBtn(hud, u, id + ':host', 'Host a room', x, y, w, () => done('host', make())) });
+      r.push({ h: 36, draw: (x, y) => { const jw = u.measure('Join', { size: 13, weight: 800 }) + 26, fw = w - jw - 8; Object.assign(inp.style, { display: 'block', left: x + 'px', top: y + 'px', width: fw + 'px', height: '36px' }); if (smallButton(hud, u, id + ':join', x + fw + 8, y + 3, 'Join', { w: jw }).pressed) join(); } });
+      if (err) r.push({ h: 16, draw: (x, y) => u.text(err, x + w / 2, y + 8, { size: 13, weight: 600, align: 'center', base: 'middle', color: '#ff8a70' }) });
+      if (solo) r.push({ h: 36, draw: (x, y) => subBtn(hud, u, id + ':solo', 'Play alone', x, y, w, () => done('solo', '')) });
+      if (hint) { const ls = u.wrap(hint, w, { size: 12, weight: 500 }); r.push({ h: ls.length * 16, draw: (x, y) => u.text(hint, x + w / 2, y, { size: 12, weight: 500, align: 'center', base: 'top', color: hud.ink, alpha: 0.7, width: w, lineHeight: 1.33 }) }); }
+      return r;
+    };
+    const width = (u) => Math.min(340, u.w * 0.9);
+    W = hud.window((u, x, y, bw) => { let ry = y + 18; for (const r of rows(u, bw - 36)) { r.draw(x + 18, ry); ry += r.h + 10; } }, { width, height: (u) => stack(rows(u, width(u) - 36)) + 36, escape: false, closeOnBackdrop: false, onClose: () => { inp.style.display = 'none'; } });
     api = { solo: () => done('solo', ''), host: (c) => done('host', c || make()), join: (c) => done('join', String(c).toUpperCase()) };
   });
   // the promise can also be settled from code, e.g. GCP.test.onAutostart(() => lobby.solo())

@@ -262,6 +262,56 @@ export async function verifyPage(page, url, opts = {}) {
   else add('boots', true, 'The game boots', `GCP.ready() after ${s.loadMs} ms`);
 
   const shots = [];
+  // ---- the capture contract (the platform-contract guide, "Hand over the frame") ----
+  // What the page paints over the game besides its canvases, gathered at the moments the checks look at the game.
+  const pageUi = { elements: [], fields: [] };
+  const scanUi = async () => {
+    const r = await page.evaluate(() => (window.__GCP && window.__GCP.pageUi ? window.__GCP.pageUi(12) : null)).catch(() => null);
+    if (!r) return;
+    for (const k of ['elements', 'fields']) for (const e of r[k] || []) if (pageUi[k].length < 12 && !pageUi[k].some((x) => x.what === e.what)) pageUi[k].push(e);
+  };
+  const captureCheck = async () => {
+    const hooks = await page.evaluate(() => ({ capture: !!(window.__GCP && window.__GCP.capture), state: !!(window.__GCP && window.__GCP.stateHook), api: !!(window.__GCP && window.__GCP.captureFrame) })).catch(() => ({ capture: false, state: false, api: false }));
+    if (!hooks.api) return;   // an older runtime: nothing to check against
+    const missing = [!hooks.capture && 'GCP.test.onCapture', !hooks.state && 'GCP.test.onState'].filter(Boolean);
+    const problems = [];
+    if (missing.length) problems.push(`it registers no ${missing.join(' and no ')}`);
+    if (pageUi.elements.length) problems.push(`the page paints its own elements over the game: ${pageUi.elements.slice(0, 6).map((e) => `${e.what} (${e.why})`).join(', ')}${pageUi.elements.length > 6 ? ` and ${pageUi.elements.length - 6} more` : ''}`);
+    let match = null;
+    if (hooks.capture) {
+      // hold the loop, let the game draw one frame, and compare the picture it hands over with that frame on screen
+      try {
+        await page.evaluate(() => window.__GCP.hold(true)); await sleep(250);
+        const got = await Promise.race([page.evaluate(() => window.__GCP.captureFrame({ step: true }).then((r) => ({ image: r.image, error: r.error, exact: r.exact, redrawn: r.redrawn, hookError: r.hookError || '', canvases: r.canvases }))), sleep(8000).then(() => null)]);
+        await sleep(120);
+        const real = await page.screenshot({ type: 'png' });
+        if (!got) problems.push('the picture it hands over did not come within 8 s');
+        else if (got.hookError) problems.push(got.hookError);
+        else if (!got.image) problems.push(`it handed over no picture (${got.error || 'no canvas'})`);
+        else {
+          match = await page.evaluate(async ({ a, b }) => {
+            const load = async (src) => { const i = new Image(); i.src = src; await i.decode(); return i; };
+            const [x, y] = await Promise.all([load(a), load(b)]);
+            const W = 64, H = Math.max(8, Math.round(64 * x.height / x.width)), px = (img) => { const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d'); g.drawImage(img, 0, 0, W, H); return g.getImageData(0, 0, W, H).data; };
+            const p = px(x), q = px(y); let sum = 0, okCells = 0;
+            for (let i = 0; i < p.length; i += 4) { const d = (Math.abs(p[i] - q[i]) + Math.abs(p[i + 1] - q[i + 1]) + Math.abs(p[i + 2] - q[i + 2])) / 3; sum += d; if (d <= 24) okCells++; }
+            return { mean: Math.round(sum / (W * H) * 10) / 10, same: Math.round(okCells / (W * H) * 1000) / 1000 };
+          }, { a: 'data:image/png;base64,' + Buffer.from(real).toString('base64'), b: got.image }).catch((e) => ({ error: String(e && e.message || e).slice(0, 160) }));
+          report.capture = { ...match, exact: !!got.exact, redrawn: got.redrawn || [], canvases: got.canvases };
+          if (match.error) problems.push('the picture could not be compared: ' + match.error);
+          else if (!(match.mean <= 12 && match.same >= 0.93)) problems.push(`the picture it hands over does not match the screen (${Math.round(match.same * 100)}% alike, mean difference ${match.mean})`);
+        }
+      } catch (e) { problems.push('the capture failed: ' + String(e && e.message || e).slice(0, 160)); }
+      finally { await page.evaluate(() => window.__GCP.hold(false)).catch(() => {}); }
+    }
+    if (pageUi.fields.length) report.notes.push(`Text fields over the game (${pageUi.fields.map((f) => f.what).join(', ')}) are drawn into feedback pictures from their boxes; everything else comes from the game's canvases.`);
+    report.pageUi = pageUi.elements.length ? pageUi.elements : undefined;
+    // o.captureRequired false (the platform setting verify_capture_required, while games move over): reported, not failed
+    const soft = problems.length && o.captureRequired === false;
+    if (soft) report.notes.push('The capture check is not enforced on this platform yet; it will fail this version once it is: ' + problems.join('; ') + '.');
+    add('capture', !problems.length || soft, 'Hands over its exact frame', problems.length ? (soft ? 'Not enforced yet: ' : '') + problems.join('; ') + '.' : `The picture from GCP.test.onCapture matches the screen (${Math.round(match.same * 100)}% alike)`,
+      problems.length ? 'Every game draws everything the player sees (world, HUD, menus, text) in its canvases, and registers GCP.test.onCapture(() => canvas or [canvases]) and GCP.test.onState(fn). Move menus and HUD made of page elements into the canvas (draw text with fillText, buttons as shapes, and hit-test pointer events yourself). A WebGL game that does not redraw every frame keeps preserveDrawingBuffer: true or draws a frame inside onCapture. See get_started {topic: "contract"}, "Hand over the frame".' : '');
+  };
   // Frames for the content review (src/content-check.js): small JPEGs taken while the game starts, plays itself through and
   // takes input, so the review judges what a player actually sees, not only the first screen.
   const frames = [];
@@ -288,7 +338,7 @@ export async function verifyPage(page, url, opts = {}) {
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
     // For the craft review: a second picture a moment later with nothing pressed (does anything move by itself?), and the HUD.
     await snap();
-    await sleep(700); picIdle = await shoot(); ui1 = await uiState(page);
+    await sleep(700); picIdle = await shoot(); ui1 = await uiState(page); await scanUi();
     // Browsers keep sound locked until the first real press. One click in the top-left corner pixel gives the page that press, as a
     // player's first key or tap would, so sounds played during the play-through are real and can be measured.
     try { await page.mouse.click(2, 2); await sleep(120); } catch { /* no pointer */ }
@@ -316,7 +366,7 @@ export async function verifyPage(page, url, opts = {}) {
       ]);
     } catch (e) { play = { ran: true, ok: false, error: 'The page reloaded or closed during the play-through: ' + String(e && e.message || e).slice(0, 200), steps: [], ms: 0, frames: 0 }; }
     // where the play-through left the game (screenshots are not taken during it: they can stall frames in a slow browser)
-    if (play && play.ran) await snap();
+    if (play && play.ran) { await snap(); await scanUi(); }
     if (play && play.ran) {
       const last = play.steps.length ? play.steps[play.steps.length - 1] : '';
       add('playthrough', !!play.ok, 'The game plays through', play.ok ? `${play.steps.length} step(s) in ${(play.ms / 1000).toFixed(1)} s: ${play.steps.join(' → ').slice(0, 600)}` : `${play.error}${last ? ` (during step ${play.steps.length}: "${last}")` : ''}`,
@@ -373,8 +423,10 @@ export async function verifyPage(page, url, opts = {}) {
       s = d;
       const alive = domGame ? !restarted : f2 >= need;
       add('input', alive, 'Survives keyboard, mouse and touch input', domGame ? 'The page kept running after input.' : restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in ${inputS}s` : `${f2} frames in the ${inputS}s after input`, alive ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
-      pic2 = await shoot(); ui2 = await uiState(page); await snap();
+      pic2 = await shoot(); ui2 = await uiState(page); await snap(); await scanUi();
     }
+    // 5a. the capture contract: the game hands over its frame, and its frame is all the player sees
+    if (d && checks.every((c) => c.ok)) await captureCheck();
   }
   // 5b. responds: something on screen changes, by itself or when played. A picture with a frame loop behind it never does.
   if (pic1 && pic1.img && checks.every((c) => c.ok)) {

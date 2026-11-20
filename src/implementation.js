@@ -71,7 +71,7 @@ const KITS = {
   canvas2d: { rendering: ['Canvas 2D'], graphics: ['sprites baked once to offscreen canvases', 'y-sorted drawing'], loop: ['pixel ratio capped'] },
   'three-kit': { rendering: ['WebGL'], graphics: ['procedural textures'] },
   audio: { audio: ['Web Audio', 'synthesized sound'] }, sound: { audio: ['Web Audio', 'synthesized sound', 'music'] },
-  hud: { graphics: ['DOM interface over the game'] }, net: { platform: ['multiplayer rooms'], loop: ['host-authoritative snapshots with interpolation'] },
+  hud: { graphics: ['canvas interface over the game'] }, ui: { graphics: ['canvas interface over the game'] }, net: { platform: ['multiplayer rooms'], loop: ['host-authoritative snapshots with interpolation'] },
   craft: { graphics: ['procedural 3D scenery', 'shadows', 'fog'] }, craft2d: { rendering: ['Canvas 2D'], graphics: ['procedural 2D scenery', 'dynamic lights'] },
   materials: { graphics: ['procedural materials'] }, procgen: { loop: ['seeded randomness'], graphics: ['procedural generation'] }, play: { loop: ['inventory and crafting systems'] },
 };

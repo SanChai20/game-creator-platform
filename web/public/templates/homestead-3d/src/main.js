@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { run, createStage, terrainChunks, water, tree, rock, bush, groundCover, prop, place, grassField, scatter, humanoid, animal, control, wander, createFx, surface, tbox, Simplex, toSeed, rng, clamp, lerp, smoothstep, createHud, createSound, createInput,
   createInventory, createCrafting, createNeeds, createClock, createNodes, createInteract, createBuilder, stairsPiece, createCrops, createQuests, createSave,
-  createWorldSync, createLoopback, itemIcon, hotbarUI, inventoryUI, needsUI, clockUI, questUI, minimapUI, pauseMenu, lobbyUI } from '@gcp/craft.js';
+  createWorldSync, createLoopback, itemImage, drawSlot, smallButton, windowHeading, windowClose, hotbarUI, inventoryUI, needsUI, clockUI, questUI, minimapUI, pauseMenu, lobbyUI } from '@gcp/craft.js';
 import * as T from './theme.js';
 
 const GCP = window.GCP, CHUNK = 40, GRID = 2, LEVEL = 3;   // metres: one chunk of land; one cell for building and planting; one storey
@@ -27,7 +27,10 @@ run(async (boot) => {
   const state = { playing: false, busy: false, speed: 1, pail: 0, tilled: 0, planted: 0, watered: 0, harvested: 0, meals: 0, cooked: 0, sold: 0, climbed: 0, drinks: 0, slain: 0, charted: 0, region: '' };
   const net = { room: null, code: '', t: 0, peers: new Map() };   // the room, if any, and the other players in it (section 9)
   const hero = humanoid({ preset: T.HERO }), me = (GCP.player && GCP.player.name) || 'Farmer'; stage.scene.add(hero); hero.position.set(0, 0, 2); hero.rotation.y = Math.PI;   // the first thing you see is your yard: the well, the post, the house
-  const input = createInput(stage.renderer.domElement), sound = createSound(), hud = createHud({ accent: T.LOOK.accent, ink: T.LOOK.ink, panel: T.LOOK.panel });
+  const input = createInput(stage.renderer.domElement), sound = createSound(), hud = createHud({ accent: T.LOOK.accent, ink: T.LOOK.ink, panel: T.LOOK.panel,
+    // the game's voice: a serif title, warm parchment windows and slots (everything is drawn in the canvas)
+    titleFont: "Georgia, 'Songti SC', 'Noto Serif CJK SC', serif", titleColor: '#f6ecd4', titleShadow: { color: '#5a3d12', blur: 0, y: 3 },
+    windowFill: 'rgba(26, 22, 16, .96)', windowLine: 'rgba(240, 220, 180, .18)', slotFill: 'rgba(58, 48, 34, .88)', slotLine: 'rgba(0, 0, 0, .45)' });
   // Actions are named once; the keyboard, the mouse, on-screen buttons on phones and a gamepad all trigger them.
   input.bind({ interact: ['KeyE'], use: ['KeyF', 'Mouse2'], bag: ['Tab', 'KeyI'], take: ['KeyX'], run: ['ShiftLeft', 'ShiftRight'], jump: ['Space'], mute: ['KeyM'] },
     { touch: { interact: 'E', use: '✋', bag: '▦', jump: '⤒' }, pad: { jump: 0, take: 1, use: 2, bag: 3, interact: 5, run: 10 }, bottom: 96 });
@@ -243,27 +246,40 @@ run(async (boot) => {
   const clockView = clockUI(hud, clock), tint = new THREE.Color();
   minimapUI(hud, { center: () => ({ x: hero.position.x, y: hero.position.z }), range: 70, cells: 36, color: (x, z) => (land.heightAt(x, z) < 0.15 ? '#3f7fb0' : land.colorAt(x, z, tint)),
     markers: () => [{ x: 0, y: 0, color: '#ffffff' }, ...build.pieces.filter((p) => !T.PIECES[p.kind].shape).map((p) => ({ x: p.x, y: p.y, color: '#ffb347' })), ...crops.list.map((c) => ({ x: c.x, y: c.y, color: c.stage === 3 ? '#ffe27a' : '#8fd16a' })), ...[...net.peers.values()].map((p) => ({ x: p.actor.position.x, y: p.actor.position.z, color: '#6ab8ff' }))] });
-  const pill = el('div', 'gh-p hf-pill'), roster = el('div', 'gh-p hf-roster'); hud.el.querySelector('.gh-tr').append(pill, roster); roster.style.display = 'none';
-  let pillKey = '';
-  function drawPill() { const key = inv.count('coin') + '|' + state.charted + '|' + state.pail; if (key === pillKey) return; pillKey = key; pill.textContent = '';
-    for (const [icon, text, title] of [['●', inv.count('coin'), 'Coins'], ['⚑', state.charted, 'New land charted'], ['≈', state.pail + '/' + T.PAIL, 'Water in the pail']]) { const s = el('span', null, ' ' + text); s.title = title; s.prepend(el('i', 'gh-i', icon)); pill.appendChild(s); } }
+  // the purse, the land charted and the pail top right, under the map; the room and who is in it under that
+  hud.label('tr', () => [['●', inv.count('coin')], ['⚑', state.charted], ['≈', state.pail + '/' + T.PAIL]]);
+  hud.label('tr', () => (net.room ? 'Room ' + net.code + ' · ' + [me, ...[...net.peers.values()].map((p) => p.name)].join(', ') : ''));
+  const drawPill = () => {}, drawRoster = () => {};   // the labels above read the state every frame
   drawPill();
   const bar = hotbarUI(hud, inv, { input });
   const bag = inventoryUI(hud, inv, { crafting: craft, stations: () => build.near(hero.position.x, hero.position.z, 5), canUse: (it) => !!(it.def.food || it.def.heal), onUse: (slot, it) => eat(it.id), onOpen: () => sound.play('click') });
   // The trading post: sell what you grew and found, buy seeds you have not got. Built from the same panel styles as the backpack.
-  const shop = (() => { let win = null;
-    const row = (id, text, label, can, act) => { const r = el('div', 'gp-rec' + (can ? '' : ' off')), im = el('img'), tx = el('div', null, text), b = el('button', 'gp-btn', label); im.src = itemIcon(id, inv.def(id)); im.alt = ''; b.disabled = !can; b.addEventListener('click', act); r.append(im, tx, b); return r; };
-    const draw = () => { if (!win) return; const box = win.firstChild; box.textContent = ''; const sell = el('div'), buy = el('div'), h = el('p', 'gp-h', 'Sell'), x = el('button', 'gp-x', '✕'); x.addEventListener('click', S.close); sell.appendChild(h);
-      const goods = Object.keys(T.ITEMS).filter((id) => T.ITEMS[id].sell && inv.has(id)); for (const id of goods) sell.appendChild(row(id, inv.def(id).name + ' × ' + inv.count(id), '+' + inv.count(id) * T.ITEMS[id].sell + ' ●', true, () => S.sell(id)));
-      if (!goods.length) sell.appendChild(el('div', 'gp-info', 'Nothing to sell yet. The trader buys harvests, bread and crystals.'));
-      const h2 = el('p', 'gp-h', 'Buy · ' + inv.count('coin') + ' coins'); h2.appendChild(x); buy.appendChild(h2); for (const id of Object.keys(T.ITEMS).filter((k) => T.ITEMS[k].buy)) buy.appendChild(row(id, inv.def(id).name, T.ITEMS[id].buy + ' ●', inv.has('coin', T.ITEMS[id].buy), () => S.buy(id)));
-      box.append(sell, buy); };
-    const key = (e) => { if (e.code === 'Escape' && win) { e.stopPropagation(); S.close(); } };
-    const S = { get isOpen() { return !!win; },
-      open() { if (win) return S; win = el('div', 'gp-win'); win.appendChild(el('div', 'gp-box')); win.addEventListener('pointerdown', (e) => { if (e.target === win) S.close(); }); hud.el.appendChild(win); addEventListener('keydown', key, true); sound.play('door'); draw(); return S; },
-      close() { if (win) { win.remove(); win = null; removeEventListener('keydown', key, true); } return S; },
-      sell(id) { const n = inv.count(id), price = T.ITEMS[id].sell; if (!n || !price) return false; inv.remove(id, n); inv.add('coin', n * price); state.sold += n; sound.play('coin'); draw(); return true; },
-      buy(id) { const price = T.ITEMS[id].buy; if (!price || !inv.remove('coin', price)) return false; inv.add(id, 1); sound.play('pickup'); draw(); return true; } };
+  const shop = (() => { let W = null; const ROW = 48;
+    const goods = () => Object.keys(T.ITEMS).filter((id) => T.ITEMS[id].sell && inv.has(id)), wares = Object.keys(T.ITEMS).filter((k) => T.ITEMS[k].buy);
+    const lay = (u) => { const side = 2 * 290 + 20 + 36 <= u.w * 0.96 - 8, cw = side ? 290 : Math.min(320, u.w * 0.96 - 44), sellH = 22 + Math.max(1, goods().length) * ROW, buyH = 22 + wares.length * ROW;
+      return { side, cw, sellH, buyH, w: (side ? cw * 2 + 20 : cw) + 36, h: (side ? Math.max(sellH, buyH) : sellH + 20 + buyH) + 32 }; };
+    const row = (u, key, x, y, w, id, text, label, can, act) => u.alpha(can ? 1 : 0.62, () => {
+      const bw = u.measure(label, { size: 13, weight: 800 }) + 26;
+      u.image(itemImage(id, inv.def(id)), x + 8, y + 7, 34, 34);
+      u.text(text, x + 52, y + 24, { size: 14, weight: 600, base: 'middle', color: hud.ink, width: w - 52 - bw - 16, lines: 1 });
+      if (smallButton(hud, u, 'shop:' + key, x + w - bw - 8, y + 9, label, { disabled: !can, w: bw }).pressed) act();
+    });
+    const content = (u, x, top, L) => {
+      windowHeading(hud, u, 'Sell', x, top); const g = goods();
+      if (!g.length) u.text('Nothing to sell yet. The trader buys harvests, bread and crystals.', x, top + 30, { size: 13, weight: 500, base: 'top', alpha: 0.85, color: hud.ink, width: L.cw });
+      g.forEach((id, i) => row(u, 's:' + id, x, top + 22 + i * ROW, L.cw, id, inv.def(id).name + ' × ' + inv.count(id), '+' + inv.count(id) * T.ITEMS[id].sell + ' ●', true, () => S.sell(id)));
+      const bx = L.side ? x + L.cw + 20 : x, by = L.side ? top : top + L.sellH + 20;
+      windowHeading(hud, u, 'Buy · ' + inv.count('coin') + ' coins', bx, by); if (windowClose(hud, u, 'shop:x', bx + L.cw, by)) { S.close(); return; }
+      wares.forEach((id, i) => row(u, 'b:' + id, bx, by + 22 + i * ROW, L.cw, id, inv.def(id).name, T.ITEMS[id].buy + ' ●', inv.has('coin', T.ITEMS[id].buy), () => S.buy(id)));
+    };
+    const S = { get isOpen() { return !!W && W.isOpen; },
+      open() { if (S.isOpen) return S; sound.play('door');
+        W = hud.window((u, x, y, bw, bh) => { const L = lay(u); if (L.h <= bh + 1) content(u, x + 18, y + 16, L); else u.scroll('shop', x + 14, y + 16, bw - 24, bh - 32, L.h - 32, (uu, top) => content(u, x + 18, top, L), { bar: 'rgba(255,255,255,.3)' }); },
+          { width: (u) => lay(u).w, height: (u) => lay(u).h, onClose: () => { W = null; } });
+        return S; },
+      close() { if (W) W.close(); return S; },
+      sell(id) { const n = inv.count(id), price = T.ITEMS[id].sell; if (!n || !price) return false; inv.remove(id, n); inv.add('coin', n * price); state.sold += n; sound.play('coin'); return true; },
+      buy(id) { const price = T.ITEMS[id].buy; if (!price || !inv.remove('coin', price)) return false; inv.add(id, 1); sound.play('pickup'); return true; } };
     return S; })();
   const menu = pauseMenu(hud, { title: T.TITLE, controls: T.CONTROLS, buttons: [['Sound on / off', () => sound.mute()], ['Save now', () => { keep().now(); hud.toast('Saved'); }]], onRestart: () => keep().clear().then(() => location.reload()) });
   hud.button('☰ Menu', () => menu.open());
@@ -315,7 +331,6 @@ run(async (boot) => {
     if (!net.room.isHost && m.h != null && (Math.abs(m.h - clock.hour) > 0.1 || m.d !== clock.day)) { clock.day = m.d; clock.set(m.h); }   // the host's clock is everyone's clock
   }
   function dropPeer(id) { const p = net.peers.get(id); if (!p) return; net.peers.delete(id); p.actor.removeFromParent(); if (net.room) hud.toast(p.name + ' left'); drawRoster(); }
-  function drawRoster() { const r = net.room; roster.style.display = r ? '' : 'none'; if (r) roster.textContent = 'Room ' + net.code + ' · ' + [me, ...[...net.peers.values()].map((p) => p.name)].join(', '); }
   function tickRoom(dt) {
     const r = net.room, now = performance.now(), at = now - 140, h = hero.position; if (!r) return;
     net.t -= dt; if (r.connected && net.t <= 0) { net.t = 0.12; r.send({ t: 'pose', x: r2(h.x), y: r2(h.y), z: r2(h.z), r: r2(player.yaw), n: me, ...(r.isHost ? { h: r2(clock.hour), d: clock.day } : {}) }); }
@@ -347,6 +362,9 @@ run(async (boot) => {
      is tilled, sown, watered, grown and harvested, bread is baked, a harvest sold, a lookout climbed, and a second
      player in a second world (rooms that talk inside this page) ends up with the same world. ===== */
   const test = GCP.test, two = test.twoPlayers;   // the verifier opens the game twice in one room: host or join it instead of playing alone
+  // what feedback screenshots carry: where the player is and what is open (the frame itself is handed over by the hud's canvas kit)
+  test.onState(() => ({ playing: state.playing, region: state.region, day: clock.day, hour: Math.floor(clock.hour), player: { x: r2(hero.position.x), z: r2(hero.position.z) }, held: inv.held ? inv.held.id : null,
+    open: bag.isOpen ? 'backpack' : shop.isOpen ? 'trader' : menu.isOpen ? 'menu' : null, room: net.code || null, quest: quests.current ? quests.current.text : null }));
   test.onAutostart(() => (two ? (two.role === 'host' ? lobby.host(two.code) : lobby.join(two.code)) : lobby.solo()));
   // Two real browsers, one room. Each page waits for the other player, builds one piece, waits until both pieces stand
   // in its own world and reports what it sees; the verifier compares the two reports.

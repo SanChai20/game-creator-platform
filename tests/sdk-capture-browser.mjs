@@ -19,26 +19,36 @@ const server = await new Promise((ok) => { const s = createServer((q, r) => {
   const p = new URL(q.url, 'http://x').pathname;
   const send = (body, type) => { r.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' }); r.end(body); };
   if (p === '/sdk/gcp.js') return send(SDK, 'text/javascript');
-  if (p === '/worker.js') return send(q.headers['sec-fetch-dest'] === 'worker' ? fx('worker.js') + WORKER_HELPER : fx('worker.js'), 'text/javascript');
+  // as the platform serves a preview's worker scripts (src/runtime/game-worker.js): the browser's mark or the SDK's
+  if (p === '/worker.js') return send(q.headers['sec-fetch-dest'] === 'worker' || new URL(q.url, 'http://x').searchParams.get('__gcpw') === '1' ? fx('worker.js') + WORKER_HELPER : fx('worker.js'), 'text/javascript');
   if (p === '/page.html' || p === '/game.html') return send(fx(p.slice(1)), 'text/html');
   r.writeHead(404); r.end();
 }).listen(8932, '127.0.0.1', () => ok(s)); });
 
 let failed = 0;
-const browser = await playwright.chromium.launch({ args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+// BROWSER=chromium (default) | firefox | webkit: the same checks in each engine (CI runs all three)
+const engine = process.env.BROWSER || 'chromium';
+const browser = await playwright[engine].launch(engine === 'chromium' ? { args: ['--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] } : engine === 'firefox' ? { headless: !process.env.HEADED, firefoxUserPrefs: { 'webgl.force-enabled': true, 'webgl.disabled': false } } : { headless: !process.env.HEADED });   // HEADED=1 under xvfb: Mesa's software WebGL
+console.log('engine:', engine, browser.version());
 try {
   for (const dpr of [1, 2]) {
     const name = `pixel ratio ${dpr}`;
     try {
       const page = await browser.newPage({ deviceScaleFactor: dpr, viewport: { width: 640, height: 300 } });
+      const log = []; page.on('console', (m) => log.push(m.type() + ': ' + m.text())); page.on('pageerror', (e) => log.push('error: ' + e.message));
+      page.context().on('weberror', (e) => log.push('weberror: ' + e.error().message));
       await page.goto('http://127.0.0.1:8932/page.html');
       const game = await (await page.waitForSelector('#game')).contentFrame();
-      await game.waitForFunction(() => window.ready === true, null, { timeout: 10000 });
+      await game.waitForFunction(() => window.ready === true, null, { timeout: 10000 }).catch((e) => { throw new Error(e.message.split('\n')[0] + ' | ' + log.slice(-6).join(' | ')); });
       await page.waitForTimeout(300);
       const res = await page.evaluate(() => window.shoot());
       assert.ok(res.image, `${name}: a picture (${res.error})`);
       assert.equal(res.method, 'page', `${name}: the page redrew itself`);
-      assert.equal(res.sources?.worker, 1, `${name}: the worker's canvas was copied by the worker (${JSON.stringify(res.sources)})`);
+      // an engine with no WebGL in workers (Playwright's WebKit on Linux) has nothing in the worker's canvas to copy:
+      // the helper must say so rather than hand back an empty picture
+      const workerGL = await game.evaluate(() => window.workerGL);
+      if (workerGL === false) assert.match(String(res.sources?.why), /contexts 0/, `${name}: why the worker's canvas is missing (${JSON.stringify(res.sources)})`);
+      else assert.equal(res.sources?.worker, 1, `${name}: the worker's canvas was copied by the worker (${JSON.stringify(res.sources)})`);
       const px = await page.evaluate(async (src) => {
         const img = new Image(); img.src = src; await img.decode();
         const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0);
@@ -48,7 +58,8 @@ try {
       }, res.image);
       const is = (got, rgb, what) => assert.ok(got.every((v, i) => Math.abs(v - rgb[i]) < 40), `${name}: ${what} is ${got}, expected ${rgb}`);
       assert.ok(Math.abs(px.w / px.h - 600 / 260) < 0.02, `${name}: the game's shape (${px.w}×${px.h})`);
-      is(px.worker, [26, 204, 26], 'the canvas drawn by the worker');
+      if (workerGL !== false) is(px.worker, [26, 204, 26], 'the canvas drawn by the worker');
+      else console.log('    (no WebGL in this engine\'s workers: the worker\'s canvas is not checked)');
       is(px.gl, [15, 51, 230], 'the WebGL canvas of the page');
       is(px.vbox, [224, 16, 16], 'the box whose background uses a CSS variable');
       is(px.round, [16, 192, 192], 'the round box');

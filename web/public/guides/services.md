@@ -247,9 +247,11 @@ Every game plays on phones and tablets with no code for it. At deploy the platfo
 
 ## Verification and test hooks
 
-Every preview is opened in a real browser with no GPU. It must call `GCP.ready()` within 30 seconds (default), keep rendering, show a non-blank picture, survive keyboard, mouse and touch, load every file and throw no uncaught errors. `deploy_preview {dry_run: true}` runs only the static checks.
+Every preview is opened in a real browser with no GPU. It must call `GCP.ready()` within 30 seconds (default), keep rendering, show a non-blank picture, survive keyboard, mouse and touch, load every file, throw no uncaught errors and hand over its exact frame. `deploy_preview {dry_run: true}` runs only the static checks.
 
 ```js
+GCP.test.onCapture(() => [world, ui]);                 // required: the canvases that hold everything the player sees
+GCP.test.onState(() => ({ scene, level, menu }));      // required: where the game is, sent with every feedback screenshot
 GCP.test.onAutostart(() => startGame());               // skip menus when the verifier opens the game
 GCP.test.onPlaythrough(async (t) => {                  // play your own rules to the end; each t.step is reported
   t.step('collect the key'); await t.key('ArrowRight', 800); await t.until(() => game.hasKey, 5000, 'the key');

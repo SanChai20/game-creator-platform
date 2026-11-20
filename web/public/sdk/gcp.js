@@ -403,7 +403,7 @@
     S.hold(true);
     try { parent.postMessage({ gcp: 'session_ended', reason: ended.reason }, '*'); } catch (e) { /* not framed */ }
     try {
-      var d = document.createElement('div');
+      var d = document.createElement('div'); d.setAttribute('data-gcp-ui', '');
       d.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:rgba(11,13,15,.92);color:#e8e4da;font:15px/1.5 system-ui,sans-serif;text-align:center;padding:24px');
       d.innerHTML = '<div><b style="display:block;font-size:22px;margin-bottom:6px">This play session ended</b><span style="opacity:.7"></span></div>';
       d.querySelector('span').textContent = ended.message;
@@ -432,7 +432,7 @@
     S.hold(true);
     try { parent.postMessage({ gcp: 'trial_over' }, '*'); } catch (e) { /* not framed */ }
     try {
-      var d = document.createElement('div');
+      var d = document.createElement('div'); d.setAttribute('data-gcp-ui', '');
       d.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:rgba(11,13,15,.92);color:#e8e4da;font:15px/1.5 system-ui,sans-serif;text-align:center;padding:24px');
       d.innerHTML = '<div><b style="display:block;font-size:22px;margin-bottom:6px">Your free trial has ended</b><span style="opacity:.7">Buy the game on its page to keep playing.</span></div>';
       (document.body || document.documentElement).appendChild(d);
@@ -762,6 +762,7 @@
   }
 
   var autostartFns = [], playFn = null, pairFn = null, stateFn = null;
+  S.stateHook = false;
   S.debugState = function () { if (!stateFn) return null; var v = stateFn(); if (v === undefined || v === null) return null; var j = typeof v === 'string' ? v : JSON.stringify(v); return String(j).slice(0, 4000); };
   // The play-through a game may register: the verifier runs it and reports each step, so "playable" can mean
   // "the whole loop was played to the end" instead of only "it booted". Limits: 60 steps, one run at a time.
@@ -1116,7 +1117,7 @@
       if (card) return;
       var t = text();
       try {
-        card = document.createElement('div');
+        card = document.createElement('div'); card.setAttribute('data-gcp-ui', '');
         card.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:rgba(11,13,15,.92);color:#e8e4da;font:15px/1.5 system-ui,-apple-system,sans-serif;text-align:center;padding:24px;cursor:pointer;touch-action:manipulation');
         card.innerHTML = '<div><b style="display:block;font-size:20px;margin-bottom:6px"></b><span style="opacity:.75"></span></div>';
         card.querySelector('b').textContent = t[0]; card.querySelector('span').textContent = t[1];
@@ -1739,7 +1740,13 @@
           player's position, score, open menu…). It is attached to the screenshots the creator sends their agent from the
           preview, and debug_preview returns it with every screenshot, so the agent can tell what the picture shows.
           Keep it under 4 KB; it is never called for players. */
-      onState: function (fn) { stateFn = typeof fn === 'function' ? fn : null; },
+      onState: function (fn) { stateFn = typeof fn === 'function' ? fn : null; S.stateHook = !!stateFn; },
+      /** Required. Register fn() returning the canvas (or canvases, bottom to top) that hold everything the player sees right
+          now, world, HUD, menus and text, or a picture of exactly that (canvas, OffscreenCanvas, ImageBitmap, ImageData).
+          The platform copies those canvases right after the game draws its next frame, wherever they are drawn (this page or
+          a Web Worker, 2D, WebGL or WebGPU), so the creator's feedback screenshots are the frame they saw, on every device.
+          A game draws all of its UI in its canvases: the preview check fails elements of the page painted over the game. */
+      onCapture: function (fn) { captureFn = typeof fn === 'function' ? fn : null; S.capture = !!captureFn; },
     },
     /** Open (true), close (false) or toggle (no argument) the platform's menu in the player: Resume and Quit game. Give your
         own pause screen a button for it when the game hides the platform's menu button (setDisplay({ exitButton: 'none' })). */
@@ -1899,15 +1906,22 @@
         } catch (e) { /* the message goes as it is */ }
         return PM.apply(this, arguments);
       };
+      // the platform adds its helper to a worker's script (the request is marked Sec-Fetch-Dest: worker, and this mark is for
+      // browsers that leave that header out); only the page's own http(s) scripts, never a blob: or data: one
+      var marked = function (a) {
+        try { var u = new URL(String(a && a.href ? a.href : a), location.href); if (u.origin === location.origin && /^https?:$/.test(u.protocol) && !u.searchParams.has('__gcpw')) { u.searchParams.set('__gcpw', '1'); return u.href; } } catch (e) { /* as it is */ }
+        return a;
+      };
       var GW = function () {
-        var w = Reflect.construct(Native, arguments, this instanceof GW && this.constructor ? this.constructor : Native), rec = { w: w, port: null, canvases: [], asks: {} };
+        var args = Array.prototype.slice.call(arguments); if (args.length) args[0] = marked(args[0]);
+        var w = Reflect.construct(Native, args, this instanceof GW && this.constructor ? this.constructor : Native), rec = { w: w, port: null, canvases: [], asks: {} };
         cap.workers.push(rec);
         // the helper says hello once it runs; the game never sees that, nor anything on the private channel
         w.addEventListener('message', function (e) {
           var d = e.data; if (!d || d.__gcpw !== 1) return;
           e.stopImmediatePropagation(); if (rec.port) return;
           var ch = new MessageChannel(); rec.port = ch.port1;
-          ch.port1.onmessage = function (m) { var a = m.data && rec.asks[m.data.cap]; if (a) { delete rec.asks[m.data.cap]; a(m.data.frames || []); } };
+          ch.port1.onmessage = function (m) { var a = m.data && rec.asks[m.data.cap]; if (a) { delete rec.asks[m.data.cap]; a(m.data.frames || [], m.data.why); } };
           PM.call(w, { __gcpw: 2, port: ch.port2 }, [ch.port2]);
         }, true);
         return w;
@@ -1920,13 +1934,15 @@
   // copies of the canvases drawn by workers: Map(stand-in canvas -> ImageBitmap), whatever arrived within the wait
   function workerFrames(max) {
     var out = typeof Map === 'function' ? new Map() : null, waits = [];
+    cap.why = null;
     if (!out) return Promise.resolve(null);
     cap.workers.forEach(function (rec) {
-      if (!rec.port || !rec.canvases.some(Boolean)) return;
+      if (!rec.canvases.some(Boolean)) return;
+      if (!rec.port) { cap.why = cap.why || 'the helper is not running in the worker'; return; }
       var id = Math.random().toString(36).slice(2);
       waits.push(new Promise(function (ok) {
-        var t = setTimeout(function () { delete rec.asks[id]; ok(); }, 1200);
-        rec.asks[id] = function (frames) { clearTimeout(t); for (var i = 0; i < frames.length && i < rec.canvases.length; i++) if (frames[i] && rec.canvases[i]) out.set(rec.canvases[i], frames[i]); ok(); };
+        var t = setTimeout(function () { delete rec.asks[id]; cap.why = cap.why || 'the worker did not answer'; ok(); }, 2500);
+        rec.asks[id] = function (frames, why) { clearTimeout(t); if (why) cap.why = cap.why || String(why); for (var i = 0; i < frames.length && i < rec.canvases.length; i++) if (frames[i] && rec.canvases[i]) out.set(rec.canvases[i], frames[i]); ok(); };
         try { rec.port.postMessage({ cap: id, max: max }); } catch (e) { clearTimeout(t); ok(); }
       }));
     });
@@ -1938,7 +1954,9 @@
     var out = typeof Map === 'function' ? new Map() : null, want = [], saved = [];
     if (!out || !cap.ctx) return Promise.resolve(null);
     list.forEach(function (c) {
-      var g = cap.ctx.get(c); if (!g || typeof g.getContextAttributes !== 'function') return;
+      var g = cap.ctx.get(c); if (!g) return;
+      if (typeof GPUCanvasContext === 'function' && g instanceof GPUCanvasContext) { want.push(c); return; }   // WebGPU: shown, then gone
+      if (typeof g.getContextAttributes !== 'function') return;
       var a = null; try { a = g.getContextAttributes(); } catch (e) { /* lost */ }
       if (a && !a.preserveDrawingBuffer) want.push(c);
     });
@@ -1968,6 +1986,14 @@
           };
         });
       });
+      if (window.GPUQueue && typeof GPUQueue.prototype.submit === 'function') {
+        var sub = GPUQueue.prototype.submit; saved.push([GPUQueue.prototype, 'submit', sub]);
+        GPUQueue.prototype.submit = function () {
+          var r = sub.apply(this, arguments);
+          try { if (!over) { want.forEach(function (c) { if (typeof GPUCanvasContext === 'function' && cap.ctx.get(c) instanceof GPUCanvasContext) c.__gcpDrew = true; }); if (!queued) { queued = true; Promise.resolve().then(copy); } } } catch (e) { /* the submit went through */ }
+          return r;
+        };
+      }
       var t = setTimeout(end, 700);
     });
   }
@@ -2361,23 +2387,104 @@
     var at = function (v, free) { if (/%$/.test(v)) return free * parseFloat(v) / 100; if (v === 'left' || v === 'top') return 0; if (v === 'right' || v === 'bottom') return free; if (v === 'center') return free / 2; return parseFloat(v) || 0; };
     return { x: x + at(pos[0] || '50%', w - dw), y: y + at(pos[1] || pos[0] || '50%', h - dh), w: dw, h: dh, clip: { x: x, y: y, w: w, h: h } };
   }
+  // ---- the capture contract ----
+  // Every game hands the platform its frame: GCP.test.onCapture(fn), where fn() returns the canvas (or the canvases, bottom
+  // to top) that hold everything the player sees, or a picture of it (a canvas, OffscreenCanvas, ImageBitmap, ImageData or
+  // image the game drew for the purpose). A browser can always read back what a page draws into its canvases, and never
+  // the page's own elements as pixels (iPhone and iPad Safari have no screen capture at all), so the contract is that the
+  // game's whole picture (world, HUD, menus, text) is in its canvases. Text fields are the one exception: they are drawn
+  // over the canvases from their computed boxes and the picture says so. The preview check (src/verify-core.js) fails a
+  // version that registers no hook, whose picture does not match the screen, or that paints its own elements over the game.
+  var captureFn = null;
+  S.capture = false;
+  /** Elements of the platform itself in the game's page (cards, touch controls): never the game's UI. */
+  function platformEl(el) { for (var e = el; e && e.nodeType === 1; e = e.parentElement) { if (e.hasAttribute('data-gcp-ui') || e.tagName === 'GCP-TOUCH-CONTROLS') return true; } return false; }
+  var FIELD = /^(INPUT|TEXTAREA|SELECT)$/;
+  function isField(el) { return FIELD.test(el.tagName) && el.type !== 'hidden' || el.isContentEditable; }
+  var clear = function (c) { return !c || /rgba\(\d+, \d+, \d+, 0\)|transparent/.test(c); };
+  /** What the page itself paints over the game: elements with text, pictures, a background, a border or a shadow, and
+      ::before / ::after boxes. Canvases, the platform's own elements and the page background are not counted; a box that
+      holds a canvas may have a plain background colour (it is drawn into the picture). Text fields come back apart. */
+  S.pageUi = function (limit) {
+    var vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight), found = [], fields = [], n = 0, max = limit || 12;
+    var all = document.body ? document.body.getElementsByTagName('*') : [];
+    var name = function (el) { var s = el.tagName.toLowerCase(); if (el.id) s += '#' + el.id; else if (typeof el.className === 'string' && el.className.trim()) s += '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.'); return s; };
+    var paints = function (st) {
+      if (st.backgroundImage !== 'none' || st.boxShadow !== 'none') return true;
+      var sides = ['Top', 'Right', 'Bottom', 'Left'];
+      for (var k = 0; k < 4; k++) if (parseFloat(st['border' + sides[k] + 'Width']) > 0 && st['border' + sides[k] + 'Style'] !== 'none' && !clear(st['border' + sides[k] + 'Color'])) return true;
+      return parseFloat(st.outlineWidth) > 0 && st.outlineStyle !== 'none' && !clear(st.outlineColor);
+    };
+    for (var i = 0; i < all.length && n < 4000; i++, n++) {
+      var el = all[i], tag = el.tagName;
+      if (/^(CANVAS|SCRIPT|STYLE|LINK|META|TEMPLATE|NOSCRIPT|BR|WBR)$/.test(tag) || platformEl(el)) continue;
+      var r = el.getBoundingClientRect(); if (!onScreen(r, vw, vh)) continue;
+      var st = getComputedStyle(el); if (!shown(el, st)) continue;
+      var box = { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+      if (isField(el)) { if (fields.length < max) fields.push({ what: name(el), box: box }); continue; }
+      var why = '';
+      if (/^(IMG|VIDEO|IFRAME|OBJECT|EMBED|svg|PICTURE)$/.test(tag)) why = tag.toLowerCase();
+      else {
+        for (var c = el.firstChild; c && !why; c = c.nextSibling) if (c.nodeType === 3 && c.nodeValue.trim() && !clear(st.color)) why = 'text "' + c.nodeValue.trim().slice(0, 40) + '"';
+        if (!why && paints(st)) why = 'a painted box';
+        if (!why && !clear(st.backgroundColor) && !el.querySelector('canvas')) why = 'a background colour';
+        if (!why) for (var pe = 0; pe < 2 && !why; pe++) {
+          var ps = getComputedStyle(el, pe ? '::after' : '::before');
+          if (ps && ps.content && ps.content !== 'none' && ps.content !== 'normal' && ps.display !== 'none' && (!clear(ps.backgroundColor) || paints(ps) || (ps.content !== '""' && ps.content !== "''"))) why = (pe ? '::after' : '::before') + ' content';
+        }
+      }
+      if (why && found.length < max) found.push({ what: name(el), why: why, box: box });
+      if (found.length >= max && fields.length >= max) break;
+    }
+    return { elements: found, fields: fields };
+  };
+  // One frame on demand while the loop is held (the verifier compares the picture with that exact frame on screen).
+  S.step = function () {
+    if (!S.held) return false;
+    var h = held; held = [];
+    raf0(function (t) { lastT = t; S.frames++; lastFrameAt = performance.now(); for (var i = 0; i < frameHooks.length; i++) frameHooks[i](); for (var j = 0; j < h.length; j++) { try { h[j](t); } catch (e) { setTimeout(function () { throw e; }); } if (afterDraw) afterDraw(t); } });
+    return true;
+  };
+  /** The picture the game hands over, for the verifier (and debug_preview): resolves to the capture result. */
+  S.captureFrame = function (opts) {
+    opts = opts || {};
+    return new Promise(function (ok) { captureGame(opts.picture !== false, ok, !!opts.step); });
+  };
+
   // picture false: only the game's state and counters (the console took the picture itself, from the browser's tab capture)
-  function captureGame(id, picture) {
+  function captureGame(picture, reply, step) {
     var vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight), dpr = window.devicePixelRatio || 1;
     var scale = Math.min(dpr, 1600 / vw, 1600 / vh), out = document.createElement('canvas'), max = Math.ceil(Math.max(vw, vh) * scale);
     out.width = Math.round(vw * scale); out.height = Math.round(vh * scale);
-    var g = out.getContext('2d'), drew = 0, done = false, timer = 0, grabbed = [], bg = '#000';
-    try { var b = getComputedStyle(document.body).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; else { b = getComputedStyle(document.documentElement).backgroundColor; if (b && !/rgba\(0, 0, 0, 0\)|transparent/.test(b)) bg = b; } } catch (e) { /* no body */ }
+    var g = out.getContext('2d'), drew = 0, done = false, timer = 0, grabbed = [], bg = '#000', hookError = '', only = null, given = [];
+    try { var b = getComputedStyle(document.body).backgroundColor; if (b && !clear(b)) bg = b; else { b = getComputedStyle(document.documentElement).backgroundColor; if (b && !clear(b)) bg = b; } } catch (e) { /* no body */ }
+    // the game's own answer: the canvases that make its frame, or a picture of it
+    var hooked = picture && !!captureFn, asked = null;
+    if (hooked) {
+      try { asked = captureFn(); } catch (e) { hookError = 'GCP.test.onCapture threw: ' + String(e && e.message || e).slice(0, 200); hooked = false; }
+    }
+    Promise.resolve(asked).then(function (v) { start(v); }, function (e) { hookError = 'GCP.test.onCapture failed: ' + String(e && e.message || e).slice(0, 200); hooked = false; start(null); });
+    function start(v) {
+      if (hooked && v) {
+        var list = Array.isArray(v) ? v : [v];
+        for (var i = 0; i < list.length; i++) {
+          var x = list[i]; if (!x) continue;
+          if (typeof HTMLCanvasElement === 'function' && x instanceof HTMLCanvasElement && x.isConnected) { (only = only || []).push(x); continue; }
+          given.push(x);
+        }
+      }
+      run();
+    }
     function visible() {
-      var cs = document.querySelectorAll('canvas'), list = [];
+      var cs = only || document.querySelectorAll('canvas'), list = [];
       for (var i = 0; i < cs.length; i++) {
         var c = cs[i], r = c.getBoundingClientRect(); if (!c.width || !c.height || !onScreen(r, vw, vh)) continue;
         var st = getComputedStyle(c); if (shown(c, st)) list.push({ c: c, r: r, st: st });
       }
+      if (only) { var all = Array.prototype.slice.call(document.querySelectorAll('canvas')); list.sort(function (a, b2) { return all.indexOf(a.c) - all.indexOf(b2.c); }); }
       return list;
     }
-    // asked first, so a worker or a WebGL canvas can hand over the very next frame it draws
-    var fromWorkers = picture ? workerFrames(max) : null, fromGL = picture ? glFrames(visible().map(function (v) { return v.c; }), max) : null;
+    var fromWorkers = null, fromGL = null;
     // every canvas on screen, copied as it is at this moment (right after the game drew a frame, when there is one)
     function grab(inFrame) {
       grabbed = visible();
@@ -2386,11 +2493,22 @@
         try { var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(c.width, it.r.width * scale))); k.height = Math.max(1, Math.round(Math.min(c.height, it.r.height * scale))); k.getContext('2d').drawImage(c, 0, 0, k.width, k.height); it.copy = k; } catch (e) { /* not drawable */ }
       }
     }
-    // the canvas-only picture and one picture per canvas: a worker's copy for a canvas a worker draws, the copy taken
-    // after the next draw call for a WebGL canvas copied outside a frame, else the copy taken above
+    // a box that holds a canvas and has a plain background colour (a letterbox): drawn under the canvases
+    function holders() {
+      var seen = [], out2 = [];
+      for (var i = 0; i < grabbed.length; i++) for (var e = grabbed[i].c.parentElement; e && e !== document.documentElement; e = e.parentElement) {
+        if (seen.indexOf(e) >= 0) continue; seen.push(e);
+        try { var st = getComputedStyle(e); if (e === document.body || clear(st.backgroundColor) || !shown(e, st)) continue; out2.push({ r: e.getBoundingClientRect(), c: st.backgroundColor, d: depth(e) }); } catch (x) { /* gone */ }
+      }
+      return out2.sort(function (a, b2) { return a.d - b2.d; });
+    }
+    function depth(e) { var d = 0; while ((e = e.parentElement)) d++; return d; }
+    // the picture: the page's background, the boxes that hold canvases, the canvases in their places, then what the game handed over
     function paint(wf, gf) {
       g.fillStyle = bg; g.fillRect(0, 0, out.width, out.height); drew = 0;
-      var snaps = typeof Map === 'function' ? new Map() : null, from = { worker: 0, draw: 0, page: 0 };
+      if (hooked) holders().forEach(function (h) { g.fillStyle = h.c; g.fillRect(h.r.left * scale, h.r.top * scale, h.r.width * scale, h.r.height * scale); });
+      var snaps = typeof Map === 'function' ? new Map() : null, from = { worker: 0, draw: 0, page: 0, given: 0 };
+      if (cap.why) from.why = cap.why;   // why a worker's canvas was not copied by the worker
       for (var i = 0; i < grabbed.length; i++) {
         var it = grabbed[i], c = it.c, src = null;
         if (wf && wf.get(c)) { src = wf.get(c); from.worker++; } else if (!it.fresh && gf && gf.get(c)) { src = gf.get(c); from.draw++; } else if (it.copy) { src = it.copy; from.page++; }
@@ -2401,17 +2519,45 @@
           if (bx.clip) { g.beginPath(); g.rect(bx.clip.x * scale, bx.clip.y * scale, bx.clip.w * scale, bx.clip.h * scale); g.clip(); }
           g.globalAlpha = Math.max(0, Math.min(1, +it.st.opacity || 1)); g.drawImage(src, bx.x * scale, bx.y * scale, bx.w * scale, bx.h * scale); drew++;
           g.restore();
-          if (snaps) { var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(src.width, it.r.width * scale))); k.height = Math.max(1, Math.round(Math.min(src.height, it.r.height * scale))); k.getContext('2d').drawImage(src, 0, 0, k.width, k.height); snaps.set(c, k.toDataURL('image/png')); }
+          if (snaps && !hooked) { var k = document.createElement('canvas'); k.width = Math.max(1, Math.round(Math.min(src.width, it.r.width * scale))); k.height = Math.max(1, Math.round(Math.min(src.height, it.r.height * scale))); k.getContext('2d').drawImage(src, 0, 0, k.width, k.height); snaps.set(c, k.toDataURL('image/png')); }
         } catch (e) { /* not drawable, or tainted: left blank */ }
       }
       g.globalAlpha = 1;
+      for (var j = 0; j < given.length; j++) {
+        try {
+          var p = given[j];
+          if (typeof ImageData === 'function' && p instanceof ImageData) { var t = document.createElement('canvas'); t.width = p.width; t.height = p.height; t.getContext('2d').putImageData(p, 0, 0); p = t; }
+          g.drawImage(p, 0, 0, out.width, out.height); drew++; from.given++;
+        } catch (e) { hookError = hookError || 'GCP.test.onCapture returned something that cannot be drawn (give a canvas, OffscreenCanvas, ImageBitmap, ImageData or image).'; }
+      }
       return { snaps: snaps, from: from };
     }
-    function send(image, error, method, from) {
+    // text fields over the game: drawn from their boxes, colours and value (the one part of a picture that is not the game's own)
+    function fields() {
+      var f = S.pageUi(8).fields, drawn = [];
+      for (var i = 0; i < f.length; i++) {
+        var el = null; try { el = document.elementFromPoint(f[i].box.x + 2, f[i].box.y + 2); } catch (e) { /* none */ }
+        if (!el || !isField(el)) continue;
+        var st = getComputedStyle(el), r = el.getBoundingClientRect();
+        g.save(); g.scale(scale, scale);
+        if (!clear(st.backgroundColor)) { g.fillStyle = st.backgroundColor; g.fillRect(r.left, r.top, r.width, r.height); }
+        var bw = parseFloat(st.borderTopWidth) || 0; if (bw && !clear(st.borderTopColor)) { g.strokeStyle = st.borderTopColor; g.lineWidth = bw; g.strokeRect(r.left + bw / 2, r.top + bw / 2, r.width - bw, r.height - bw); }
+        var text = el.isContentEditable ? el.innerText : el.tagName === 'SELECT' ? (el.options[el.selectedIndex] || {}).text || '' : el.type === 'password' ? String(el.value).replace(/./g, '•') : el.value || el.placeholder || '';
+        g.fillStyle = el.value || el.isContentEditable ? st.color : 'rgba(128,128,128,.8)'; g.font = st.font || (st.fontSize + ' ' + st.fontFamily); g.textBaseline = 'middle';
+        g.beginPath(); g.rect(r.left, r.top, r.width, r.height); g.clip();
+        g.fillText(String(text).split('\n')[0], r.left + (parseFloat(st.paddingLeft) || 4) + bw, r.top + r.height / 2);
+        g.restore(); drawn.push(f[i].what);
+      }
+      return drawn;
+    }
+    function send(image, error, method, from, extra) {
       var state = null; try { state = S.debugState(); } catch (e) { state = 'onState threw: ' + (e && e.message || e); }
-      toParent({ gcp: 'capture_result', id: id, image: image, error: error, canvases: drew, method: method, sources: from || null,
+      var res = { image: image, error: error, canvases: drew, method: method, sources: from || null, contract: !!captureFn, exact: false, redrawn: [],
         state: state, frames: S.frames, fps: fpsNow, ready: S.ready, label: S.label || '', errors: S.errors.slice(0, 10), warnings: S.warnings.slice(0, 10),
-        viewport: { width: vw, height: vh } });
+        viewport: { width: vw, height: vh } };
+      if (extra) for (var k in extra) res[k] = extra[k];
+      if (hookError) res.hookError = hookError;
+      reply(res);
     }
     function finish() {
       if (done) return; done = true; afterDraw = null; clearTimeout(timer);
@@ -2420,22 +2566,36 @@
     }
     function picturesFrom(wf, gf) {
       var p = paint(wf, gf), canvasOnly = '', error = '';
+      if (hooked) {
+        var redrawn = []; try { redrawn = fields(); } catch (e) { /* none */ }
+        if (drew) { try { canvasOnly = out.toDataURL('image/jpeg', 0.9); } catch (e) { error = 'tainted'; } }
+        send(canvasOnly, error || (drew ? '' : 'no_canvas'), 'game', p.from, { exact: !!canvasOnly && !redrawn.length, redrawn: redrawn });
+        return;
+      }
+      // a version made before the contract, or a hook that failed: the canvases, and the page's elements redrawn over them
       if (drew) { try { canvasOnly = out.toDataURL('image/jpeg', 0.86); } catch (e) { error = 'tainted'; } }
       var page = false; try { page = pageShowsElements(vw, vh); } catch (e) { /* keep the canvases */ }
       if (!page || !p.snaps) { send(canvasOnly, error || (drew ? '' : 'no_canvas'), 'game', p.from); return; }
       var fallback = function () {
         // the older way (each element with its computed styles written on it), then the canvases alone
-        try { domPicture(p.snaps, vw, vh, out.width, out.height, bg, function (full) { if (full) send(full, '', 'page', p.from); else send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game', p.from); }); }
+        try { domPicture(p.snaps, vw, vh, out.width, out.height, bg, function (full) { if (full) send(full, '', 'page', p.from, { redrawn: ['page'] }); else send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game', p.from); }); }
         catch (e) { send(canvasOnly, canvasOnly ? 'page_elements_missing' : (error || 'no_picture'), 'game', p.from); }
       };
-      try { pagePicture(p.snaps, vw, vh, out.width, out.height, bg, function (full) { if (full) send(full, '', 'page', p.from); else fallback(); }); }
+      try { pagePicture(p.snaps, vw, vh, out.width, out.height, bg, function (full) { if (full) send(full, '', 'page', p.from, { redrawn: ['page'] }); else fallback(); }); }
       catch (e) { fallback(); }
     }
-    // the frame being drawn now: copy after every callback of it, and finish once the frame is over
-    var armed = -1;
-    afterDraw = function (t) { if (armed < 0) { armed = t; setTimeout(finish, 0); } if (t === armed) grab(true); };
-    // a game that is not drawing on this page (paused, turn-based, drawn by a worker, a page of elements)
-    timer = setTimeout(function () { if (armed < 0) { grab(false); finish(); } }, 500);
+    function run() {
+      // asked first, so a worker or a WebGL canvas can hand over the very next frame it draws
+      fromWorkers = picture ? workerFrames(max) : null; fromGL = picture ? glFrames(visible().map(function (v) { return v.c; }), max) : null;
+      // the frame being drawn now: copy after every callback of it, and finish once the frame is over
+      var armed = -1;
+      afterDraw = function (t) { if (armed < 0) { armed = t; setTimeout(finish, 0); } if (t === armed) grab(true); };
+      // a hook that drew a frame before it returned (a paused or turn-based game): that frame is still in its canvases now
+      if (hooked) grab(false);
+      if (step) S.step();
+      // a game that is not drawing on this page (paused, turn-based, drawn by a worker, a page of elements)
+      timer = setTimeout(function () { if (armed < 0) { if (!hooked) grab(false); finish(); } }, 500);
+    }
   }
   // The platform menu from a three-finger tap anywhere in the game, while it fills the screen. Nothing of the platform sits
   // over the game: this, Back, Esc and GCP.menu() open the menu. Three fingers that stay put and lift within half a second;
@@ -2460,7 +2620,8 @@
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (e.source === window.parent && d && d.gcp === 'capture') {
-      if (cfg.env === 'preview' && cfg.kind === 'owner' && e.origin === platformOrigin) captureGame(String(d.id || '').slice(0, 40), d.picture !== false);
+      var cid = String(d.id || '').slice(0, 40);
+      if (cfg.env === 'preview' && cfg.kind === 'owner' && e.origin === platformOrigin) captureGame(d.picture !== false, function (res) { res.gcp = 'capture_result'; res.id = cid; toParent(res); });
       else toParent({ gcp: 'capture_result', id: String(d.id || '').slice(0, 40), error: 'not_allowed' });
       return;
     }
@@ -2483,9 +2644,9 @@
   // What the verifier reads. The game runs in the same page, so the verifier's view is a read-only window onto the SDK's own
   // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
   var view = {};
-  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
+  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
   Object.defineProperty(view, 'runtime', { get: runtimeInfo, enumerable: true });
-  ['hold', 'pauseCheck', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
+  ['hold', 'pauseCheck', 'step', 'captureFrame', 'pageUi', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }
 })();

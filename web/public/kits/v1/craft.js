@@ -18,6 +18,7 @@ export * from './craft/props.js';
 export * from './craft/actors.js';
 export * from './craft/fx.js';
 export { createHud } from './hud.js';
+export { createUi, createAtlas, loadImage, sharedUi, panelOpen, panelUp, pageCanvases, roundRectPath, paintOf } from './ui.js';
 export { createSound, SOUNDS, AMBIENCES, MUSIC } from './sound.js';
 export { createInput } from './input.js';
 export { run, createLoop, createBoot, clamp, lerp, smoothstep, TAU, store } from './core.js';

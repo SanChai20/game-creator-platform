@@ -27,26 +27,33 @@ run(async (boot) => {                               // shows a boot screen at on
 
 ## The same thing with no kit
 
+The boot screen is drawn in a canvas like everything else the player sees (the platform contract, "Hand over the frame"), so a feedback screenshot taken while it is up shows it.
+
 ```html
-<div id="boot" style="position:fixed;inset:0;display:grid;place-items:center;background:#0b0d0f;color:#e8e4da;font:14px system-ui">
-  <div><b>My Game</b><div id="msg">Loading…</div></div>
-</div>
+<canvas id="boot" style="position:fixed;inset:0;width:100vw;height:100vh;z-index:10"></canvas>
 <script type="module">
-const msg = document.getElementById('msg');
-const tick = (f, label) => { msg.textContent = label; if (window.GCP) GCP.progress(f, label); return new Promise((r) => setTimeout(r, 16)); };
+const cv = document.getElementById('boot'), c = cv.getContext('2d');
+function paint(label, color = '#e8e4da') {
+  const d = Math.min(devicePixelRatio || 1, 2); cv.width = innerWidth * d; cv.height = innerHeight * d; c.scale(d, d);
+  c.fillStyle = '#0b0d0f'; c.fillRect(0, 0, innerWidth, innerHeight); c.textAlign = 'center'; c.fillStyle = color;
+  c.font = '700 22px system-ui'; c.fillText('My Game', innerWidth / 2, innerHeight / 2 - 10);
+  c.font = '14px system-ui'; c.fillText(label, innerWidth / 2, innerHeight / 2 + 18);
+}
+const tick = (f, label) => { paint(label); if (window.GCP) GCP.progress(f, label); return new Promise((r) => setTimeout(r, 16)); };
+paint('Loading…');
 try {
   await tick(0.2, 'Building the world');
   // ...
   startLoop();
-  requestAnimationFrame(() => requestAnimationFrame(() => { document.getElementById('boot').remove(); if (window.GCP) GCP.ready(); }));
+  requestAnimationFrame(() => requestAnimationFrame(() => { cv.remove(); if (window.GCP) GCP.ready(); }));
 } catch (err) {
-  msg.textContent = 'Could not start: ' + err.message;
+  paint('Could not start: ' + err.message, '#ff8a70');
   if (window.GCP) GCP.fatal(err);
 }
 </script>
 ```
 
-Putting the boot markup directly in `index.html` means it is painted before any script has been fetched.
+Putting the boot canvas and its script directly in `index.html` means it is painted before the rest of the game has been fetched.
 
 ## Rules of thumb
 

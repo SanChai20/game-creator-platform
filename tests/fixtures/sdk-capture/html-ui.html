@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8">
+<script>window.__GCP_CONFIG = { env: 'preview', kind: 'owner', gameId: 'capturetest', version: '1', api: 'http://127.0.0.1:8932', player: { id: 'u_test', name: 'Test' } };</script>
+<script src="/sdk/gcp.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #202020; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* a menu made of page elements over the canvas: what the contract rules out */
+  .menu { position: absolute; left: 40px; top: 40px; padding: 12px 20px; background: #f0d020; border-radius: 12px; font: bold 24px sans-serif; }
+</style></head><body>
+<canvas id="c"></canvas><div class="menu">Single Player</div>
+<script>
+  var c = document.getElementById('c'); c.width = innerWidth; c.height = innerHeight;
+  var g = c.getContext('2d'), t = 0;
+  (function loop() { t++; g.fillStyle = '#204080'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#fff'; g.fillRect(300 + (t % 50), 300, 40, 40); requestAnimationFrame(loop); })();
+  if (location.search.indexOf('hooks') >= 0) { GCP.test.onCapture(function () { return c; }); GCP.test.onState(function () { return { t: t }; }); }
+  setTimeout(function () { GCP.ready(); window.ready = true; }, 200);
+</script>
+</body></html>
