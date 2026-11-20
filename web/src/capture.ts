@@ -81,9 +81,33 @@ export function drawnPart(lum: (x: number, y: number) => number, sw: number, sh:
   return { w: fw, h: fh };
 }
 
+/**
+ * The first frames of a share in Edge and Chrome on Windows with display scaling can come at the page's CSS size while the
+ * tab is drawn for its device pixels, shrunk by the pixel ratio into the frame's top-left, with a flat dark fill around
+ * it that is not always exact black (seen at 125 %: a 1056 × 908 frame for a 1056 × 910 page, the game at 80 %). Given the
+ * expected drawn fraction `f` (1 / devicePixelRatio), whether the frame looks like that: the band right of and below the
+ * drawn part is one flat dark colour, and the drawn part has content along that band's edge.
+ */
+export function shrunkBy(lum: (x: number, y: number) => number, sw: number, sh: number, f: number): boolean {
+  if (!(f > 0.3 && f < 0.97)) return false;
+  const bx = Math.ceil(f * sw) + 1, by = Math.ceil(f * sh) + 1;
+  if (bx >= sw - 1 || by >= sh - 1) return false;
+  let lo = 255, hi = 0;
+  const band = (x: number, y: number) => { const v = lum(x, y); if (v < lo) lo = v; if (v > hi) hi = v; };
+  for (let y = 0; y < sh; y++) for (let x = bx; x < sw; x++) band(x, y);
+  for (let y = by; y < sh; y++) for (let x = 0; x < bx; x++) band(x, y);
+  if (hi > 40 || hi - lo > 6) return false;                     // not one flat dark fill
+  // the drawn part differs from the fill somewhere along its right and bottom edges (not a flat dark page)
+  const ex = Math.max(0, Math.floor(f * sw) - 2), ey = Math.max(0, Math.floor(f * sh) - 2);
+  let differs = 0;
+  for (let y = 0; y < ey; y++) if (Math.abs(lum(ex, y) - lo) > 8) differs++;
+  for (let x = 0; x < ex; x++) if (Math.abs(lum(x, ey) - lo) > 8) differs++;
+  return differs >= (ex + ey) * 0.1;
+}
+
 // ---- the share --------------------------------------------------------------------------------------------------------
 
-type Live = { stream: MediaStream; track: MediaStreamTrack; video: HTMLVideoElement };
+type Live = { stream: MediaStream; track: MediaStreamTrack; video: HTMLVideoElement; resized: number };
 let live: Live | null = null, declined = false;
 const listeners = new Set<() => void>();
 const changed = () => listeners.forEach((f) => f());
@@ -118,7 +142,9 @@ export async function startTabShare(): Promise<boolean> {
   if (!track || (track.getSettings() as { displaySurface?: string }).displaySurface !== 'browser') { stream.getTracks().forEach((tr) => tr.stop()); declined = true; changed(); return false; }
   const video = document.createElement('video'); video.muted = true; video.playsInline = true; video.srcObject = stream;
   await video.play().catch(() => {});
-  live = { stream, track, video }; declined = false;
+  live = { stream, track, video, resized: performance.now() }; declined = false;
+  // the browser settles the share's size in its first moments: a capture waits until the size has held a little while
+  const l = live; video.addEventListener('resize', () => { l.resized = performance.now(); });
   track.addEventListener('ended', () => { if (live?.track === track) { live = null; changed(); } });
   changed();
   return true;
@@ -145,9 +171,16 @@ export async function grabTab(el: Element | null): Promise<{ image: string; diag
   // a frame drawn after the press, then more until one has the shape of the tab as it is now (at most about a second)
   await nextFrame(v, 250);
   let m: Mapping | null = null, view = viewNow();
-  for (let tries = 0; tries < 8; tries++) {
+  const dpr = devicePixelRatio || 1;
+  // a frame at the page's CSS size on a scaled display is the early frame described at shrunkBy: wait for the real one
+  const early = (mm: Mapping) => dpr > 1.05 && Math.abs(mm.k - 1) < 0.02;
+  for (let tries = 0; tries < 14; tries++) {
     view = viewNow();
-    if (v.videoWidth && v.videoHeight) { m = fitView(v.videoWidth, v.videoHeight, view); if (m.fits) break; }
+    if (v.videoWidth && v.videoHeight) {
+      m = fitView(v.videoWidth, v.videoHeight, view);
+      const settled = performance.now() - l.resized >= 400;
+      if (m.fits && ((settled && !early(m)) || tries >= 7)) break;
+    }
     await nextFrame(v, 150);
   }
   const fw = v.videoWidth, fh = v.videoHeight;
@@ -164,6 +197,7 @@ export async function grabTab(el: Element | null): Promise<{ image: string; diag
     const px = sg.getImageData(0, 0, sw, sh).data, lum = (x: number, y: number) => { const i = (y * sw + x) * 4; return Math.max(px[i], px[i + 1], px[i + 2]); };
     const part = drawnPart(lum, sw, sh);
     if (part && m.fits) { m = fitView(fw * part.w, fh * part.h, view); trimmed = true; }
+    else if (m.fits && early(m) && shrunkBy(lum, sw, sh, 1 / dpr)) { m = fitView(fw / dpr, fh / dpr, view); trimmed = true; }
   } catch { /* a frame that cannot be read back: use it as it is */ }
   const c = rectInFrame(rect, fw, fh, m, view);
   if (c.w < 8 || c.h < 8) throw new Error('game not on screen');
