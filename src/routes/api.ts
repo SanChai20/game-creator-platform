@@ -80,7 +80,9 @@ api.get('/me', async (c) => {
 api.post('/auth/signup', async (c) => {
   const b = await c.req.json<{ email?: string; name?: string; password?: string }>().catch(() => ({} as any)), s = await getSettings(c.env);
   if (!s.signups_open) throw forbidden('Sign-ups are closed right now.');
-  await rateLimit(c.env, 'signup:' + clientNet(c.req.raw), 10, 3600);
+  // Per network, not per person: carriers in much of Asia, Africa and South America put thousands of phones behind one
+  // IPv4 address (carrier-grade NAT), so the bar is set for a busy shared address, not one household.
+  await rateLimit(c.env, 'signup:' + clientNet(c.req.raw), 30, 3600);
   const email = String(b.email || '').trim().toLowerCase(), name = String(b.name || '').trim().slice(0, 40), pw = String(b.password || '');
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 200) throw bad('Enter a valid email address.');
   if (name.length < 2) throw bad('Choose a display name of at least 2 characters.');
@@ -493,11 +495,13 @@ api.post('/games/:slug/play', async (c) => {
     const s = await getSettings(c.env);
     if (s.require_login_to_play) throw new AppError(401, 'Sign in to play.', 'unauthenticated');
     if (p.price_cents > 0) throw new AppError(401, 'Sign in to buy or try this game.', 'unauthenticated');
-    // Every visitor without a cookie becomes a new guest with its own save quota, so guest play starts are limited per
-    // network: plenty for people sharing an address, too few to fill the database with throwaway guests.
-    await rateLimit(c.env, 'guestplay:' + clientNet(c.req.raw), 60, 3600);
+    // Every visitor without a cookie becomes a new guest with its own save quota, so new guests are limited per network:
+    // plenty for a carrier address shared by thousands of phones (carrier-grade NAT, common in much of Asia, Africa and
+    // South America), too few to fill the database with throwaway guests. A returning guest is limited by its own id,
+    // like an account, so busy neighbours on the same address never use up its play starts.
     const g = await guestIdentity(c.env, c.req.raw);
-    if (g.cookie) await rateLimit(c.env, 'guestnew:' + clientNet(c.req.raw), 20, 3600);
+    if (g.cookie) await rateLimit(c.env, 'guestnew:' + clientNet(c.req.raw), 60, 3600);
+    else await rateLimit(c.env, 'guestplay:' + g.id, 240, 3600);
     if (g.cookie) c.header('set-cookie', g.cookie, { append: true });
     return c.json(await startPlay(c, p, 'live', p.live_version, { id: g.id, name: g.name, role: 'player' } as unknown as User, undefined, GUEST_SESSION_S));
   }
