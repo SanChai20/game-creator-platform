@@ -28,6 +28,73 @@ const TYPES = {
   mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4', mp4: 'video/mp4', webm: 'video/webm',
   woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf', wgsl: 'text/plain; charset=utf-8', glsl: 'text/plain; charset=utf-8',
 };
+// Added to the end of the preview's worker scripts (a request the browser marks Sec-Fetch-Dest: worker), so the creator's
+// feedback pictures can show a canvas the game draws in a Web Worker: the page cannot read such a canvas, only the worker
+// can. The helper notes the OffscreenCanvas objects the page hands over, says hello to the SDK (which hides that from the
+// game, web/public/sdk/gcp.js), gets a private channel back, and on a request answers with a copy of each canvas, taken
+// right after the worker's next draw call on it (a WebGL canvas holds its picture only until the frame is shown). It sees
+// the game's messages before the game does but never changes them, and hides only its own channel's hello. Only on the
+// preview, where pictures are taken; live games are served unchanged. At the end of the file, so line numbers in the
+// game's errors stay as they are; a listener registered in the capturing phase still runs before the game's own.
+export const WORKER_HELPER = `
+;(function () {
+  try {
+    var G = self;
+    if (G.__gcpw || typeof G.postMessage !== 'function' || typeof OffscreenCanvas !== 'function' || typeof WeakMap !== 'function') return;
+    G.__gcpw = 1;
+    var offs = [], ctxs = new WeakMap(), port = null, want = null;
+    var gc = OffscreenCanvas.prototype.getContext;
+    OffscreenCanvas.prototype.getContext = function () { var c = gc.apply(this, arguments); try { if (c && !ctxs.has(this)) ctxs.set(this, c); } catch (e) {} return c; };
+    function walk(v, out, b, d) {
+      if (!v || typeof v !== 'object' || d > 4 || ++b.n > 300 || out.length > 8) return;
+      if (v instanceof OffscreenCanvas) { out.push(v); return; }
+      if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer || (typeof MessagePort === 'function' && v instanceof MessagePort) || (typeof ImageBitmap === 'function' && v instanceof ImageBitmap) || (typeof Blob === 'function' && v instanceof Blob) || v instanceof Date || v instanceof RegExp || (typeof Map === 'function' && v instanceof Map) || (typeof Set === 'function' && v instanceof Set)) return;
+      if (Array.isArray(v)) { for (var i = 0; i < v.length && i < 64; i++) walk(v[i], out, b, d + 1); return; }
+      var ks = Object.keys(v); for (var j = 0; j < ks.length && j < 64; j++) walk(v[ks[j]], out, b, d + 1);
+    }
+    var DRAW = ['drawArrays', 'drawElements', 'drawArraysInstanced', 'drawElementsInstanced', 'drawRangeElements', 'clear'];
+    var GLS = [G.WebGLRenderingContext, G.WebGL2RenderingContext].filter(Boolean);
+    function snap(c, max) {
+      var w = c.width, h = c.height; if (!w || !h) return null;
+      var k = Math.min(1, max / Math.max(w, h)), o = new OffscreenCanvas(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+      o.getContext('2d').drawImage(c, 0, 0, o.width, o.height); return o.transferToImageBitmap();
+    }
+    function reply(r) {
+      if (want !== r) return; want = null; clearTimeout(r.t);
+      for (var s = 0; s < r.saved.length; s++) r.saved[s][0][r.saved[s][1]] = r.saved[s][2];
+      var frames = [], give = [];
+      for (var i = 0; i < offs.length; i++) { var b = null; try { if (ctxs.has(offs[i])) b = snap(offs[i], r.max); } catch (e) {} frames.push(b); if (b) give.push(b); }
+      try { port.postMessage({ cap: r.id, frames: frames }, give); } catch (e) { try { port.postMessage({ cap: r.id, frames: [] }); } catch (x) {} }
+    }
+    function needsDraw(c) { var g = ctxs.get(c), a = null; if (!g || typeof g.getContextAttributes !== 'function') return false; try { a = g.getContextAttributes(); } catch (e) {} return !!a && !a.preserveDrawingBuffer; }
+    function ask(e) {
+      var d = e.data || {}; if (!d.cap) return;
+      if (want) reply(want);
+      var r = want = { id: d.cap, max: Math.max(64, Math.min(4096, +d.max || 1600)), saved: [], queued: false, t: 0 };
+      if (!offs.some(needsDraw)) { reply(r); return; }
+      GLS.forEach(function (GL) {
+        DRAW.forEach(function (n) {
+          var f = GL.prototype[n]; if (typeof f !== 'function') return;
+          r.saved.push([GL.prototype, n, f]);
+          GL.prototype[n] = function () {
+            var out = f.apply(this, arguments);
+            try { if (want === r && !r.queued && offs.indexOf(this.canvas) >= 0 && !this.getParameter(this.FRAMEBUFFER_BINDING)) { r.queued = true; Promise.resolve().then(function () { reply(r); }); } } catch (x) {}
+            return out;
+          };
+        });
+      });
+      r.t = setTimeout(function () { reply(r); }, 800);
+    }
+    G.addEventListener('message', function (e) {
+      var d = e.data;
+      if (d && d.__gcpw === 2 && d.port) { e.stopImmediatePropagation(); if (!port) { port = d.port; port.onmessage = ask; } return; }
+      try { var l = []; walk(d, l, { n: 0 }, 0); for (var i = 0; i < l.length; i++) if (offs.indexOf(l[i]) < 0) offs.push(l[i]); } catch (x) {}
+    }, true);
+    G.postMessage({ __gcpw: 1 });
+  } catch (e) {}
+})();
+`;
+
 const b64u = (buf) => { const u = new Uint8Array(buf); let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return I.btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64u = (s) => { const b = I.atob(s.replace(/-/g, '+').replace(/_/g, '/')), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -262,12 +329,18 @@ export async function handle(request, env, ctx, base = '') {
   // Every other file needs the same play token as the page (the page's cookie comes along with its own requests), so a
   // paid game's code and assets cannot be fetched without a session, and a trial that ended stops loading them.
   if (!(await verifyPlayToken(token, env.PLAY_KEY, env.GAME_ID, env.ENV))) return new Response('A play session is needed.', { status: 401, headers: { 'cache-control': 'no-store' } });
+  // a worker script of the preview: whole, with the feedback-picture helper at its end (see WORKER_HELPER)
+  if (env.ENV === 'preview' && (ext === 'js' || ext === 'mjs') && request.headers.get('sec-fetch-dest') === 'worker' && request.method !== 'HEAD') {
+    const whole = await readFile(env, rel);
+    if (!whole || typeof whole.text !== 'function') return new Response('Not found: ' + path, { status: 404 });
+    return new Response((await whole.text()) + WORKER_HELPER, { headers: { 'content-type': TYPES[ext], 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', vary: 'cookie, sec-fetch-dest' } });
+  }
   const obj = await readFile(env, rel, request);
   if (!obj) return new Response('Not found: ' + path, { status: 404 });
   const headers = new Headers({
     'content-type': TYPES[ext] || obj.httpMetadata?.contentType || 'application/octet-stream', etag: obj.httpEtag,
     'cache-control': env.ENV === 'live' ? 'private, max-age=300' : 'no-cache', 'x-content-type-options': 'nosniff', 'accept-ranges': 'bytes',
-    vary: 'cookie',
+    vary: env.ENV === 'preview' && (ext === 'js' || ext === 'mjs') ? 'cookie, sec-fetch-dest' : 'cookie',
   });
   if (!('body' in obj) || !obj.body) return new Response(null, { status: 304, headers });
   if (obj.range && request.headers.has('range')) {
