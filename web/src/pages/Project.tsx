@@ -252,12 +252,12 @@ export function Project({ id }: { id: string }) {
         <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); setShot(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
         {(() => {
           const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} version={p.preview_version} capture={(pic) => stage.current!.capture(pic)} frame={() => stageBox.current?.querySelector('iframe') ?? null}
-            fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); setShot(sh); }} /> : null;
+            fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); (document.activeElement as HTMLElement | null)?.blur?.(); setShot(sh); }} /> : null;
           // While a capture is marked up, the editor covers the game rather than replacing it: the game's frame keeps its
           // size and stays on screen. Hiding or shrinking it would resize the game, and a browser slows the drawing of a
           // frame it no longer shows, which a game can take for a slow device and lower its picture quality for good.
           return <div className="fb-stack">
-            <div ref={stageBox} inert={shot ? true : undefined} aria-hidden={shot ? true : undefined}>
+            <div ref={stageBox} inert={shot ? true : undefined}>
               <Stage ctl={stage} poster={null} seed={p.slug} url={preview} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} />
             </div>
             {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} redraw={() => shot.alt ?? stage.current!.capture(true)} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { register } from 'node:module';
 
 register('./ts-hook.mjs', import.meta.url);
-const { fitView, rectInFrame, drawnPart } = await import('../web/src/capture.ts');
+const { fitView, rectInFrame, drawnPart, shrunkBy } = await import('../web/src/capture.ts');
 
 const near = (a, b, d = 0.01) => assert.ok(Math.abs(a - b) <= d, `${a} ≠ ${b}`);
 const game = { left: 112.5, top: 126.4, width: 1040, height: 585 };
@@ -67,4 +67,17 @@ test('a normal or dark page is never taken for a shrunken one', () => {
   // dark grey is a page, not the browser's black
   const grey = (x, y) => (x < 55 && y < 31 ? 120 : 14);
   assert.equal(drawnPart(grey, 96, 54), null);
+});
+
+test('an early frame of a share on a scaled display (the tab shrunk by the pixel ratio, a flat dark fill) is caught', () => {
+  // as reported from Edge on Windows at 125 %: the page in the top-left 80 %, the fill a dark grey, not exact black
+  const page = (x, y) => (x * 7 + y * 13) % 200 + 30;   // a lit, varied page
+  const shrunk = (fill) => (x, y) => (x < 0.8 * 96 && y < 0.8 * 54 ? page(x, y) : fill);
+  for (const fill of [0, 9, 16]) assert.equal(shrunkBy(shrunk(fill), 96, 54, 0.8), true, `fill ${fill}`);
+  // a normal frame, a page that is dark only on its right and bottom but not flat, a flat dark page all over
+  assert.equal(shrunkBy(page, 96, 54, 0.8), false);
+  assert.equal(shrunkBy((x, y) => (x < 77 && y < 43 ? page(x, y) : (x + y) % 30), 96, 54, 0.8), false);
+  assert.equal(shrunkBy(() => 12, 96, 54, 0.8), false);
+  // no pixel ratio to go by
+  assert.equal(shrunkBy(shrunk(0), 96, 54, 1), false);
 });
