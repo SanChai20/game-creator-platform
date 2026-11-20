@@ -18,8 +18,8 @@ img, svg, canvas, iframe { display: block; max-width: 100%; }
 em { font-style: normal; }
 ::selection { background: var(--accent); color: var(--on-accent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-:root { --tag-l: 30%; --tag-a: .13; --tint: .07; --tint-edge: .26; --dots: radial-gradient(circle at center, currentColor 1.1px, transparent 1.4px); accent-color: var(--accent); }
-:root[data-theme="night"], .ink { --tag-l: 80%; --tag-a: .2; --tint: .11; --tint-edge: .32; }
+:root { --tag-l: 30%; --tag-a: .13; --tint: .07; --tint-edge: .26; --plate: .13; --plate-n: .075; --wash: .13; --dots: radial-gradient(circle at center, currentColor 1.1px, transparent 1.4px); accent-color: var(--accent); }
+:root[data-theme="night"], .ink { --tag-l: 80%; --tag-a: .2; --tint: .11; --tint-edge: .32; --plate: .19; --plate-n: .09; --wash: .17; }
 /* CJK titles: no tightening, a little more air */
 :lang(zh) :is(h1, h2, h3, h4), :lang(ja) :is(h1, h2, h3, h4), :lang(ko) :is(h1, h2, h3, h4) { letter-spacing: 0 !important; line-height: 1.22 !important; font-stretch: 100% !important; }
 /* Korean breaks lines between words, not between syllables: otherwise a word is split across two lines. */
@@ -128,18 +128,24 @@ mark, .hl { background: none; color: var(--accent-text); }
 .eyebrow { display: inline-flex; align-items: center; gap: 10px; font: 700 12.5px/1.2 var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
 .eyebrow.sig { color: var(--accent-text); }
 .eyebrow.sig::before { content: ""; width: 26px; height: 9px; flex: none; background: linear-gradient(90deg, currentColor 0 9px, transparent 9px 12px, currentColor 12px 18px, transparent 18px 21px, currentColor 21px); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-/* Labels share one shape: a 22px plate, 4px corners, a hairline edge and a faint tint; never a slant or a loud fill.
-   Status labels (.badge) are capitals in the display face with a round dot in their tone; descriptive labels (.gtag)
-   are sentence case in the text face and stay neutral; labels laid over a picture (.ovl) are dark glass. Colour means
-   state (good, bad, warn, info, accent), never decoration. */
-.badge { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; background: rgb(var(--text-rgb) / .045); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text-2); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; flex: none; }
-.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
-.badge.plain::before { display: none; }
-.badge.good { background: rgb(var(--good-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--good-rgb) / var(--tint-edge)); color: var(--good); }
-.badge.bad { background: rgb(var(--bad-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--bad-rgb) / var(--tint-edge)); color: var(--bad); }
-.badge.warn { background: rgb(var(--warn-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--warn-rgb) / var(--tint-edge)); color: var(--warn); }
-.badge.sig { background: rgb(var(--accent-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / var(--tint-edge)); color: var(--accent-text); }
-.badge.info { background: rgb(var(--info-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--info-rgb) / var(--tint-edge)); color: var(--info); }
+/* Labels share one shape with the buttons: a small slanted plate behind a straight label, a flat fill and no edge line.
+   The plate is ::after (::before stays free for a pip), so text and focus ring stay square. A label that reports a state
+   lights a solid bar in its tone on the leading edge, like a menu row in focus; a descriptive label is a plain neutral
+   plate. Status labels (.badge) are capitals in the display face; descriptive labels (.gtag) are sentence case in the
+   text face; labels laid over a picture (.ovl) are a dark plate. Colour means state (good, bad, warn, info, accent),
+   never decoration. Each label sets --pl (the fill) and --bar (the edge, transparent for none). */
+.badge, .gtag, .rar-pill, .trial-tag, .ovl, .live-pill, .art-trial, .price, .act-chip, .glance-chips > i, .glance-chips > a > i, .ltag, .cpill, .stage-badge, .mgate li { position: relative; isolation: isolate; --pl: rgb(var(--text-rgb) / var(--plate-n)); --bar: transparent; }
+:is(.badge, .gtag, .rar-pill, .trial-tag, .ovl, .live-pill, .art-trial, .price, .act-chip, .glance-chips > i, .glance-chips > a > i, .ltag, .cpill, .stage-badge, .mgate li)::after { content: ""; position: absolute; inset: 0; z-index: -1; transform: skewX(var(--skew)); border-radius: 2px; background: var(--pl); box-shadow: inset 3px 0 0 var(--bar); transition: background-color var(--dur-fast), box-shadow var(--dur-fast); pointer-events: none; }
+.badge { --t: var(--text-rgb); --pl: rgb(var(--t) / var(--plate-n)); --bar: var(--text-3); display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 12px; color: var(--text-2); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; flex: none; }
+.badge.plain { --bar: transparent; padding-inline: 10px; }
+.badge:is(.good, .bad, .warn, .sig, .info) { --pl: rgb(var(--t) / var(--plate)); }
+.badge:is(.good, .bad, .warn, .sig, .info):not(.plain) { --bar: rgb(var(--t)); }
+.badge.good { --t: var(--good-rgb); color: var(--good); }
+.badge.bad { --t: var(--bad-rgb); color: var(--bad); }
+.badge.warn { --t: var(--warn-rgb); color: var(--warn); }
+.badge.sig { --t: var(--accent-rgb); color: var(--accent-text); }
+.badge.info { --t: var(--info-rgb); color: var(--info); }
+.page-h h1 + .badge { height: 26px; padding: 0 12px 0 15px; font-size: 12px; }
 /* the sticker on a cover ("Featured"): the one label allowed a solid fill */
 .stick { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 4px; background: var(--accent); color: var(--on-accent); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; box-shadow: 0 1px 2px rgb(0 0 0 / .25); }
 .stick.alt { background: rgb(255 255 255 / .94); color: #17151c; }
@@ -150,21 +156,25 @@ mark, .hl { background: none; color: var(--accent-text); }
 .chip.on { color: var(--paper); }
 .chip.on::before { background: var(--text); border-color: var(--text); }
 /* a descriptive label (genre, tag, feature): neutral, sentence case; a link lights its edge on hover */
-.gtag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 4px; background: rgb(var(--text-rgb) / .035); box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text-2); font: 550 12.5px/1 var(--font-sans); font-style: normal; white-space: nowrap; transition: box-shadow var(--dur-fast), color var(--dur-fast), background-color var(--dur-fast); }
-a.gtag:hover { color: var(--text); background: rgb(var(--text-rgb) / .06); box-shadow: inset 0 0 0 1px var(--line-3); }
+.gtag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px; color: var(--text-2); font: 550 12.5px/1 var(--font-sans); font-style: normal; white-space: nowrap; transition: color var(--dur-fast); }
+a.gtag:hover { color: var(--text); --pl: rgb(var(--text-rgb) / calc(var(--plate-n) * 1.8)); --bar: var(--accent); }
 .gtag small { color: var(--text-3); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 /* rarity, the way loot shows it: a diamond pip and a tier name in the tier's colour */
 .rar { display: inline-flex; align-items: center; gap: 6px; color: var(--rc, var(--text-3)); font: 800 11.5px/1 var(--font-display); letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; }
 .rar::before { content: ""; width: 7px; height: 7px; background: currentColor; transform: rotate(45deg); }
-.rar-pill { display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 8px; border-radius: 4px; background: color-mix(in srgb, var(--rc, var(--text-3)) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rc, var(--text-3)) 34%, transparent); color: var(--rc, var(--text-2)); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.rar-pill { --pl: color-mix(in srgb, var(--rc, var(--text-3)) 16%, transparent); display: inline-flex; align-items: center; gap: 7px; height: 22px; padding: 0 10px; color: var(--rc, var(--text-2)); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .rar-pill::before { content: ""; width: 6px; height: 6px; background: currentColor; transform: rotate(45deg); }
-.rar-pill.sm { height: 20px; padding: 0 7px; font-size: 10px; }
-.trial-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 4px; background: rgb(var(--good-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--good-rgb) / var(--tint-edge)); color: var(--good); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.rar-pill.sm { height: 20px; padding: 0 9px; font-size: 10px; }
+.trial-tag { --pl: rgb(var(--good-rgb) / var(--plate)); --bar: var(--good); display: inline-flex; align-items: center; height: 22px; padding: 0 9px 0 12px; color: var(--good); font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: ping 1.8s var(--ease) infinite; flex: none; }
 .live { color: var(--accent-text); font-weight: 600; }
-/* a label laid over a picture: dark glass on the same plate */
-.ovl, .live-pill, .art-trial { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; background: rgb(14 12 18 / .74); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .14); color: #fff; font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
-.live-pill.big { background: rgb(var(--accent-rgb) / var(--tint)); box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / var(--tint-edge)); color: var(--accent-text); -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* a label laid over a picture: a dark plate; the blur sits on the plate, so it takes the plate's slant */
+.ovl, .live-pill, .art-trial { --pl: rgb(14 12 18 / .78); display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; color: #fff; font: 700 10.5px/1 var(--font-display); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+:is(.ovl, .live-pill, .art-trial, .stage-badge)::after { -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.live-pill, .art-trial { --bar: var(--accent); padding-left: 12px; }
+.art-trial { --bar: var(--good); }
+.live-pill.big { --pl: rgb(var(--accent-rgb) / var(--plate)); color: var(--accent-text); }
+.live-pill.big::after { -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* what players think, with signal bars: three lit for good, two for mixed, one for poor */
 .verdict { display: inline-flex; align-items: baseline; gap: 6px; font-weight: 600; white-space: nowrap; --b2: currentColor; --b3: currentColor; }
 .verdict::before { content: ""; width: 13px; height: 11px; flex: none; align-self: center; background: linear-gradient(currentColor, currentColor) 0 100% / 3px 5px no-repeat, linear-gradient(var(--b2), var(--b2)) 5px 100% / 3px 8px no-repeat, linear-gradient(var(--b3), var(--b3)) 10px 100% / 3px 11px no-repeat; }
@@ -309,10 +319,16 @@ a.gtag:hover { color: var(--text); background: rgb(var(--text-rgb) / .06); box-s
 .log { font: 12.5px/1.6 var(--font-mono); color: var(--bad); background: rgb(var(--bad-rgb) / .07); border-radius: var(--r-sm); padding: 12px 14px; white-space: pre-wrap; word-break: break-word; max-height: 190px; overflow: auto; }
 
 /* ---- feedback ----------------------------------------------------------------------------------- */
-.notice { --nt: var(--accent-rgb); display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; padding: 14px 18px; border-radius: var(--r-md); background: rgb(var(--nt) / calc(var(--tint) * .8)); box-shadow: inset 0 0 0 1px rgb(var(--nt) / calc(var(--tint-edge) * .8)); min-width: 0; }
+/* A callout reads like an unlock banner: a wash of its tone that fades across the panel, a solid bar on the leading edge,
+   a cut corner and a halftone screen in the far corner. No edge line. The wash and the screen are pseudo-elements, so
+   nothing inside the panel is clipped by the cut. --nt is the tone. */
+.notice, .seal, .glance-warn, .mature-note { --nt: var(--accent-rgb); position: relative; isolation: isolate; border: 0; border-radius: 0; background: none; box-shadow: none; }
+:is(.notice, .seal, .glance-warn, .mature-note)::before { content: ""; position: absolute; inset: 0; z-index: -2; background: linear-gradient(100deg, rgb(var(--nt) / var(--wash)) 0, rgb(var(--nt) / calc(var(--wash) * .35)) 62%, rgb(var(--nt) / calc(var(--wash) * .2))); box-shadow: inset 4px 0 0 rgb(var(--nt)); clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%); }
+:is(.notice, .seal, .glance-warn, .mature-note)::after { content: ""; position: absolute; inset: 0 0 0 auto; width: min(30%, 200px); z-index: -1; color: rgb(var(--nt) / .22); background: var(--dots) 0 0 / 7px 7px; -webkit-mask: linear-gradient(100deg, transparent 20%, #000); mask: linear-gradient(100deg, transparent 20%, #000); clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%); pointer-events: none; }
+.notice { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; padding: 15px 20px 15px 22px; min-width: 0; }
 .notice > .grow { flex-basis: 240px; }
-.notice-t { display: flex; align-items: center; gap: 8px; font-weight: 650; margin-bottom: 2px; color: var(--text); }
-.notice-t::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--nt)); flex: none; }
+.notice-t { display: flex; align-items: center; gap: 9px; font-weight: 650; margin-bottom: 2px; color: var(--text); }
+.notice-t::before { content: ""; width: 7px; height: 12px; flex: none; background: rgb(var(--nt)); clip-path: polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%); }
 .notice.good { --nt: var(--good-rgb); }
 .notice.bad { --nt: var(--bad-rgb); }
 .notice.info { --nt: var(--info-rgb); }
