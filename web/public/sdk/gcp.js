@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.4.0', fixes: {} };
+  var RT = S.runtime = { version: '2.5.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -689,6 +689,10 @@
   // input the server applied. The SDK replays your newer inputs through predict() (your own entity moves at once and is
   // corrected smoothly), plays everyone else back a little in the past between snapshots, and tells the server which
   // moment you were looking at with each input, so hit checks (ctx.hitscan) judge shots on what you saw.
+  // rejoin() goes back into the match this player was in before the page was reloaded or the browser closed: the ticket
+  // lives only in the page, so the platform signs a new one for the match the player was last put in, while it runs.
+  var LEFT_KEY = 'gcp:match-left';   // the match this player left on purpose (cancel()): rejoin() never leads back into it
+  function leftMatch(id) { try { if (id === undefined) return localStorage.getItem(LEFT_KEY); localStorage.setItem(LEFT_KEY, String(id)); } catch (e) { /* no storage */ } return null; }
   function mpatch(a, n) {
     if (n === undefined || n === null) return a;
     if (Object.prototype.hasOwnProperty.call(n, 'v')) return n.v;
@@ -708,12 +712,13 @@
     }
     return o;
   }
-  function Match(opts) {
+  function Match(opts, rejoin) {
     var self = this, handlers = {}, mm = null, ws = null, ticket = null, tries = 0, closed = false, timer = 0, pingTimer = 0, started = false;
     opts = opts || {};
     var entitiesOf = typeof opts.entities === 'function' ? opts.entities : function (v) { return v && (v.players || v.entities) || {}; };
     var angles = Object.assign({}, ANGLES); (opts.angles || []).forEach(function (a) { angles[a] = 1; });
-    this.phase = 'searching'; this.id = null; this.you = cfg.player && cfg.player.id; this.players = []; this.tickRate = 0; this.tick = 0;
+    this.phase = rejoin ? 'rejoining' : 'searching'; this.id = null; this.you = cfg.player && cfg.player.id; this.players = []; this.tickRate = 0; this.tick = 0;
+    this.queue = !rejoin && opts.queue != null ? String(opts.queue) : null; this.mode = !rejoin && opts.mode != null ? String(opts.mode) : null; this.rejoined = !!rejoin;
     this.state = null; this.ack = 0; this.rtt = null; this.result = null; this.renderTick = null;
     var buf = new Smooth({ minDelay: opts.delay != null ? opts.delay : 50, maxDelay: 250, extrapolate: 100 });
     // what the verifier's two-player check reports when it fails: who this page is, who the lobby listed, how far it got
@@ -729,11 +734,15 @@
     this.press = function (name) { pressed[String(name)] = true; return self; };
     /** Private lobby: the player who opened it starts with whoever is there (at least min). */
     this.start = function () { if (mm && mm.readyState === 1) mm.send(JSON.stringify({ t: 'start' })); };
-    /** Stop searching, or leave the match. */
+    /** Stop searching, or leave the match. Leaving is for good: the match is told at once (the game's leave() runs with
+        player.final true, without the grace time), and GCP.match.rejoin() will not lead back into it. */
     this.cancel = this.leave = function () {
       closed = true; clearInterval(timer); clearInterval(pingTimer);
       if (mm) try { mm.send(JSON.stringify({ t: 'cancel' })); mm.close(1000); } catch (e) { /* closed */ }
-      if (ws) try { ws.close(1000); } catch (e) { /* closed */ }
+      // (only a match this page is still in or is getting back to: one that closed for good, because the connection was
+      // lost or another tab took it over, is not left by tidying up afterwards, and a reload may lead back into it)
+      if (self.id && (self.phase === 'connecting' || self.phase === 'running' || self.phase === 'reconnecting')) leftMatch(self.id);
+      if (ws) try { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'bye' })); ws.close(1000); } catch (e) { /* closed */ }
     };
     function selfOf(v) { var e = entitiesOf(v); return e && e[self.you] || null; }
     function clone(x) { return x == null ? x : JSON.parse(JSON.stringify(x)); }
@@ -810,7 +819,11 @@
         clearInterval(timer); clearInterval(pingTimer); seen.closes++;
         var final = closed || self.phase === 'ended' || ev.code === 1000 || ev.code === 4001 || ev.code === 4002 || ev.code === 4003 || ev.code === 4004 || ev.code === 4009 || ev.code === 4500;   // 4009: removed from the match
         if (!final && tries < 5) { self.phase = self.phase === 'running' ? 'reconnecting' : self.phase; emit('reconnecting', tries + 1); setTimeout(connectMatch, Math.min(4000, 300 * Math.pow(2, tries++))); return; }
-        if (self.phase !== 'ended') { self.phase = 'closed'; emit('close', ev.code, ev.reason); }
+        if (self.phase !== 'ended') {
+          self.phase = 'closed';
+          if (rejoin && !started && !closed) emit('none');   // the match ended meanwhile, or this place in it is gone
+          emit('close', ev.code, ev.reason);
+        }
       };
     }
     function start() {
@@ -822,6 +835,18 @@
       if (started) { emit('reconnected'); return; }
       started = true;
       emit('start', { you: self.you, players: self.players, tickRate: self.tickRate, state: self.state });
+    }
+    if (rejoin) {
+      // nothing to go back to is an ordinary answer, not an error: 'none', then 'close'
+      var none = function () { if (closed || self.phase === 'closed') return; self.phase = 'closed'; emit('none'); emit('close', 0, 'none'); };
+      api('match-current').then(function (j) {
+        if (closed) return;
+        if (!j || !j.ticket || !j.match || j.match === leftMatch()) return none();
+        ticket = j.ticket; self.id = j.match; self.players = j.players || []; self.queue = j.queue != null ? String(j.queue) : null; self.mode = String(j.mode || ''); self.phase = 'connecting';
+        emit('found', { match: j.match, players: self.players, region: j.region, queue: self.queue, mode: self.mode, rejoin: true });
+        connectMatch();
+      }, none);
+      return;
     }
     if (standalone) { setTimeout(function () { var e = new Error('Server-run matches need the platform: open the game from its page.'); e.code = 'standalone'; self.phase = 'closed'; emit('error', e); emit('close', 0); }, 0); return; }
     var q = '/api/rt/match?t=' + encodeURIComponent(cfg.token);
@@ -1928,6 +1953,12 @@
     match: {
       /** Finds a match: { queue, players, min, teams, mode, code, predict(me, input, dt, state), entities(view), angles, delay }. */
       find: function (opts) { return new Match(opts); },
+      /** Goes back into the match this player was in when the page was reloaded or the browser closed, if it is still
+          running and the game lets players come back (rejoinMs in server/match.js). Takes find()'s options for drawing
+          (predict, entities, angles, delay) and returns the same match object: 'found' ({ match, players, queue, mode,
+          rejoin: true }) and 'start' when it leads back in; 'none', then 'close', when there is nothing to go back to
+          (no match, it is over, or the player left it with cancel()). Call it once when the game opens. */
+      rejoin: function (opts) { return new Match(opts, true); },
     },
     /** A playback buffer for one remote stream (a host's snapshots, one player's position): push(value, meta.at) when a message
         arrives, value() or sample() every frame. Movement comes out smooth on a jittery connection. Options: delay (fixed ms;

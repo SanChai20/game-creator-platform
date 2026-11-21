@@ -1,6 +1,6 @@
 // A minimal Worker around the platform's Matchmaker Durable Object, for tests/matchmaker-live.mjs (run under wrangler
 // dev with a local D1 that has the platform's migrations). /seat forwards a seat the way the /api/rt/match route builds
-// it (the route itself needs a signed-in play token); /seed adds play sessions; /match reads a recorded match.
+// it (the route itself needs a signed-in play token); /seed adds play sessions; /match reads a recorded match, /seat a player's seat.
 export { Matchmaker } from '../../src/matchmaker';
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
@@ -13,6 +13,7 @@ export default {
       }
       return Response.json({ ok: true });
     }
+    if (u.pathname === '/seat') return Response.json(await env.DB.prepare("SELECT * FROM match_seats WHERE project_id = 'g1' AND env = 'live' AND user_id = ?").bind(u.searchParams.get('u')).first());
     if (u.pathname === '/match') return Response.json(await env.DB.prepare('SELECT * FROM matches WHERE id = ?').bind(u.searchParams.get('id')).first());
     const seat = JSON.parse(u.searchParams.get('seat') || 'null');
     const name = seat?.code ? `g1:live:code:${seat.code}` : `g1:live:q:${seat?.q}:${seat?.size}:${seat?.min}:${seat?.teams}:${seat?.mode}`;

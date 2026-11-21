@@ -8,6 +8,8 @@ import type { Env } from './env';
 // @ts-ignore plain JS module
 import { bindingProblem } from './session-binding.js';
 // @ts-ignore plain JS module
+import { seatStmts } from './match-seats.js';
+// @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
 import { playKey } from './deploy';
 import { hmacHex } from './util';
@@ -21,7 +23,7 @@ export interface Seat {
   region: RegionHint | null; rating: number; at: number;
 }
 
-const TICKET_TTL_S = 2 * 3600;
+export const TICKET_TTL_S = 2 * 3600;
 const TICK_MS = 1000, RECHECK_MS = 10_000, MAX_WAITING = 2000;
 
 export const matchTicketKey = async (env: Env, g: string) => hmacHex(await playKey(env, g), 'match-ticket');
@@ -129,8 +131,13 @@ export class Matchmaker extends DurableObject<Env> {
     const hint = groupHint(live.map((x) => x.s.region));
     const seed = (Math.random() * 2 ** 32) >>> 0;
     try {
-      await this.env.DB.prepare('INSERT INTO matches (id, project_id, env, queue, mode, roster, region, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .bind(id, first.g, first.e, first.q, first.mode, JSON.stringify(roster.map((r) => ({ id: r.id, name: r.name, team: r.team, rating: r.rating, k: live.find((x) => x.s.u === r.id)!.s.k }))), hint, Date.now()).run();
+      const at = Date.now();
+      await this.env.DB.batch([
+        this.env.DB.prepare('INSERT INTO matches (id, project_id, env, queue, mode, roster, region, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .bind(id, first.g, first.e, first.q, first.mode, JSON.stringify(roster.map((r) => ({ id: r.id, name: r.name, team: r.team, rating: r.rating, k: live.find((x) => x.s.u === r.id)!.s.k }))), hint, at),
+        // where each player can be found again after a reload (GCP.match.rejoin, /api/rt/match-current)
+        ...(seatStmts(this.env.DB, first.g, first.e, roster.map((r) => r.id), id, at) as D1PreparedStatement[]),
+      ]);
     } catch (e) {
       console.error('match record failed', e);
       for (const { ws } of live) { this.send(ws, { t: 'error', code: 'match_failed', message: 'Could not start the match. Try again.' }); try { ws.close(1011, 'Match failed'); } catch { /* closed */ } }

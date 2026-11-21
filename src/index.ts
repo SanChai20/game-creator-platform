@@ -39,6 +39,8 @@ import { handle as handleGame } from './runtime/game-worker.js';
 import { idleGuestCleanupStmts, verifierCleanupStmts } from './player-data.js';
 // @ts-ignore plain JS module
 import { claimedGuestCleanupStmts } from './session-binding.js';
+// @ts-ignore plain JS module
+import { oldSeatsStmt } from './match-seats.js';
 
 import { recentStmt, refreshCatalog } from './catalog';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
@@ -371,6 +373,7 @@ const handler = {
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
       env.DB.prepare('DELETE FROM matches WHERE created_at < ?').bind(t - 30 * 86400000),   // ratings stay; the match log is a month
+      oldSeatsStmt(env.DB, t - 86400000),   // a match lasts an hour: older seats lead nowhere
       oldPicksStmt(env.DB, t),
       ...verifierCleanupStmts(env.DB, t - 86400000),
       ...claimedGuestCleanupStmts(env.DB, t - 30 * 86400000),

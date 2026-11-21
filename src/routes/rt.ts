@@ -14,11 +14,13 @@ import { clamp, now, readCapped, safeEqual } from '../util';
 import { regionHint } from '../placement';
 import { eloChanges, matchRequest } from '../match-making';
 import { getProject, getVersion, verKey } from '../projects';
-import type { Seat } from '../matchmaker';
+import { TICKET_TTL_S, matchTicketKey, type Seat } from '../matchmaker';
 // @ts-ignore plain JS module
 import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
 import { bindingProblem } from '../session-binding.js';
+// @ts-ignore plain JS module
+import { currentMatch } from '../match-seats.js';
 // @ts-ignore plain JS module
 import { isServerPath, signPlayToken } from '../runtime/game-worker.js';
 
@@ -319,6 +321,20 @@ rt.get('/match', async (c) => {
   const u = new URL(c.req.url);
   u.search = `?seat=${encodeURIComponent(JSON.stringify(seat))}`;
   return c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(name)).fetch(new Request(u, c.req.raw));
+});
+
+// Coming back to a running match (GCP.match.rejoin): after a reload or a closed browser the page has lost its ticket, so
+// it asks for the match this player was last put in. While that match has not ended, the answer is a fresh ticket for
+// it, bound to the play session that asks. The ticket is marked rj: the game's Worker lets it into a match that is
+// running and never starts one with it (src/runtime/game-worker.js). Whether the player may still come back (they did
+// not leave on purpose, the game's rejoinMs has not run out) is decided there, by the match itself.
+rt.post('/match-current', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t), t = now();
+  const m = await currentMatch(c.env.DB, tok, t) as { id: string; queue: string; mode: string; region: string | null; started: number; roster: { id: string; name: string; team: unknown }[] } | null;
+  if (!m) return c.json({ match: null });
+  const ticket = await signPlayToken({ typ: 'match', rj: 1, g: tok.g, e: tok.e, m: m.id, u: tok.u, n: tok.n, s: tok.s, k: tok.k, px: tok.x, tr: tok.tr ? 1 : 0,
+    x: Math.floor(t / 1000) + TICKET_TTL_S, h: m.region, q: m.queue, r: m.roster, o: m.mode ? { mode: m.mode } : {} }, await matchTicketKey(c.env, tok.g));
+  return c.json({ match: m.id, ticket, queue: m.queue, mode: m.mode, region: m.region, players: m.roster, started: m.started });
 });
 
 // A running match asks which of its players' play sessions have ended (signed out, suspended, trial over).

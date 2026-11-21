@@ -170,6 +170,70 @@ test('a reconnecting player gets a full snapshot and keeps their acks', () => {
   assert.deepEqual(h.views.get('a'), h.core.state);
 });
 
+test('with rejoinMs a player away past the grace time may still come back: leave() and join() say which it is', () => {
+  const calls = [];
+  const def = arena({ rejoinMs: 120_000,
+    join(s, p) { calls.push(['join', p.id, !!p.back]); if (s.players[p.id]) s.players[p.id].away = false; else s.players[p.id] = { x: 0, y: 0, score: 0 }; },
+    leave(s, p) { calls.push(['leave', p.id, p.final]); if (p.final) delete s.players[p.id]; else s.players[p.id].away = true; } });
+  assert.equal(normalizeDef(def).rejoinMs, 120_000);
+  assert.equal(normalizeDef(arena()).rejoinMs, 0, 'off unless the game asks for it');
+  assert.equal(normalizeDef(arena({ rejoinMs: 1e12 })).rejoinMs, LIMITS.maxRejoinMs);
+  const h = harness(def);
+  h.core.connect('a'); h.core.connect('b'); h.advance(0);
+  h.input('b', 1, { mx: 1 }); h.advance(100);
+  const x = h.core.state.players.b.x;
+  // b's browser closes: after the grace time the game is told, but the place stays
+  h.core.disconnect('b'); h.advance(LIMITS.graceMs + 1000);
+  assert.deepEqual(calls, [['leave', 'b', false]]);
+  assert.equal(h.core.state.players.b.away, true);
+  // a goes too: nobody is connected, yet the match is not ended while anyone may come back
+  h.core.disconnect('a'); h.advance(LIMITS.graceMs + 30_000);
+  assert.equal(h.core.phase, 'running');
+  assert.deepEqual(calls.at(-1), ['leave', 'a', false]);
+  const ticks = h.core.tick;
+  // b reopens the game a minute later: back in, with a whole snapshot of what the match is now
+  assert.equal(h.core.connect('b'), true);
+  h.advance(40);
+  assert.deepEqual(calls.at(-1), ['join', 'b', true]);
+  assert.equal(h.core.state.players.b.away, false); assert.equal(h.core.state.players.b.x, x, 'their things are as the rules left them');
+  const i = h.log.b.findLastIndex((m) => m.t === 'hello'), snap = h.log.b.slice(i).find((m) => m.t === 's');
+  assert.equal(h.log.b[i].phase, 'running'); assert.equal(snap.f, 1); assert.ok(snap.k > ticks);
+  assert.deepEqual(h.views.get('b'), h.core.state);
+  h.input('b', 2, { mx: 1 }); h.advance(100);
+  assert.ok(h.core.state.players.b.x > x, 'and their inputs count again');
+  // a never returns: once rejoinMs is over the place is gone for good, and the game is told once more
+  h.advance(120_000);
+  assert.deepEqual(calls.filter((c) => c[1] === 'a'), [['leave', 'a', false], ['leave', 'a', true]]);
+  assert.equal(h.core.state.players.a, undefined);
+  assert.equal(h.core.connect('a'), false);
+  assert.equal(h.core.phase, 'running', 'b is still playing');
+  // b goes away and stays away: the match ends when nobody can come back any more
+  h.core.disconnect('b'); h.advance(LIMITS.graceMs + 119_000);
+  assert.equal(h.core.phase, 'running');
+  h.advance(3000);
+  assert.equal(h.core.phase, 'ended'); assert.equal(h.reports[0].reason, 'everyone_left');
+  assert.deepEqual(calls.filter((c) => c[1] === 'b').slice(-2), [['leave', 'b', false], ['leave', 'b', true]]);
+});
+
+test('a player who leaves on purpose is gone at once and cannot come back, whatever rejoinMs says', () => {
+  for (const rejoinMs of [0, 600_000]) {
+    const calls = [];
+    const h = harness(arena({ rejoinMs, leave(s, p) { calls.push([p.id, p.final]); delete s.players[p.id]; } }));
+    h.core.connect('a'); h.core.connect('b'); h.advance(0); h.advance(100);
+    h.core.message('b', JSON.stringify({ t: 'bye' })); h.drain();
+    assert.deepEqual(calls, [['b', true]], 'no grace time');
+    assert.ok(h.closed.some((c) => c.id === 'b' && c.code === 1000));
+    assert.ok(h.log.a.some((m) => m.t === 'players' && m.players.find((p) => p.id === 'b').connected === false));
+    assert.equal(h.core.connect('b'), false);
+    h.advance(LIMITS.graceMs + 5000);
+    assert.deepEqual(calls, [['b', true]], 'leave() ran once');
+    assert.equal(h.core.phase, 'running');
+    // a player who was away and then is removed for good hears it once more; here the last one leaves and the match ends
+    h.core.message('a', JSON.stringify({ t: 'bye' })); h.advance(200);
+    assert.equal(h.core.phase, 'ended'); assert.equal(h.reports[0].reason, 'everyone_left');
+  }
+});
+
 test('a player whose inputs keep breaking the code is removed; the match goes on', () => {
   const h = harness(arena({ input(s, p, inp) { if (inp && inp.boom) throw new Error('bad input'); } }));
   h.core.connect('a'); h.core.connect('b'); h.advance(0);

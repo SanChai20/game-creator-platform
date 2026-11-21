@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { MatchCore, diff } from '../src/runtime/match-core.js';
 
-function loadSdk(config = { api: 'https://p.example', token: 'tok', gameId: 'g', version: 1, env: 'live', base: '/play/g', player: { id: 'me', name: 'Me' }, kind: 'player', session: 's' }) {
+function loadSdk(config = { api: 'https://p.example', token: 'tok', gameId: 'g', version: 1, env: 'live', base: '/play/g', player: { id: 'me', name: 'Me' }, kind: 'player', session: 's' }, over = {}) {
   let now = 0; const noop = () => {};
   const sockets = [], intervals = new Map(), timeouts = []; let ids = 1;
   class FakeWS {
@@ -25,7 +25,7 @@ function loadSdk(config = { api: 'https://p.example', token: 'tok', gameId: 'g',
     setTimeout: (fn, ms) => { timeouts.push({ fn, at: now + (ms || 0) }); return 0; }, clearTimeout: noop,
     setInterval: (fn) => { const id = ids++; intervals.set(id, fn); return id; }, clearInterval: (id) => intervals.delete(id),
     localStorage: { getItem: () => null, setItem: noop, removeItem: noop }, fetch: () => Promise.reject(new Error('offline')), Promise, JSON, Math, Object, Array, Date, Number, String, isFinite, Error, Blob: class {}, Uint8Array, Float32Array, ArrayBuffer,
-    WebSocket: FakeWS, encodeURIComponent,
+    WebSocket: FakeWS, encodeURIComponent, ...over,
   };
   win.window = win; Object.assign(win, ctx);
   vm.createContext(ctx);
@@ -156,4 +156,92 @@ test('matchInfo() tells the verifier who this page is, who the lobby listed and 
   i = JSON.parse(JSON.stringify(globalThisInfo()[0]));
   assert.equal(i.phase, 'running'); assert.equal(i.match, 'abc'); assert.deepEqual(i.players, ['me', 'op']); assert.equal(i.snapshots, 1);
   m.leave();
+});
+
+// ----- coming back after a reload (GCP.match.rejoin) ------------------------------------------------------------------
+const settle = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+/** A platform that answers /api/rt/match-current with `answer` (null: nothing to go back to), and a page store. */
+function platform(answer) {
+  const asked = [], store = new Map();
+  const fetch = (url, init) => { asked.push({ url, body: JSON.parse(init.body) }); return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer || { match: null }) }); };
+  const localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  return { asked, store, over: { fetch, localStorage } };
+}
+const RUNNING = { match: 'abc', ticket: 'AGAIN', queue: 'ranked', mode: 'hard', region: 'weur', players: [{ id: 'me' }, { id: 'op' }] };
+
+test('rejoin() asks the platform for the match this player was in and goes straight back into it', async () => {
+  const p = platform(RUNNING), sdk = loadSdk(undefined, p.over), seen = [];
+  const m = sdk.GCP.match.rejoin({ predict: move });
+  for (const e of ['found', 'start', 'none', 'close', 'error']) m.on(e, (x) => seen.push([e, x]));
+  assert.equal(m.phase, 'rejoining'); assert.equal(sdk.sockets.length, 0, 'no matchmaker: nothing is searched');
+  await settle();
+  assert.equal(p.asked.length, 1);
+  assert.equal(p.asked[0].url, 'https://p.example/api/rt/match-current'); assert.deepEqual(p.asked[0].body, { t: 'tok' });
+  assert.equal(sdk.sockets.length, 1);
+  assert.equal(sdk.sockets[0].url, 'wss://g.example/play/g/__gcp/match?t=AGAIN');
+  assert.deepEqual(JSON.parse(JSON.stringify(seen)), [['found', { match: 'abc', players: [{ id: 'me' }, { id: 'op' }], region: 'weur', queue: 'ranked', mode: 'hard', rejoin: true }]]);
+  assert.equal(m.queue, 'ranked'); assert.equal(m.mode, 'hard'); assert.equal(m.rejoined, true);
+  const ws = sdk.sockets[0]; ws.open();
+  ws.recv({ t: 'hello', you: 'me', match: 'abc', tickRate: 10, maxRewindMs: 0, phase: 'running', k: 420, players: RUNNING.players, ack: 0 });
+  ws.recv({ t: 's', k: 421, f: 1, a: 0, d: { players: { me: { x: 2 }, op: { x: 5 } }, round: 7 } });
+  assert.equal(m.phase, 'running'); assert.equal(m.state.round, 7); assert.equal(seen.at(-1)[0], 'start');
+  m.input({ mx: 1 }); sdk.advance(500);
+  assert.ok(ws.sent.filter((x) => x.t === 'i').length >= 4, 'inputs go out as after find()');
+  assert.ok(!seen.some(([e]) => e === 'none' || e === 'error'));
+});
+
+test('rejoin() answers none when there is nothing to go back to: no match, the match is over, or the place is gone', async () => {
+  // the platform knows no running match
+  let p = platform(null), sdk = loadSdk(undefined, p.over), seen = [];
+  let m = sdk.GCP.match.rejoin({}); for (const e of ['found', 'start', 'none', 'close', 'error']) m.on(e, (...a) => seen.push([e, ...a.filter((x) => x !== undefined)]));
+  await settle();
+  assert.deepEqual(seen, [['none'], ['close', 0, 'none']]); assert.equal(m.phase, 'closed'); assert.equal(sdk.sockets.length, 0);
+  // the platform cannot be reached, or the game runs from a file: the same quiet answer, never an error
+  for (const sdk2 of [loadSdk(), loadSdk(null)]) {
+    const got = []; const m2 = sdk2.GCP.match.rejoin({}); for (const e of ['none', 'close', 'error']) m2.on(e, () => got.push(e));
+    await settle(); sdk2.advance(10);
+    assert.deepEqual(got, ['none', 'close']);
+  }
+  // the match ended meanwhile (4004), or this player left it or was away too long (4003): not retried
+  for (const code of [4004, 4003]) {
+    p = platform(RUNNING); sdk = loadSdk(undefined, p.over); seen = [];
+    m = sdk.GCP.match.rejoin({}); for (const e of ['start', 'none', 'close']) m.on(e, (...a) => seen.push([e, ...a.filter((x) => x !== undefined)]));
+    await settle();
+    sdk.sockets[0].open(); sdk.sockets[0].drop(code, 'over');
+    sdk.advance(5000);
+    assert.deepEqual(seen, [['none'], ['close', code, 'over']]); assert.equal(sdk.sockets.length, 1);
+  }
+});
+
+test('leaving a match on purpose tells the match, and rejoin() does not lead back into it', async () => {
+  const p = platform(RUNNING), sdk = loadSdk(undefined, p.over);
+  const m = sdk.GCP.match.find({});
+  const ws = found(sdk, m);
+  m.leave();
+  assert.deepEqual(ws.sent.at(-1), { t: 'bye' }); assert.equal(ws.closedWith, 1000);
+  // the same browser opens the game again: the platform may still list the match (it has not reported its end)
+  const again = loadSdk(undefined, p.over), seen = [];
+  const r = again.GCP.match.rejoin({}); for (const e of ['found', 'none']) r.on(e, () => seen.push(e));
+  await settle();
+  assert.deepEqual(seen, ['none']); assert.equal(again.sockets.length, 0);
+  // a later match is another match
+  const next = platform({ ...RUNNING, match: 'def' }); next.over.localStorage = p.over.localStorage;
+  const third = loadSdk(undefined, next.over), seen3 = [];
+  third.GCP.match.rejoin({}).on('found', () => seen3.push('found'));
+  await settle();
+  assert.deepEqual(seen3, ['found']);
+  // a match that closed for good (the connection was lost, another tab took it over) is not left by tidying up afterwards
+  for (const code of [1006, 4002]) {
+    const lost = platform(RUNNING), sdk5 = loadSdk(undefined, lost.over), m5 = sdk5.GCP.match.find({});
+    const ws5 = found(sdk5, m5);
+    ws5.drop(code);
+    for (let i = 0; i < 8 && m5.phase !== 'closed'; i++) { sdk5.advance(10_000); const s = sdk5.sockets.at(-1); if (s.readyState !== 3) s.drop(1006); }   // every retry fails
+    assert.equal(m5.phase, 'closed', `close ${code}`);
+    m5.leave();
+    assert.equal(lost.store.size, 0, `close ${code}: nothing marked`);
+  }
+  // a page that was only closed sends no goodbye: nothing is marked, the player may come back
+  const q = platform(RUNNING), sdk4 = loadSdk(undefined, q.over);
+  found(sdk4, sdk4.GCP.match.find({}));
+  assert.equal(q.store.size, 0);
 });

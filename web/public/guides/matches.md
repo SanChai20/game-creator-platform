@@ -34,6 +34,7 @@ export default {
   tickRate: 30,            // steps a second, 10 to 60
   snapshotRate: 30,        // snapshots a second, at most tickRate (a divisor of it is best)
   maxRewindMs: 200,        // how far back hit checks may look, at most 400
+  // rejoinMs: 600000,     // let a player who reloaded or closed the browser come back for this long (see "Coming back")
 
   init(ctx) {              // ctx.players: [{ id, name, team }] of the players present
     const s = { players: {}, over: false };
@@ -41,7 +42,7 @@ export default {
     return s;              // the match state: plain JSON (numbers, strings, arrays, objects)
   },
   join(s, p) { s.players[p.id] = { x: 0, y: 0, a: 0, hp: 100, kills: 0, team: p.team }; },   // late arrival
-  leave(s, p) { delete s.players[p.id]; },                                                 // gone for good
+  leave(s, p) { delete s.players[p.id]; },                                                 // left, or away too long
 
   // One input of one player. Treat every field as hostile: check types, clamp numbers.
   input(s, p, inp, ctx) {
@@ -135,7 +136,27 @@ frame();
 - `view().me` is your entity, predicted. `view().others` is everyone else, played back smoothly. `view().state` is the newest snapshot (scores, the HUD). Fields named `a`, `angle`, `yaw`, `pitch`, `rot` or `heading` blend the short way round; add others with `angles: ['turret']`.
 - The SDK finds entities in `view.players` (or `view.entities`), keyed by player id. If your state keeps them elsewhere, pass `entities: (view) => view.units`.
 - `match.rtt` is the round trip in ms; `match.phase` is `searching`, `connecting`, `running`, `reconnecting`, `ended` or `closed`. A dropped connection reconnects by itself; the player keeps their place for 20 s.
-- `match.cancel()` leaves the queue or the match.
+- `match.cancel()` leaves the queue or the match. Leaving a match is for good: `leave()` runs at once, and `GCP.match.rejoin()` will not lead back into it.
+
+## Coming back to a match
+
+A dropped connection reconnects by itself, and the player keeps their place for 20 s. A page reload or a closed browser is different: the page that held the match is gone. To let those players back in:
+
+1. In `server/match.js`, set `rejoinMs`: how long after the 20 s a player may still come back (up to an hour). When the 20 s are over, `leave(state, player)` runs with `player.final` false, and your rules decide what happens to their things meanwhile (a bot plays for them, their character stands still, their turn is skipped). When they return, `join(state, player)` runs with `player.back` true. If they do not return in time, or they leave on purpose, `leave()` runs once more with `player.final` true.
+2. In the page, call `GCP.match.rejoin(opts)` once when the game opens, before showing the menu as the place to be. It takes the drawing options of `find()` (`predict`, `entities`, `angles`, `delay`) and returns the same match object.
+
+```js
+const back = GCP.match.rejoin({ predict });
+back.on('start', () => showMatch(back));     // back in: snapshots, events and inputs work as after find()
+back.on('none', () => showMenu());           // no match to go back to: it is over, or the player left it
+```
+
+- `found` fires first with `{ match, players, queue, mode, rejoin: true }`; `match.queue` and `match.mode` say which kind of match it is.
+- `none` (then `close`) is the ordinary answer when there is nothing to go back to. Show the menu.
+- The state is whatever your rules made of it while the player was away. Draw from the first snapshot; do not assume the round the player left in.
+- While a player may still come back, the match is not ended for being empty. End it from `tick()` when it has no reason to go on (everyone has been away for some minutes), or it runs until the last `rejoinMs` is over.
+- A match is lost when the game is deployed again while it runs; `rejoin()` then answers `none`.
+- Opened in a second tab, the game takes the match over there and the first tab's connection closes (code 4002).
 
 ## Rules of thumb
 
@@ -158,6 +179,7 @@ frame();
 | One snapshot | 64 KB per player |
 | Waiting for players | 15 s, then the match starts with at least `min` |
 | Reconnecting | 20 s, then `leave()` runs |
+| Coming back after a reload | `rejoinMs` after that, 0 (never) by default, at most 1 hour |
 | Duration | 1 hour |
 | Errors | more than 10 errors in your code within 100 ticks stops the match; a player whose inputs keep making `input()` throw is removed |
 

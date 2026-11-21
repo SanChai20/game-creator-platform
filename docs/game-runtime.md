@@ -72,6 +72,11 @@ What no script can fix is caught before publishing:
 
 ## Versions
 
+- **2.5.0** — New: `GCP.match.rejoin()`. A player who reloads the page or closes the browser during a server-run match
+  can be put back into it: the game calls `rejoin()` when it opens and gets the running match, or `none`. It works for
+  games whose `server/match.js` sets `rejoinMs`. `match.cancel()` now tells the match that the player left on purpose, so
+  their place is given up at once instead of after the grace time. Nothing changes for a game that does not call it.
+
 - **2.4.0** — New: `splash-handoff`. The platform's splash covers the stage while the platform starts the game and fades
   into the game's own loading screen only once that screen is drawn and settled, so the first, half-built frames of a
   loading screen (blank, a different size, text not yet filled in) are never seen.

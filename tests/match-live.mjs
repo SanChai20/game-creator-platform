@@ -70,8 +70,12 @@ before(async () => {
   copyFileSync(new URL('../src/runtime/server/index.js', import.meta.url), join(dir, 'server/index.js'));
   writeFileSync(join(dir, 'server/match.js'), MATCH);
   writeFileSync(join(dir, 'shared/rules.js'), RULES);
+  // The local runtime refuses a main module that exports anything but handlers and classes (game-worker.js also exports
+  // its helpers for the platform's own code and for tests), so the test enters through a module that passes on only
+  // what a deployed game Worker is asked for: the fetch handler and the match class.
+  writeFileSync(join(dir, 'entry.js'), "import worker, { GameMatch } from './game-worker.js';\nexport { GameMatch };\nexport default worker;\n");
   writeFileSync(join(dir, 'wrangler.jsonc'), JSON.stringify({
-    name: 'gcp-match-test', main: 'game-worker.js', compatibility_date: '2026-10-01',
+    name: 'gcp-match-test', main: 'entry.js', compatibility_date: '2026-10-01',
     durable_objects: { bindings: [{ name: 'MATCH', class_name: 'GameMatch' }] },
     migrations: [{ tag: 'gcp-match-v1', new_sqlite_classes: ['GameMatch'] }],
     vars: { PLAY_KEY, STORE_KEY: 'store-key', GAME_ID: GAME, ENV, PLATFORM: platformUrl, PREFIX: 'g/1/', SLUG: 'g', TITLE: 'G', VERSION: '1', MANIFEST: '{}' },
@@ -91,8 +95,9 @@ after(() => { try { process.kill(-dev.pid, 'SIGTERM'); } catch { /* gone */ } pl
 const matchId = () => [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
 
 /** A bot: connects with its ticket, sends an input every tick, records snapshots and when each input was acknowledged. */
-async function bot(m, u, roster, { o = {}, hz = 30, input = () => ({ mx: 1 }) } = {}) {
-  const ticket = await signTicket({ m, u, n: u, r: roster, o });
+async function bot(m, u, roster, { o = {}, hz = 30, input = () => ({ mx: 1 }), rejoin = false } = {}) {
+  // a ticket for coming back (/api/rt/match-current) names the match and the roster, but not how to start it
+  const ticket = await signTicket({ m, u, n: u, r: roster, o, ...(rejoin ? { rj: 1, seed: undefined, min: undefined } : {}) });
   const ws = new WebSocket(`${BASE}/__gcp/match?t=${encodeURIComponent(ticket)}`);
   const b = { u, ws, got: [], snaps: [], states: [], state: null, events: [], sentAt: new Map(), ackMs: [], n: 0, ack: 0, closed: null, end: null, hello: null };
   b.closed = new Promise((r) => { ws.onclose = (ev) => { clearInterval(b.timer); r(ev.code); }; });
@@ -167,6 +172,35 @@ test('a duel runs at 30 ticks a second, acknowledges inputs quickly, rewinds hit
   // the match is over for good: a ticket for it is refused now
   const again = await bot(m, 'a', roster);
   assert.equal(await again.closed, 4004);
+});
+
+test('a ticket for coming back leads into the running match and never starts one; a player who said goodbye stays out', async () => {
+  const m = matchId(), roster = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], o = { endAfter: 9000 };
+  // nobody has connected yet: a rejoin ticket does not start the match
+  const early = await bot(m, 'a', roster, { o, rejoin: true });
+  assert.equal(await early.closed, 4004);
+  const a = await bot(m, 'a', roster, { o }), b = await bot(m, 'b', roster, { o });
+  assert.ok(await until(() => a.snaps.length > 20 && b.snaps.length > 20), 'the match runs (the refused ticket left nothing behind)');
+  // a's page is reloaded: the connection ends without a word, and the new page comes with a new ticket
+  const x = a.state.players.a.x, k = a.snaps.at(-1).k;
+  a.ws.close(); await a.closed;
+  await sleep(300);
+  const a2 = await bot(m, 'a', roster, { o, rejoin: true });
+  assert.ok(await until(() => a2.snaps.length > 5), 'back in');
+  assert.equal(a2.hello.phase, 'running'); assert.ok(a2.hello.k > k, 'the match went on meanwhile');
+  assert.equal(a2.snaps[0].f, 1, 'the first snapshot is whole');
+  assert.ok(a2.state.players.a.x >= x, `their things are where the match left them (${a2.state.players.a.x} from ${x})`);
+  assert.ok(a2.state.players.b, 'and the others are there');
+  // b leaves on purpose: leave() runs at once (no grace time), and no ticket leads back in
+  b.ws.send(JSON.stringify({ t: 'bye' }));
+  assert.equal(await b.closed, 1000);
+  assert.ok(await until(() => !a2.state.players.b, 2000), 'gone from the match within a moment, not after 20 s');
+  const b2 = await bot(m, 'b', roster, { o, rejoin: true });
+  assert.equal(await b2.closed, 4003);
+  const b3 = await bot(m, 'b', roster, { o });
+  assert.equal(await b3.closed, 4003, 'nor does the ticket they had');
+  assert.ok(await until(() => a2.end, 12_000));
+  await a2.closed;
 });
 
 test('a reconnecting player picks up where they were; a second tab takes over; a flood or broken inputs do not hurt the others', async () => {
