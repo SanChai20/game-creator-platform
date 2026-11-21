@@ -10,6 +10,11 @@
 .stage.filled.edge iframe { inset: 0; width: 100%; height: 100%; }
 /* iPhone Safari has no element fullscreen: the stage covers the visible viewport instead. */
 .stage.immersive { position: fixed; inset: 0; z-index: calc(var(--z-toast) - 1); width: 100vw; height: 100vh; height: 100dvh; touch-action: none; overscroll-behavior: none; }
+/* Filling the screen beats every size a page gives the stage inline (the console's preview dialog sizes it from the
+   window height, which on a phone in landscape left a narrow strip with the dialog showing around it). */
+.stage.immersive { width: 100vw !important; height: 100vh !important; height: 100dvh !important; max-width: none !important; max-height: none !important; min-width: 0 !important; margin: 0 !important; }
+.stage:fullscreen { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; margin: 0 !important; }
+.stage:-webkit-full-screen { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; margin: 0 !important; aspect-ratio: auto; border-radius: 0; }
 .stage iframe { touch-action: manipulation; }
 html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none; }
 
