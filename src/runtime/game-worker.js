@@ -227,6 +227,30 @@ function rehome(imports, platform) {
   return out;
 }
 
+const FONT_FILE = /\.(woff2|woff|ttf|otf)$/i;
+/** The fonts a game page loads up front (the FONTS binding, from the version's file list): its font files, woff2 only
+    when it has any, none from server code, at most 8 and 1.5 MB together, smallest first. A big font (a whole CJK face)
+    is left to load when the game asks for it, so the page is never held back by it. */
+export function fontPreloads(files) {
+  let all = [];
+  try { all = JSON.parse(files || '[]'); } catch { all = []; }
+  if (!Array.isArray(all)) return [];
+  all = all.filter((f) => f && typeof f.path === 'string' && FONT_FILE.test(f.path) && !/^(server|shared)\//.test(f.path) && !f.path.includes('..'));
+  const woff2 = all.filter((f) => /\.woff2$/i.test(f.path));
+  const pick = (woff2.length ? woff2 : all).filter((f) => (+f.size || 0) <= 600_000).sort((a, b) => (+a.size || 0) - (+b.size || 0) || a.path.localeCompare(b.path));
+  const out = []; let bytes = 0;
+  for (const f of pick) { if (out.length >= 8 || bytes + (+f.size || 0) > 1_500_000) break; out.push(f.path); bytes += +f.size || 0; }
+  return out;
+}
+
+/** Where the version's fonts are served from, as this page will ask for them (the FONTS binding holds the bundle paths
+    fontPreloads chose). */
+function fontHrefs(env, base) {
+  let list = [];
+  try { list = JSON.parse(env.FONTS || '[]'); } catch { list = []; }
+  return Array.isArray(list) ? list.filter((p) => typeof p === 'string' && p && !p.includes('..')).slice(0, 8).map((p) => `${base}/${encodeURI(p.replace(/^\/+/, ''))}`) : [];
+}
+
 function inject(html, env, auth, token, base) {
   const manifest = JSON.parse(env.MANIFEST || '{}');
   if (manifest.imports) manifest.imports = rehome(manifest.imports, env.PLATFORM);
@@ -234,7 +258,13 @@ function inject(html, env, auth, token, base) {
     api: env.PLATFORM, token, gameId: env.GAME_ID, slug: env.SLUG, title: env.TITLE, version: Number(env.VERSION), env: env.ENV, base,
     player: { id: auth.u, name: auth.n, guest: String(auth.u).startsWith('guest_') }, kind: auth.k, session: auth.s,
   };
-  let head = `<script>window.__GCP_CONFIG=${JSON.stringify(cfg).replace(/</g, '\\u003c')}</script><script src="${env.PLATFORM}/sdk/gcp.js"></script>`;
+  // The game's fonts start downloading with the page instead of when its code first draws text, and the SDK keeps the
+  // page out of sight until they are in (the runtime's font-ready fix), so a loading screen is never drawn in a stand-in
+  // font first and then again in the game's own once it arrives.
+  const fonts = fontHrefs(env, base);
+  if (fonts.length) cfg.fonts = fonts;
+  let head = fonts.map((h) => `<link rel="preload" as="font" href="${esc(h)}" crossorigin data-gcp-font>`).join('')
+    + `<script>window.__GCP_CONFIG=${JSON.stringify(cfg).replace(/</g, '\\u003c')}</script><script src="${env.PLATFORM}/sdk/gcp.js"></script>`;
   // One import map for the whole page. If the game wrote its own, leave it alone (browsers only honour the first).
   if (manifest.imports && Object.keys(manifest.imports).length && !/<script[^>]+type=["']importmap["']/i.test(html)) {
     head += `<script type="importmap">${JSON.stringify({ imports: manifest.imports }).replace(/</g, '\\u003c')}</script>`;

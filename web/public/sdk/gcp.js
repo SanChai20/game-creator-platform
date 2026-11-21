@@ -29,8 +29,43 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.1.0', fixes: {} };
+  var RT = S.runtime = { version: '2.2.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
+
+  // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
+  // still on their way: the first frames come out in a stand-in font and the screen changes look (size, spacing, weight)
+  // when the real one arrives, part way through loading. The game Worker starts the version's fonts with the page
+  // (<link rel=preload data-gcp-font>, listed in cfg.fonts); until they are in, and the fonts the page has asked for by
+  // then are ready, the page stays out of sight. The game keeps running underneath, so its next frame is drawn in its own
+  // font. Never longer than FONT_HOLD_MS, and no longer once the game is ready or has failed.
+  var FONT_HOLD_MS = 2500;
+  var fontHold = { on: false, release: function () { } };
+  (function () {
+    var list = cfg && cfg.fonts, h = document.documentElement;
+    if (!list || !list.length || !h || typeof Promise !== 'function') return;
+    var st;
+    try { st = document.createElement('style'); st.id = 'gcp-font-hold'; st.textContent = 'html{visibility:hidden!important}'; (document.head || h).appendChild(st); } catch (e) { return; }
+    fontHold.on = fix('font-ready', true);
+    var done = false;
+    var release = fontHold.release = function () { if (done) return; done = true; fontHold.on = false; try { st.remove(); } catch (e) { if (st.parentNode) st.parentNode.removeChild(st); } };
+    setTimeout(release, FONT_HOLD_MS);
+    var waits = [];
+    try {
+      var links = document.querySelectorAll('link[data-gcp-font]');
+      for (var i = 0; i < links.length; i++) (function (l) {
+        waits.push(new Promise(function (res) {
+          var seen = false; try { seen = performance.getEntriesByName(l.href).length > 0; } catch (e) { /* no timing */ }
+          if (seen) return res();
+          l.addEventListener('load', res); l.addEventListener('error', res);
+        }));
+      })(links[i]);
+    } catch (e) { /* no DOM query */ }
+    waits.push(new Promise(function (res) { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { res(); }); else res(); }));
+    var frame = function (fn) { if (typeof requestAnimationFrame === 'function') requestAnimationFrame(fn); else setTimeout(fn, 16); };
+    Promise.all(waits)
+      .then(function () { return document.fonts && document.fonts.ready; })
+      .then(function () { frame(function () { frame(release); }); }, release);
+  })();
 
   // Keep the play token out of the address bar (the game Worker also set it as a cookie).
   if (q.has('gcp_t')) { try { q.delete('gcp_t'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); } catch (e) { /* sandboxed */ } }
@@ -1647,6 +1682,7 @@
     progress: function (f, label) { P.progress++; S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); if (S.ready) S.busy = S.progress < 1; },
     /** Call once when the first playable frame is on screen. Required. */
     ready: function (info) {
+      fontHold.release();
       if (S.ready) return; S.ready = true; S.readyAt = performance.now(); S.progress = 1; if (info) S.stats = info;
       if (GCP.test.autostart) setTimeout(function () { autostartFns.forEach(function (fn) { try { fn(); } catch (e) { note(S.errors, 'autostart hook threw: ' + (e && e.message || e)); } }); }, 0);
       if (!standalone) { api('beat', { frames: S.frames, active: false, first: true, loadMs: Math.round(S.readyAt - S.boot) }).then(onBeat).catch(function () { }); }
@@ -1654,7 +1690,7 @@
     /** GPU warm-up (see above): automatic for three.js while loading; warmup(renderer, scene|scenes, camera) and upload(renderer, textures) on request. */
     gpu: GPU,
     /** Call when the game cannot start. Shows up as the failure reason in verification. */
-    fatal: function (err) { S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },
+    fatal: function (err) { fontHold.release(); S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },
     /** Optional numbers for reports and the console (draw calls, triangles, quality, …). */
     stats: function (obj) { S.stats = obj; },
     /** Per-player cloud saves (JSON, 256 KB per key). Falls back to localStorage offline. */

@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const SDK = fs.readFileSync(new URL('../web/public/sdk/gcp.js', import.meta.url), 'utf8');
 
 /** Runs the SDK in a small fake page. before(ctx) runs in the page first (to take features away, as an old browser would). */
-function load({ framed = true, before = '', storageThrows = false, navigator = {} } = {}) {
+function load({ framed = true, before = '', storageThrows = false, navigator = {}, styles = [] } = {}) {
   const noop = () => {}, listeners = {}, posted = [], timers = [];
   class Element extends EventTarget { constructor(id) { super(); this.id = id; this.attrs = {}; this.isConnected = true; } setAttribute(k, v) { this.attrs[k] = v; } removeAttribute(k) { delete this.attrs[k]; } }
   class Document extends EventTarget {}
@@ -26,7 +26,7 @@ function load({ framed = true, before = '', storageThrows = false, navigator = {
     addEventListener: win.addEventListener, matchMedia: () => ({ matches: false, addEventListener: noop }), screen: { width: 1920, height: 1080 },
     document: doc, Element, Document, EventTarget, Event, DOMException, getComputedStyle: () => ({}),
     performance: { now: () => 0, timeOrigin: 1.7e12 }, setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout: noop, setInterval: () => 0, clearInterval: noop,
-    fetch: () => Promise.reject(new Error('offline')), Blob: class {}, Int8Array, Uint8Array, Float32Array, ArrayBuffer, DataView, Map, Set, WeakMap, WeakSet, Reflect, Symbol, Promise,
+    __styles: styles, fetch: () => Promise.reject(new Error('offline')), Blob: class {}, Int8Array, Uint8Array, Float32Array, ArrayBuffer, DataView, Map, Set, WeakMap, WeakSet, Reflect, Symbol, Promise,
   };
   if (framed) ctx.__GCP_CONFIG = { api: 'https://p.example', token: '', gameId: 'g', version: 1, env: 'live', base: '', player: { id: 'u', name: 'U' }, kind: 'player', session: 's' };
   win.window = win; Object.assign(win, ctx);
@@ -124,3 +124,42 @@ test('screen.orientation.lock() asks the player; a stand-in exists where the bro
   assert.deepEqual({ ...posted.at(-1) }, { gcp: 'display_prefs', orientation: 'portrait' });
   assert.ok(GCP.runtime.fixes.includes('orientation-lock'));
 });
+
+test('font-ready: the page stays out of sight until the fonts the platform started are in, and never longer than the cap', async () => {
+  const styles = [];
+  const before = `document.head.appendChild = (el) => { el.remove = () => { el.removed = true; }; __styles.push(el); };
+    document.createElement = () => ({ style: {}, setAttribute() {}, getContext: () => null });
+    document.readyState = 'complete'; document.fonts = { ready: Promise.resolve() };`;
+  // no fonts listed: nothing is held
+  const plain = load();
+  assert.equal(plain.GCP.runtime.fixes.includes('font-ready'), false);
+  // fonts listed: held, then shown once they are ready
+  const { win } = (() => { const l = loadWithFonts(before, styles); return l; })();
+  const hold = styles.filter((s) => s.id === 'gcp-font-hold');
+  assert.equal(hold.length, 1);
+  assert.match(hold[0].textContent, /visibility:hidden/);
+  assert.ok(win.GCP.runtime.fixes.includes('font-ready'));
+  await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0));
+  win.__frames.splice(0).forEach((f) => f()); win.__frames.splice(0).forEach((f) => f());
+  assert.equal(hold[0].removed, true);
+});
+
+test('font-ready: the cap shows the page even if a font never arrives, and ready() shows it at once', () => {
+  const styles = [];
+  const before = `document.head.appendChild = (el) => { el.remove = () => { el.removed = true; }; __styles.push(el); };
+    document.createElement = () => ({ style: {}, setAttribute() {}, getContext: () => null });
+    document.readyState = 'loading'; document.fonts = { ready: new Promise(() => {}) };`;
+  const holds = () => styles.filter((s) => s.id === 'gcp-font-hold');
+  const a = loadWithFonts(before, styles);
+  assert.equal(holds()[0].removed, undefined);
+  a.flush();   // the timers run: the cap among them
+  assert.equal(holds()[0].removed, true);
+  const b = loadWithFonts(before, styles);
+  assert.equal(holds()[1].removed, undefined);
+  b.GCP.ready();
+  assert.equal(holds()[1].removed, true);
+});
+
+function loadWithFonts(before, styles) {
+  return load({ before: `__GCP_CONFIG.fonts = ['/fonts/a.woff2']; window.__styles = __styles; window.__frames = []; window.requestAnimationFrame = (f) => { window.__frames.push(f); return 1; }; requestAnimationFrame = window.requestAnimationFrame; ${before}`, styles });
+}
