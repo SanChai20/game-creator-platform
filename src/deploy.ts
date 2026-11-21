@@ -7,6 +7,8 @@ import { AppError, type Env, type Project, type Version } from './env';
 import { GAME_INTRINSICS_SOURCE, GAME_MATCH_CORE_SOURCE, GAME_WORKER_SOURCE } from './generated/runtime-source';
 import { getSettings, getState, setState } from './settings';
 import { hmacHex, now, parseJson, sha256 } from './util';
+// @ts-ignore plain JS module
+import { fontPreloads } from './runtime/game-worker.js';
 import { getVersion, verKey } from './projects';
 import {
   GAME_COMPAT_DATE, GAME_COMPAT_FLAGS, GAME_MAIN_MODULE, MATCH_MIGRATION_TAG, RETIRE_AFTER_MS, gameLimits, gameUrlFor, hostId, hostKind,
@@ -119,6 +121,7 @@ export async function gameBindings(env: Env, origin: string, p: Project, v: Vers
     PREFIX: verKey(p.id, v.n, ''), PLATFORM: origin, GAME_ID: p.id, SLUG: p.slug, TITLE: p.title, VERSION: String(v.n), ENV: e,
     // the game Worker needs the import map and flags, not the compatibility record (bindings are size-limited)
     MANIFEST: (() => { try { const { compat: _c, meta: _m, controls: _t, ...m } = JSON.parse(v.manifest || '{}'); return JSON.stringify(m); } catch { return v.manifest; } })(), PLAY_KEY: await playKey(env, p.id), STORE_KEY: await storeKey(env, p.id, e),
+    FONTS: JSON.stringify(fontPreloads(v.files)),
   };
 }
 

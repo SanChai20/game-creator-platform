@@ -1,7 +1,7 @@
 // The game Worker never serves the game's server code as a file, however the path is spelled.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { handle, isServerPath, signPlayToken } from '../src/runtime/game-worker.js';
+import { fontPreloads, handle, isServerPath, signPlayToken } from '../src/runtime/game-worker.js';
 
 test('every spelling of a server/ path is recognised', () => {
   for (const p of ['/server/index.js', '/server/', '/server', '//server/index.js', '/./server/a.js', '/x/../server/a.js', '/server/sub/b.js', 'server/index.js'])
@@ -140,4 +140,28 @@ test('a deployed game Worker has no bucket: files come from the platform with th
   assert.equal(launch.status, 302);
   const page = await mod.handle(new Request('https://g.example' + launch.headers.get('location')), env, {});
   assert.equal(page.status, 200); assert.match(await page.text(), /__GCP_CONFIG/);
+});
+
+test('the game page starts the version\'s fonts with the page and tells the SDK which they are', async () => {
+  const files = JSON.stringify([
+    { path: 'index.html', size: 900 }, { path: 'fonts/titan.woff2', size: 10_000 }, { path: 'fonts/fredoka.woff2', size: 29_000 },
+    { path: 'fonts/fredoka.ttf', size: 90_000 }, { path: 'fonts/cjk.woff2', size: 4_000_000 }, { path: 'server/f.woff2', size: 100 },
+  ]);
+  // woff2 only when there is any, small first, no whole CJK face, nothing from server code
+  assert.deepEqual(fontPreloads(files), ['fonts/titan.woff2', 'fonts/fredoka.woff2']);
+  assert.deepEqual(fontPreloads(JSON.stringify([{ path: 'a/b.ttf', size: 50_000 }])), ['a/b.ttf']);
+  assert.deepEqual(fontPreloads('[]'), []);
+
+  const html = '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
+  const env = { PREFIX: 'v/', GAME_ID: 'abc123', ENV: 'live', PLAY_KEY: 'k', PLATFORM: 'https://p', MANIFEST: '{}', FONTS: JSON.stringify(fontPreloads(files)),
+    FILES: { get: async () => ({ text: async () => html, body: html, size: html.length, httpEtag: '"e"', httpMetadata: {} }) } };
+  const tok = await signPlayToken({ g: 'abc123', e: 'live', u: 'u1', n: 'P', s: 'pl_1', k: 'verify', x: Math.floor(Date.now() / 1000) + 600 }, 'k');
+  const page = await (await handle(new Request(`https://g.example/~t/${tok}/index.html`), env, {})).text();
+  const head = page.slice(0, page.indexOf('<meta'));
+  assert.ok(head.includes(`<link rel="preload" as="font" href="/~t/${tok}/fonts/titan.woff2" crossorigin data-gcp-font>`), head);
+  assert.ok(head.indexOf('data-gcp-font') < head.indexOf('/sdk/gcp.js'), 'the preloads come before the SDK, which looks for them');
+  assert.match(head, /"fonts":\["\/~t\/[^"]+\/fonts\/titan\.woff2","\/~t\/[^"]+\/fonts\/fredoka\.woff2"\]/);
+  // a version with no fonts gets neither
+  const bare = await (await handle(new Request(`https://g.example/~t/${tok}/index.html`), { ...env, FONTS: '[]' }, {})).text();
+  assert.ok(!bare.includes('data-gcp-font') && !bare.includes('"fonts"'));
 });
