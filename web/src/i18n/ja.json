@@ -1616,13 +1616,6 @@
  "This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).": "この画像は画面から直接撮ったものではなく、ゲームページが描き直したものです。実際の表示（アイコン、フォント、エフェクトなど）と異なる場合があります。",
  "Only the game's canvas is in it: this browser could not draw the menus and panels over it.": "ゲームのキャンバスだけが写っています。このブラウザーではその上のメニューやパネルを描けませんでした。",
  "This browser cannot share a tab, so an exact picture is not possible here.": "このブラウザーはタブを共有できないため、ここでは正確な画像を撮れません。",
- "For exact pictures in fullscreen, turn on Exact screenshots below the game first.": "全画面で正確な画像を撮るには、先にゲームの下の「正確なスクリーンショット」をオンにしてください。",
- "Sharing this tab did not give a picture; try Exact screenshots again.": "タブの共有から画像を取得できませんでした。「正確なスクリーンショット」をもう一度お試しください。",
- "For an exact picture, allow sharing this tab when the browser asks (Exact screenshots, below the game).": "正確な画像にするには、ブラウザーに聞かれたらこのタブの共有を許可してください（ゲームの下の「正確なスクリーンショット」）。",
- "Screenshots are taken from this tab exactly as you see it. Stop sharing the tab.": "スクリーンショットはこのタブから見たとおりに撮られます。タブの共有を停止します。",
- "Let the browser share this tab once, so screenshots show exactly what you see. It stops when you close the preview.": "ブラウザーにこのタブを一度共有させると、スクリーンショットが見たとおりになります。プレビューを閉じると停止します。",
- "Exact screenshots: on": "正確なスクリーンショット：オン",
- "Exact screenshots": "正確なスクリーンショット",
  "Choose a picture (PNG or JPEG).": "画像（PNG または JPEG）を選んでください。",
  "That picture is too large.": "その画像は大きすぎます。",
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "自分で撮ったスクリーンショットをここに貼り付けるか、「自分のスクリーンショットを使う」で選ぶこともできます。",
@@ -1672,5 +1665,9 @@
  "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "描いたフレームをそのまま渡さないバージョンを不合格にする（キャプチャ検査：見えるものをすべてキャンバスに描き、GCP.test.onCapture と onState を登録）。不合格にするのは公開中のゲームのバージョンだけで、ほかのゲームには注記のみ。オフでは報告のみで不合格にしない",
  "Interface size": "UIサイズ",
  "Smaller": "小さく",
- "Larger": "大きく"
+ "Larger": "大きく",
+ "For an exact picture, leave fullscreen and press Capture feedback again: the browser asks to share this tab once.": "正確な画像を撮るには、全画面を終了してからもう一度「フィードバックを撮る」を押してください。ブラウザがこのタブの共有を一度だけ尋ねます。",
+ "Sharing this tab did not give a picture; press Capture feedback again.": "タブの共有から画像を取得できませんでした。もう一度「フィードバックを撮る」を押してください。",
+ "For an exact picture, allow sharing this tab when the browser asks after you press Capture feedback.": "正確な画像を撮るには、「フィードバックを撮る」を押したあとブラウザに尋ねられたら、このタブの共有を許可してください。",
+ "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "自分のフレームを渡すゲーム（GCP.test.onCapture）では、いつでも正確な画像になります。"
 }

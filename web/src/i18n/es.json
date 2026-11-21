@@ -1615,13 +1615,6 @@
  "This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).": "Esta imagen la volvió a dibujar la página del juego, no se tomó de tu pantalla, así que puede diferir de lo que viste (iconos, fuentes, efectos).",
  "Only the game's canvas is in it: this browser could not draw the menus and panels over it.": "Solo contiene el lienzo del juego: este navegador no pudo dibujar los menús y paneles que hay encima.",
  "This browser cannot share a tab, so an exact picture is not possible here.": "Este navegador no puede compartir una pestaña, así que aquí no es posible una imagen exacta.",
- "For exact pictures in fullscreen, turn on Exact screenshots below the game first.": "Para imágenes exactas en pantalla completa, activa primero Capturas exactas debajo del juego.",
- "Sharing this tab did not give a picture; try Exact screenshots again.": "Compartir esta pestaña no dio ninguna imagen; vuelve a probar Capturas exactas.",
- "For an exact picture, allow sharing this tab when the browser asks (Exact screenshots, below the game).": "Para una imagen exacta, permite compartir esta pestaña cuando el navegador lo pregunte (Capturas exactas, debajo del juego).",
- "Screenshots are taken from this tab exactly as you see it. Stop sharing the tab.": "Las capturas se toman de esta pestaña tal como la ves. Dejar de compartir la pestaña.",
- "Let the browser share this tab once, so screenshots show exactly what you see. It stops when you close the preview.": "Deja que el navegador comparta esta pestaña una vez y las capturas mostrarán exactamente lo que ves. Se detiene al cerrar la vista previa.",
- "Exact screenshots: on": "Capturas exactas: activadas",
- "Exact screenshots": "Capturas exactas",
  "Choose a picture (PNG or JPEG).": "Elige una imagen (PNG o JPEG).",
  "That picture is too large.": "Esa imagen es demasiado grande.",
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "O haz tú mismo una captura y pégala aquí, o elígela con Usar mi propia captura.",
@@ -1671,5 +1664,9 @@
  "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "Rechazar una versión que no entrega su fotograma exacto (la comprobación de captura: todo lo visible dibujado en lienzos, GCP.test.onCapture y onState registrados); solo rechaza versiones de un juego publicado, a los demás juegos les deja una nota; desactivada, solo lo informa sin rechazarla",
  "Interface size": "Tamaño de la interfaz",
  "Smaller": "Más pequeño",
- "Larger": "Más grande"
+ "Larger": "Más grande",
+ "For an exact picture, leave fullscreen and press Capture feedback again: the browser asks to share this tab once.": "Para una imagen exacta, sal de pantalla completa y vuelve a pulsar Capturar comentario: el navegador pedirá una vez compartir esta pestaña.",
+ "Sharing this tab did not give a picture; press Capture feedback again.": "Compartir esta pestaña no dio ninguna imagen; vuelve a pulsar Capturar comentario.",
+ "For an exact picture, allow sharing this tab when the browser asks after you press Capture feedback.": "Para una imagen exacta, permite compartir esta pestaña cuando el navegador lo pida tras pulsar Capturar comentario.",
+ "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "Un juego que entrega su propio fotograma (GCP.test.onCapture) siempre da la imagen exacta."
 }

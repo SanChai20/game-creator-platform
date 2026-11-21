@@ -1637,13 +1637,6 @@
  "This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).": "這張圖由遊戲頁面重新繪製，並非直接擷取螢幕，因此可能與你看到的畫面有出入（圖示、字型、特效等）。",
  "Only the game's canvas is in it: this browser could not draw the menus and panels over it.": "圖中只有遊戲畫布：此瀏覽器無法繪製其上方的選單和面板。",
  "This browser cannot share a tab, so an exact picture is not possible here.": "此瀏覽器無法分享分頁，因此這裡無法擷取完全一致的畫面。",
- "For exact pictures in fullscreen, turn on Exact screenshots below the game first.": "如需在全螢幕時擷取完全一致的畫面，請先在遊戲下方開啟「精確截圖」。",
- "Sharing this tab did not give a picture; try Exact screenshots again.": "分享分頁未能取得畫面，請再試一次「精確截圖」。",
- "For an exact picture, allow sharing this tab when the browser asks (Exact screenshots, below the game).": "如需完全一致的畫面，請在瀏覽器詢問時允許分享此分頁（遊戲下方的「精確截圖」）。",
- "Screenshots are taken from this tab exactly as you see it. Stop sharing the tab.": "截圖會按你所見直接從此分頁取得。點擊停止分享分頁。",
- "Let the browser share this tab once, so screenshots show exactly what you see. It stops when you close the preview.": "讓瀏覽器分享此分頁一次，截圖就會與你所見完全一致。關閉預覽時自動停止。",
- "Exact screenshots: on": "精確截圖：已開啟",
- "Exact screenshots": "精確截圖",
  "Choose a picture (PNG or JPEG).": "請選擇圖片（PNG 或 JPEG）。",
  "That picture is too large.": "圖片太大。",
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "你也可以自己截圖後貼到這裡，或透過「使用我自己的截圖」選擇。",
@@ -1693,5 +1686,9 @@
  "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "版本未交出它畫出的那一幀時判為不通過（擷幀檢查：所有可見內容都畫在畫布裡，並註冊了 GCP.test.onCapture 和 onState）；只對已上線的遊戲判失敗，其他遊戲只記一條說明；關閉後只回報不判失敗",
  "Interface size": "介面大小",
  "Smaller": "縮小",
- "Larger": "放大"
+ "Larger": "放大",
+ "For an exact picture, leave fullscreen and press Capture feedback again: the browser asks to share this tab once.": "如需完全一致的畫面，請退出全螢幕後再按一次「截圖回饋」：瀏覽器會詢問一次是否分享此分頁。",
+ "Sharing this tab did not give a picture; press Capture feedback again.": "分享分頁未能取得畫面，請再按一次「截圖回饋」。",
+ "For an exact picture, allow sharing this tab when the browser asks after you press Capture feedback.": "如需完全一致的畫面，請在按下「截圖回饋」後瀏覽器詢問時允許分享此分頁。",
+ "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "會自己交出畫面（GCP.test.onCapture）的遊戲，截圖總是完全一致。"
 }
