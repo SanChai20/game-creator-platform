@@ -78,3 +78,20 @@ html:has(.stage.filled), html:has(.stage.filled) body { overscroll-behavior: non
 .stage-card { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
 @media (max-height: 420px) and (orientation: landscape) { .stage-card { width: min(540px, 100%); grid-template-columns: 1fr 1fr; } .stage-card > :not(.stage-btn) { grid-column: 1 / -1; } }
 @media (prefers-reduced-motion: reduce) { .stage-menu { animation: none; } }
+
+/* The platform's splash (player.tsx, Splash): HearthCade's logo over the game frame from the Start click until the game's
+   own loading screen is up, then a fade into it. It covers the whole stage, notch and corners included, and sits under the
+   menu button, the turn-your-phone card and the platform's cards. */
+.stage-splash { position: absolute; inset: 0; z-index: 2; display: grid; place-content: center; justify-items: center; gap: clamp(18px, 4vmin, 30px);
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  background: radial-gradient(ellipse at 50% 46%, #241f2e 0%, #17151c 46%, #0b0a0f 100%); color: #fff7ee; opacity: 1; transition: opacity .36s ease; }
+.stage-splash.out { opacity: 0; pointer-events: none; }
+.splash-mark { display: flex; align-items: center; gap: clamp(12px, 2.6vmin, 20px); animation: splash-in .7s cubic-bezier(.2, .8, .2, 1) both; }
+.splash-mark .logo { width: clamp(44px, 10vmin, 84px); height: clamp(44px, 10vmin, 84px); box-shadow: 0 0 0 1px rgb(255 255 255 / .06), 0 10px 40px rgb(245 40 76 / .28); animation: splash-orb .9s cubic-bezier(.2, .8, .2, 1) both; }
+.splash-mark b { font: 800 clamp(22px, 5.6vmin, 46px)/1 var(--font-display, system-ui, sans-serif); font-stretch: 80%; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+.splash-bar { position: relative; display: block; width: clamp(96px, 22vmin, 180px); height: 2px; border-radius: 2px; overflow: hidden; background: rgb(255 255 255 / .14); animation: splash-in .7s .25s ease both; }
+.splash-bar i { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, transparent, #f5284c, #ffe9d2); animation: splash-run 1.3s ease-in-out infinite; }
+@keyframes splash-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes splash-orb { from { transform: rotate(-35deg) scale(.82); } to { transform: none; } }
+@keyframes splash-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) { .splash-mark, .splash-mark .logo, .splash-bar { animation: none; } .splash-bar i { animation: none; width: 100%; opacity: .5; } .stage-splash { transition-duration: .2s; } }

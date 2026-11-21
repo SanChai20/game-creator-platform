@@ -96,7 +96,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
       sdk: ['GCP.ready(info)', 'GCP.progress(f, label)', 'GCP.fatal(err)', 'GCP.stats(obj)', 'GCP.standalone', 'GCP.sdk', 'GCP.portrait', 'GCP.gpu.warmup(renderer, scenes, camera)', 'GCP.gpu.upload(renderer, textures)', 'GCP.gpu.auto'],
       mcp_tools: ['get_started'],
       limits: { ready_timeout_seconds: s.verify_ready_timeout_s, heartbeat_seconds: 15 },
-      guidelines: ['Call GCP.ready() exactly once, right after the first playable frame is drawn.', 'Never import or bundle the SDK; guard with `if (window.GCP)` only for tests outside the platform.', 'Every SDK call that reaches the network resolves instead of throwing.', 'Report GCP.progress() below 1 while a later level loads, so the SDK warms that load too; warm content drawn into render targets with GCP.gpu.warmup behind the loading screen.'],
+      guidelines: ['Call GCP.ready() exactly once, right after the first playable frame is drawn.', 'Never import or bundle the SDK; guard with `if (window.GCP)` only for tests outside the platform.', 'Every SDK call that reaches the network resolves instead of throwing.', 'The platform shows its HearthCade splash before the game\'s loading screen and fades into it once the page has called GCP.progress() a second time (or 1.2 s passed) and stopped changing for 250 ms, or at GCP.ready()/GCP.fatal(), at most 6 s: set the loading screen\'s text, language and size before that second call, then only move the bar. Draw no platform logo of your own.', 'Report GCP.progress() below 1 while a later level loads, so the SDK warms that load too; warm content drawn into render targets with GCP.gpu.warmup behind the loading screen.'],
       guide: 'contract',
     },
     {

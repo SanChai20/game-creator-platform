@@ -45,6 +45,7 @@ game at once, live ones included, with nothing for the creator to do and nothing
 | `gesture-guard` | In fullscreen | Swipes and pinches reach the game, never the browser (no zoom, no back, no leaving fullscreen) |
 | `safe-area` | Edge-to-edge fullscreen on phones with a notch | The screen's insets as `GCP.display.safe` and `--gcp-safe-*` CSS variables |
 | `gpu-warmup` | Every WebGL game | Parallel shader compiling, and three.js scenes warmed up a few materials at a time while loading |
+| `splash-handoff` | Every game in the platform's player | The player shows the platform's splash (the HearthCade logo) from the Start click and fades it into the game's own loading screen once that screen is up in its final look. The SDK tells the player (`{ gcp: 'shown' }`) when the font hold is over, the game has called `GCP.progress()` a second time (or 1.2 s has passed without it) and the page has not changed for 250 ms (elements, text, classes, the style of `<html>` and `<body>`; not a progress bar's width), at once on `GCP.ready()` or `GCP.fatal()`, and at most 6 s after the page started. The player keeps the splash at least 0.9 s and drops it 8 s after the page loaded if nothing is said. Not in verification or outside the player |
 | `font-ready` | Every game with font files in its bundle | The game Worker preloads the version's fonts with the page (woff2 when there are any, up to 8 and 1.5 MB, none over 600 KB). The page stays out of sight until they and the fonts it has asked for are in, at most 2.5 s and never past `GCP.ready()` or `GCP.fatal()`, so a loading screen is never drawn first in a stand-in font and then again in the game's own |
 
 ## Checks before a version goes live
@@ -70,6 +71,10 @@ What no script can fix is caught before publishing:
   every live game gets it the moment it is deployed.
 
 ## Versions
+
+- **2.4.0** — New: `splash-handoff`. The platform's splash covers the stage while the platform starts the game and fades
+  into the game's own loading screen only once that screen is drawn and settled, so the first, half-built frames of a
+  loading screen (blank, a different size, text not yet filled in) are never seen.
 
 - **2.3.0** — New: `GCP.ui`, the interface scale. A game sets a reference size once (`GCP.ui.configure`) and draws its
   interface in units at `GCP.ui.scale`: the screen against the reference, times the player's Interface size (`GCP.ui.size`,
