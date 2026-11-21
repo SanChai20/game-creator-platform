@@ -27,7 +27,7 @@
   // a worker that draws green
   var off = document.getElementById('w').transferControlToOffscreen();
   var wk = new Worker('/worker.js', { type: 'module' });
-  wk.onmessage = function (e) { if (e.data && 'gl' in e.data) window.workerGL = e.data.gl; };   // some engines have no WebGL in a worker
+  wk.onmessage = function (e) { if (e.data && 'gl' in e.data) window.workerGL = e.data.gl; if (e.data && e.data.drew) window.workerDrew = true; check(); };   // some engines have no WebGL in a worker
   wk.postMessage({ canvas: off }, [off]);
   setInterval(function () { wk.postMessage({ frame: true }); }, 16);
   // this page draws blue
@@ -35,6 +35,10 @@
   (function loop() { gl.clearColor(0.06, 0.2, 0.9, 1); gl.clear(gl.COLOR_BUFFER_BIT); requestAnimationFrame(loop); })();
   // the bar is half-way when the picture is taken (inline width, transitioning)
   requestAnimationFrame(function () { document.getElementById('fill').style.width = '50%'; });
-  setTimeout(function () { var f = document.getElementById('fill'); f.style.transition = 'none'; f.style.width = '50%'; window.ready = true; }, 300);
+  // ready once the bar is settled and the worker has drawn (or has no WebGL): a cold worker (Firefox's software WebGL on CI)
+  // can take longer than the page to start, and a picture taken before its first draw has no worker frame to copy
+  var settled = false;
+  function check() { if (settled && (window.workerDrew || window.workerGL === false)) window.ready = true; }
+  setTimeout(function () { var f = document.getElementById('fill'); f.style.transition = 'none'; f.style.width = '50%'; settled = true; check(); }, 300);
 </script>
 </body></html>
