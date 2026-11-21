@@ -71,6 +71,19 @@ GCP.ui.configure({ reference: [1280, 720] })   // the interface scale: draw in u
 
 Every call that talks to the platform resolves instead of throwing, so a network hiccup never takes the game down.
 
+### The platform splash, before your loading screen
+
+When a player presses Play, the platform shows its own splash (the HearthCade logo) over the game while it does its own work: starting the play session and loading the page, the SDK and your fonts. Your page loads underneath, out of sight. Once your loading screen is up in its final look, the splash fades into it, so the player never sees a blank page, a stand-in font or text still being filled in. Do not draw a HearthCade or platform logo of your own, and keep a loading screen of your own (the splash only covers the platform's part).
+
+The splash hands over at the first of these:
+
+- your page has called `GCP.progress()` a second time (the first call often comes before the game has fetched its settings and set its text) and has then stopped changing for a quarter of a second: no elements or text added or changed, no class changes, no style change on `<html>` or `<body>` (a progress bar's width on an inner element does not count);
+- 1.2 seconds have passed without that second call, and the page has stopped changing as above;
+- `GCP.ready()` or `GCP.fatal()`;
+- 6 seconds after the page started, whatever it is doing.
+
+So: draw your loading screen at once, set its text, language and root font size before the second `GCP.progress()` call, and then only move the bar. The splash stays up at least 0.9 seconds after Play so the logo can be read. It only exists in the platform's player: verification, `debug_preview` and a page opened outside the platform never show it, and `GCP.runtime.fixes` lists `splash-handoff` when it is on.
+
 ### GPU warm-up, done for you
 
 Every page in the browser shares one GPU process, the store page around your game included. A game that builds every shader and uploads every texture in its first frame stalls that process, and the whole browser with it, until it finishes. The SDK spreads that work out without any code from you:

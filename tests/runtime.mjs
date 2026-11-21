@@ -37,7 +37,7 @@ function load({ framed = true, before = '', storageThrows = false, navigator = {
   vm.runInContext(SDK, win);
   const send = (d) => (listeners.message || []).forEach((f) => f({ source: parent, data: d }));
   const flush = () => { while (timers.length) timers.shift()(); };
-  return { win, GCP: win.GCP, posted, send, flush, html, doc, Element };
+  return { win, GCP: win.GCP, posted, send, flush, timers, html, doc, Element };
 }
 
 test('GCP.runtime names the runtime version and the fixes that are on', () => {
@@ -163,3 +163,44 @@ test('font-ready: the cap shows the page even if a font never arrives, and ready
 function loadWithFonts(before, styles) {
   return load({ before: `__GCP_CONFIG.fonts = ['/fonts/a.woff2']; window.__styles = __styles; window.__frames = []; window.requestAnimationFrame = (f) => { window.__frames.push(f); return 1; }; requestAnimationFrame = window.requestAnimationFrame; ${before}`, styles });
 }
+
+test('splash-handoff: the player is told once the game has spoken and its page is settled, at once on ready()', () => {
+  const shown = (posted) => posted.filter((m) => m && m.gcp === 'shown');
+  // GCP.progress() and then a quiet page: shown, once
+  const a = load();
+  assert.ok(a.GCP.runtime.fixes.includes('splash-handoff'));
+  assert.equal(shown(a.posted).length, 0);
+  a.GCP.progress(0.05);   // the first word: the game may still be filling in its loading screen
+  assert.equal(a.timers.length, 2);
+  a.GCP.progress(0.1);
+  a.timers.pop()();   // the quiet wait (the timers before it are the wait for a word and the cap)
+  assert.equal(shown(a.posted).length, 1);
+  assert.equal(shown(a.posted)[0].why, 'settled');
+  a.GCP.ready(); a.GCP.progress(0.5);
+  assert.equal(shown(a.posted).length, 1);
+  // ready() before anything else: shown at once
+  const b = load();
+  b.GCP.ready();
+  assert.deepEqual(shown(b.posted).map((m) => m.why), ['ready']);
+  // a game that never speaks is shown after the wait, and fatal() shows it at once
+  const c = load(); c.flush();
+  assert.equal(shown(c.posted).length, 1);
+  const d = load(); d.GCP.fatal(new Error('no'));
+  assert.deepEqual(shown(d.posted).map((m) => m.why), ['fatal']);
+  // outside the player nothing is sent
+  const e = load({ framed: false }); e.GCP.ready();
+  assert.equal(e.GCP.runtime.fixes.includes('splash-handoff'), false);
+});
+
+test('splash-handoff: never while the page is held for its fonts', () => {
+  const styles = [];
+  const l = loadWithFonts(`document.head.appendChild = (el) => { el.remove = () => { el.removed = true; }; __styles.push(el); };
+    document.createElement = () => ({ style: {}, setAttribute() {}, getContext: () => null });
+    document.readyState = 'loading'; document.fonts = { ready: new Promise(() => {}) };`, styles);
+  l.GCP.progress(0.05); l.GCP.progress(0.1);
+  assert.equal(l.posted.filter((m) => m && m.gcp === 'shown').length, 0);
+  l.flush();   // the font cap releases the page, then the quiet wait passes
+  assert.equal(styles.find((s) => s.id === 'gcp-font-hold').removed, true);
+  l.flush();
+  assert.equal(l.posted.filter((m) => m && m.gcp === 'shown').length, 1);
+});

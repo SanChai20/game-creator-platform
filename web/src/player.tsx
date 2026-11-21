@@ -14,7 +14,7 @@
 // platform language on the page does not restart the game: it is told the new language (GCP.lang, GCP.onLang). A watchdog pings it
 // every second and offers Wait or Quit game when it stops answering.
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode, type Ref } from 'react';
-import { artStyle, getLang, t, useLang } from './lib';
+import { artStyle, getLang, t, useApp, useLang } from './lib';
 import { Button } from './ui';
 import { sanitizeControls, type TouchControls } from './touch-controls';
 import './player.css';
@@ -144,6 +144,51 @@ function safeInsets(): Insets {
 const sameInsets = (a: Insets, b: Insets) => a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left;
 
 /** Keeps the screen on while a game is running on a phone (players often watch without touching). */
+// The platform's splash: HearthCade's logo over the game frame from the Start click until the game's own loading screen
+// is up in its final look (the SDK says so with { gcp: 'shown' }: its fonts are in, it has drawn and its page has stopped
+// changing; see splash-handoff in docs/game-runtime.md), then it fades into that screen. It stays up at least
+// SPLASH_MIN_MS so the logo reads instead of flickering, and never past SPLASH_LOAD_CAP_MS after the game page has loaded
+// (or SPLASH_URL_CAP_MS in all) in case the game's page never says anything.
+const SPLASH_MIN_MS = 900, SPLASH_FADE_MS = 360, SPLASH_LOAD_CAP_MS = 8000, SPLASH_URL_CAP_MS = 20000;
+type SplashPhase = 'off' | 'on' | 'out';
+function useSplash(starting: boolean, url: string | null, frame: { current: HTMLIFrameElement | null }) {
+  // The play URL whose page has said its loading screen is up.
+  const [shown, setShown] = useState<string | null>(null);
+  const covering = url ? shown !== url : starting;
+  const [phase, setPhase] = useState<SplashPhase>(covering ? 'on' : 'off');
+  const since = useRef(covering ? performance.now() : 0);
+  useEffect(() => {
+    if (covering) { if (!since.current) since.current = performance.now(); setPhase('on'); return; }
+    if (!since.current) return;
+    // The game is on screen underneath: let the logo be seen for a moment, then fade. A start that failed, or a game that
+    // was closed, takes the splash away at once.
+    const wait = url ? Math.max(0, since.current + SPLASH_MIN_MS - performance.now()) : 0;
+    const t1 = setTimeout(() => setPhase(url ? 'out' : 'off'), wait);
+    const t2 = setTimeout(() => { setPhase('off'); since.current = 0; }, wait + (url ? SPLASH_FADE_MS : 0));
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [covering, url]);
+  // Never held by a page that does not answer (it failed to load, or runs without the SDK).
+  useEffect(() => {
+    if (!url) return;
+    const el = frame.current; let t2 = 0;
+    const onLoad = () => { clearTimeout(t2); t2 = window.setTimeout(() => setShown(url), SPLASH_LOAD_CAP_MS); };
+    el?.addEventListener('load', onLoad);
+    const t1 = setTimeout(() => setShown(url), SPLASH_URL_CAP_MS);
+    return () => { clearTimeout(t1); clearTimeout(t2); el?.removeEventListener('load', onLoad); };
+  }, [url, frame]);
+  return { phase, onShown: setShown };
+}
+function Splash({ out }: { out: boolean }) {
+  const app = useApp();
+  const brand = String(app?.config?.settings?.brand_name || 'HearthCade');
+  return (
+    <div className={'stage-splash' + (out ? ' out' : '')} role="status" aria-label={t('Loading', '加载中')}>
+      <div className="splash-mark"><i className="logo" aria-hidden="true" /><b>{brand}</b></div>
+      <span className="splash-bar" aria-hidden="true"><i /></span>
+    </div>
+  );
+}
+
 function useWakeLock(on: boolean) {
   useEffect(() => {
     const wl = (navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void> }> } }).wakeLock;
@@ -155,7 +200,7 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls }: {
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false }: {
   /** The version's on-screen controls for touch screens (from the API); the SDK in the game draws them. */
   controls?: TouchControls | null;
   /** Extra buttons in the bar under the game (the console's preview puts its feedback capture there). */
@@ -172,6 +217,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   /** Shown beside the menu button while the game plays (the free-trial clock). */
   badge?: ReactNode;
   ctl?: Ref<StageCtl>;
+  /** The game is being started (the play or preview request is on its way): the splash already covers the stage. */
+  starting?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null), menuBtn = useRef<HTMLButtonElement>(null);
   const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false), [menu, setMenu] = useState(false);
@@ -190,6 +237,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   // Interface size: offered in the menu once the game says it scales its interface with GCP.ui.
   const [uiSize, setUiSize] = useState<number | null>(() => readUiSize(seed)), [uiScalable, setUiScalable] = useState(false);
   // The watchdog: the game is asked every second whether it is alive (the SDK answers from the game's main thread).
+  const splash = useSplash(starting, url, frame);
   const [hung, setHung] = useState(false), waitBtn = useRef<HTMLButtonElement>(null), waitRef = useRef<() => void>(() => {});
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
   // In fullscreen every game gets the whole screen, notch, camera hole and rounded corners included, and is told the insets
@@ -349,6 +397,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       if (d.gcp === 'controls_state') setPadState({ available: d.available === true, shown: d.shown === true });
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
+      if (d.gcp === 'shown') splash.onShown(urlRef.current);
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
   }, [enter, exit, toggle, quit, post, postLang, active, onTrialOver, onSessionEnded]);
@@ -455,6 +504,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
         {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung || held} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
+        {splash.phase !== 'off' && <Splash out={splash.phase === 'out'} />}
         {active && url && !menu && !hung && (corner !== 'none' || badge) && (
           <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner) + (pos || drag ? ' moved' : '') + (drag ? ' dragging' : '') + (pressing ? ' pressing' : '')} style={corner === 'none' ? undefined : btnStyle()}>
             {corner !== 'none' && <button type="button" onClick={() => { if (performance.now() >= noClick.current) setMenu(true); }} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}

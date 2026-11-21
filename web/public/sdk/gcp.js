@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.3.0', fixes: {} };
+  var RT = S.runtime = { version: '2.4.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -39,7 +39,7 @@
   // then are ready, the page stays out of sight. The game keeps running underneath, so its next frame is drawn in its own
   // font. Never longer than FONT_HOLD_MS, and no longer once the game is ready or has failed.
   var FONT_HOLD_MS = 2500;
-  var fontHold = { on: false, release: function () { } };
+  var fontHold = { on: false, release: function () { }, after: function () { } };
   (function () {
     var list = cfg && cfg.fonts, h = document.documentElement;
     if (!list || !list.length || !h || typeof Promise !== 'function') return;
@@ -47,7 +47,7 @@
     try { st = document.createElement('style'); st.id = 'gcp-font-hold'; st.textContent = 'html{visibility:hidden!important}'; (document.head || h).appendChild(st); } catch (e) { return; }
     fontHold.on = fix('font-ready', true);
     var done = false;
-    var release = fontHold.release = function () { if (done) return; done = true; fontHold.on = false; try { st.remove(); } catch (e) { if (st.parentNode) st.parentNode.removeChild(st); } };
+    var release = fontHold.release = function () { if (done) return; done = true; fontHold.on = false; try { st.remove(); } catch (e) { if (st.parentNode) st.parentNode.removeChild(st); } fontHold.after(); };
     setTimeout(release, FONT_HOLD_MS);
     var waits = [];
     try {
@@ -65,6 +65,51 @@
     Promise.all(waits)
       .then(function () { return document.fonts && document.fonts.ready; })
       .then(function () { frame(function () { frame(release); }); }, release);
+  })();
+
+  // ---- Splash handoff. In the player, the platform's splash (HearthCade's logo) covers the game frame from the Start
+  // click until the game's own loading screen is up in its final look, then fades into it: the player never sees a page
+  // that is still blank, held for its fonts, or filling in its first text. This tells the player when ({ gcp: 'shown' }):
+  // the font hold is over, the game's loading has moved on (a second GCP.progress call: the first often comes before the
+  // game has fetched its settings and filled in its text) or SPLASH_WAIT_MS has passed without that, and the page has
+  // stopped changing for SPLASH_QUIET_MS: elements and text added or changed, classes, and the style of <html> and <body>
+  // (where a game sets its root font size; a progress bar's width on an inner element does not count). GCP.ready() and
+  // GCP.fatal() send it at once, and it is never later than SPLASH_MAX_MS.
+  var SPLASH_QUIET_MS = 250, SPLASH_WAIT_MS = 1200, SPLASH_MAX_MS = 6000;
+  var splash = { sent: false, spoke: 0, send: function () { }, poke: function () { } };
+  (function () {
+    if (standalone || window.parent === window) return;
+    fix('splash-handoff', true);
+    var t0 = performance.now(), lastChange = t0, waited = false, timer = 0, mo = null;
+    var send = splash.send = function (why) {
+      if (splash.sent) return; splash.sent = true; clearTimeout(timer);
+      try { if (mo) mo.disconnect(); } catch (e) { /* gone */ }
+      try { parent.postMessage({ gcp: 'shown', why: why, ms: Math.round(performance.now() - S.boot) }, '*'); } catch (e) { /* not framed */ }
+    };
+    // Look again once the page could have been quiet long enough.
+    var poke = splash.poke = function () {
+      if (splash.sent || fontHold.on || !(splash.spoke > 1 || waited)) return;
+      var seen = lastChange, wait = seen + SPLASH_QUIET_MS - performance.now();
+      clearTimeout(timer);
+      if (wait <= 0) { send('settled'); return; }
+      // Nothing changed while waiting: the page is settled. A change since then starts the wait again.
+      timer = setTimeout(function () { if (lastChange === seen) send('settled'); else poke(); }, Math.ceil(wait));
+    };
+    fontHold.after = poke;
+    try {
+      if (typeof MutationObserver === 'function') {
+        mo = new MutationObserver(function (list) {
+          for (var i = 0; i < list.length; i++) {
+            var m = list[i], el = m.target;
+            if (m.type === 'attributes' && m.attributeName === 'style' && el !== document.documentElement && el !== document.body) continue;
+            lastChange = performance.now(); poke(); return;
+          }
+        });
+        mo.observe(document, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
+      }
+    } catch (e) { mo = null; }
+    setTimeout(function () { waited = true; poke(); }, SPLASH_WAIT_MS);
+    setTimeout(function () { send('cap'); }, SPLASH_MAX_MS);
   })();
 
   // Keep the play token out of the address bar (the game Worker also set it as a cookie).
@@ -1821,10 +1866,10 @@
     },
     /** Loading progress, 0..1, shown in verification reports. Called again after ready() (loading a world or a level), it
         tells the platform the game is on a loading screen until it reaches 1, so the version's picture waits for play. */
-    progress: function (f, label) { P.progress++; S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); if (S.ready) S.busy = S.progress < 1; },
+    progress: function (f, label) { P.progress++; if (splash.spoke < 2) { splash.spoke++; splash.poke(); } S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); if (S.ready) S.busy = S.progress < 1; },
     /** Call once when the first playable frame is on screen. Required. */
     ready: function (info) {
-      fontHold.release();
+      fontHold.release(); splash.send('ready');
       if (S.ready) return; S.ready = true; S.readyAt = performance.now(); S.progress = 1; if (info) S.stats = info;
       if (GCP.test.autostart) setTimeout(function () { autostartFns.forEach(function (fn) { try { fn(); } catch (e) { note(S.errors, 'autostart hook threw: ' + (e && e.message || e)); } }); }, 0);
       if (!standalone) { api('beat', { frames: S.frames, active: false, first: true, loadMs: Math.round(S.readyAt - S.boot) }).then(onBeat).catch(function () { }); }
@@ -1832,7 +1877,7 @@
     /** GPU warm-up (see above): automatic for three.js while loading; warmup(renderer, scene|scenes, camera) and upload(renderer, textures) on request. */
     gpu: GPU,
     /** Call when the game cannot start. Shows up as the failure reason in verification. */
-    fatal: function (err) { fontHold.release(); S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },
+    fatal: function (err) { fontHold.release(); splash.send('fatal'); S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },
     /** Optional numbers for reports and the console (draw calls, triangles, quality, …). */
     stats: function (obj) { S.stats = obj; },
     /** Per-player cloud saves (JSON, 256 KB per key). Falls back to localStorage offline. */
