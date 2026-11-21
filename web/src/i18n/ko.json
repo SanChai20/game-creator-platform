@@ -1616,13 +1616,6 @@
  "This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).": "이 그림은 화면에서 직접 찍은 것이 아니라 게임 페이지가 다시 그린 것이므로, 실제로 본 화면(아이콘, 글꼴, 효과 등)과 다를 수 있습니다.",
  "Only the game's canvas is in it: this browser could not draw the menus and panels over it.": "게임 캔버스만 들어 있습니다. 이 브라우저는 그 위의 메뉴와 패널을 그릴 수 없었습니다.",
  "This browser cannot share a tab, so an exact picture is not possible here.": "이 브라우저는 탭을 공유할 수 없어 여기서는 정확한 그림을 찍을 수 없습니다.",
- "For exact pictures in fullscreen, turn on Exact screenshots below the game first.": "전체 화면에서 정확한 그림을 찍으려면 먼저 게임 아래의 '정확한 스크린샷'을 켜세요.",
- "Sharing this tab did not give a picture; try Exact screenshots again.": "탭 공유에서 그림을 얻지 못했습니다. '정확한 스크린샷'을 다시 시도하세요.",
- "For an exact picture, allow sharing this tab when the browser asks (Exact screenshots, below the game).": "정확한 그림을 원하면 브라우저가 물을 때 이 탭 공유를 허용하세요(게임 아래의 '정확한 스크린샷').",
- "Screenshots are taken from this tab exactly as you see it. Stop sharing the tab.": "스크린샷은 보이는 그대로 이 탭에서 찍힙니다. 탭 공유를 중지합니다.",
- "Let the browser share this tab once, so screenshots show exactly what you see. It stops when you close the preview.": "브라우저가 이 탭을 한 번 공유하게 하면 스크린샷이 보이는 그대로 찍힙니다. 미리보기를 닫으면 중지됩니다.",
- "Exact screenshots: on": "정확한 스크린샷: 켜짐",
- "Exact screenshots": "정확한 스크린샷",
  "Choose a picture (PNG or JPEG).": "그림(PNG 또는 JPEG)을 선택하세요.",
  "That picture is too large.": "그림이 너무 큽니다.",
  "Or take a screenshot yourself and paste it here, or choose it with Use my own screenshot.": "직접 찍은 스크린샷을 여기에 붙여 넣거나 '내 스크린샷 사용'으로 선택할 수도 있습니다.",
@@ -1672,5 +1665,9 @@
  "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "그린 프레임을 그대로 넘기지 않는 버전을 불합격 처리(캡처 검사: 보이는 모든 것을 캔버스에 그리고 GCP.test.onCapture와 onState를 등록). 공개 중인 게임의 버전만 불합격 처리하고 다른 게임에는 메모만 남김. 끄면 보고만 하고 불합격 처리하지 않음",
  "Interface size": "인터페이스 크기",
  "Smaller": "작게",
- "Larger": "크게"
+ "Larger": "크게",
+ "For an exact picture, leave fullscreen and press Capture feedback again: the browser asks to share this tab once.": "정확한 이미지를 원하면 전체 화면을 끝낸 뒤 '피드백 캡처'를 다시 누르세요. 브라우저가 이 탭 공유를 한 번 묻습니다.",
+ "Sharing this tab did not give a picture; press Capture feedback again.": "탭 공유로 이미지를 받지 못했습니다. '피드백 캡처'를 다시 누르세요.",
+ "For an exact picture, allow sharing this tab when the browser asks after you press Capture feedback.": "정확한 이미지를 원하면 '피드백 캡처'를 누른 뒤 브라우저가 물을 때 이 탭 공유를 허용하세요.",
+ "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "자기 프레임을 넘기는 게임(GCP.test.onCapture)은 항상 정확한 이미지를 줍니다."
 }
