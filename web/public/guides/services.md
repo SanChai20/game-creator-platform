@@ -48,6 +48,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Network smoothing | available | `GCP.smooth` | none | multiplayer |
 | Game server code | available unless switched off | `GCP.server` | `upload_files`, `deploy_preview` | saves |
 | Display, fullscreen and devices | available | `GCP.fullscreen`, `GCP.display`, `GCP.setDisplay` | `compatibility` | contract |
+| Interface scale and the player's UI size | available | `GCP.ui.configure`, `GCP.ui.scale`, `GCP.ui.rect`, `GCP.ui.setSize`, `GCP.ui.onChange` | none | services |
 | Touch devices | available | gcp.json `controls`, `GCP.controls`, `GCP.device` | `compatibility` | touch |
 | Compatibility requirements | available | none | `compatibility` | contract |
 | Verification and test hooks | automatic | `GCP.test.*` | `deploy_preview`, `list_versions`, `debug_preview` | versions |
@@ -236,6 +237,64 @@ Whether server code is allowed on this platform is shown by `get_started` under 
 ## Display, fullscreen and devices
 
 Play starts the game in a window on its page, and on phones and tablets straight in fullscreen. The Fullscreen button under the game, Alt+Enter (also pressed inside the game) and `GCP.fullscreen()` switch. In fullscreen nothing of the platform covers the game: the platform menu (Resume, Exit fullscreen, Quit game) opens from the device's Back, a three-finger tap (`GCP.setDisplay({ menuGesture: false })` turns it off) and an Esc the game does not use; in Chromium browsers Esc is locked to the game and only holding it leaves. However fullscreen ends by itself (Firefox and Safari on Esc, iPad's swipe from the top, Android's back), the game pauses: its own pause menu opens if it declared one, otherwise the platform's Paused card holds it in its window. A game that stops answering for 4 s gets a card with Wait and Quit game. In fullscreen the SDK keeps swipes, drags and pinches in the game, so they cannot zoom it, navigate back or drop fullscreen, without loosening the game's own touch-action; its scrolling lists still scroll. `GCP.display` is `{ fullscreen, mode, orientation, touch, edgeToEdge, safe, paused, menu }` and `GCP.onDisplay(fn)` tells you when it changes; show on-screen controls when `touch` is true, and pause while `paused` is true. Pause has one owner at a time (input guide, "One pause owner"): `GCP.onEscape(fn)` gets Esc first (fn returns false only when nothing was open); a game with its own pause menu declares it with `GCP.pauseMenu(open)` and reports it with `GCP.setPaused(on)`, and then Esc opens that menu, never the platform's as well; any other game gets the platform menu on Esc. `GCP.paused` and `GCP.onPause(fn)` combine the platform's pause and the game's, and are what the game loop obeys. While the platform pauses, sound stops, held keys are let go of and pointer lock is released for every game. `GCP.menu()` opens the platform menu and `GCP.quit()` quits. `GCP.fullscreen(false)` goes back to the window. `GCP.setDisplay({ orientation, exitButton, edgeToEdge })` sets the orientation, a corner for an optional platform menu button, and whether the game fills the whole screen (notch included) in fullscreen. In fullscreen the game fills the whole screen, notch and camera hole included, with the insets in `GCP.display.safe` and the `--gcp-safe-*` CSS variables; `GCP.setDisplay({ edgeToEdge: false })` keeps it inside them instead. Fullscreen, gamepad, pointer lock and audio after a gesture are allowed in the frame; camera, microphone and geolocation are not.
+
+## Interface scale and the player's UI size
+
+Every game's interface has to fit every screen, from a phone held upright to a 4K monitor and a 21:9 ultrawide, and players want to make it bigger or smaller. The runtime gives every game one rule for that, `GCP.ui`, built on the model of Unity's and NGUI's canvas scaler and Godot's Control anchors (stretch mode `canvas_items`, aspect `expand`).
+
+**Fullscreen always overrides the window size.** A game is first shown in a window on its page or in the console's preview dialog, and that window can be any size. Entering fullscreen, on any device, gives the game the whole screen whatever size the window had (the platform forces it). So never keep the size you started at: size the canvas from `innerWidth` and `innerHeight` on every `resize` (or every frame), and lay the interface out again each time. `GCP.ui.onChange` fires on all of it.
+
+**Units and the scale.** Design the interface at a reference size, say 1280 × 720 units, and tell the runtime once:
+
+```js
+GCP.ui.configure({
+  reference: [1280, 720],   // the size the interface is designed at
+  match: 'expand',          // 'expand' (default): the smaller of width and height decides, so all of the reference fits
+                            // 'width' | 'height' | 'shrink' (the larger decides) | 0..1 (a blend from width to height, like Unity's match)
+  min: 1, max: 3,           // bounds on the automatic scale (defaults 0.5 and 4). min: 1 never draws smaller than CSS pixels
+  minView: [360, 320],      // the fewest units your layout still fits in: a large player size stops there
+});
+```
+
+`GCP.ui.scale` is how many CSS pixels one unit is on this screen right now: the automatic scale (`GCP.ui.auto`) times the player's size (`GCP.ui.size`), held back only when a larger size would leave fewer than `minView` units (`GCP.ui.state.limited` is then true). `GCP.ui.view` is the view in units, `{ w: innerWidth / scale, h: innerHeight / scale }`. With `expand` the view is the reference size or larger: wider on a wide screen, taller on a phone in portrait. That extra room is what anchors are for. Draw with the scale in the canvas transform and turn pointer positions into units:
+
+```js
+function frame() {
+  const s = GCP.ui.scale, dpr = Math.min(devicePixelRatio, 2);
+  canvas.width = Math.round(innerWidth * dpr); canvas.height = Math.round(innerHeight * dpr);
+  ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);       // from here on, draw in interface units
+  drawInterface(GCP.ui.view.w, GCP.ui.view.h);
+}
+canvas.addEventListener('pointerdown', (e) => { const p = GCP.ui.point(e); press(p.x, p.y); });   // units too
+```
+
+**Anchors.** `GCP.ui.rect(spec, parent)` places one box, in units, the way a Godot Control does. The parent is the view inside the safe area (notch, camera hole, home bar) unless you pass a box or `safe: false`.
+
+| Option | Meaning |
+| --- | --- |
+| `anchor` | `'top-left'`, `'top'`, `'top-right'`, `'left'`, `'center'`, `'right'`, `'bottom-left'`, `'bottom'`, `'bottom-right'` pin a point; `'top-wide'`, `'bottom-wide'`, `'left-wide'`, `'right-wide'`, `'hcenter-wide'`, `'vcenter-wide'`, `'full'` stretch between two edges; or `[left, top, right, bottom]`, each 0..1 of the parent |
+| `w`, `h` | the size along an axis whose two anchors are the same point (ignored along a stretched axis) |
+| `margin` | a number or `[top, right, bottom, left]`: room kept from the edges the box is anchored to (Godot's offsets) |
+| `pivot` | `[x, y]`, 0..1: the point of the box that sits on the anchor. Defaults to the anchor itself, so a box anchored right hangs inward |
+| `offset` | `[dx, dy]` added at the end |
+| `minW`, `maxW`, `minH`, `maxH` | bounds on the size (a capped stretched box stays centred between its anchors) |
+| `aspect` | width / height: fills in the missing side, or fits the largest box of that shape in a stretched area |
+
+A box placed against the view is kept inside it. It returns `{ x, y, w, h, cx, cy, r, b }`.
+
+```js
+const hud   = GCP.ui.rect({ anchor: 'top-left', w: 260, h: 64, margin: 16 });           // health and coins
+const pause = GCP.ui.rect({ anchor: 'top-right', w: 56, h: 56, margin: 16 });
+const bar   = GCP.ui.rect({ anchor: 'bottom-wide', h: 72, margin: [0, 24, 16, 24], maxW: 900 });
+const menu  = GCP.ui.rect({ anchor: 'center', w: 420, h: 520, maxH: GCP.ui.view.h - 40 });
+const [icon, label, price] = GCP.ui.split(bar, 'row', [72, { fill: 1 }, 120], 12);       // HBox: fixed, fill, fixed
+```
+
+`GCP.ui.split(box, 'row' | 'column', items, gap)` shares a box along one axis like Godot's HBoxContainer and VBoxContainer: a number is a fixed length, `{ fill: n }` a share of what is left, `{ min, fill }` both.
+
+**The player's size.** `GCP.ui.size` is the player's factor, 1 by default. Offer it in the game's settings, labelled Interface size, as a stepper or a slider over `GCP.ui.sizes` (`[0.8, 0.9, 1, 1.15, 1.3, 1.5]`, shown as 80% to 150%); `GCP.ui.setSize(k)` sets any value from 0.5 to 2 and `GCP.ui.step(+1 | -1)` moves one step. The platform page keeps it per game on the player's device, so it comes back next time. Once a game calls `GCP.ui.configure` or `GCP.ui.onChange`, the platform's fullscreen menu gets an Interface size row too, and a change there reaches the game through `GCP.ui.onChange` while it runs. Redraw, re-layout and rebuild any sprite sheet drawn for the old scale there.
+
+**Choosing the numbers.** Design at the size you test most (1280 × 720 is a good reference for landscape, 720 × 1280 for a portrait game) and check the smallest screens: a phone on its side is about 844 × 390 CSS px, upright about 390 × 844. Set `minView` to the smallest view the layout still fits in. A game whose interface already reads well at CSS-pixel size on phones uses `min: 1`, so only larger screens scale it up. Text drawn smaller than about 11 CSS px (`size * GCP.ui.scale`) is hard to read, and tap targets under 44 CSS px are hard to hit. `smallBoost` multiplies the automatic scale on phones (short side under 500 CSS px) for an interface that would otherwise be too small there. A game drawn with the hosted `@gcp/ui.js` kit gets all of this with `createUi({ scale: { reference: [1280, 720] } })`: `u.w`, `u.h`, `u.safe`, pointers and drawing are then in units (without `scale` they stay CSS pixels, as before). A game with its own unit system can still use the player's size alone: multiply its unit by `GCP.ui.size` and listen to `GCP.ui.onChange`. An older cached SDK has no `GCP.ui`: check `window.GCP && GCP.ui` and fall back to a scale of 1.
 
 ## Touch devices
 

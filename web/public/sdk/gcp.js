@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.2.0', fixes: {} };
+  var RT = S.runtime = { version: '2.3.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -1652,6 +1652,148 @@
   }
   // The runtime's fixes that depend on how the game is shown are read when asked: they change as the player moves between
   // the window on the page and fullscreen, or a game takes over its own touch controls.
+  // ---- interface scale: one rule for how big a game's interface is drawn (GCP.ui). The game lays its interface out in
+  // interface units against a reference size (the canvas scaler of Unity and NGUI, Godot's canvas_items stretch with
+  // aspect "expand"); the runtime works out how many CSS pixels one unit is on this screen, and the player's own size
+  // setting multiplies that. Anchors (Godot's Control anchors and offsets) place boxes against the edges of the view.
+  var US = { cfg: { reference: [1280, 720], match: 'expand', min: 0.5, max: 4, minView: [360, 320], smallBoost: 1 }, size: 1, used: false, fns: [], from: 'default', sig: '' };
+  var UI_SIZES = [0.8, 0.9, 1, 1.15, 1.3, 1.5], UI_MIN = 0.5, UI_MAX = 2;
+  var uiKey = 'gcp.ui.size.' + (q.get('gcp_seed') || location.pathname);
+  var clampN = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+  var sizeOk = function (v) { v = +v; return isFinite(v) && v > 0 ? clampN(Math.round(v * 100) / 100, UI_MIN, UI_MAX) : null; };
+  (function () { try { var v = sizeOk(localStorage.getItem(uiKey)); if (v) { US.size = v; US.from = 'saved'; } } catch (e) { /* no storage */ } })();
+  var pair = function (v, d) { return Array.isArray(v) && v.length === 2 && v[0] > 0 && v[1] > 0 ? [+v[0], +v[1]] : d; };
+  // the scale before the player's size: how far the screen is from the reference size, kept inside min and max
+  function uiAuto(W, H) {
+    var c = US.cfg, r = c.reference, m = c.match, k;
+    if (m === 'width') k = W / r[0]; else if (m === 'height') k = H / r[1];
+    else if (m === 'shrink') k = Math.max(W / r[0], H / r[1]);
+    else if (typeof m === 'number') k = Math.pow(2, Math.log2(W / r[0]) * (1 - clampN(m, 0, 1)) + Math.log2(H / r[1]) * clampN(m, 0, 1));
+    else k = Math.min(W / r[0], H / r[1]);
+    if (c.smallBoost !== 1 && Math.min(W, H) < 500) k *= c.smallBoost;
+    return clampN(k, c.min, c.max);
+  }
+  function uiState() {
+    var W = Math.max(1, innerWidth), H = Math.max(1, innerHeight), c = US.cfg, auto = uiAuto(W, H);
+    // the largest scale that still leaves the interface minView units to lay out in: a large size on a small screen stops there
+    var fit = Math.min(W / c.minView[0], H / c.minView[1]);
+    var s = auto * US.size; if (US.size > 1) s = Math.min(s, Math.max(auto, fit)); s = Math.max(0.05, s);
+    var sf = display.safe || {};
+    return { scale: s, auto: auto, size: US.size, w: W / s, h: H / s, safe: { top: (sf.top || 0) / s, right: (sf.right || 0) / s, bottom: (sf.bottom || 0) / s, left: (sf.left || 0) / s }, limited: s < auto * US.size - 1e-6 };
+  }
+  function uiNotify(force) {
+    var st = uiState(), sig = [st.scale.toFixed(4), st.w.toFixed(1), st.h.toFixed(1), st.size, st.safe.top, st.safe.right, st.safe.bottom, st.safe.left].join(',');
+    if (!force && sig === US.sig) return; US.sig = sig;
+    US.fns.slice().forEach(function (fn) { try { fn(st); } catch (err) { console.error(err); } });
+  }
+  function uiUse() { if (US.used) return; US.used = true; toParent({ gcp: 'ui_info', scalable: true, size: US.size, sizes: UI_SIZES }); }
+  function uiSetSize(v, fromPage) {
+    v = sizeOk(v); if (!v) return US.size;
+    var changed = v !== US.size; US.size = v; US.from = fromPage ? 'platform' : 'game';
+    try { localStorage.setItem(uiKey, String(v)); } catch (e) { /* no storage */ }
+    if (!fromPage) toParent({ gcp: 'ui_size', size: v });
+    if (changed) uiNotify(true);
+    return v;
+  }
+  var ANCHORS = {
+    'top-left': [0, 0, 0, 0], top: [0.5, 0, 0.5, 0], 'top-right': [1, 0, 1, 0], left: [0, 0.5, 0, 0.5], center: [0.5, 0.5, 0.5, 0.5],
+    right: [1, 0.5, 1, 0.5], 'bottom-left': [0, 1, 0, 1], bottom: [0.5, 1, 0.5, 1], 'bottom-right': [1, 1, 1, 1],
+    'top-wide': [0, 0, 1, 0], 'bottom-wide': [0, 1, 1, 1], 'left-wide': [0, 0, 0, 1], 'right-wide': [1, 0, 1, 1],
+    'hcenter-wide': [0, 0.5, 1, 0.5], 'vcenter-wide': [0.5, 0, 0.5, 1], full: [0, 0, 1, 1],
+  };
+  var four = function (v) { return Array.isArray(v) ? [+v[0] || 0, +(v[1] != null ? v[1] : v[0]) || 0, +(v[2] != null ? v[2] : v[0]) || 0, +(v[3] != null ? v[3] : v[1] != null ? v[1] : v[0]) || 0] : [+v || 0, +v || 0, +v || 0, +v || 0]; };
+  /** Godot-style placement of one box inside a parent box (both in interface units). */
+  function uiRect(o, parent) {
+    o = o || {};
+    var P = parent || null;
+    if (!P) { var st = uiState(); P = { x: 0, y: 0, w: st.w, h: st.h }; if (o.safe !== false) { var sf = st.safe; P = { x: sf.left, y: sf.top, w: st.w - sf.left - sf.right, h: st.h - sf.top - sf.bottom }; } }
+    var A = typeof o.anchor === 'string' ? ANCHORS[o.anchor] || ANCHORS['top-left'] : Array.isArray(o.anchor) && o.anchor.length === 4 ? o.anchor : ANCHORS['top-left'];
+    var m = four(o.margin || 0);           // [top, right, bottom, left], pushed in from the edges the box is anchored to
+    var piv = Array.isArray(o.pivot) ? o.pivot : [A[0] === A[2] ? A[0] : 0, A[1] === A[3] ? A[1] : 0];
+    var off = Array.isArray(o.offset) ? o.offset : [0, 0];
+    var axis = function (a0, a1, p0, plen, mStart, mEnd, want, pv, minV, maxV, d) {
+      var lo = p0 + a0 * plen, hi = p0 + a1 * plen, start, len;
+      if (a0 !== a1) { start = lo + mStart; len = hi - mEnd - start; }
+      else { len = want != null ? want : 0; start = lo + (a0 === 0 ? mStart : a0 === 1 ? -mEnd : (mStart - mEnd) / 2) - pv * len; }
+      var l2 = clampN(len, minV != null ? minV : -Infinity, maxV != null ? maxV : Infinity);
+      if (l2 !== len) { start += (len - l2) * (a0 !== a1 ? 0.5 : pv); len = l2; }
+      return [start + d, Math.max(0, len)];
+    };
+    var w = o.w != null ? (o.w > 0 && o.w <= 1 && o.relative ? o.w * P.w : o.w) : null, h = o.h != null ? (o.h > 0 && o.h <= 1 && o.relative ? o.h * P.h : o.h) : null;
+    if (o.aspect && w != null && h == null) h = w / o.aspect; else if (o.aspect && h != null && w == null) w = h * o.aspect;
+    var X = axis(A[0], A[2], P.x, P.w, m[3], m[1], w, piv[0], o.minW, o.maxW, off[0] || 0);
+    var Y = axis(A[1], A[3], P.y, P.h, m[0], m[2], h, piv[1], o.minH, o.maxH, off[1] || 0);
+    if (o.aspect && A[0] !== A[2] && A[1] !== A[3]) {   // a stretched box that keeps its shape: the largest that fits, centred
+      var fw = Math.min(X[1], Y[1] * o.aspect), fh = fw / o.aspect; X = [X[0] + (X[1] - fw) / 2, fw]; Y = [Y[0] + (Y[1] - fh) / 2, fh];
+    }
+    if (o.keepIn !== false && parent == null) {        // never past the view (a box bigger than the view starts at its edge)
+      X[0] = X[1] >= P.w ? P.x : clampN(X[0], P.x, P.x + P.w - X[1]); Y[0] = Y[1] >= P.h ? P.y : clampN(Y[0], P.y, P.y + P.h - Y[1]);
+    }
+    return { x: X[0], y: Y[0], w: X[1], h: Y[1], cx: X[0] + X[1] / 2, cy: Y[0] + Y[1] / 2, r: X[0] + X[1], b: Y[0] + Y[1] };
+  }
+  /** Godot's HBoxContainer / VBoxContainer: splits a box along one axis. items: numbers (a fixed length) or { fill: n } (a
+      share of what is left), or { min, fill }. */
+  function uiSplit(box, dir, items, gap) {
+    gap = +gap || 0; var row = dir !== 'column' && dir !== 'col' && dir !== 'v', total = row ? box.w : box.h;
+    var fixed = 0, shares = 0; items.forEach(function (it) { if (typeof it === 'number') fixed += it; else { fixed += (it && it.min) || 0; shares += (it && it.fill) || 1; } });
+    var free = Math.max(0, total - fixed - gap * Math.max(0, items.length - 1)), at = row ? box.x : box.y;
+    return items.map(function (it) {
+      var len = typeof it === 'number' ? it : ((it && it.min) || 0) + (shares ? free * (((it && it.fill) || 1) / shares) : 0);
+      var r = row ? { x: at, y: box.y, w: len, h: box.h } : { x: box.x, y: at, w: box.w, h: len }; at += len + gap;
+      r.cx = r.x + r.w / 2; r.cy = r.y + r.h / 2; r.r = r.x + r.w; r.b = r.y + r.h; return r;
+    });
+  }
+  on(window, 'resize', function () { if (US.fns.length) uiNotify(); });
+  if (window.visualViewport) on(window.visualViewport, 'resize', function () { if (US.fns.length) uiNotify(); });
+  function uiFromPage(d) { if ('uiSize' in d && d.uiSize != null) { var v = sizeOk(d.uiSize); if (v && v !== US.size) uiSetSize(v, true); } if (US.fns.length) uiNotify(); }
+  var uiApi = {
+    /** The game's interface rules, set once at start-up (all optional): reference [w, h] (the size the interface is
+        designed at, default [1280, 720]), match ('expand' default: the smaller of width and height decides, so all of
+        the reference always fits; 'width'; 'height'; 'shrink': the larger decides; or 0..1, a blend from width to height
+        like Unity's match), min and max (bounds on the automatic scale, default 0.5 and 4; min 1 keeps the interface at
+        least its CSS-pixel size on small screens), minView [w, h] (the fewest units the layout needs, default [360, 320]:
+        a large player size stops where the view would get smaller), smallBoost (a factor on phones, whose short side is
+        under 500 CSS px; default 1). Returns the state. Calling it also shows the player's Interface size row. */
+    configure: function (c) {
+      c = c || {}; var C = US.cfg;
+      C.reference = pair(c.reference, C.reference);
+      if (c.match === 'expand' || c.match === 'width' || c.match === 'height' || c.match === 'shrink' || (typeof c.match === 'number' && isFinite(c.match))) C.match = c.match;
+      if (+c.min > 0) C.min = +c.min; if (+c.max > 0) C.max = Math.max(C.min, +c.max);
+      C.minView = pair(c.minView, C.minView); if (+c.smallBoost > 0) C.smallBoost = +c.smallBoost;
+      uiUse(); uiNotify(true); return uiState();
+    },
+    /** CSS pixels per interface unit right now (the automatic scale times the player's size, limited by minView). */
+    get scale() { return uiState().scale; },
+    /** The automatic scale alone, before the player's size. */
+    get auto() { return uiState().auto; },
+    /** The player's interface size: a factor on the automatic scale, 1 by default. Kept per game on this device. */
+    get size() { return US.size; },
+    /** The steps to offer the player (shown as percentages): */
+    sizes: UI_SIZES.slice(),
+    /** Sets the player's size (0.5 to 2); the platform page keeps it, and its menu shows the same value. Returns it. */
+    setSize: function (k) { uiUse(); return uiSetSize(k, false); },
+    /** One step up (+1) or down (-1) through sizes. */
+    step: function (dir) { uiUse(); var i = 0, best = Infinity; UI_SIZES.forEach(function (v, j) { var d = Math.abs(v - US.size); if (d < best) { best = d; i = j; } }); return uiSetSize(UI_SIZES[clampN(i + (dir < 0 ? -1 : 1), 0, UI_SIZES.length - 1)], false); },
+    /** The whole view in interface units: { w, h }. */
+    get view() { var st = uiState(); return { w: st.w, h: st.h }; },
+    /** display.safe in interface units. */
+    get safe() { return uiState().safe; },
+    /** Everything at once: { scale, auto, size, w, h, safe, limited (the size was held back by minView) }. */
+    get state() { return uiState(); },
+    /** fn(state) whenever the scale, the view or the safe area changes (a resize, a turn, the player's size). */
+    onChange: function (fn) { if (typeof fn === 'function') { US.fns.push(fn); uiUse(); } return function () { var i = US.fns.indexOf(fn); if (i >= 0) US.fns.splice(i, 1); }; },
+    /** A box placed by anchors, in interface units: { anchor: 'top-left' | 'top' | 'top-right' | 'left' | 'center' |
+        'right' | 'bottom-left' | 'bottom' | 'bottom-right' | 'top-wide' | 'bottom-wide' | 'left-wide' | 'right-wide' |
+        'hcenter-wide' | 'vcenter-wide' | 'full' or [left, top, right, bottom] (0..1 of the parent), w, h (for a point
+        anchor), margin (a number or [top, right, bottom, left]: room kept from the anchored edges), pivot [x, y] (0..1,
+        defaults to the anchor), offset [dx, dy], minW, maxW, minH, maxH, aspect (w / h), safe (false: ignore the notch;
+        only without a parent) }, parent (a box; default the view inside the safe area). Returns { x, y, w, h, cx, cy, r, b }. */
+    rect: uiRect,
+    /** Splits a box in a row or a column: split(box, 'row' | 'column', [120, { fill: 1 }, 80], gap) -> boxes. */
+    split: uiSplit,
+    /** Turns a pointer event's clientX / clientY into interface units. */
+    point: function (e) { var s = uiState().scale; return { x: (e.clientX || 0) / s, y: (e.clientY || 0) / s }; },
+  };
   function runtimeInfo() {
     var touch = !!display.touch;
     fix('touch-cleanup', touch); fix('near-miss-taps', touch); fix('mouse-from-finger', bridged()); fix('touch-controls', !!ui.shown);
@@ -1807,6 +1949,9 @@
         while the frame covers the whole screen, notch included (see setDisplay); safe is then { top, right, bottom, left } in
         CSS px: keep buttons and text that far in from each edge (also the CSS variables --gcp-safe-top and so on). */
     display: display,
+    /** The interface scale: GCP.ui.configure({ reference, match, min, max, minView }), scale, size, setSize(k), sizes,
+        onChange(fn), rect(anchors), split(box, dir, items), view, safe. See the services guide, "Interface scale". */
+    ui: uiApi,
     /** fn(display) whenever it changes (entering or leaving fullscreen, for example). */
     onDisplay: function (fn) { if (typeof fn === 'function') displayFns.push(fn); },
     /** The Escape rule: Esc never drops the player out of the game. It first closes whatever the game has open, and an Esc
@@ -2672,7 +2817,7 @@
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
     display.paused = !!d.paused; display.menu = !!d.menu;
-    markDisplay(); guard(); controlsFromPage(d); fsChanged(); pauseNotify('platform');
+    markDisplay(); guard(); controlsFromPage(d); uiFromPage(d); fsChanged(); pauseNotify('platform');
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
   toParent({ gcp: 'display_query' });
