@@ -1669,5 +1669,5 @@
  "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "プレイ時間の計測を Durable Objects で行う（数万人の同時プレイに必要。数値は最大1分ほど遅れることがあります）",
  "The exact frame the game drew when you pressed Capture.": "キャプチャを押したときにゲームが描いたフレームそのものです。",
  "Text fields over the game are drawn from the page.": "ゲームの上にある入力欄はページから描き直しています。",
- "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); off reports it without failing": "描いたフレームをそのまま渡さないバージョンを不合格にする（キャプチャ検査：見えるものをすべてキャンバスに描き、GCP.test.onCapture と onState を登録）。オフでは報告のみで不合格にしない"
+ "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "描いたフレームをそのまま渡さないバージョンを不合格にする（キャプチャ検査：見えるものをすべてキャンバスに描き、GCP.test.onCapture と onState を登録）。不合格にするのは公開中のゲームのバージョンだけで、ほかのゲームには注記のみ。オフでは報告のみで不合格にしない"
 }
