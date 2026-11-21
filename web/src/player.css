@@ -67,6 +67,11 @@ html:has(.stage.filled), html:has(.stage.filled) body { overscroll-behavior: non
 .stage-btn.primary { background: #fff; color: #17151c; border-color: #fff; }
 .stage-btn.primary:hover { background: rgb(255 255 255 / .88); }
 .stage-btn.ghost { border-color: transparent; background: transparent; font-weight: 500; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+/* Interface size (GCP.ui): a label, − and + with the percentage between them, on one row. */
+.stage-size { display: grid; grid-template-columns: 1fr 46px 56px 46px; align-items: center; gap: 6px; color: rgb(255 255 255 / .86); font-size: 14px; }
+.stage-size .stage-btn { min-height: 40px; padding: 0; font-size: 20px; line-height: 1; }
+.stage-size .stage-btn:disabled { opacity: .35; cursor: default; }
+.stage-size output { text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; color: #fff; }
 @keyframes stage-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (max-height: 420px) { .stage-menu { padding: 12px; } .stage-card { padding: 14px 18px; gap: 7px; } .stage-btn { min-height: 40px; } .stage-card > b { font-size: 17px; } }
 /* A phone on its side: the menu's buttons sit two by two so the card fits the short screen (and scrolls if it still does not). */

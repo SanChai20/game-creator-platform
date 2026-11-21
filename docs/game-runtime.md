@@ -71,6 +71,11 @@ What no script can fix is caught before publishing:
 
 ## Versions
 
+- **2.3.0** — New: `GCP.ui`, the interface scale. A game sets a reference size once (`GCP.ui.configure`) and draws its
+  interface in units at `GCP.ui.scale`: the screen against the reference, times the player's Interface size (`GCP.ui.size`,
+  80% to 150%, kept per game by the platform page and offered in the platform menu once the game uses it). `GCP.ui.rect`
+  and `GCP.ui.split` lay boxes out by anchors, like Godot's Controls. Nothing changes for a game that does not call it.
+
 - **2.2.0** — New: `font-ready`. Loading screens drawn before the game's fonts had arrived came out in a stand-in
   font and changed look (sizes, spacing, weight) part way through loading, once the real font came in.
 

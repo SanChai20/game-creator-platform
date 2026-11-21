@@ -110,6 +110,12 @@ function lockPage(): () => void {
 const controlsKey = (seed: string) => 'gcp.controls.' + seed;
 function readControlsPref(seed: string): boolean | null { try { const v = localStorage.getItem(controlsKey(seed)); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } }
 function saveControlsPref(seed: string, on: boolean) { try { localStorage.setItem(controlsKey(seed), on ? '1' : '0'); } catch { /* private mode */ } }
+/** The player's interface size for one game (GCP.ui.size): a factor on the game's automatic scale, 1 by default. */
+const uiSizeKey = (seed: string) => 'gcp.ui.size.' + seed;
+const UI_SIZES = [0.8, 0.9, 1, 1.15, 1.3, 1.5];
+const okUiSize = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n >= 0.5 && n <= 2 ? Math.round(n * 100) / 100 : null; };
+function readUiSize(seed: string): number | null { try { return okUiSize(localStorage.getItem(uiSizeKey(seed))); } catch { return null; } }
+function saveUiSize(seed: string, v: number) { try { localStorage.setItem(uiSizeKey(seed), String(v)); } catch { /* private mode */ } }
 
 type Insets = { top: number; right: number; bottom: number; left: number };
 /** The note on how to open the menu: shown at the start of the first few plays on a device. */
@@ -181,6 +187,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const [padState, setPadState] = useState<{ available: boolean; shown: boolean }>({ available: false, shown: false });
   const [padPref, setPadPref] = useState<boolean | null>(() => readControlsPref(seed));
   const padCfg = sanitizeControls(controls);
+  // Interface size: offered in the menu once the game says it scales its interface with GCP.ui.
+  const [uiSize, setUiSize] = useState<number | null>(() => readUiSize(seed)), [uiScalable, setUiScalable] = useState(false);
   // The watchdog: the game is asked every second whether it is alive (the SDK answers from the game's main thread).
   const [hung, setHung] = useState(false), waitBtn = useRef<HTMLButtonElement>(null), waitRef = useRef<() => void>(() => {});
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
@@ -298,10 +306,16 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held, menu: menu || held, controls: padCfg, controlsOn: padPref }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, JSON.stringify(padCfg), padPref]); // eslint-disable-line react-hooks/exhaustive-deps
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, JSON.stringify(padCfg), padPref, uiSize]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
   useEffect(() => { if (!url) { setPadState({ available: false, shown: false }); setHeld(false); } }, [url]);
+  const uiSizeRef = useRef(uiSize), seedRef = useRef(seed); uiSizeRef.current = uiSize; seedRef.current = seed;
+  useEffect(() => { setUiScalable(false); }, [url]);
+  const stepUi = useCallback((dir: number) => {
+    const cur = uiSize ?? 1; let i = 0; UI_SIZES.forEach((v, j) => { if (Math.abs(v - cur) < Math.abs(UI_SIZES[i] - cur)) i = j; });
+    const next = UI_SIZES[Math.max(0, Math.min(UI_SIZES.length - 1, i + dir))]; saveUiSize(seed, next); setUiSize(next);
+  }, [uiSize, seed]);
   const togglePad = useCallback(() => { const next = !padState.shown; saveControlsPref(seed, next); setPadPref(next); setMenu(false); frame.current?.focus(); }, [padState.shown, seed]);
   // No page zoom while a game runs on a phone or tablet (see applyViewport).
   useEffect(() => {
@@ -330,6 +344,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       if (d.gcp === 'display_query') { post(); postLang(); }
       if (d.gcp === 'escape') gameEsc.current = d.on === true;
       if (d.gcp === 'pause_answer') { clearTimeout(askTimer.current); if (d.took !== true) setHeld(true); }
+      if (d.gcp === 'ui_info') { setUiScalable(d.scalable === true); if (uiSizeRef.current == null) { const v = okUiSize(d.size); if (v != null && v !== 1) { setUiSize(v); saveUiSize(seedRef.current, v); } } }
+      if (d.gcp === 'ui_size') { const v = okUiSize(d.size); if (v != null) { setUiSize(v); saveUiSize(seedRef.current, v); } }
       if (d.gcp === 'controls_state') setPadState({ available: d.available === true, shown: d.shown === true });
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
@@ -464,6 +480,14 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
               {badge && <span className="stage-badge">{badge}</span>}
               <button ref={menuBtn} type="button" className="stage-btn primary" onClick={resume}>{t('Resume', '继续游戏')}</button>
               {padState.available && <button type="button" className="stage-btn" onClick={togglePad}>{padState.shown ? t('Hide on-screen controls', '隐藏屏幕按键') : t('Show on-screen controls', '显示屏幕按键')}</button>}
+              {uiScalable && (
+                <div className="stage-size" role="group" aria-label={t('Interface size', '界面大小')}>
+                  <span>{t('Interface size', '界面大小')}</span>
+                  <button type="button" className="stage-btn" aria-label={t('Smaller', '缩小')} disabled={(uiSize ?? 1) <= UI_SIZES[0]} onClick={() => stepUi(-1)}>−</button>
+                  <output aria-live="polite">{Math.round((uiSize ?? 1) * 100)}%</output>
+                  <button type="button" className="stage-btn" aria-label={t('Larger', '放大')} disabled={(uiSize ?? 1) >= UI_SIZES[UI_SIZES.length - 1]} onClick={() => stepUi(1)}>+</button>
+                </div>
+              )}
               <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
               {iosTip && <span className="stage-hint">{t('For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.', '想要不会被滑动打断的全屏，请点“分享”，再点“添加到主屏幕”，然后从主屏幕打开游玩。')}</span>}

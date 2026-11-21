@@ -108,11 +108,16 @@ export function sharedUi(opts) { const k = '__gcpUi'; if (!window[k] || !window[
  * Creates the interface canvas. Options:
  *   parent (document.body), z (40, its stacking order), font (the default family), canvas (draw into this canvas instead of
  *   a new one: then the game draws its world first and calls ui.draw() itself), capture (true: register GCP.test.onCapture
- *   with the page's canvases bottom to top, this one last, unless the game registers its own).
+ *   with the page's canvases bottom to top, this one last, unless the game registers its own), scale (false: units are CSS
+ *   pixels; true or GCP.ui.configure options such as { reference: [1280, 720] }: units are the runtime's interface units,
+ *   so u.w, u.h, u.safe, pointers and drawing all follow GCP.ui.scale, the screen size and the player's Interface size).
  * Returns ui: { canvas, layer(fn) -> remove(), draw(), font(family, weights, url?) -> Promise, nav, focus(id), blocks(x, y), remove() }.
  */
-export function createUi({ parent = document.body, z = 40, font = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif', canvas = null, capture = true } = {}) {
+export function createUi({ parent = document.body, z = 40, font = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif', canvas = null, capture = true, scale = false } = {}) {
   const own = !canvas;
+  const G = () => (window.GCP && window.GCP.ui) || null;
+  if (scale && typeof scale === 'object' && G()) G().configure(scale);
+  let us = 1;   // CSS pixels per unit
   const cv = canvas || document.createElement('canvas');
   if (own) { cv.style.cssText = `position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:${z};touch-action:none`; cv.setAttribute('aria-hidden', 'true'); parent.appendChild(cv); }
   const ctx = cv.getContext('2d');
@@ -121,7 +126,9 @@ export function createUi({ parent = document.body, z = 40, font = 'system-ui, -a
   const u = {
     get w() { return w; }, get h() { return h; }, get dpr() { return dpr; }, ctx, font, nav: false, dt: 0, time: 0,
     get pointer() { return pointer; },
-    get safe() { const s = (window.GCP && GCP.display && GCP.display.safe) || SAFE0; return { top: s.top || 0, right: s.right || 0, bottom: s.bottom || 0, left: s.left || 0 }; },
+    get safe() { const s = (window.GCP && GCP.display && GCP.display.safe) || SAFE0; return { top: (s.top || 0) / us, right: (s.right || 0) / us, bottom: (s.bottom || 0) / us, left: (s.left || 0) / us }; },
+    /** CSS pixels per unit (1 unless created with scale). */
+    get scale() { return us; },
     /** A box: fill (colour or gradient), stroke and line, radius, shadow { color, blur, x, y }, alpha. */
     panel(x, y, bw, bh, { fill, stroke, line = 1, radius = 0, shadow, alpha } = {}) {
       ctx.save(); if (alpha != null) ctx.globalAlpha *= alpha;
@@ -283,14 +290,15 @@ export function createUi({ parent = document.body, z = 40, font = 'system-ui, -a
 
   function size() {
     const nw = innerWidth, nh = innerHeight, nd = Math.min(DPR_MAX, window.devicePixelRatio || 1);
-    if (own) { if (nw !== w || nh !== h || nd !== dpr) { w = nw; h = nh; dpr = nd; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); } }
-    else { const r = cv.getBoundingClientRect(); w = r.width || cv.width; h = r.height || cv.height; dpr = cv.width / (w || 1); }
+    const ns = scale && G() ? G().scale : 1;
+    if (own) { if (nw !== w * us || nh !== h * us || nd !== dpr || ns !== us) { us = ns; w = nw / us; h = nh / us; dpr = nd; cv.width = Math.round(nw * dpr); cv.height = Math.round(nh * dpr); } }
+    else { const r = cv.getBoundingClientRect(); us = ns; w = (r.width || cv.width) / us; h = (r.height || cv.height) / us; dpr = cv.width / ((r.width || cv.width) || 1); }
   }
   function draw() {
     const now = performance.now(); u.dt = Math.min(0.1, (now - last) / 1000); last = now; u.time += u.dt; frameNo++;
     size();
     prevHits.length = 0; prevHits.push(...hits); hits.length = 0; order = []; textsLast = textsNow; textsNow = [];
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); if (own) ctx.clearRect(0, 0, w, h);
+    ctx.setTransform(dpr * us, 0, 0, dpr * us, 0, 0); if (own) ctx.clearRect(0, 0, w, h);
     for (const l of layers.slice()) { ctx.save(); try { l.fn(u); } catch (e) { if (!l.failed) { l.failed = true; console.error(e); } } finally { ctx.restore(); } }
     if (wantFocus && order.length) { const i = Math.max(0, order.indexOf(focusId)); focusId = order[(i + wantFocus + order.length) % order.length]; } wantFocus = 0;
     if (u.nav && focusId == null && order.length) focusId = order[0];
@@ -303,7 +311,7 @@ export function createUi({ parent = document.body, z = 40, font = 'system-ui, -a
 
   // Input: before the game sees it (capture phase on the window). A press on an area of the interface is the
   // interface's; everything else goes on to the game untouched.
-  const pt = (e) => { const r = own ? { left: 0, top: 0 } : cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const pt = (e) => { const r = own ? { left: 0, top: 0 } : cv.getBoundingClientRect(); return [(e.clientX - r.left) / us, (e.clientY - r.top) / us]; };
   const mine = (e) => { e.stopImmediatePropagation(); if (e.cancelable) e.preventDefault(); };
   function onDown(e) {
     const [x, y] = pt(e); pointer = { x, y, down: true, id: e.pointerId, type: e.pointerType || 'mouse' };

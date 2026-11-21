@@ -1690,5 +1690,8 @@
  "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "在 Durable Objects 中執行遊戲時鐘（數萬玩家同時在線時需要；數據最多可能延遲約一分鐘）",
  "The exact frame the game drew when you pressed Capture.": "你按下擷取時遊戲畫出的那一幀，原樣保存。",
  "Text fields over the game are drawn from the page.": "遊戲上方的輸入框是依頁面重新繪製的。",
- "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "版本未交出它畫出的那一幀時判為不通過（擷幀檢查：所有可見內容都畫在畫布裡，並註冊了 GCP.test.onCapture 和 onState）；只對已上線的遊戲判失敗，其他遊戲只記一條說明；關閉後只回報不判失敗"
+ "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "版本未交出它畫出的那一幀時判為不通過（擷幀檢查：所有可見內容都畫在畫布裡，並註冊了 GCP.test.onCapture 和 onState）；只對已上線的遊戲判失敗，其他遊戲只記一條說明；關閉後只回報不判失敗",
+ "Interface size": "介面大小",
+ "Smaller": "縮小",
+ "Larger": "放大"
 }
