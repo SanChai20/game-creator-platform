@@ -58,6 +58,8 @@ test('two players in a public queue are matched; each gets a ticket the game Wor
   assert.equal(await verifyTicket(fa.ticket, { ...env, PLAY_KEY: 'x' }), null);
   const row = await (await fetch(`${HTTP}/match?id=${fa.match}`)).json();
   assert.equal(row.project_id, 'g1'); assert.equal(row.queue, 'q1');
+  // each player's seat names the match, so a reload can lead back into it (GCP.match.rejoin)
+  for (const u of ['a1', 'b1']) assert.equal((await (await fetch(`${HTTP}/seat?u=${u}`)).json()).match_id, fa.match);
   assert.ok(JSON.parse(row.roster).every((r) => r.k === 'player'));
 });
 

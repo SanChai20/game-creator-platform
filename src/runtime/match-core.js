@@ -6,13 +6,23 @@
 //     snapshotRate: 30,                   // snapshots a second (a divisor of tickRate is best), at most tickRate
 //     maxRewindMs: 200,                   // how far back hit checks may look (lag compensation), at most 400
 //     init(ctx) { return state },         // the match starts: ctx.players are the players present
-//     join(state, player, ctx) {},        // optional: a player of the match arrives after the start
-//     leave(state, player, ctx) {},       // optional: a player is gone for good (left, or away longer than the grace time)
+//     rejoinMs: 0,                        // how long a player who went away may still come back (see below), default 0
+//     join(state, player, ctx) {},        // optional: a player of the match arrives after the start, or comes back
+//     leave(state, player, ctx) {},       // optional: a player left, or was away longer than the grace time
 //     input(state, player, input, ctx) {},// one input of one player, in the order they were sent; validate everything
 //     tick(state, ctx) {},                // one step of ctx.dt seconds; ctx.end(result) finishes the match
 //     hitboxes(state) { return [] },      // optional: [{ id, x, y, z?, r }] or [{ id, min: [..], max: [..] }] for hit checks
 //     view(state, player) { return state }// optional: what this player may see (hide what they must not know)
 //   };
+//
+// Coming back. A player whose connection drops keeps their place for the grace time (LIMITS.graceMs). After it leave()
+// runs. With rejoinMs 0 (the default) that is for good, as it always was. With rejoinMs above 0 the player may still
+// come back for that long (a page reload, a closed browser opened again: GCP.match.rejoin), and the game decides what
+// happens to their things meanwhile: leave() gets player.final false, join() runs with player.back true when they
+// return, and leave() runs once more with player.final true when they cannot return any more (the time is up, they
+// were removed). A player who leaves on purpose (match.cancel() in the page) is gone at once and for good, whatever
+// rejoinMs says. While anyone may still come back the match is not ended for being empty, so the game should end it
+// itself when it has no reason to go on.
 //
 // Pure: no platform imports, no I/O. The Durable Object hands in a clock and the means to send, close and report, so
 // tests (tests/match-core.mjs) run the very same loop in Node with a fake clock.
@@ -26,6 +36,7 @@ export const LIMITS = Object.freeze({
   snapshotBytes: 64 * 1024,      // one player's snapshot as JSON (full or delta)
   fullEveryMs: 5000,             // a full snapshot now and then, whatever the deltas did
   graceMs: 20_000,               // a disconnected player keeps their place this long
+  maxRejoinMs: 60 * 60 * 1000,   // the longest a game may let a player who went away come back (rejoinMs)
   startWaitMs: 15_000,           // how long the match waits for everyone before it starts with who is there
   maxDurationMs: 60 * 60 * 1000, // a match ends by itself after an hour
   errorBudget: 10,               // creator code errors tolerated in any 100 ticks before the match is stopped
@@ -45,6 +56,7 @@ export function normalizeDef(def) {
   return {
     tickRate, snapEvery: Math.max(1, Math.round(tickRate / snapshotRate)),
     maxRewindMs: Math.round(clampN(def.maxRewindMs, 0, LIMITS.maxRewindMs, LIMITS.defaultRewindMs)),
+    rejoinMs: Math.round(clampN(def.rejoinMs, 0, LIMITS.maxRejoinMs, 0)),
     init: def.init, tick: def.tick, input: def.input || null, join: def.join || null, leave: def.leave || null,
     hitboxes: def.hitboxes || null, view: def.view || null,
   };
@@ -140,7 +152,7 @@ export class MatchCore {
     this.players = new Map();
     for (const r of (setup.roster || []).slice(0, LIMITS.maxPlayers)) {
       const id = String(r.id);
-      this.players.set(id, { id, name: String(r.name || 'Player').slice(0, 40), team: r.team ?? null, connected: false, joined: false, left: false, goneAt: 0, queue: [], lastN: 0, ack: 0, view: null, prev: null, prevAt: 0, budget: LIMITS.messagesPerTick * this.def.tickRate * 2, budgetAt: 0, errors: [] });
+      this.players.set(id, { id, name: String(r.name || 'Player').slice(0, 40), team: r.team ?? null, connected: false, joined: false, left: false, leftAt: 0, final: false, goneAt: 0, queue: [], lastN: 0, ack: 0, view: null, prev: null, prevAt: 0, budget: LIMITS.messagesPerTick * this.def.tickRate * 2, budgetAt: 0, errors: [] });
     }
     this.minPlayers = Math.max(1, Math.min(this.players.size, Number(setup.minPlayers) || this.players.size));
     this.phase = 'waiting'; this.createdAt = io.now(); this.startedAt = 0; this.tick = 0; this.next = 0;
@@ -157,24 +169,45 @@ export class MatchCore {
   /** A player of the roster opened a connection (first time or again). False for anyone else. */
   connect(id) {
     const p = this.players.get(String(id));
-    if (!p || p.left || this.phase === 'ended') return false;
-    p.connected = true; p.goneAt = 0; p.prev = null; p.queue = [];   // a fresh connection gets a full snapshot
+    if (!p || p.final || this.phase === 'ended') return false;
+    const back = p.left && p.joined;   // away past the grace time, and back within the game's rejoinMs
+    p.connected = true; p.goneAt = 0; p.left = false; p.leftAt = 0; p.prev = null; p.queue = [];   // a fresh connection gets a full snapshot
     this.sendTo(p, { t: 'hello', you: p.id, match: this.id, tickRate: this.def.tickRate, snapshotRate: this.def.tickRate / this.def.snapEvery, maxRewindMs: this.def.maxRewindMs, phase: this.phase, k: this.tick, players: this.roster(), ack: p.ack });
     if (this.phase === 'waiting') { this.broadcast({ t: 'wait', players: this.roster() }); this.maybeStart(); }
     else if (this.phase === 'running') {
       this.broadcast({ t: 'players', players: this.roster() });
-      if (!p.joined) { p.joined = true; this.call('join', (c) => this.def.join && this.def.join(this.state, this.info(p), c)); }
+      if (!p.joined || back) { p.joined = true; this.call('join', (c) => this.def.join && this.def.join(this.state, { ...this.info(p), back }, c)); }
     }
     return true;
   }
 
+  /**
+   * A player is away past the grace time, or gone for good (final). leave() runs when they go away, and once more when
+   * a player who could still come back (def.rejoinMs) no longer can; player.final tells the two apart.
+   */
+  drop(p, final) {
+    if (p.final || (p.left && !final)) return;
+    if (!p.left) { p.left = true; p.leftAt = this.io.now(); }
+    p.final = !!final; p.queue = [];
+    if (p.joined && this.phase === 'running') this.call('leave', (c) => this.def.leave && this.def.leave(this.state, { ...this.info(p), final: p.final }, c));
+  }
+
+  /** The player chose to leave (match.cancel() in the page): no grace time, and no way back. */
+  quit(p) {
+    if (p.final) return;
+    if (p.connected) this.io.close(p.id, 1000, 'Left the match');
+    p.connected = false; p.goneAt = this.io.now();
+    this.drop(p, true);
+    if (this.phase !== 'ended') this.broadcast({ t: 'players', players: this.roster() });
+  }
+
   /** Removes a player for good (their inputs kept failing). */
   kick(p, why) {
-    if (p.left) return;
+    if (p.final) return;
     this.sendTo(p, { t: 'error', code: 'kicked', message: why });
     if (p.connected) this.io.close(p.id, 4009, 'Removed from the match');
-    p.connected = false; p.left = true; p.queue = [];
-    if (p.joined && this.phase === 'running') this.call('leave', (c) => this.def.leave && this.def.leave(this.state, this.info(p), c));
+    p.connected = false;
+    this.drop(p, true);
     this.broadcast({ t: 'players', players: this.roster() });
   }
 
@@ -205,6 +238,7 @@ export class MatchCore {
       p.queue.push({ n, v: Number.isFinite(v) ? v : null, d: m.d === undefined ? null : m.d });
       if (p.queue.length > LIMITS.queuedInputs) p.queue.splice(0, p.queue.length - LIMITS.queuedInputs);
     } else if (m.t === 'p') this.sendTo(p, { t: 'po', n: Number(m.n) || 0, k: this.tick });
+    else if (m.t === 'bye') this.quit(p);
   }
 
   maybeStart() {
@@ -226,15 +260,15 @@ export class MatchCore {
   step() {
     const now = this.io.now();
     if (this.phase === 'ended') return Infinity;
-    // players gone longer than the grace time leave for good; an empty match ends
+    // players gone longer than the grace time leave: for good, or for as long as the game lets them come back (rejoinMs).
+    // A match nobody is connected to and nobody can come back to ends.
     for (const p of this.players.values()) {
-      if (!p.connected && p.goneAt && !p.left && now - p.goneAt > LIMITS.graceMs) {
-        p.left = true;
-        if (this.phase === 'running' && p.joined) this.call('leave', (c) => this.def.leave && this.def.leave(this.state, this.info(p), c));
-      }
+      if (p.connected || p.final) continue;
+      if (!p.left && p.goneAt && now - p.goneAt > LIMITS.graceMs) this.drop(p, !this.def.rejoinMs);
+      if (p.left && !p.final && now - p.leftAt > this.def.rejoinMs) this.drop(p, true);
     }
     if (![...this.players.values()].some((p) => p.connected)) {
-      if (this.phase === 'running' && [...this.players.values()].every((p) => p.left)) return this.finish({ aborted: true, reason: 'everyone_left' }), Infinity;
+      if (this.phase === 'running' && [...this.players.values()].every((p) => p.final)) return this.finish({ aborted: true, reason: 'everyone_left' }), Infinity;
       if (this.phase === 'waiting' && now - this.createdAt > LIMITS.startWaitMs * 2) return this.finish({ aborted: true, reason: 'nobody_came' }), Infinity;
     }
     if (this.phase === 'waiting') {
@@ -291,13 +325,13 @@ export class MatchCore {
     // inputs: one per player per tick, two when more are waiting (a burst after a hiccup, or a client clock a little
     // fast), in the order sent. The queue stays short, so an input waits at most about a tick before it is applied.
     for (const p of this.players.values()) {
-      if (!p.joined || p.left) continue;
+      if (!p.joined || p.left) continue;   // (a player who is away has no connection, so no inputs either)
       const take = p.queue.length >= 2 ? 2 : p.queue.length ? 1 : 0;
       for (let i = 0; i < take; i++) {
         const inp = p.queue.shift();
         p.ack = inp.n; p.view = inp.v;
         if (this.def.input && !this.call('input', (c) => this.def.input(this.state, this.info(p), inp.d, c), p)) {
-          if (p.left) break;
+          if (p.final) break;
         }
         if (this.phase === 'ended') return;
       }

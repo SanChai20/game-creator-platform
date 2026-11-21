@@ -442,7 +442,7 @@ async function matchRoute(request, env, url) {
 export class GameMatch {
   constructor(state, env) {
     this.state = state; this.env = I.own(env); this.core = null; this.sockets = new Map(); this.timer = 0; this.checkTimer = 0;
-    this.banned = new Set(); this.ended = false;
+    this.banned = new Map(); this.ended = false;   // banned: player -> the play session of theirs that ended
   }
 
   async fetch(request) {
@@ -450,8 +450,14 @@ export class GameMatch {
     const p = await verifyTicket(url.searchParams.get('t'), this.env);
     if (!p) return new Response('Bad ticket', { status: 401 });
     if (this.ended || (await this.state.storage.get('ended'))) return this.refuse(4004, 'This match is over.');
-    if (this.banned.has(p.u)) return this.refuse(4001, 'Your play session ended.');
+    // A play session that ended stays out. The same player with a new session (they opened the game again, and the
+    // platform signed a ticket for that session after checking it: GCP.match.rejoin) is welcome back.
+    if (this.banned.has(p.u)) { if (this.banned.get(p.u) === p.s || !p.rj) return this.refuse(4001, 'Your play session ended.'); this.banned.delete(p.u); }
     if (!this.core) {
+      // A ticket for coming back (GCP.match.rejoin, signed by /api/rt/match-current) leads only into a match that is
+      // running here. It never starts one: should this object have lost the match (the Worker was deployed again), the
+      // match is over for whoever comes back.
+      if (p.rj) return this.refuse(4004, 'This match is over.');
       let def;
       try { def = normalizeDef(userMatch); } catch (e) { return this.refuse(4500, String(e.message || e)); }
       this.core = new MatchCore(def, { id: p.m, roster: p.r, seed: p.seed, queue: p.q, options: p.o, minPlayers: p.min }, {
@@ -519,7 +525,7 @@ export class GameMatch {
       if (!r.ok) return;
       const j = await r.json();
       for (const u of Array.isArray(j.ended) ? j.ended : []) {
-        this.banned.add(u);
+        this.banned.set(u, (this.sessions.get(u) || {}).s);
         const ws = this.sockets.get(u);
         if (ws) { try { ws.send(I.stringify({ t: 'error', code: 'session_ended', message: 'Your play session ended.' })); ws.close(4001, 'Session ended'); } catch { /* closed */ } }
         this.sockets.delete(u); if (this.core) this.core.disconnect(u);
