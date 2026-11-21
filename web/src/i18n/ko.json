@@ -1669,5 +1669,5 @@
  "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "플레이 시계를 Durable Objects에서 실행 (수만 명 동시 접속에 필요, 수치가 최대 1분 정도 늦게 반영될 수 있음)",
  "The exact frame the game drew when you pressed Capture.": "캡처를 눌렀을 때 게임이 그린 바로 그 프레임입니다.",
  "Text fields over the game are drawn from the page.": "게임 위의 입력란은 페이지를 바탕으로 다시 그렸습니다.",
- "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); off reports it without failing": "그린 프레임을 그대로 넘기지 않는 버전을 불합격 처리(캡처 검사: 보이는 모든 것을 캔버스에 그리고 GCP.test.onCapture와 onState를 등록). 끄면 보고만 하고 불합격 처리하지 않음"
+ "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "그린 프레임을 그대로 넘기지 않는 버전을 불합격 처리(캡처 검사: 보이는 모든 것을 캔버스에 그리고 GCP.test.onCapture와 onState를 등록). 공개 중인 게임의 버전만 불합격 처리하고 다른 게임에는 메모만 남김. 끄면 보고만 하고 불합격 처리하지 않음"
 }

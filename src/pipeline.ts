@@ -79,7 +79,7 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
     const guestToken = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid2), n: 'Verifier 2', k: 'verify', s: sid2, x }, key);
     const mf = parseJson<{ usesWebGPU?: boolean; compat?: { requirements?: { devices?: string[]; orientation?: string } } }>(v.manifest, {}), req = mf.compat?.requirements || {};
     const device = { devices: Array.isArray(req.devices) && req.devices.length ? req.devices : ['desktop', 'tablet', 'mobile'], orientation: String(req.orientation || 'any') };
-    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!mf.usesWebGPU, job.origin, `${url}?gcp_t=${guestToken}&gcp_autostart=1`, device);
+    const out = await browserVerify(env, `${url}?gcp_t=${token}&gcp_autostart=1`, !!mf.usesWebGPU, job.origin, `${url}?gcp_t=${guestToken}&gcp_autostart=1`, device, p.status === 'live');
     report = out.report; shot = out.shot; frames = out.frames || [];
     report.deploy = health.detail;
   }

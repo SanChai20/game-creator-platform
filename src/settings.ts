@@ -46,7 +46,7 @@ export const SETTING_DEFS = {
   verify_playthrough_s: { v: 30, type: 'int', group: 'Verification', label: "Seconds a game's own play-through script may take" },
   verify_devices: { v: 'iphone,ipad', type: 'text', group: 'Verification', label: 'Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off' },
   craft_target: { v: 75, type: 'int', group: 'Verification', label: 'Craft score (0 to 100) agents are told to reach before calling a game finished; publishing never depends on it', public: true },
-  verify_capture_required: { v: true, type: 'bool', group: 'Verification', label: 'Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); off reports it without failing' },
+  verify_capture_required: { v: true, type: 'bool', group: 'Verification', label: 'Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing' },
   verify_browser_required: { v: true, type: 'bool', group: 'Verification', label: 'Require the automated browser check (otherwise a clean creator preview session also qualifies)' },
   metadata_required: { v: true, type: 'bool', group: 'Verification', label: 'Require complete game metadata to publish (genre, requirements, languages, players, content descriptors)' },
   verify_human_min_seconds: { v: 20, type: 'int', group: 'Verification', label: 'Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it' },
