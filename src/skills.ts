@@ -5,6 +5,7 @@
 // release. Rollbacks bring back the skill written for that version. A creator shares the skill for free (the game's sales
 // then pay the lower cut) or sells it (the game pays the standard cut, and each skill sale pays the skill commission).
 // The rules about what a skill may contain are in src/skill-rules.js.
+import { listingLangs } from './listing';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from './env';
 import { getProject, logEvent } from './projects';
 import { getSettings, type Settings } from './settings';
@@ -106,7 +107,7 @@ const STORE_SELECT = "SELECT p.*, u.name AS author, s.version AS s_version, s.de
 function entry(origin: string, r: any, owned: boolean) {
   const generated = !r.s_version, version = r.s_version || r.live_version;
   return {
-    game: { id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, by: r.author, tags: parseJson<string[]>(r.tags, []), cover: r.cover_key ? `${origin}/api/media/${r.cover_key}` : null, game_page: `${origin}/g/${r.slug}`, plays: r.plays, live_version: r.live_version, price_cents: r.price_cents },
+    game: { id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, by: r.author, tags: parseJson<string[]>(r.tags, []), cover: r.cover_key ? `${origin}/api/media/${r.cover_key}` : null, ...listingLangs(r, ['title', 'tagline'], (k) => `${origin}/api/media/${k}`), game_page: `${origin}/g/${r.slug}`, plays: r.plays, live_version: r.live_version, price_cents: r.price_cents },
     skill: {
       name: skillName(r.slug), price_cents: Number(r.skill_price_cents) || 0, free: !(Number(r.skill_price_cents) > 0), version, in_sync: version === r.live_version, written_by_platform: generated,
       description: generated ? (r.tagline || '') : (r.s_description || r.tagline || ''), sections: generated ? [] : headingsOf(r.s_content), characters: generated ? 0 : String(r.s_content || '').length,

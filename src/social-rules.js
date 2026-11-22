@@ -15,6 +15,22 @@
 //     and a Busy friend gets the invite quietly, without a pop-up).
 //   - An invite to a match carries the private lobby the inviter is in; only an accepted invite lets its receiver in.
 
+
+/** A game as friends, invites and chat show it: its name in every platform language its listing is in (only those the
+ *  live version is played in), so each viewer sees it in theirs (web/src/lib.tsx shown; src/listing.ts does the same
+ *  for the store). */
+export function gameRef(r, id = r.id) {
+  const g = id === null ? { slug: r.slug, title: r.title } : { id, slug: r.slug, title: r.title };
+  let all = {};
+  try { all = JSON.parse(r.listing_i18n || '{}') || {}; } catch { /* stored as written */ }
+  const langs = String(r.langs || '').split(',').filter(Boolean), i18n = {};
+  for (const [k, v] of Object.entries(all)) if (v && v.title && (!langs.length || langs.includes(k))) i18n[k] = { title: v.title };
+  if (r.listing_lang) g.lang = r.listing_lang;
+  if (Object.keys(i18n).length) g.i18n = i18n;
+  return g;
+}
+const GAME_COLS = 'p.listing_i18n, p.listing_lang, p.langs';
+
 export class SocialError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
 }
@@ -251,12 +267,12 @@ export async function sendMessage(db, me, to, body, t = now()) {
 }
 function msgView(r) {
   const m = { id: r.id, from: r.from_id, to: r.to_id, kind: r.kind, body: r.body, at: r.created_at, read: !!r.read_at };
-  if (r.kind === 'invite') m.invite = { id: r.invite_id, status: r.i_status || 'cancelled', game: r.slug ? { slug: r.slug, title: r.title } : null, expires_at: r.expires_at, label: (() => { try { return JSON.parse(r.i_data || '{}').label || ''; } catch { return ''; } })() };
+  if (r.kind === 'invite') m.invite = { id: r.invite_id, status: r.i_status || 'cancelled', game: r.slug ? gameRef(r, null) : null, expires_at: r.expires_at, label: (() => { try { return JSON.parse(r.i_data || '{}').label || ''; } catch { return ''; } })() };
   return m;
 }
 export async function conversation(db, me, other, before = null, limit = 50) {
   const n = Math.max(1, Math.min(100, Number(limit) || 50));
-  const r = await db.prepare(`SELECT m.*, i.status AS i_status, i.data AS i_data, i.expires_at, p.slug, p.title FROM dm_messages m
+  const r = await db.prepare(`SELECT m.*, i.status AS i_status, i.data AS i_data, i.expires_at, p.slug, p.title, ${GAME_COLS} FROM dm_messages m
       LEFT JOIN game_invites i ON i.id = m.invite_id LEFT JOIN projects p ON p.id = i.project_id
       WHERE m.pair = ? ${before ? 'AND m.id < ?' : ''} ORDER BY m.id DESC LIMIT ?`).bind(...[pairOf(me, other), ...(before ? [Number(before)] : []), n + 1]).all();
   const rows = r.results.slice(0, n).reverse().map(msgView);
@@ -308,7 +324,7 @@ export function cleanInviteData(d) {
 export async function createInvite(db, { from, to, project, env = 'live', kind = 'game', data = {}, online }, t = now()) {
   await canReach(db, from, to, 'invites');
   if (!INVITABLE.includes(online)) throw err(409, 'not_online', 'This friend is offline. Invites go only to friends who are online, away or busy.');
-  const p = await db.prepare('SELECT id, slug, title, status FROM projects WHERE id = ?').bind(project).first();
+  const p = await db.prepare('SELECT id, slug, title, status, listing_i18n, listing_lang, langs FROM projects WHERE id = ?').bind(project).first();
   if (!p || (env === 'live' && p.status !== 'live')) throw err(409, 'offline', 'This game is not live.');
   const id = 'inv_' + rnd(10), clean = cleanInviteData(data), ttl = INVITE_TTL_MS[kind] || INVITE_TTL_MS.game;
   await exec(db, [
@@ -317,23 +333,23 @@ export async function createInvite(db, { from, to, project, env = 'live', kind =
       .bind(id, from, to, project, env, kind, JSON.stringify(clean), t, t + ttl),
     db.prepare("INSERT INTO dm_messages (pair, from_id, to_id, kind, body, invite_id, created_at) VALUES (?, ?, ?, 'invite', '', ?, ?)").bind(pairOf(from, to), from, to, id, t),
   ]);
-  return { id, from, to, game: { id: p.id, slug: p.slug, title: p.title }, kind, label: clean.label || '', created_at: t, expires_at: t + ttl };
+  return { id, from, to, game: gameRef(p), kind, label: clean.label || '', created_at: t, expires_at: t + ttl };
 }
 async function inviteRow(db, id) {
   if (typeof id !== 'string' || !/^inv_[a-f0-9]{20}$/.test(id)) return null;
-  return db.prepare('SELECT i.*, p.slug, p.title, p.status AS p_status, u.name AS from_name FROM game_invites i JOIN projects p ON p.id = i.project_id JOIN users u ON u.id = i.from_id WHERE i.id = ?').bind(id).first();
+  return db.prepare(`SELECT i.*, p.slug, p.title, ${GAME_COLS}, p.status AS p_status, u.name AS from_name FROM game_invites i JOIN projects p ON p.id = i.project_id JOIN users u ON u.id = i.from_id WHERE i.id = ?`).bind(id).first();
 }
 /** The receiver says yes or no. A yes returns where to go: the game and what the game is told (GCP.launch.join). */
 export async function answerInvite(db, me, id, accept, t = now()) {
   const r = await inviteRow(db, id);
   if (!r || r.to_id !== me) throw err(404, 'not_found', 'No such invite.');
-  if (r.status === 'accepted' && accept) return { invite: id, from: r.from_id, game: { id: r.project_id, slug: r.slug, title: r.title }, join: joinOf(r) };
+  if (r.status === 'accepted' && accept) return { invite: id, from: r.from_id, game: gameRef(r, r.project_id), join: joinOf(r) };
   if (r.status !== 'sent') throw err(409, 'gone', r.status === 'cancelled' ? 'This invite was withdrawn.' : 'You already answered this invite.');
   if (r.expires_at <= t) throw err(409, 'expired', 'This invite has expired.');
   if (accept && r.p_status !== 'live') throw err(409, 'offline', 'This game is not live any more.');
   await db.prepare('UPDATE game_invites SET status = ?, answered_at = ? WHERE id = ? AND status = \'sent\'').bind(accept ? 'accepted' : 'declined', t, id).run();
   await db.prepare('UPDATE dm_messages SET read_at = ? WHERE invite_id = ? AND read_at IS NULL').bind(t, id).run();
-  return { invite: id, from: r.from_id, accepted: !!accept, game: { id: r.project_id, slug: r.slug, title: r.title }, ...(accept ? { join: joinOf(r) } : {}) };
+  return { invite: id, from: r.from_id, accepted: !!accept, game: gameRef(r, r.project_id), ...(accept ? { join: joinOf(r) } : {}) };
 }
 /** What the game is told about an accepted invite (GCP.launch.join and the 'join' event). The lobby itself stays hidden. */
 export function joinOf(r) {
@@ -361,9 +377,9 @@ export async function createJoin(db, { me, friend, project, env = 'live', data }
   return joinOf({ id, kind: 'join', from_id: friend, from_name: (await activeUser(db, friend))?.name, data: JSON.stringify(clean) });
 }
 export async function pendingInvites(db, me, t = now()) {
-  const r = await db.prepare(`SELECT i.*, p.slug, p.title, u.name AS from_name FROM game_invites i JOIN projects p ON p.id = i.project_id JOIN users u ON u.id = i.from_id
+  const r = await db.prepare(`SELECT i.*, p.slug, p.title, ${GAME_COLS}, u.name AS from_name FROM game_invites i JOIN projects p ON p.id = i.project_id JOIN users u ON u.id = i.from_id
       WHERE i.to_id = ? AND i.status = 'sent' AND i.expires_at > ? AND p.status = 'live' ORDER BY i.created_at DESC LIMIT 20`).bind(me, t).all();
-  return r.results.map((x) => ({ id: x.id, from: { id: x.from_id, name: x.from_name }, game: { id: x.project_id, slug: x.slug, title: x.title }, kind: x.kind, label: joinOf(x).label || '', created_at: x.created_at, expires_at: x.expires_at }));
+  return r.results.map((x) => ({ id: x.id, from: { id: x.from_id, name: x.from_name }, game: gameRef(x, x.project_id), kind: x.kind, label: joinOf(x).label || '', created_at: x.created_at, expires_at: x.expires_at }));
 }
 export async function cancelInvite(db, me, id, t = now()) {
   const r = await db.prepare("UPDATE game_invites SET status = 'cancelled', answered_at = ? WHERE id = ? AND from_id = ? AND status = 'sent' RETURNING to_id").bind(t, id, me).first();

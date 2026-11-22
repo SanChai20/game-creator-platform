@@ -213,3 +213,23 @@ test('a close duplication match never waits for a person: the AI decides and the
   assert.equal(g.rules.some((r) => r.id === 'original_review'), false);
   assert.equal(g.ok, true);
 });
+
+test('a game played in several platform languages lists itself in each of them before it goes live', async () => {
+  const langs = (supported) => ({ v: 1, languages: { default: 'en', supported: supported.map((code) => ({ code, interface: true, audio: false, subtitles: false })), follows_platform: true, notes: '' }, declared: true, detected: { default: 'en', supported: [], follows_platform: false, notes: '' }, evidence: {} });
+  const manifest = (supported) => JSON.stringify({ meta: { v: 1, meta: { players: { min: 1, max: 1, modes: ['single'] }, content: {} }, declared: ['languages', 'players', 'content'], detected: { multiplayer: false, progress: {}, evidence: {} }, rating: { age: 3, reasons: [] }, languages: langs(supported) }, compat: { declared: true, requirements: {}, detected: {} } });
+  const project = { title: 'Bloom', tagline: 'Grow a garden', description: 'Pick a garden.' };
+  const withListing = (i18n, extra = {}) => { const w = world({ version: { manifest: manifest(['en', 'zh-hans', 'ja']) }, ...extra }); w.DB.sql.prepare('UPDATE projects SET tagline = ?, description = ?, listing_i18n = ? WHERE id = ?').run(project.tagline, project.description, JSON.stringify(i18n), 'g1'); w.p = w.DB.sql.prepare('SELECT * FROM projects WHERE id = ?').get('g1'); return w; };
+  const short = await gate(withListing({ zh: { title: '花园', tagline: '种花', description: '选一座花园。' } }), 'publish', { s: { metadata_required: true } });
+  const r = short.rules.find((x) => x.id === 'listing_languages');
+  assert.equal(r.status, 'fail');
+  assert.equal(r.code, 'listing_untranslated');
+  assert.match(r.reason, /Japanese \(ja\): title, tagline, description/);
+  assert.match(r.fix, /listing_translations/);
+  assert.equal(r.waivable, true);
+  const full = await gate(withListing({ zh: { title: '花园', tagline: '种花', description: '选一座花园。' }, ja: { title: '庭', tagline: '花を育てる', description: '庭を選ぼう。' } }), 'publish', { s: { metadata_required: true } });
+  assert.equal(statusOf(full, 'listing_languages'), 'pass');
+  // a game in one language needs nothing more, and a rollback is never held to it
+  const one = world({ version: { manifest: manifest(['en']) } });
+  assert.equal(statusOf(await gate(one, 'publish', { s: { metadata_required: true } }), 'listing_languages'), 'pass');
+  assert.equal(statusOf(await gate(withListing({}, { version: { manifest: manifest(['en', 'ja']), published_at: 1 } }), 'rollback', { s: { metadata_required: true } }), 'listing_languages'), 'skipped');
+});

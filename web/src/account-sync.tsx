@@ -2,7 +2,7 @@
 // The server is what keeps game sessions bound to the right player (src/session-binding.js); this only makes the pages
 // notice at once, so a tab never goes on showing (or playing as) an account the browser has left.
 import { useEffect, useRef, useState } from 'react';
-import { api, ago, playTime, t, type Me } from './lib';
+import { api, ago, local, playTime, t, type Me } from './lib';
 import { Button, Modal } from './ui';
 
 const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('gcp-auth') : null;
@@ -61,8 +61,8 @@ export function GuestProgressPrompt({ user, toast }: { user: Me | null; toast: (
     <Modal onClose={later}><div className="stack l">
       <h3 style={{ fontSize: 22 }}>{t('Move guest progress to {name}?', '把访客进度转入 {name}？', { name: user.name })}</h3>
       <p className="mute">{t('This browser has progress from playing as a guest. Move it only if it is yours: on a shared computer it may belong to someone else.', '这个浏览器里有以访客身份游玩的进度。只有确认是你自己的才转入：在共用电脑上，它可能属于别人。')}</p>
-      {moving.length > 0 && <ul className="stack s" style={{ margin: 0, paddingLeft: 18 }}>{moving.map((g) => <li key={g.slug}><b>{g.title}</b> <span className="mute fs-sm">· {playTime(g.seconds)}{g.last_played ? ` · ${ago(g.last_played)}` : ''}</span></li>)}</ul>}
-      {kept.length > 0 && <p className="mute fs-sm">{t('Your account already has progress in {games}. That progress stays as it is and the guest progress is not mixed into it.', '你的账号在 {games} 中已有进度，将保持不变，不会与访客进度混在一起。', { games: kept.map((g) => g.title).join(', ') })}</p>}
+      {moving.length > 0 && <ul className="stack s" style={{ margin: 0, paddingLeft: 18 }}>{moving.map((g) => <li key={g.slug}><b>{local(g, 'title')}</b> <span className="mute fs-sm">· {playTime(g.seconds)}{g.last_played ? ` · ${ago(g.last_played)}` : ''}</span></li>)}</ul>}
+      {kept.length > 0 && <p className="mute fs-sm">{t('Your account already has progress in {games}. That progress stays as it is and the guest progress is not mixed into it.', '你的账号在 {games} 中已有进度，将保持不变，不会与访客进度混在一起。', { games: kept.map((g) => local(g, 'title')).join(', ') })}</p>}
       <div className="row">
         <Button variant="primary" disabled={busy} onClick={() => answer(true)}>{moving.length ? t('Move to my account', '转入我的账号') : t('OK', '好的')}</Button>
         <Button disabled={busy} onClick={() => answer(false)}>{t('It is not mine', '这不是我的')}</Button>

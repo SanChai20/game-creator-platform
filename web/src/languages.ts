@@ -188,3 +188,78 @@ export function inYourLanguage(l: Languages, lang: Lang): { ok: boolean; row: Ga
   const row = l.supported.find((g) => platformLangOf(g.code) === lang) ?? null;
   return { ok: !!row && row.interface, row, partial: !!row && !row.interface };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Which listing a viewer sees
+// ---------------------------------------------------------------------------------------------
+// Everything about a game outside the game itself (its name, tagline, description, controls text and cover) follows
+// the platform language: a game shown to a viewer whose platform language it supports is shown in that language;
+// otherwise in English when it has an English listing, otherwise in the language its listing was written in (for a
+// game in one language, that language). The Worker and the web app both decide with pickListing, so every surface
+// (home, shelves, cards, search, the game page, the library, friends) agrees.
+
+/** The platform languages a game is played in: interface text or subtitles, from its version's declaration. */
+export function platformLangsOf(l: Languages | null | undefined): Lang[] {
+  const out: Lang[] = [];
+  for (const g of l?.supported || []) { const p = platformLangOf(g.code); if (p && (g.interface || g.subtitles) && !out.includes(p)) out.push(p); }
+  return out;
+}
+
+/** The platform language a listing is written in when its creator has not said: its script, else English. */
+export function guessListingLang(text: string): string {
+  const s = String(text || '');
+  if (/[가-힯]/.test(s)) return 'ko';
+  if (/[぀-ヿ]/.test(s)) return 'ja';
+  if (/[一-鿿]/.test(s)) return /[們這說會國與為產開關時應從點擊將對]/.test(s) ? 'zh-TW' : 'zh';
+  if (/[áéíóúñ¿¡]/i.test(s) && /\b(el|la|los|las|una?|de|del|y|en|tu|con|para)\b/i.test(s)) return 'es';
+  return 'en';
+}
+
+/** A listing language as stored: a platform language (en, zh, zh-TW, ja, ko, es; zh-Hans and zh-Hant map to zh and zh-TW), else a BCP 47 code. */
+export function listingLangCode(raw: unknown): string | null {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  const n = normLang(s);
+  if (!n) return null;
+  return platformLangOf(n) || matchLang(s) || n;
+}
+
+/** The language a project's own listing (the title, tagline, description and cover in the project columns) is in. */
+export function baseListingLang(p: { listing_lang?: string | null; title?: string | null; tagline?: string | null; description?: string | null }): string {
+  return (p.listing_lang && listingLangCode(p.listing_lang)) || guessListingLang(`${p.title || ''} ${p.tagline || ''} ${(p.description || '').slice(0, 400)}`);
+}
+
+/** The listing languages a game offers: its own listing's and every translation of a platform language the game
+ *  supports. With supported unknown (a game whose languages are not on record) every translation counts. */
+export function offeredListings(base: string, translated: readonly string[], supported: readonly Lang[] | null | undefined): Lang[] {
+  const out: Lang[] = [];
+  const b = matchLang(base);
+  if (b) out.push(b);
+  for (const k of translated) if (isLangCode(k) && !out.includes(k) && (!supported?.length || supported.includes(k))) out.push(k);
+  return out;
+}
+const isLangCode = (k: string): k is Lang => LANGS.some((l) => l.code === k);
+
+/** The language a viewer sees a game's listing in: theirs when the game offers it, else English, else the game's own. */
+export function pickListing(viewer: Lang, base: string, offered: readonly Lang[]): string {
+  if (offered.includes(viewer)) return viewer;
+  if (offered.includes('en')) return 'en';
+  return matchLang(base) || base;
+}
+
+/** The fields a listing in one language needs, given what the game's own listing has. */
+export function listingGaps(own: Listing, tr: Listing | null | undefined): (keyof Listing)[] {
+  const need: (keyof Listing)[] = ['title', 'tagline', 'description'];
+  return need.filter((f) => String(own[f] || '').trim() && !String(tr?.[f] || '').trim());
+}
+
+/** The platform languages a game supports that its store listing is missing (or missing fields in), for the release gate. */
+export function missingListings(own: Listing & { lang: string }, translations: Record<string, Listing | undefined>, supported: readonly Lang[]): { lang: Lang; fields: (keyof Listing)[] }[] {
+  const base = matchLang(own.lang), out: { lang: Lang; fields: (keyof Listing)[] }[] = [];
+  for (const l of supported) {
+    if (l === base) continue;
+    const gaps = listingGaps(own, translations[l]);
+    if (gaps.length) out.push({ lang: l, fields: gaps });
+  }
+  return out;
+}

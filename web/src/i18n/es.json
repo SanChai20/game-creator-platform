@@ -2068,5 +2068,8 @@
  "Test bots per fleet (one creator, one game)": "Bots de prueba por grupo (un creador, un juego)",
  "Longest a test-bot fleet runs before it stops by itself (minutes)": "Tiempo máximo que funciona un grupo de bots de prueba antes de detenerse solo (minutos)",
  "Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)": "Minutos de bot que un creador puede usar al día (bots x minutos; 7 bots durante 30 minutos son 210)",
- "Test-bot fleets one creator can run at once": "Grupos de bots de prueba que un creador puede tener a la vez"
+ "Test-bot fleets one creator can run at once": "Grupos de bots de prueba que un creador puede tener a la vez",
+ "The language the title, tagline, description and cover are written in (worked out from the text when not set)": "El idioma en que están escritos el título, el eslogan, la descripción y la portada (se deduce del texto si no se indica)",
+ "The title, tagline, description and controls in every other platform language the game is played in. Players see the listing in their platform language when the game supports it, else in English, else in the game's own language. Required for each platform language the game declares.": "El título, el eslogan, la descripción y los controles en cada otro idioma de la plataforma en que se juega el juego. Los jugadores ven la ficha en el idioma de su plataforma si el juego lo admite; si no, en inglés, y si no, en el idioma propio del juego. Obligatorio para cada idioma de la plataforma que declare el juego.",
+ "A cover per language (update_project), for covers that show the game's name or other text": "Una portada por idioma (update_project), para portadas que muestran el nombre del juego u otro texto"
 }
