@@ -38,7 +38,7 @@ export interface StageCtl {
   /** enter(), but only on a phone or tablet. Call it from the click that starts the game. */
   enterOnPhone(): void;
   /** A picture of the game as it is now, taken by the SDK inside the game page (preview only, for the game's owner). */
-  /** picture false: only the game's state, no picture (the console takes it from the tab). */
+  /** picture false: only the game's state, no picture. */
   capture(picture?: boolean): Promise<GameCapture>;
   /** Whether the stage fills the screen right now. */
   isActive(): boolean;
@@ -219,7 +219,9 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false }: {
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false, onCaptureHook }: {
+  /** The game registered GCP.test.onCapture (true) or has not (false, also whenever a new game page loads). */
+  onCaptureHook?: (on: boolean) => void;
   /** The version's on-screen controls for touch screens (from the API); the SDK in the game draws them. */
   controls?: TouchControls | null;
   /** Extra buttons in the bar under the game (the console's preview puts its feedback capture there). */
@@ -412,6 +414,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
   useEffect(() => { if (!url) { setPadState({ available: false, shown: false }); setHeld(false); } }, [url]);
   const uiSizeRef = useRef(uiSize), seedRef = useRef(seed); uiSizeRef.current = uiSize; seedRef.current = seed;
+  const hookRef = useRef(onCaptureHook); hookRef.current = onCaptureHook;
+  useEffect(() => { hookRef.current?.(false); }, [url]);   // a new game page has not registered its capture hook yet
   useEffect(() => { setUiScalable(false); }, [url]);
   const stepUi = useCallback((dir: number) => {
     const cur = uiSize ?? 1; let i = 0; UI_SIZES.forEach((v, j) => { if (Math.abs(v - cur) < Math.abs(UI_SIZES[i] - cur)) i = j; });
@@ -451,6 +455,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       if (d.gcp === 'trial_over') { exit(); onTrialOver?.(); }
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
       if (d.gcp === 'shown') splash.onShown(urlRef.current);
+      if (d.gcp === 'capture_hook') hookRef.current?.(d.on === true);
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
   }, [enter, exit, toggle, quit, post, postLang, active, onTrialOver, onSessionEnded]);

@@ -2,11 +2,10 @@
 // a note and adds it to a queue their agent reads with the creator_feedback tool (src/feedback.ts). Each item is removed
 // once the agent has read it; the creator can remove items here too.
 //
-// The picture is the tab's real pixels where the browser can share the tab (desktop Chrome, Edge and other Chromium
-// browsers; see capture.ts): the browser asks once per preview, and each capture takes the next frame, cropped to the
-// game. Elsewhere, or when the creator declines, the SDK inside the game page redraws the page itself (its canvases and
-// the elements over them), which can differ from what was on screen; the editor says so. Either way the creator can
-// switch to the other picture, or to a screenshot of their own, before sending.
+// The picture is the frame the game hands over itself (GCP.test.onCapture, the capture contract): the SDK inside the game
+// page copies the canvases the game names right after its next frame, the same on every browser and device. A version
+// without the hook cannot be captured (its build agent adds it), so Capture feedback is greyed out for it. The creator can
+// still use a screenshot of their own before sending.
 //
 // Beside the screenshot the creator can attach a few pictures of their own (design mockups, references: chosen, pasted
 // or dropped), each marked up with the same tools. Every picture is flattened to a JPEG within one item's budget, so the
@@ -15,16 +14,13 @@ import { Component, useCallback, useEffect, useRef, useState, type ReactNode, ty
 import { ago, api, bytes, t, useAct, useData } from './lib';
 import { Badge, Button, Card, EmptyState, Segmented, Textarea } from './ui';
 import type { GameCapture } from './player';
-import { canCaptureTab, grabTab, startTabShare, stopTabShare, tabShareDeclined, tabShareOn, type CaptureDiag } from './capture';
 
 export type Tool = 'circle' | 'arrow' | 'box' | 'pen';
 export interface Mark { type: Tool; x?: number; y?: number; w?: number; h?: number; x1?: number; y1?: number; x2?: number; y2?: number; points?: [number, number][]; label?: string }
-export interface Shot { image: string; method: 'game' | 'page' | 'screen' | 'upload'; capture: Partial<GameCapture>; fullscreen: boolean; version: number | null; partial?: boolean; why?: 'declined' | 'unsupported' | 'fullscreen' | 'failed'; diag?: CaptureDiag;
+export interface Shot { image: string; method: 'game' | 'upload'; capture: Partial<GameCapture>; fullscreen: boolean; version: number | null;
   /** The frame the game handed over under the capture contract, nothing redrawn. */
-  exact?: boolean;
-  /** With an exact picture: the game's own drawing of the same moment, ready in case the exact one looks wrong. */
-  alt?: Promise<GameCapture> }
-type Pic = { image: string; method: Shot['method']; partial?: boolean };
+  exact?: boolean }
+type Pic = { image: string; method: Shot['method'] };
 
 const COLOR = '#ff3b5c', HALO = 'rgba(0,0,0,.55)';
 const MAX_SIDE = 1600, MAX_BYTES = 1_400_000;
@@ -140,10 +136,8 @@ class EditorGuard extends Component<{ onCancel: () => void; children: ReactNode 
   }
 }
 
-function Editor({ projectId, shot, onDone, onCancel, redraw }: {
+function Editor({ projectId, shot, onDone, onCancel }: {
   projectId: string; shot: Shot; onDone: (pending: number) => void; onCancel: () => void;
-  /** The game page's own drawing of itself (the SDK), offered when the exact picture looks wrong. */
-  redraw?: () => Promise<GameCapture>;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null), [img, setImg] = useState<HTMLImageElement | null>(null);
   const [tool, setTool] = useState<Tool>('circle'), [shotMarks, setShotMarks] = useState<Mark[]>([]), [draft, setDraft] = useState<Mark | null>(null);
@@ -151,7 +145,7 @@ function Editor({ projectId, shot, onDone, onCancel, redraw }: {
   const { busy, act } = useAct();
   // the creator can put their own screenshot in place of the captured one (chosen from their files)
   // or the game's own drawing of itself, when the browser's picture looks wrong
-  const [pic, setPic] = useState<Pic | null>(null), image = pic?.image ?? shot.image, method = pic?.method ?? shot.method, partial = pic ? pic.partial : shot.partial;
+  const [pic, setPic] = useState<Pic | null>(null), image = pic?.image ?? shot.image, method = pic?.method ?? shot.method;
   const file = useRef<HTMLInputElement>(null), attachInput = useRef<HTMLInputElement>(null), pointer = useRef<number | null>(null);
   // pictures of the creator's own beside the screenshot; sel 0 is the screenshot, 1… an attached picture
   const [atts, setAtts] = useState<Attachment[]>([]), [sel, setSel] = useState(0), [dropping, setDropping] = useState(false);
@@ -189,11 +183,7 @@ function Editor({ projectId, shot, onDone, onCancel, redraw }: {
     setAtts((as) => as.filter((a) => a.key !== k)); setDrawing(null);
     setSel((s) => (s === i + 1 ? Math.min(i, atts.length - 1) : s > i + 1 ? s - 1 : s));
   };
-  const useRedraw = () => act('redraw', async () => {
-    const c = await redraw!();
-    if ((c.error && c.error !== 'page_elements_missing') || !c.image) throw new Error(t('The game could not draw itself (it has no canvas this can copy, or it draws pictures from another site).', '游戏无法绘制自身画面（没有可复制的画布，或使用了其他网站的图片）。'));
-    setPic({ image: c.image, method: c.method === 'page' ? 'page' : 'game', partial: c.error === 'page_elements_missing' }); setSel(0);
-  });
+
   // A pasted picture is attached. Pasting text into the note or a label stays text, even when the clipboard holds a
   // picture of it too (copied from a document).
   useEffect(() => {
@@ -272,7 +262,7 @@ function Editor({ projectId, shot, onDone, onCancel, redraw }: {
       marks: clean(shotMarks), ...(attached.length ? { attachments: attached } : {}),
       context: { method, viewport: c.viewport, frames: c.frames, fps: c.fps, ready: c.ready, label: c.label, errors: c.errors, warnings: c.warnings, state: c.state,
         fullscreen: shot.fullscreen, touch: matchMedia('(pointer: coarse)').matches, lang: navigator.language, browser: navigator.userAgent,
-        dpr: devicePixelRatio || 1, ...(method === 'screen' && shot.diag ? { capture: shot.diag } : {}),
+        dpr: devicePixelRatio || 1,
         ...(!pic && shot.exact ? { exact: true, redrawn: c.redrawn } : {}) },
     };
     let r: { pending: number };
@@ -322,17 +312,7 @@ function Editor({ projectId, shot, onDone, onCancel, redraw }: {
       {cur && <p className="dim fs-sm">{t('Your own picture{name}. Your agent sees it next to the screenshot, as what you want rather than what the game shows. Mark it up the same way.', '你自己的图片{name}。智能体会在截图旁看到它，并理解为你想要的效果，而不是游戏当前的画面。可以同样进行标注。', { name: cur.name ? ` (${cur.name})` : '' })}</p>}
       {!cur && !pic && shot.exact && <p className="dim fs-sm fb-exact">{t('The exact frame the game drew when you pressed Capture.', '这是你按下截图时游戏绘制的那一帧，完全一致。')}
         {shot.capture.redrawn?.length ? ' ' + t('Text fields over the game are drawn from the page.', '游戏上方的文本输入框由页面绘制。') : ''}</p>}
-      {!cur && !(shot.exact && !pic) && (method === 'game' || method === 'page') && <p className="dim fs-sm fb-approx">{t('This picture was redrawn by the game page, not taken from your screen, so it can differ from what you saw (icons, fonts, effects).', '这张图由游戏页面重新绘制，并非直接截取屏幕，因此可能与你看到的画面有出入（图标、字体、特效等）。')}
-        {partial ? ' ' + t('Only the game\'s canvas is in it: this browser could not draw the menus and panels over it.', '图中只有游戏画布：此浏览器无法绘制其上方的菜单和面板。') : ''}
-        {' '}{shot.why === 'unsupported' ? t('This browser cannot share a tab, so an exact picture is not possible here.', '此浏览器无法共享标签页，因此这里无法截取完全一致的画面。')
-          : shot.why === 'fullscreen' ? t('For an exact picture, leave fullscreen and press Capture feedback again: the browser asks to share this tab once.', '如需完全一致的画面，请退出全屏后再按一次“截图反馈”：浏览器会询问一次是否共享此标签页。')
-          : shot.why === 'failed' ? t('Sharing this tab did not give a picture; press Capture feedback again.', '共享标签页未能获取画面，请再按一次“截图反馈”。')
-          : t('For an exact picture, allow sharing this tab when the browser asks after you press Capture feedback.', '如需完全一致的画面，请在按下“截图反馈”后浏览器询问时允许共享此标签页。')}
-        {' '}{t('A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.', '会自己交出画面（GCP.test.onCapture）的游戏，截图总是完全一致。')}
-        {' '}{t('Or take a screenshot yourself and choose it with Use my own screenshot.', '你也可以自己截图，然后通过“使用我自己的截图”选择。')}</p>}
       {!cur && method === 'upload' && <p className="dim fs-sm">{t('Your own screenshot. Mark it up as usual.', '这是你自己的截图，照常标注即可。')}</p>}
-      {!cur && method === 'screen' && redraw && <p className="dim fs-sm fb-exact">{t('Taken from this tab exactly as you see it. If the picture does not match the game (cut off, shrunk, black or blank), use the game\'s own drawing instead, or your own screenshot.', '这张图直接取自此标签页，与你所见一致。如果画面与游戏不符（被裁切、缩小、发黑或空白），可改用游戏自己绘制的画面，或你自己的截图。')}
-        {' '}<button type="button" className="linkish" onClick={useRedraw} disabled={busy === 'redraw'}>{t('Use the game\'s own drawing', '改用游戏自绘画面')}</button></p>}
       {!!marks.length && <div className="stack s">{marks.map((m, i) => (
         <div className="row fb-mark" key={i}>
           <span className="fb-num">{i + 1}</span><span className="mute fs-sm">{toolName(m.type)}</span>
@@ -353,50 +333,34 @@ function Editor({ projectId, shot, onDone, onCancel, redraw }: {
   );
 }
 
-/** The capture button under the preview. A game made to the capture contract hands over its exact frame; for any other
- *  game the browser is asked once to share this tab (Chromium browsers), else the page redraws itself. */
-export function CaptureButtons({ onShot, capture, frame, version, fullscreen, disabled, compact }: {
+/** The capture button under the preview. Feedback pictures are the frame the game hands over itself (GCP.test.onCapture,
+ *  the capture contract), the same on every device. A game that does not register the hook cannot be captured: the
+ *  button is greyed out and says why. Its build agent adds the hook (get_started {topic: "contract"}). */
+export function CaptureButtons({ onShot, capture, version, fullscreen, disabled, supported }: {
   /** Only the game capture (in fullscreen, beside the menu button). */
   compact?: boolean;
-  onShot: (s: Shot) => void; capture: (picture?: boolean) => Promise<GameCapture>; frame: () => Element | null; version: number | null; fullscreen: () => boolean; disabled?: boolean;
+  /** The game registered GCP.test.onCapture (the SDK tells the stage). */
+  supported: boolean;
+  onShot: (s: Shot) => void; capture: (picture?: boolean) => Promise<GameCapture>; frame?: () => Element | null; version: number | null; fullscreen: () => boolean; disabled?: boolean;
 }) {
   const { busy, act } = useAct();
-  // the share lasts as long as the preview: closing it stops the share
-  useEffect(() => (compact ? undefined : () => stopTabShare()), [compact]);
-  const exact = async (base: Omit<Shot, 'image' | 'method' | 'capture'>) => {
-    const { image, diag } = await grabTab(frame());
-    const c = await capture(false).catch(() => ({} as Partial<GameCapture>));   // the game's own state, if it answers
-    // the game's own drawing of the same moment, in the background: the editor offers it if this picture looks wrong
-    const alt = capture(true); alt.catch(() => {});
-    onShot({ ...base, image, method: 'screen', capture: { ...c, image: '' }, diag, alt });
-  };
+  const take = () => capture(true).catch((e: Error) => ({ error: String(e?.message || e) } as Partial<GameCapture>));
   const fromGame = () => act('cap', async () => {
     const base = { fullscreen: fullscreen(), version };
-    // A version made to the capture contract hands over the exact frame itself, on every device: no tab to share.
-    const own = await capture(true).catch(() => null);
-    if (own && own.contract && own.image && !own.error) { onShot({ ...base, image: own.image, method: 'game', capture: own, exact: !!own.exact }); return; }
-    let why: Shot['why'] = !canCaptureTab() ? 'unsupported' : 'declined';
-    if (tabShareOn()) {
-      try { await exact(base); return; } catch { why = 'failed'; }
-    } else if (canCaptureTab() && !tabShareDeclined()) {
-      if (base.fullscreen) why = 'fullscreen';   // the browser's question would end fullscreen
-      else if (await startTabShare()) {
-        (frame() as HTMLElement | null)?.focus();   // the browser's question took the focus away from the game
-        // the browser's "sharing this tab" bar can resize the page: let the game draw at its new size first
-        await new Promise((r) => setTimeout(r, 350));
-        try { await exact(base); return; } catch { why = 'failed'; }
-      }
-    }
-    const c = own && !own.contract ? own : await capture();
-    if (c.error === 'not_allowed') throw new Error(t('Only the preview can be captured, by the game\'s creator.', '只有游戏创作者才能截取预览画面。'));
-    if ((c.error && c.error !== 'page_elements_missing') || !c.image) throw new Error(t('The game has no canvas this can capture (or it draws pictures from another site).', '游戏没有可截取的画布（或使用了其他网站的图片）。'));
-    onShot({ ...base, image: c.image, method: c.method === 'page' ? 'page' : 'game', capture: c, partial: c.error === 'page_elements_missing', why });
+    let own = await take();
+    // one more try: a frame can be busy (a scene loading, a worker starting) the moment the button is pressed
+    if (own.contract && (!own.image || own.error) && own.error !== 'not_allowed') { await new Promise((r) => setTimeout(r, 400)); own = await take(); }
+    if (own.error === 'not_allowed') throw new Error(t('Only the preview can be captured, by the game\'s creator.', '只有游戏创作者才能截取预览画面。'));
+    if (!own.contract) throw new Error(t('This version does not hand over its own frame (GCP.test.onCapture), so it cannot be captured. Ask the game\'s agent to add it.', '此版本没有交出自己的画面（GCP.test.onCapture），因此无法截图。请让游戏的智能体加上它。'));
+    if (!own.image || own.error) throw new Error(t('The game could not hand over its frame: {why}. Try again, or ask the game\'s agent to check GCP.test.onCapture.', '游戏未能交出画面：{why}。请重试，或让游戏的智能体检查 GCP.test.onCapture。', { why: own.hookError || own.error || t('no picture', '没有画面') }));
+    onShot({ ...base, image: own.image, method: 'game', capture: own as GameCapture, exact: !!own.exact });
   });
   // Pressing a button would move the focus out of the game, and many games close an open menu or pause when they lose
   // it: the picture would no longer show what the creator saw. The press keeps the focus where it is.
   const keepFocus = (e: { preventDefault(): void }) => e.preventDefault();
   return <>
-    <Button size="sm" onMouseDown={keepFocus} onClick={fromGame} disabled={disabled || busy === 'cap'} title={t('Take a screenshot to mark up and send to your agent', '截图、标注并发送给你的智能体')}>{t('Capture feedback', '截图反馈')}</Button>
+    <Button size="sm" onMouseDown={keepFocus} onClick={fromGame} disabled={disabled || !supported || busy === 'cap'}
+      title={supported ? t('Take a screenshot to mark up and send to your agent', '截图、标注并发送给你的智能体') : t('Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game\'s agent to add it.', '不可用：此版本没有交出自己的画面（GCP.test.onCapture）。请让游戏的智能体加上它。')}>{t('Capture feedback', '截图反馈')}</Button>
   </>;
 }
 
