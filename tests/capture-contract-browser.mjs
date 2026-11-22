@@ -56,9 +56,9 @@ if (!process.env.ONLY) {
 }
 if (!process.env.ONLY) await check('a game drawn in its canvases, with both hooks, passes', '/contract.html', (c, r) => { assert.equal(c.ok, true, c.detail); assert.equal(r.capture.exact, true); });
 if (!process.env.ONLY) await check('a text field over the game is allowed and noted', '/contract.html?field=1', (c, r) => { assert.equal(c.ok, true, c.detail); assert.ok(r.notes.some((n) => /Text fields/.test(n))); assert.deepEqual(r.capture.redrawn, ['input#name']); });
-if (!process.env.ONLY) await check('a hook that hands over only part of the frame fails', '/contract.html?wrong=1', (c) => { assert.equal(c.ok, false); assert.match(c.detail, /does not match the screen/); });
-if (!process.env.ONLY) await check('no hooks fails', '/html-ui.html', (c) => { assert.equal(c.ok, false); assert.match(c.detail, /no GCP\.test\.onCapture and no GCP\.test\.onState/); });
-if (!process.env.ONLY) await check('a menu of page elements over the game fails, hooks or not', '/html-ui.html?hooks=1', (c) => { assert.equal(c.ok, false); assert.match(c.detail, /div\.menu \(text "Single Player"\)/); });
+if (!process.env.ONLY) await check('a hook that hands over only part of the frame is told so, as advice', '/contract.html?wrong=1', (c) => { assert.equal(c.ok, true); assert.equal(c.soft, true); assert.match(c.detail, /does not match the screen/); });
+if (!process.env.ONLY) await check('no hooks is advice, not a failure', '/html-ui.html', (c) => { assert.equal(c.ok, true); assert.equal(c.soft, true); assert.match(c.detail, /no GCP\.test\.onCapture and no GCP\.test\.onState/); });
+if (!process.env.ONLY) await check('a menu of page elements over the game is allowed and noted, hooks or not', '/html-ui.html?hooks=1', (c) => { assert.equal(c.ok, true); assert.equal(c.soft, true); assert.match(c.detail, /div\.menu \(text "Single Player"\)/); });
 // every platform template starts a game that keeps the contract (served as the platform serves a game: the SDK and the
 // import map in front of the page, the platform's own files on another origin)
 const PUB = new URL('../web/public/', import.meta.url).pathname, templates = JSON.parse(readFileSync(join(PUB, 'templates/index.json'), 'utf8'));

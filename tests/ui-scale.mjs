@@ -116,6 +116,31 @@ test('rect keeps clear of the safe area, in interface units', () => {
   const n = GCP.ui.rect({ anchor: 'bottom-left', w: 50, h: 50, safe: false }); assert.equal(n.x, 0);
 });
 
+test('an edge bar bleeds through the inset to the screen edge; its content stays inside', () => {
+  const { GCP, send, resize } = loadSdk();
+  resize(1280, 720); GCP.ui.configure({ reference: [1280, 720] });
+  send({ gcp: 'display', fullscreen: true, edgeToEdge: true, safe: { top: 0, right: 47, bottom: 21, left: 47 } });
+  const bar = GCP.ui.rect({ anchor: 'bottom-wide', h: 10 });
+  assert.deepEqual([bar.x, bar.y, bar.w, bar.h], [47, 720 - 21 - 10, 1280 - 94, 10], 'the box is inside the safe area');
+  assert.deepEqual([bar.bleed.x, bar.bleed.y, bar.bleed.w, bar.bleed.h], [0, 720 - 21 - 10, 1280, 31], 'the bleed reaches the left, right and bottom edges');
+  const chip = GCP.ui.rect({ anchor: 'bottom', w: 80, h: 24, margin: [0, 0, 6, 0] });
+  assert.deepEqual([chip.bleed.x, chip.bleed.y, chip.bleed.w, chip.bleed.h], [chip.x, chip.y, chip.w, chip.h], 'a box off the edge does not bleed');
+  const inner = GCP.ui.rect({ anchor: 'full' }, { x: 10, y: 10, w: 100, h: 100 });
+  assert.deepEqual([inner.bleed.x, inner.bleed.w], [10, 100], 'in a parent there is no bleed');
+});
+
+test('boxes placed with an id are reported for the layout checks', () => {
+  const { GCP, resize } = loadSdk();
+  resize(1280, 720); GCP.ui.configure({ reference: [1280, 720] });
+  GCP.ui.rect({ anchor: 'top-left', w: 200, h: 60, id: 'status' });
+  GCP.ui.rect({ anchor: 'top-right', w: 120, h: 60, id: 'coins' });
+  GCP.ui.rect({ anchor: 'center', w: 400, h: 300, id: 'pause', layer: 'menu' });
+  GCP.ui.rect({ anchor: 'center', w: 10, h: 10 });
+  const L = GCP.ui.layout();
+  assert.deepEqual({ ...L.view }, { w: 1280, h: 720 });
+  assert.deepEqual(JSON.parse(JSON.stringify(L.boxes.map((b) => [b.id, b.layer, b.x, b.w]))), [['status', 'hud', 0, 200], ['coins', 'hud', 1160, 120], ['pause', 'menu', 440, 400]]);
+});
+
 test('split shares a box like HBox and VBox', () => {
   const { GCP } = loadSdk();
   const parts = GCP.ui.split({ x: 0, y: 0, w: 500, h: 50 }, 'row', [100, { fill: 1 }, { fill: 3 }], 10);

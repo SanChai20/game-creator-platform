@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.9.0', fixes: {} };
+  var RT = S.runtime = { version: '2.10.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -1821,8 +1821,34 @@
     if (o.keepIn !== false && parent == null) {        // never past the view (a box bigger than the view starts at its edge)
       X[0] = X[1] >= P.w ? P.x : clampN(X[0], P.x, P.x + P.w - X[1]); Y[0] = Y[1] >= P.h ? P.y : clampN(Y[0], P.y, P.y + P.h - Y[1]);
     }
-    return { x: X[0], y: Y[0], w: X[1], h: Y[1], cx: X[0] + X[1] / 2, cy: Y[0] + Y[1] / 2, r: X[0] + X[1], b: Y[0] + Y[1] };
+    var out = { x: X[0], y: Y[0], w: X[1], h: Y[1], cx: X[0] + X[1] / 2, cy: Y[0] + Y[1] / 2, r: X[0] + X[1], b: Y[0] + Y[1] };
+    // bleed: the same box carried on through the safe inset to the screen edge on every side where it sits on the safe
+    // edge, for an edge bar's background (Unity's safe-area panel with the background outside it). Content uses the box.
+    var V = parent == null ? uiState() : null, e = 0.5;
+    if (V) {
+      var bx0 = Math.abs(out.x - P.x) < e ? 0 : out.x, by0 = Math.abs(out.y - P.y) < e ? 0 : out.y;
+      var bx1 = Math.abs(out.r - (P.x + P.w)) < e ? V.w : out.r, by1 = Math.abs(out.b - (P.y + P.h)) < e ? V.h : out.b;
+      out.bleed = { x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0, r: bx1, b: by1 };
+    } else out.bleed = { x: out.x, y: out.y, w: out.w, h: out.h, r: out.r, b: out.b };
+    if (o.id != null) uiRecord(o, out, parent);
+    return out;
   }
+  // The layout report: every box placed with an id is recorded for the frame it was placed in, so the verifier (and the
+  // agent, through GCP.ui.layout()) can measure the interface at any screen size: boxes off the screen, under the notch or
+  // the home bar, or overlapping another box on the same layer (src/standards.js, "ui-layout").
+  var LAYOUT = {};
+  function uiRecord(o, b, parent) {
+    var k = String(o.id).slice(0, 60), layer = o.layer != null ? String(o.layer).slice(0, 30) : 'hud';
+    var n = Object.keys(LAYOUT).length; if (n > 300 && !LAYOUT[layer + '|' + k]) return;
+    LAYOUT[layer + '|' + k] = { id: k, layer: layer, anchor: Array.isArray(o.anchor) ? o.anchor.slice(0, 4) : typeof o.anchor === 'string' ? o.anchor : 'top-left', x: b.x, y: b.y, w: b.w, h: b.h, inParent: parent != null, frame: S.frames, at: performance.now() };
+  }
+  function uiLayout() {
+    var st = uiState(), now = performance.now(), boxes = [];
+    // what was placed in the last two frames, or in the last second for a game that draws only when something changes
+    Object.keys(LAYOUT).forEach(function (k) { var b = LAYOUT[k]; if (b.frame >= S.frames - 2 || now - b.at < 1000) boxes.push({ id: b.id, layer: b.layer, anchor: b.anchor, x: Math.round(b.x * 10) / 10, y: Math.round(b.y * 10) / 10, w: Math.round(b.w * 10) / 10, h: Math.round(b.h * 10) / 10, inParent: b.inParent }); });
+    return { view: { w: st.w, h: st.h }, safe: st.safe, scale: st.scale, boxes: boxes };
+  }
+  S.layoutBoxes = uiLayout;
   /** Godot's HBoxContainer / VBoxContainer: splits a box along one axis. items: numbers (a fixed length) or { fill: n } (a
       share of what is left), or { min, fill }. */
   function uiSplit(box, dir, items, gap) {
@@ -1879,10 +1905,17 @@
         'hcenter-wide' | 'vcenter-wide' | 'full' or [left, top, right, bottom] (0..1 of the parent), w, h (for a point
         anchor), margin (a number or [top, right, bottom, left]: room kept from the anchored edges), pivot [x, y] (0..1,
         defaults to the anchor), offset [dx, dy], minW, maxW, minH, maxH, aspect (w / h), safe (false: ignore the notch;
-        only without a parent) }, parent (a box; default the view inside the safe area). Returns { x, y, w, h, cx, cy, r, b }. */
+        only without a parent), id and layer (record the box for GCP.ui.layout() and the verifier's layout checks) },
+        parent (a box; default the view inside the safe area). Returns { x, y, w, h, cx, cy, r, b, bleed }: bleed is the
+        box carried through the safe inset to the screen edge on each side where it sits on the safe edge, for the
+        background of an edge bar. */
     rect: uiRect,
     /** Splits a box in a row or a column: split(box, 'row' | 'column', [120, { fill: 1 }, 80], gap) -> boxes. */
     split: uiSplit,
+    /** The boxes placed with an id in the last frames, as the verifier measures them: { view, safe, scale, boxes: [{ id,
+        layer, anchor, x, y, w, h, inParent }] } in interface units. Give rect() an id (and a layer for what draws over
+        the HUD: 'menu', 'modal', 'toast') for every interface element. */
+    layout: uiLayout,
     /** Turns a pointer event's clientX / clientY into interface units. */
     point: function (e) { var s = uiState().scale; return { x: (e.clientX || 0) / s, y: (e.clientY || 0) / s }; },
   };
@@ -3045,7 +3078,7 @@
   // What the verifier reads. The game runs in the same page, so the verifier's view is a read-only window onto the SDK's own
   // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
   var view = {};
-  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook', 'displayPrefs', 'captureLayers'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
+  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook', 'displayPrefs', 'captureLayers', 'layoutBoxes'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
   Object.defineProperty(view, 'runtime', { get: runtimeInfo, enumerable: true });
   ['hold', 'pauseCheck', 'step', 'captureFrame', 'pageUi', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });

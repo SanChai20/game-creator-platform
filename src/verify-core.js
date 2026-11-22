@@ -307,12 +307,12 @@ export async function verifyPage(page, url, opts = {}) {
     }
     if (pageUi.fields.length) report.notes.push(`Text fields over the game (${pageUi.fields.map((f) => f.what).join(', ')}) are drawn into feedback pictures from their boxes; everything else comes from the game's canvases.`);
     report.pageUi = pageUi.elements.length ? pageUi.elements : undefined;
-    // o.captureRequired false (the platform setting verify_capture_required, while games move over): reported, not failed
-    const soft = problems.length && o.captureRequired === false;
-    if (soft) report.notes.push('The capture check is enforced only for live games; it will fail a version once this game is live: ' + problems.join('; ') + '.');
-    add('capture', !problems.length || soft, 'Hands over its exact frame', problems.length ? (soft ? 'Not enforced until the game is live: ' : '') + problems.join('; ') + '.' : `The picture from GCP.test.onCapture matches the screen (${Math.round(match.same * 100)}% alike)`,
-      problems.length ? 'Every game draws everything the player sees (world, HUD, menus, text) in its canvases, and registers GCP.test.onCapture(() => canvas or [canvases]) and GCP.test.onState(fn). Move menus and HUD made of page elements into the canvas (draw text with fillText, buttons as shapes, and hit-test pointer events yourself). A WebGL game that does not redraw every frame keeps preserveDrawingBuffer: true or draws a frame inside onCapture. See get_started {topic: "contract"}, "Hand over the frame".' : '');
-    // the release gate (src/release-gate.ts) refuses to publish a version whose capture check only warned
+    // advice, never a failure: the frame hand-over makes the creator's feedback screenshots and the reserved-zone checks
+    // exact, but how a game draws its interface (canvas or page elements) is the game's own design choice
+    const soft = problems.length > 0;
+    if (soft) report.notes.push('Advice (does not stop the version): the creator\'s feedback screenshots and the reserved-zone checks are exact only when the game hands over its frame: ' + problems.join('; ') + '.');
+    add('capture', true, 'Hands over its exact frame', problems.length ? 'Advice: ' + problems.join('; ') + '.' : `The picture from GCP.test.onCapture matches the screen (${Math.round(match.same * 100)}% alike)`,
+      problems.length ? 'Recommended, not required: register GCP.test.onCapture(() => canvas or [canvases]) and GCP.test.onState(fn), and draw what the player sees in those canvases, so feedback screenshots and the layout checks see exactly what players see. Interface made of page elements is allowed; it is then left out of the handed-over frame. A WebGL game that does not redraw every frame keeps preserveDrawingBuffer: true or draws a frame inside onCapture. See get_started {topic: "contract"}, "Hand over the frame".' : '');
     if (soft) checks[checks.length - 1].soft = true;
   };
   // Frames for the content review (src/content-check.js): small JPEGs taken while the game starts, plays itself through and
@@ -471,6 +471,7 @@ export async function verifyPage(page, url, opts = {}) {
   add('clean', errs.length === 0, 'No uncaught errors', errs.length ? `${errs.length} uncaught error(s)` : '', errs.length ? 'Fix each error listed under "errors", then deploy a new preview.' : '');
 
   report.errors = errs; report.warnings.push(...(s.warnings || [])); report.missing = missing;
+  { const v = (page.viewport ? page.viewport() : page.viewportSize && page.viewportSize()) || { width: 960, height: 540 }; const L = await layoutAt(page, `the computer (${v.width}×${v.height})`); if (L) report.layout = [L]; }
   report.metrics = { loadMs: s.loadMs, progressBeforeReady: s.progressBeforeReady, frames: s.frames, fps: Math.round(f1 / observedS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
   // a few more frames of the game left running after the checks, for the content review; nothing here can fail the version
@@ -557,6 +558,10 @@ async function swipe(page, x0, y0, x1, y1) {
     await cdp.detach().catch(() => {});
   } catch { /* no protocol session */ }
 }
+
+/** The boxes the game placed with GCP.ui.rect({ id }) right now (the ui-layout standard), labelled with where they were read. */
+export const layoutAt = (page, where) => page.evaluate(() => { const G = window.__GCP; return G && G.layoutBoxes ? JSON.parse(JSON.stringify(G.layoutBoxes())) : null; })
+  .then((L) => (L && L.boxes && L.boxes.length ? { where, ...L } : null), () => null);
 
 /** What the screen shows of the game: the page against the screen, the main canvas, text size and finger-sized buttons. */
 const layoutOf = (page) => page.evaluate(() => {
@@ -676,9 +681,16 @@ export function zoneNotes(z, label = 'iPhone') {
  */
 export async function verifyDevices(openDevicePage, url, { profiles = ['iphone', 'ipad'], orientation = 'any', readyTimeoutS = 30, observeS = 2 } = {}) {
   const out = [];
+  // a game that plays both ways (orientation "any", the default) is played on each phone sideways and once more upright,
+  // and in the upright pass the phone is turned sideways at the end to see the game follow (src/standards.js, "orientation")
+  const runs = [];
   for (const id of profiles) {
     const profile = DEVICE_PROFILES[id]; if (!profile) continue;
-    const vp = deviceViewport(profile, orientation), res = { id, label: profile.label, kind: profile.kind, viewport: `${vp.width}×${vp.height}`, ok: true, problems: [], notes: [], loadMs: 0, fps: 0, runtime: null };
+    runs.push({ id, profile, way: orientation });
+    if (orientation === 'any' && profile.kind === 'mobile') runs.push({ id: id + '-upright', profile: { ...profile, label: profile.label + ' upright' }, way: 'portrait', turn: true });
+  }
+  for (const { id, profile, way, turn } of runs) {
+    const vp = deviceViewport(profile, way), res = { id, label: profile.label, kind: profile.kind, orientation: way === 'portrait' ? 'portrait' : 'landscape', viewport: `${vp.width}×${vp.height}`, ok: true, problems: [], notes: [], loadMs: 0, fps: 0, runtime: null };
     out.push(res);
     let page = null;
     try {
@@ -720,7 +732,8 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
       if (thrown.length) res.problems.push(`It threw ${thrown.length === 1 ? 'an error' : thrown.length + ' errors'}: ${thrown.slice(0, 2).map((e) => e.slice(0, 160)).join(' | ')}`);
       res.runtime = await page.evaluate(() => (window.__GCP && window.__GCP.runtime) || null).catch(() => null);
       // the game standards' reserved zones, on the phone only
-      if (profile.kind === 'mobile' && !res.zones) { res.zones = await zonesOf(page, orientation); res.notes.push(...zoneNotes(res.zones, profile.label)); }
+      if (profile.kind === 'mobile' && !res.zones) { res.zones = await zonesOf(page, way); res.notes.push(...zoneNotes(res.zones, profile.label)); }
+      res.layout = await layoutAt(page, `${profile.label} (${vp.width}×${vp.height}${profile.kind === 'mobile' ? ', fullscreen' : ''})`);
       // what the screen shows
       const L = await layoutOf(page);
       if (L) {
@@ -730,6 +743,7 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
         if (L.small >= 3) res.notes.push(`${L.small} pieces of text are smaller than 9 px, hard to read on a ${profile.label} (${L.sample}).`);
         if (L.tiny >= 3) res.notes.push(`${L.tiny} buttons are smaller than 20 px, hard to hit with a finger (${L.tinySample}).`);
       }
+      if (turn) res.turn = await turnCheck(page, vp);
     } catch (e) {
       res.problems.push('It could not be opened: ' + String(e && e.message || e).slice(0, 200));
     } finally {
@@ -741,12 +755,45 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
 }
 
 /**
+ * Turns the phone a quarter (the viewport swaps width and height, as a rotation does) and checks that the game follows:
+ * it keeps running without reloading, and its canvas fills the new shape. Returns { ok, to, viewport, problem? } or null
+ * when the page cannot be resized here.
+ */
+export async function turnCheck(page, vp) {
+  const to = { width: vp.height, height: vp.width }, viewport = `${to.width}×${to.height}`;
+  try {
+    const cur = page.viewport ? page.viewport() : null;
+    if (page.setViewport) await page.setViewport({ ...(cur || {}), width: to.width, height: to.height, isLandscape: to.width > to.height });
+    else if (page.setViewportSize) await page.setViewportSize(to);
+    else return null;
+  } catch { return null; }
+  await page.evaluate(() => { try { dispatchEvent(new Event('orientationchange')); } catch { /* old page */ } }).catch(() => {});
+  await sleep(1500);
+  const base = { to: to.width > to.height ? 'landscape' : 'portrait', viewport };
+  const still = await page.evaluate(() => !!window.__gcpDeviceMark).catch(() => false);
+  if (!still) return { ...base, ok: false, problem: 'the page reloaded: the game started again instead of carrying on.' };
+  const a = await state(page).catch(() => null); await sleep(800); const b = await state(page).catch(() => null);
+  if (a && b && b.frames <= a.frames && a.frames > 0) {
+    const t0 = b.frames; await tap(page, to.width / 2, to.height / 2); await sleep(900);
+    const c = await state(page).catch(() => null);
+    if (!c || c.frames <= t0) return { ...base, ok: false, problem: 'it stopped drawing frames.' };
+  }
+  const L = await layoutOf(page);
+  if (L && L.canvas && L.canvas.onScreen < 0.9) return { ...base, ok: false, problem: `only ${Math.round(L.canvas.onScreen * 100)}% of the game's canvas (${L.canvas.w}×${L.canvas.h}) is on the screen: it kept the old shape.` };
+  if (L && L.canvas && L.canvas.covers < 0.3) return { ...base, ok: false, problem: `the game's canvas covers only ${Math.round(L.canvas.covers * 100)}% of the screen: it kept the old size.` };
+  return { ...base, ok: true };
+}
+
+/**
  * Adds the device results to a report: one check per device ("Plays on iPhone"), failing only for a device kind the game
  * says it is made for (devices from its requirements); the rest of the findings go into the report's notes.
  */
 export function applyDeviceResults(report, results, devices = ['desktop', 'tablet', 'mobile']) {
   report.devices = results;
-  const z = results.find((r) => r.zones); if (z) report.zones = z.zones;
+  const z = results.find((r) => r.zones && r.orientation !== 'portrait') || results.find((r) => r.zones); if (z) report.zones = z.zones;
+  const up = results.find((r) => r.zones && r.orientation === 'portrait' && r !== z); if (up) report.zonesUpright = up.zones;
+  const turned = results.find((r) => r.turn); if (turned) report.turn = turned.turn;
+  for (const r of results) if (r.layout) (report.layout ||= []).push(r.layout);
   const failed = [];
   for (const r of results) {
     const made = devices.includes(r.kind), label = `Plays on ${r.label} (touch screen, ${r.viewport})`;
@@ -754,6 +801,7 @@ export function applyDeviceResults(report, results, devices = ['desktop', 'table
     else if (made) { failed.push(r); report.checks.push({ id: 'device_' + r.id, ok: false, label, detail: r.problems.join(' '), hint: `The game says it is made for ${r.kind === 'mobile' ? 'phones' : 'tablets'} (requirements.devices). Fix it there (debug_preview with a ${r.kind === 'mobile' ? 'phone' : 'tablet'} viewport and touch shows what happens), or remove ${r.kind} from requirements.devices so players are told before they start.` }); }
     else report.notes.push(`On ${r.label}: ${r.problems.join(' ')} The game is not listed for ${r.kind === 'mobile' ? 'phones' : 'tablets'}, so this does not stop the version.`);
     for (const n of r.notes) report.notes.push(`On ${r.label}: ${n}`);
+    if (r.turn && !r.turn.ok) report.notes.push(`On ${r.label}, turned ${r.turn.to === 'portrait' ? 'upright' : 'sideways'} (${r.turn.viewport}): ${r.turn.problem}`);
   }
   if (failed.length) {
     report.ok = false;

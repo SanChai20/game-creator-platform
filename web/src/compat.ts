@@ -84,6 +84,7 @@ const ALIASES: Record<string, string> = {
   audioworklet: 'audio-worklet', pointerlock: 'pointer-lock', workers: 'web-workers', 'web-worker': 'web-workers', offscreencanvas: 'offscreen-canvas', modules: 'es-modules',
   importmap: 'import-maps', 'import-map': 'import-maps', xr: 'webxr', vr: 'webxr', accelerometer: 'device-motion', gyroscope: 'device-motion',
   phone: 'mobile', phones: 'mobile', tablets: 'tablet', pc: 'desktop', computer: 'desktop', controller: 'gamepad', pointer: 'mouse', keyboards: 'keyboard',
+  both: 'any', 'landscape and portrait': 'any', 'portrait and landscape': 'any',
   mac: 'macos', osx: 'macos', iphone: 'ios', ipad: 'ios', ipados: 'ios', win: 'windows', 'chrome os': 'chromeos', 'mobile safari': 'safari', 'samsung internet': 'samsung',
 };
 const norm = (v: unknown) => { const s = String(v ?? '').trim().toLowerCase(); return ALIASES[s] ?? s; };
@@ -127,7 +128,7 @@ export function parseRequirements(raw: unknown): { value: Partial<Requirements>;
     if (!got.length && !issues.some((i) => i.field === 'devices')) e('devices', 'devices must name at least one kind of device.', `One or more of ${DEVICES.join(', ')}.`);
     value.devices = uniq(got);
   }
-  if (r.orientation !== undefined) { const o = norm(r.orientation) as Orientation; if (ORIENTATIONS.includes(o)) value.orientation = o; else e('orientation', `orientation must be one of ${ORIENTATIONS.join(', ')}.`); }
+  if (r.orientation !== undefined) { const o = norm(r.orientation) as Orientation; if (ORIENTATIONS.includes(o)) value.orientation = o; else e('orientation', 'orientation must be "landscape", "portrait" or "both" ("any" means both).', 'game_standards {action: "get", id: "orientation"} has the rules for each.'); }
   if (r.memory_gb !== undefined && r.memory_gb !== null) { const m = Number(r.memory_gb); if (Number.isFinite(m) && m >= 0.5 && m <= 64) value.memory_gb = Math.round(m * 2) / 2; else e('memory_gb', 'memory_gb must be a number from 0.5 to 64.', 'Leave it out unless the game needs a lot of memory; browsers report device memory only roughly.'); }
   else if (r.memory_gb === null) value.memory_gb = null;
   if (r.browsers !== undefined) {
