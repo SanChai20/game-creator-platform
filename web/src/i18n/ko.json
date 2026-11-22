@@ -1669,5 +1669,9 @@
  "For an exact picture, leave fullscreen and press Capture feedback again: the browser asks to share this tab once.": "정확한 이미지를 원하면 전체 화면을 끝낸 뒤 '피드백 캡처'를 다시 누르세요. 브라우저가 이 탭 공유를 한 번 묻습니다.",
  "Sharing this tab did not give a picture; press Capture feedback again.": "탭 공유로 이미지를 받지 못했습니다. '피드백 캡처'를 다시 누르세요.",
  "For an exact picture, allow sharing this tab when the browser asks after you press Capture feedback.": "정확한 이미지를 원하면 '피드백 캡처'를 누른 뒤 브라우저가 물을 때 이 탭 공유를 허용하세요.",
- "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "자기 프레임을 넘기는 게임(GCP.test.onCapture)은 항상 정확한 이미지를 줍니다."
+ "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "자기 프레임을 넘기는 게임(GCP.test.onCapture)은 항상 정확한 이미지를 줍니다.",
+ "Swipe up for full screen": "위로 쓸어 올리면 전체 화면이 됩니다",
+ "Safari puts its bars away when the page scrolls.": "페이지가 스크롤되면 Safari가 막대를 숨깁니다.",
+ "Not now": "나중에",
+ "Hide Safari's bars": "Safari 막대 숨기기"
 }
