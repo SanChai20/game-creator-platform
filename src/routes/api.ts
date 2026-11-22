@@ -677,15 +677,17 @@ api.post('/games/:slug/reviews', async (c) => {
 const MEDIA_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 api.get('/media/*', async (c) => {
   const key = decodeURIComponent(new URL(c.req.url).pathname.replace(/^\/api\/media\//, ''));
-  // shots/<project>/<version>[-play-i].ext and covers/<project>-<time>.ext
-  const m = key.match(/^(shots)\/([A-Za-z0-9_\-]+)\/([A-Za-z0-9_.\-]+)$/) || key.match(/^(covers)\/([A-Za-z0-9_]+)-([A-Za-z0-9]+\.[a-z0-9]+)$/);
+  // shots/<project>/<version>[-play-i].ext, covers/<project>-<time>.ext and a language's cover covers/<project>-<lang>-<time>.ext
+  const m = key.match(/^(shots)\/([A-Za-z0-9_\-]+)\/([A-Za-z0-9_.\-]+)$/) || key.match(/^(covers)\/([A-Za-z0-9_]+)-((?:[A-Za-z]{2}(?:-[A-Za-z]{2})?-)?[A-Za-z0-9]+\.[a-z0-9]+)$/);
   if (!m || key.includes('..')) throw notFound();
   // Public only for a live game's cover and the pictures of versions that went live. A draft's, a removed game's or the
   // verifier's frames of an unpublished version are for the creator and admins.
-  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null }>();
+  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key, listing_i18n FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null; listing_i18n: string | null }>();
   if (!p) throw notFound();
   const n = m[1] === 'shots' ? Number((m[3].match(/^(\d+)/) || [])[1]) : NaN;
-  const published = p.status === 'live' && (key === p.cover_key || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
+  // a live game's covers: the main one and each listing language's (update_project covers)
+  const langCover = m[1] === 'covers' && Object.values(parseJson<Record<string, { cover_key?: string }>>(p.listing_i18n || '{}', {})).some((x) => x?.cover_key === key);
+  const published = p.status === 'live' && (key === p.cover_key || langCover || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
   const u = c.get('user');
   if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
   // Only pictures, typed by their name, never by what was stored with them: this is the platform's own origin, so an
