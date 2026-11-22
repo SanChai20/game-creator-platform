@@ -42,6 +42,7 @@ import { OPERATOR } from './operator';
 import { SearchBox, StoreBar } from './store';
 import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 import { FriendsButton, SocialRoot } from './social';
+import { InstallAppLink, InstallPrompt } from './install-tip';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
 /** Sign in and Create account stand alone: no top bar, store bar or footer, only the panel and a way home. */
@@ -327,10 +328,11 @@ function App() {
             <span>{linkOperator(t('{brand} is developed and operated by {op}.', '{brand} 由 {op} 开发和运营。', { brand, op: OPERATOR.name }))}</span>
             <span className="foot-links"><Link to="/legal/terms">{legalTitle('terms')}</Link><Link to="/legal/privacy">{legalTitle('privacy')}</Link><a href={`mailto:${OPERATOR.contactEmail}`}>{t('Contact ({email})', '联系我们（{email}）', { email: OPERATOR.contactEmail })}</a></span>
           </div>
-          <span className="foot-tools"><ThemeSwitch label /><FxToggle /><LangPicker /></span></div>
+          <span className="foot-tools"><InstallAppLink /><ThemeSwitch label /><FxToggle /><LangPicker /></span></div>
       </div></footer>}
       <GuestProgressPrompt user={state.user} toast={toast} />
       {!bare && <SocialRoot />}
+      {!bare && <InstallPrompt />}
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
     </AppCtx.Provider>
   );
