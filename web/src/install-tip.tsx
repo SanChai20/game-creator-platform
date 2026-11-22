@@ -7,8 +7,8 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react
 import { t } from './lib';
 import { Button, Modal } from './ui';
 import {
-  androidPromptNeeded, holdInstallPrompt, INSTALL_PROMPT_KEY, installKind, installPrompt, installPromptHeld, isIPad, justInstalled,
-  onInstallChange, promptDue, putAway, readPromptState, runInstallPrompt, thisDevice, type InstallKind,
+  desktopKind, holdInstallPrompt, INSTALL_PROMPT_KEY, installKind, installPrompt, installPromptHeld, isIPad, justInstalled,
+  onInstallChange, promptDue, putAway, readPromptState, promptNeeded, runInstallPrompt, thisDevice, type InstallKind,
 } from './install';
 
 const readState = () => { try { return readPromptState(localStorage.getItem(INSTALL_PROMPT_KEY)); } catch { return { n: 0, until: 0 }; } };
@@ -24,7 +24,7 @@ const useInstallTick = () => useSyncExternalStore(onInstallChange, () => `${!!in
 function offer(): InstallKind | null {
   if (justInstalled()) return null;
   const d = thisDevice(), kind = installKind(d);
-  if (kind === 'android' && androidPromptNeeded(d) && !installPrompt()) return null;
+  if (promptNeeded(kind, d) && !installPrompt()) return null;
   return kind;
 }
 
@@ -46,7 +46,7 @@ export function InstallPrompt() {
     let tries = 0;
     const id = window.setInterval(() => {
       if (++tries > 90) { clearInterval(id); return; }   // three minutes without a free moment (or a prompt): not this time
-      if (tries < 2 || !offer() || installPromptHeld() || busyScreen()) return;
+      if (tries < 2 || !offer() || desktopKind(offer()) || installPromptHeld() || busyScreen()) return;
       clearInterval(id); setOpen(true);
     }, 2000);
     return () => clearInterval(id);
@@ -58,7 +58,7 @@ export function InstallPrompt() {
   return <InstallDialog kind={kind} canPrompt={!!installPrompt()} onInstall={install} onClose={close} />;
 }
 
-/** "Install app" in the footer, on phones and tablets that can add the site. */
+/** "Install app" in the footer, on phones, tablets and computers that can add the site. */
 export function InstallAppLink() {
   useInstallTick();
   if (!offer()) return null;
@@ -66,8 +66,12 @@ export function InstallAppLink() {
 }
 
 function InstallDialog({ kind, canPrompt, onInstall, onClose }: { kind: InstallKind; canPrompt: boolean; onInstall: () => void; onClose: (how: 'later' | 'got-it') => void }) {
-  const d = thisDevice(), ipad = isIPad(d), ios = kind === 'ios-safari' || kind === 'ios-browser' || (kind === 'in-app' && !/Android/.test(d.userAgent));
-  const steps: ReactNode[] = kind === 'ios-safari' ? [
+  const d = thisDevice(), ipad = isIPad(d), ios = kind === 'ios-safari' || kind === 'ios-browser' || (kind === 'in-app' && !/Android/.test(d.userAgent)), desk = desktopKind(kind);
+  const steps: ReactNode[] = kind === 'mac-safari' ? [
+    t('In Safari’s menu bar, choose File', '在 Safari 菜单栏中选择“文件”'),
+    <>{t('Choose Add to Dock', '选择“添加到程序坞”')} <Glyph><PlusSquare /></Glyph></>,
+    t('Open HearthCade from the Dock', '从程序坞打开 HearthCade'),
+  ] : kind === 'desktop' ? [] : kind === 'ios-safari' ? [
     <>{t('Tap Share in Safari', '在 Safari 中点“分享”')} <Glyph><ShareIcon /></Glyph> <span className="ip-aside">{ipad ? t('On newer iPadOS it is in the ··· menu.', '较新的 iPadOS 在“···”菜单里。') : t('On newer iOS it is in the ··· menu.', '较新的 iOS 在“···”菜单里。')}</span></>,
     <>{t('Choose Add to Home Screen', '选择“添加到主屏幕”')} <Glyph><PlusSquare /></Glyph></>,
     t('Open HearthCade from your Home Screen', '从主屏幕打开 HearthCade'),
@@ -84,7 +88,11 @@ function InstallDialog({ kind, canPrompt, onInstall, onClose }: { kind: InstallK
     <>{t('Tap Install or Add to Home screen', '点“安装”或“添加到主屏幕”')} <Glyph><PlusSquare /></Glyph></>,
     t('Open HearthCade from your Home Screen', '从主屏幕打开 HearthCade'),
   ];
-  const perks = [
+  const perks = desk ? [
+    t('Its own window, with an icon in your taskbar or Dock', '独立窗口，任务栏或程序坞中有它的图标'),
+    t('Notifications from friends, even when HearthCade is closed', '即使 HearthCade 已关闭，也能收到好友通知'),
+    t('Nothing to download, and always up to date', '无需下载，始终是最新版本'),
+  ] : [
     t('Every game gets the whole screen, with no browser bars', '每款游戏都能占满整个屏幕，没有浏览器地址栏'),
     ipad ? t('No “swipe down to exit” hint, and swipes stay in the game', '没有“下滑退出”提示，滑动操作不会打断游戏')
       : ios ? t('No bars sliding over the game while you play', '游玩时不会再有工具栏盖住游戏')
@@ -98,14 +106,14 @@ function InstallDialog({ kind, canPrompt, onInstall, onClose }: { kind: InstallK
           <img className="ip-ico" src="/icons/icon-192.png" alt="" width="64" height="64" />
           <div>
             <h2 id="ip-h">{t('Play HearthCade like an app', '像应用一样玩 HearthCade')}</h2>
-            <p className="mute">{kind === 'in-app' ? t('This page is open inside another app, which cannot add it to your Home Screen. Open it in your browser first.', '当前页面是在其他应用内打开的，无法添加到主屏幕。请先在浏览器中打开。') : t('Add it to your Home Screen for the best way to play on this device.', '把它添加到主屏幕，在这台设备上获得最佳游戏体验。')}</p>
+            <p className="mute">{desk ? t('Install it on this computer and open it like any other app.', '把它安装到这台电脑上，像其他应用一样打开。') : kind === 'in-app' ? t('This page is open inside another app, which cannot add it to your Home Screen. Open it in your browser first.', '当前页面是在其他应用内打开的，无法添加到主屏幕。请先在浏览器中打开。') : t('Add it to your Home Screen for the best way to play on this device.', '把它添加到主屏幕，在这台设备上获得最佳游戏体验。')}</p>
           </div>
         </div>
         <ul className="ip-perks">{perks.map((p, i) => <li key={i}><Check />{p}</li>)}</ul>
         {steps.length > 0 && <ol className="ip-steps">{steps.map((s, i) => <li key={i}><b>{i + 1}</b><span>{s}</span></li>)}</ol>}
         {ios && kind !== 'in-app' && <p className="ip-note mute">{t('The Home Screen app keeps its own sign-in, so you may be asked to sign in once more there.', '主屏幕应用有独立的登录状态，首次打开时可能需要再登录一次。')}</p>}
         <div className="ip-act">
-          {canPrompt && kind === 'android'
+          {canPrompt && (kind === 'android' || kind === 'desktop')
             ? <Button variant="primary" onClick={onInstall} icon={<PlusSquare />}>{t('Install', '安装')}</Button>
             : <Button variant="primary" onClick={() => onClose('got-it')}>{t('Got it', '知道了')}</Button>}
           <Button variant="ghost" onClick={() => onClose('later')}>{t('Not now', '以后再说')}</Button>

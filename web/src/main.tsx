@@ -43,6 +43,7 @@ import { SearchBox, StoreBar } from './store';
 import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 import { FriendsButton, SocialRoot } from './social';
 import { InstallAppLink, InstallPrompt } from './install-tip';
+import { pushLanguage, startPwa } from './pwa';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
 /** Sign in and Create account stand alone: no top bar, store bar or footer, only the panel and a way home. */
@@ -290,7 +291,7 @@ function linkOperator(text: string) {
 function App() {
   // A new platform language re-renders the whole app in place. Nothing is remounted, so a running game keeps running
   // (its frame is told the new language through the SDK: GCP.lang, GCP.onLang), and forms and scroll positions stay as they were.
-  useLang();
+  const lang = useLang();
   const bare = isBare(useLocation().split('?')[0]);
   const [state, setState] = useState<{ user: Me | null; config: Config } | null>(null), [failed, setFailed] = useState(false);
   const [toastMsg, setToast] = useState<{ msg: string; bad: boolean } | null>(null), timer = useRef(0);
@@ -298,6 +299,9 @@ function App() {
     const [cfg, me] = await Promise.all([api<Config>('/config'), api<{ user: Me | null }>('/me')]);
     setTrialRules(cfg.settings); setState({ user: me.user, config: cfg });
   }, []);
+  // notifications on this device follow the platform language (web/src/pwa.ts)
+  const signedIn = !!state?.user;
+  useEffect(() => { if (signedIn) void pushLanguage(); }, [lang, signedIn]);
   useEffect(() => { refresh().catch(() => setFailed(true)); }, [refresh]);
   useAuthSync(state ? state.user?.id || null : null, refresh);   // another tab signed in or out: this one follows at once
   const toast = useCallback((msg: string, bad = false) => { setToast({ msg, bad }); clearTimeout(timer.current); timer.current = window.setTimeout(() => setToast(null), bad ? 5200 : 2600); }, []);
@@ -338,4 +342,5 @@ function App() {
   );
 }
 
+startPwa();
 void langReady.then(() => createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>));
