@@ -1124,7 +1124,11 @@ api.post('/console/projects/:id/preview', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
   if (!p.preview_version) throw new AppError(409, 'No preview has been deployed yet. Ask your agent to run deploy_preview.', 'no_preview');
   await ensurePreview(c.env, c.get('origin'), p);   // removed after two idle weeks: deployed again first
-  return c.json(await startPlay(c, p, 'preview', p.preview_version, u));
+  // The player is set up from the same facts the game page uses for the live version (the orientation it declares), so
+  // the preview plays in the same frame and the same way as the game will on its store page.
+  const v = await getVersion(c.env, p.id, p.preview_version);
+  const orientation = v ? await ensureVersionMeta(c.env, v).then(({ compat }) => compat.requirements?.orientation ?? 'any', () => 'any') : 'any';
+  return c.json({ ...(await startPlay(c, p, 'preview', p.preview_version, u)), orientation });
 });
 
 // The creator feedback queue (src/feedback.ts): annotated screenshots of the preview, waiting for the creator's agent.

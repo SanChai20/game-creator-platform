@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePlayClock } from '../play-clock';
 import { ago, api, bytes, dateTime, Fail, genreName, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
+import { withPlayLang, type Orientation } from '../player';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
@@ -177,7 +178,7 @@ function SaleCard({ id, regular, sale, reload }: { id: string; regular: number; 
 export function Project({ id }: { id: string }) {
   const { config } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
-  const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [previewSession, setPreviewSession] = useState<string | null>(null), [previewClock, setPreviewClock] = useState<string | null>(null), [priceText, setPriceText] = useState<string | null>(null);
+  const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [previewSession, setPreviewSession] = useState<string | null>(null), [previewClock, setPreviewClock] = useState<string | null>(null), [previewOrient, setPreviewOrient] = useState<Orientation>('any'), [priceText, setPriceText] = useState<string | null>(null);
   usePlayClock(preview ? previewSession : null, preview ? previewClock : null);   // the platform's play clock for the preview session (src/play-clock.ts)
   // creator feedback: a capture being marked up (the game keeps its place, hidden, behind the editor), and a counter that
   // refreshes the queue card after an item was added
@@ -191,7 +192,7 @@ export function Project({ id }: { id: string }) {
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <ProjectSkeleton />;
   const p = data.project, versions = data.versions as any[], reg: number = p.regular_price_cents ?? p.price_cents;   // the regular price; p.price_cents is the sale price during a sale
-  const playPreview = () => act('pv', async () => { const r = await api<{ url: string; session: string; clock?: string }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreviewSession(r.session); setPreviewClock(r.clock || null); setPreview(r.url); });
+  const playPreview = () => act('pv', async () => { const r = await api<{ url: string; session: string; clock?: string; orientation?: Orientation }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreviewSession(r.session); setPreviewClock(r.clock || null); setPreviewOrient(r.orientation ?? 'any'); setPreview(withPlayLang(r.url)); });
   const offline = () => { if (confirm(t('Take this game offline? Players will not be able to open it until you put it back.', '确定下线这款游戏吗？在重新上线之前，玩家将无法打开它。'))) void act('off', async () => { await api(`/console/projects/${id}/offline`, { method: 'POST' }); await reload(); }, t('The game is offline.', '游戏已下线。')); };
   const online = () => act('on', async () => { await api(`/console/projects/${id}/online`, { method: 'POST' }); await reload(); }, t('Going back online. This takes a moment.', '正在重新上线，请稍候。'));
   const savePrice = () => act('price', async () => {
@@ -315,7 +316,7 @@ export function Project({ id }: { id: string }) {
           // frame it no longer shows, which a game can take for a slow device and lower its picture quality for good.
           return <div className="fb-stack">
             <div ref={stageBox} inert={shot ? true : undefined}>
-              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} onCaptureHook={setCanCapture} />
+              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} orientation={previewOrient} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} onCaptureHook={setCanCapture} />
             </div>
             {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
           </div>;
