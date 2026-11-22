@@ -22,6 +22,7 @@ import { lobbyData, sendInvite } from './social';
 import { forGame } from '../presence.js';
 // @ts-ignore plain JS module
 import { acceptedInvite, listFriends } from '../social-rules.js';
+import { followCreator } from '../bots';
 // @ts-ignore plain JS module
 import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
@@ -33,7 +34,7 @@ import { isServerPath, signPlayToken } from '../runtime/game-worker.js';
 
 export const PLAY_SESSION_S = 6 * 3600;   // an account's play token; renewed while the sign-in lasts
 export const GUEST_SESSION_S = 3600;      // a guest's, short so switching "Require login to play" on ends guest play within the hour
-interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'player' | 'owner' | 'verify'; s: string; x: number; tr?: 1 }
+interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'player' | 'owner' | 'verify' | 'bot'; s: string; x: number; tr?: 1 }
 
 // The token names its own game and environment; the signature is checked against that game's key.
 // Every per-player read and write below takes the game, environment and player from this token, never from the request body.
@@ -83,6 +84,8 @@ async function authPlay(env: Env, token: unknown): Promise<Tok> {
 
 
 export const rt = new Hono<{ Bindings: Env }>();
+/** Work that must not hold up the player's request (in tests there is no execution context: it just runs). */
+const inBackground = (c: { executionCtx: { waitUntil(p: Promise<unknown>): void } }, p: Promise<unknown>) => { try { c.executionCtx.waitUntil(p); } catch { void p; } };
 
 rt.use('*', async (c, next) => {
   if (c.req.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-gcp-game, x-gcp-env, x-gcp-key', 'access-control-allow-methods': 'POST, GET, OPTIONS', 'access-control-max-age': '86400' } });
@@ -302,6 +305,8 @@ rt.get('/room', async (c) => {
   // Only the first get() of a room uses the hint, so the room is created in the region of the player who opens it
   // rather than wherever that player's request happened to land.
   const hint = regionHint((c.req.raw as any).cf);
+  // the game's owner opened a room in their preview: test bots that follow them join it too (src/bots.ts)
+  if (tok.e === 'preview' && tok.k === 'owner') inBackground(c, followCreator(c.env, tok.g, tok.u, { kind: 'room', room: code, max: c.req.query('max') ? Number(c.req.query('max')) : undefined, label: `room ${code}` }));
   const u = new URL(c.req.url);
   // The room keeps who this socket belongs to (session, kind, token end, trial), and checks it again while it is open.
   u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${clamp(Math.round(want), 2, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}&s=${encodeURIComponent(tok.s)}&k=${tok.k}&x=${tok.x}${tok.tr ? '&tr=1' : ''}&mr=${clamp(Math.round(Number(s.room_msgs_per_second) || 60), 5, 240)}`;
@@ -318,7 +323,11 @@ rt.get('/match', async (c) => {
   // (code=<typed code> is the older private lobby, kept working for games that still use it.)
   const inviteId = c.req.query('invite'), own = c.req.query('private') === '1' && !inviteId;
   let lobby: Lobby | null = null;
-  if (inviteId) {
+  if (tok.k === 'bot' && tok.e === 'preview' && c.req.query('lobby')) {
+    // a preview test bot following its creator into their private lobby (src/bots.ts): the lobby token is its way in
+    lobby = await readLobby(c.env, c.req.query('lobby'), tok.g, tok.e);
+    if (!lobby) throw new AppError(409, 'That lobby is gone.', 'lobby_gone');
+  } else if (inviteId) {
     if (isGuestId(tok.u)) throw new AppError(403, 'Sign in to join friends.', 'guest');
     const inv = await acceptedInvite(c.env.DB, tok.u, inviteId, tok.g, tok.e) as { lobby: string } | null;
     lobby = inv ? await readLobby(c.env, inv.lobby, tok.g, tok.e) : null;
@@ -342,6 +351,13 @@ rt.get('/match', async (c) => {
     seat.lk = await signLobby(c.env, { g: tok.g, e: tok.e, c: lobby.c, q: q.queue, n: q.size, m: q.min, t: q.teams, o: q.mode });
   }
   const name = lobby ? `${tok.g}:${tok.e}:pcode:${lobby.c}` : q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
+  // the game's owner searched in their preview: test bots that follow them search the same queue, or enter the same
+  // lobby (a private lobby by its signed token: bots need no invite in the preview) (src/bots.ts)
+  if (tok.e === 'preview' && tok.k === 'owner') {
+    const follow = new URL(c.req.url).searchParams; follow.delete('t');
+    const query = seat.lk ? new URLSearchParams({ lobby: seat.lk }).toString() : follow.toString();
+    inBackground(c, followCreator(c.env, tok.g, tok.u, { kind: 'match', query, label: seat.lk ? 'your private lobby' : q.code ? `your lobby ${q.code}` : `your search (${q.queue}, ${q.size} players)` }));
+  }
   const u = new URL(c.req.url);
   u.search = `?seat=${encodeURIComponent(JSON.stringify(seat))}`;
   return c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(name)).fetch(new Request(u, c.req.raw));
@@ -384,7 +400,8 @@ rt.post('/match-result', async (c) => {
   if (!m) throw new AppError(404, 'Unknown match.', 'not_found');
   if (m.ended_at) return c.json({ ok: true, already: true });
   const roster = JSON.parse(m.roster || '[]') as { id: string; k?: string }[];
-  const ranked = new Set(roster.filter((r) => r.k !== 'verify').map((r) => r.id));
+  // the verifier's throwaway sessions and preview test bots never move a rating
+  const ranked = new Set(roster.filter((r) => r.k !== 'verify' && r.k !== 'bot').map((r) => r.id));
   const result = b.result && typeof b.result === 'object' ? b.result : {};
   const ranking = Array.isArray(result.ranking) ? (result.ranking as unknown[]).map((pl) => (Array.isArray(pl) ? pl : [pl]).map(String).filter((u) => ranked.has(u))).filter((pl) => pl.length) : [];
   const done = await c.env.DB.prepare('UPDATE matches SET ended_at = ?, result = ? WHERE id = ? AND ended_at IS NULL').bind(t, JSON.stringify(result).slice(0, 16_000), id).run();

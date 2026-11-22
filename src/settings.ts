@@ -64,6 +64,12 @@ export const SETTING_DEFS = {
   room_max_peers: { v: 16, type: 'int', group: 'Limits', label: 'Players per multiplayer room' },
   allow_matches: { v: true, type: 'bool', group: 'Limits', label: 'Allow server-run matches (server/match.js) and the matchmaker' },
   match_max_players: { v: 16, type: 'int', group: 'Limits', label: 'Players per server-run match (2 to 64)' },
+  // Preview test bots (src/bots.ts): bot players a creator adds to their own preview, connected over the real network path
+  preview_bots_enabled: { v: true, type: 'bool', group: 'Limits', label: 'Let creators add test bots to their previews (bot players that connect like real ones; preview only, never rated)', public: true },
+  preview_bots_max: { v: 15, type: 'int', group: 'Limits', label: 'Test bots per fleet (one creator, one game)', public: true },
+  preview_bots_max_minutes: { v: 30, type: 'int', group: 'Limits', label: 'Longest a test-bot fleet runs before it stops by itself (minutes)', public: true },
+  preview_bots_daily_minutes: { v: 600, type: 'int', group: 'Limits', label: 'Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)', public: true },
+  preview_bots_fleets: { v: 2, type: 'int', group: 'Limits', label: 'Test-bot fleets one creator can run at once' },
   room_msgs_per_second: { v: 60, type: 'int', group: 'Limits', label: 'Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)' },
 
   dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },

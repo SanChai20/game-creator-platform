@@ -31,6 +31,9 @@ export async function bindingProblem(db, tok, t = Date.now()) {
   if (r.project_id !== tok.g || (r.env != null && r.env !== tok.e)) return unknown;
   if (tok.k === 'verify') return r.kind === 'verify' && tok.u === `verify:${tok.s}` ? null : unknown;
   if (r.kind === 'verify') return unknown;
+  // A preview test bot (src/bots.ts): a session of kind 'bot' in the preview of this game, nowhere else. Its row is
+  // removed when the creator's fleet stops, which ends it (unknown above).
+  if (tok.k === 'bot' || r.kind === 'bot') return tok.k === 'bot' && r.kind === 'bot' && r.env === 'preview' && tok.e === 'preview' && r.user_id === tok.u ? null : unknown;
   // A claimed guest: the progress moved to an account (or was left behind), so the guest session is over.
   if (guest && r.claimed) return { code: SESSION_ENDED, reason: 'signed_in', message: 'You signed in, so this guest session ended. Reopen the game to keep playing on your account.' };
   if (r.user_id !== tok.u) return unknown;
