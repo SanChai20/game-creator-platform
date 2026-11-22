@@ -4,7 +4,7 @@
 // platform's own record (play time, last played, last saved). Built from the account's data, so it follows the player
 // to every device; signed-out visitors keep the browser's own "Jump back in".
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { ago, api, artStyle, CoverImg, genreHue, Link, local, MatureTag, num, playTime, t, useAct, type GameCard } from './lib';
+import { ago, api, artStyle, CoverImg, genreHue, Link, shown, MatureTag, num, playTime, t, useAct, type GameCard } from './lib';
 import { SectionHead } from './store';
 
 export interface ContinueInfo { first_played: number; last_played: number; sessions: number; seconds: number; saved_at: number | null; resume: { label: string; detail?: string; progress?: number; at: number } | null; owned: boolean }
@@ -17,8 +17,8 @@ export function whereLeft(p: ContinueInfo) {
 }
 
 /** One game on the Continue row: the cover opens it, the button says what pressing does, × takes it off the row. */
-export function ContinueCard({ g, onHide }: { g: ContinueGame; onHide?: (slug: string) => void }) {
-  const p = g.progress, go = p.owned ? `/g/${g.slug}?play=1` : `/g/${g.slug}`, title = local(g, 'title'), genre = g.tags[0];
+export function ContinueCard({ g: raw, onHide }: { g: ContinueGame; onHide?: (slug: string) => void }) {
+  const g = shown(raw), p = g.progress, go = p.owned ? `/g/${g.slug}?play=1` : `/g/${g.slug}`, title = g.title, genre = g.tags[0];
   const pct = p.resume?.progress != null ? Math.round(p.resume.progress * 100) : null;
   return (
     <article className="cont" style={{ '--h': genre ? genreHue(genre) : 350 } as CSSProperties}>

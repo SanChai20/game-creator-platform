@@ -98,7 +98,9 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
                 ['session_minutes', t('How long a typical session lasts', '一局通常持续多久'), false],
                 ['progress', t('Cloud saves, leaderboards, offline play', '云存档、排行榜、离线游玩'), false],
                 ['accessibility', t('Remappable controls, colour-blind modes, subtitles and seven more', '可自定义按键、色盲模式、字幕等十项功能'), false],
-                ['listing_translations', t('The title, tagline, description and controls in the platform\'s other languages', '标题、简介、描述与操作说明在平台其他语言中的翻译'), false],
+                ['listing_language', t('The language the title, tagline, description and cover are written in (worked out from the text when not set)', '标题、简介、描述与封面所用的语言（未设置时根据文字判断）'), false],
+                ['listing_translations', t('The title, tagline, description and controls in every other platform language the game is played in. Players see the listing in their platform language when the game supports it, else in English, else in the game\'s own language. Required for each platform language the game declares.', '游戏支持的每种平台语言下的标题、简介、描述与操作说明。玩家的平台语言若被游戏支持，就以该语言显示，否则显示英文，再否则显示游戏自身的语言。游戏声明的每种平台语言都必须提供。'), true],
+                ['covers', t('A cover per language (update_project), for covers that show the game\'s name or other text', '每种语言各自的封面（update_project），适用于带有游戏名称或其他文字的封面'), false],
               ] as [string, string, boolean][]).map(([k, d, req]) => <tr key={k}><td><code>{k}</code></td><td>{d}</td><td>{req ? t('Required', '必填') : t('Recommended', '建议填写')}</td></tr>)}</tbody>
             </table></div>
             <Code text={`// gcp.json, frozen with each version

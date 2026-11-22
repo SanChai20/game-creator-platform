@@ -16,6 +16,7 @@ import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
 import { missingToPublish, normalizeStoredTags, tagGroup } from '../../web/src/tags';
+import { listingLangs } from '../listing';
 import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { currentChecks, gateError, gateView, recordGate, releaseGate, storedGate } from '../release-gate';
 import { PRICE_NOW_SQL, applySale, checkoutExpiry, saleOf, saleView } from '../sales';
@@ -70,10 +71,12 @@ function card(origin: string, r: Record<string, any>, at = now()) {
     age: r.age || null, mature: matureList(r),
     // on today's picks: why the game was picked (featured, trending, rising, new, gem, free, more)
     ...(r.pick ? { pick: r.pick } : {}),
-    // the title and tagline in other platform languages, when the creator translated the listing
-    ...(r.listing_i18n && r.listing_i18n !== '{}' ? { i18n: Object.fromEntries(Object.entries(parseJson<Record<string, { title?: string; tagline?: string }>>(r.listing_i18n, {})).map(([k, v]) => [k, { title: v.title, tagline: v.tagline }])) } : {}),
+    // the listing's own language and the title, tagline and cover in every other platform language the game is
+    // played in: the web app shows the viewer's language, else English, else the game's own (web/src/languages.ts)
+    ...listingLangs(r, ['title', 'tagline'], (k) => media(origin, k)),
   };
 }
+
 
 // ----- config + auth ---------------------------------------------------------------------------
 api.get('/config', async (c) => {
@@ -338,7 +341,8 @@ async function listGames(c: Ctx, o: ListOpts) {
   const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
   const limit = Math.max(1, Math.min(60, o.limit || 24)), offset = Math.max(0, Math.min(100000, o.offset || 0));
   const where = ["p.status = 'live'"], args: unknown[] = [];
-  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase()); }
+  // the title and tagline in every language the listing is in, so a game is found by its name in any of them
+  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\' OR (p.listing_i18n != '{}' AND EXISTS (SELECT 1 FROM json_each(p.listing_i18n) j WHERE json_extract(j.value, '$.title') LIKE ? ESCAPE '\\' OR json_extract(j.value, '$.tagline') LIKE ? ESCAPE '\\')))"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase(), like, like); }
   // tag can name several genres, comma separated: a game must carry all of them
   for (const one of tag.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5)) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + one.replace(/[\\%_]/g, '\\$&') + '"%'); }
   if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') { where.push(`p.price_cents > 0 AND ${PRICE_NOW_SQL} < 500`); args.push(now()); } else if (o.price === 'sale') { where.push('p.sale_price_cents > 0 AND p.sale_ends_at > ? AND p.sale_starts_at <= ? AND p.sale_price_cents < p.price_cents'); const t = now(); args.push(t, t); } else if (o.price === 'trial') where.push('p.price_cents > 0 AND p.trial_minutes > 0');
@@ -491,7 +495,7 @@ api.get('/games/:slug', async (c) => {
       : c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND seen_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
   ]);
   return c.json({
-    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: parseJson(p.listing_i18n, {}), version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
+    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: listingLangs(p, ['title', 'tagline', 'description', 'controls'], (k) => media(origin, k)).i18n || {}, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
@@ -681,15 +685,17 @@ api.post('/games/:slug/reviews', async (c) => {
 const MEDIA_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 api.get('/media/*', async (c) => {
   const key = decodeURIComponent(new URL(c.req.url).pathname.replace(/^\/api\/media\//, ''));
-  // shots/<project>/<version>[-play-i].ext and covers/<project>-<time>.ext
-  const m = key.match(/^(shots)\/([A-Za-z0-9_\-]+)\/([A-Za-z0-9_.\-]+)$/) || key.match(/^(covers)\/([A-Za-z0-9_]+)-([A-Za-z0-9]+\.[a-z0-9]+)$/);
+  // shots/<project>/<version>[-play-i].ext, covers/<project>-<time>.ext and a language's cover covers/<project>-<lang>-<time>.ext
+  const m = key.match(/^(shots)\/([A-Za-z0-9_\-]+)\/([A-Za-z0-9_.\-]+)$/) || key.match(/^(covers)\/([A-Za-z0-9_]+)-((?:[A-Za-z]{2}(?:-[A-Za-z]{2})?-)?[A-Za-z0-9]+\.[a-z0-9]+)$/);
   if (!m || key.includes('..')) throw notFound();
   // Public only for a live game's cover and the pictures of versions that went live. A draft's, a removed game's or the
   // verifier's frames of an unpublished version are for the creator and admins.
-  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null }>();
+  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key, listing_i18n FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null; listing_i18n: string | null }>();
   if (!p) throw notFound();
   const n = m[1] === 'shots' ? Number((m[3].match(/^(\d+)/) || [])[1]) : NaN;
-  const published = p.status === 'live' && (key === p.cover_key || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
+  // a live game's covers: the main one and each listing language's (update_project covers)
+  const langCover = m[1] === 'covers' && Object.values(parseJson<Record<string, { cover_key?: string }>>(p.listing_i18n || '{}', {})).some((x) => x?.cover_key === key);
+  const published = p.status === 'live' && (key === p.cover_key || langCover || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
   const u = c.get('user');
   if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
   // Only pictures, typed by their name, never by what was stored with them: this is the platform's own origin, so an

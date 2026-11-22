@@ -1,7 +1,7 @@
 // The discovery queue: games this browser has not opened yet, one at a time, with the facts that matter and two
 // choices: open it, or move on. What was seen is remembered in this browser only.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { api, artStyle, blurb, count, CoverImg, MatureTag, genreHue, genreName, Link, markSeen, navigate, num, price, RARITY, rarity, rarityHint, resetSeen, seenGames, t, Verdict, type GameCard } from '../lib';
+import { api, artStyle, blurb, shown, count, CoverImg, MatureTag, genreHue, genreName, Link, markSeen, navigate, num, price, RARITY, rarity, rarityHint, resetSeen, seenGames, t, Verdict, type GameCard } from '../lib';
 import { Button, EmptyState } from '../ui';
 import { RouteSkeleton } from '../skeletons';
 
@@ -17,7 +17,7 @@ export function Queue() {
       setPool(all.filter((g) => !seen.has(g.slug)).slice(0, 12)); setI(0);
     }, () => setPool([]));
   }, [round]);
-  const g = pool?.[i];
+  const g = pool?.[i] ? shown(pool[i]) : undefined;
   const next = () => { if (g) markSeen(g.slug); setI((v) => v + 1); };
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if ((e.target as HTMLElement)?.tagName === 'INPUT') return; if (e.key === 'ArrowRight') next(); else if (e.key === 'Enter' && g) { markSeen(g.slug); navigate(`/g/${g.slug}`); } };

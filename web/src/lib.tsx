@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type AnchorHTMLAttributes, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { Button, Notice } from './ui/components';
 import { detectLang, langTag, matchLang, type Lang } from './i18n/langs';
+import { offeredListings, pickListing } from './languages';
 import { hue as tone } from './ui/tokens';
 // Components that used to live here; kept as re-exports so existing imports keep working. New code imports from './ui'.
 export { Bars, Code, Modal, Spinner, StatusBadge } from './ui/components';
@@ -179,7 +180,7 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 28 + ((h >> 9) % 40)) % 360, x = 18 + ((h >> 4) % 64), y = 22 + ((h >> 13) % 40), cut = 38 + ((h >> 17) % 30), tilt = 100 + ((h >> 21) % 50);
   return { background: `radial-gradient(circle at ${x}% ${y}%, hsl(${a} 95% 88%) 0 11%, transparent 11.4%), linear-gradient(${tilt}deg, hsl(${a} 78% 62%) 0 ${cut}%, hsl(${b} 62% 44%) ${cut}.3% ${cut + 22}%, hsl(${b} 52% 26%) ${cut + 22}.3%)` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; sale?: SaleInfo | null; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number; age?: number | null; mature?: string[]; pick?: 'featured' | 'trending' | 'rising' | 'new' | 'gem' | 'free' | 'more' }
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; lang?: string; i18n?: ListingI18n; price_cents: number; sale?: SaleInfo | null; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number; age?: number | null; mature?: string[]; pick?: 'featured' | 'trending' | 'rising' | 'new' | 'gem' | 'free' | 'more' }
 /** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
@@ -245,10 +246,29 @@ export const genreName = (tag: string): string => {
 /** The name of a group of tags, as the store's filters show it. */
 export const tagGroupName = (g: string): string => ({ genre: t('Genres', '类型'), theme: t('Setting and theme', '背景与题材'), mood: t('Mood', '氛围'), gameplay: t('Gameplay', '玩法'), players: t('Players', '玩家'), style: t('Visual style and view', '画面风格与视角') } as Record<string, string>)[g] ?? g;
 
-/** A listing field in the viewer's language when the creator translated the listing, otherwise as written. */
-export function local<K extends 'title' | 'tagline' | 'description' | 'controls'>(g: { [k in K]?: string | null } & { i18n?: Record<string, Partial<Record<string, string>>>; listing_i18n?: Record<string, Partial<Record<string, string>>> }, k: K): string {
-  const tr = (g.listing_i18n || g.i18n)?.[lang]?.[k];
-  return tr || String(g[k] ?? '');
+/** The listing in other platform languages, as the Worker sends it: only languages the game is played in. */
+export type ListingI18n = Record<string, { title?: string | null; tagline?: string | null; description?: string | null; controls?: string | null; cover?: string | null }>;
+type Listed = { title?: string | null; tagline?: string | null; description?: string | null; controls?: string | null; cover?: string | null; lang?: string; i18n?: ListingI18n; listing_i18n?: ListingI18n };
+/** The language a game's listing is shown in for the viewer: theirs when the game is played in it, else English, else the game's own. */
+export function listingLangFor(g: Listed): string {
+  const tr = g.listing_i18n && Object.keys(g.listing_i18n).length ? g.listing_i18n : g.i18n || {}, base = g.lang || 'en';
+  return pickListing(lang, base, offeredListings(base, Object.keys(tr), null));
+}
+/** A game as the viewer sees it on the platform: title, tagline, description, controls and cover in the language
+ *  pickListing chooses (web/src/languages.ts). Every surface that shows a game goes through this. */
+export function shown<T extends Listed>(g: T): T {
+  if (!g) return g;
+  const tr = g.listing_i18n && Object.keys(g.listing_i18n).length ? g.listing_i18n : g.i18n;
+  if (!tr) return g;
+  const pick = tr[listingLangFor(g)];
+  if (!pick) return g;
+  const out = { ...g } as T & Record<string, unknown>;
+  for (const k of ['title', 'tagline', 'description', 'controls', 'cover'] as const) if (pick[k]) out[k] = pick[k] as never;
+  return out;
+}
+/** One listing field in the viewer's language (see shown). */
+export function local<K extends 'title' | 'tagline' | 'description' | 'controls'>(g: Listed, k: K): string {
+  return String(shown(g)[k] ?? '');
 }
 
 /** What players think, in a word, from the average rating and how many ratings there are. */
@@ -286,12 +306,12 @@ export function MatureTag({ g }: { g: { mature?: string[] } }) {
 }
 
 /** A game as a card: the cover, then its name, what players say and the price. The cover lifts off a halftone shadow on hover. */
-export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
-  const rar = rarity(g), genre = g.tags[0], trial = trialOf(g);
+export function GameTile({ g: raw, to, fresh }: { g: GameCard; to?: string; fresh?: boolean }) {
+  const g = shown(raw), rar = rarity(g), genre = g.tags[0], trial = trialOf(g);
   return (
     <Link to={to || `/g/${g.slug}`} className={`game r-${rar}`} style={{ '--rc': RARITY[rar].color, '--h': genre ? genreHue(genre) : 350 } as CSSProperties}>
       <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
-        {g.cover ? <CoverImg g={g} src={g.cover} /> : <div className="mono-title">{local(g, 'title')}</div>}
+        {g.cover ? <CoverImg g={g} src={g.cover} /> : <div className="mono-title">{g.title}</div>}
         <MatureTag g={g} />
         {fresh ? <span className="stick">{t('New', '新上架')}</span> : g.featured ? <span className="stick alt">{t('Featured', '精选')}</span> : null}
         {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
@@ -299,7 +319,7 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
         <SaleTag g={g} />
       </div>
       <div className="game-b">
-        <h3 className="clip">{local(g, 'title')}</h3>
+        <h3 className="clip">{g.title}</h3>
         <PriceTag g={g} className={'price' + (g.price_cents > 0 ? ' paid' : '')} />
         <div className="meta">
           {rar !== 'common' && <span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>}
@@ -312,13 +332,14 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
   );
 }
 // ---- return visits (kept in this browser only) ---------------------------------------------------
-export interface RecentPlay { slug: string; title: string; cover: string | null; at: number }
+export interface RecentPlay { slug: string; title: string; cover: string | null; at: number; lang?: string; i18n?: ListingI18n }
 const RECENT_KEY = 'gcp.recent', VISIT_KEY = 'gcp.visit', PREV_KEY = 'gcp.prevVisit';
 const readJson = <T,>(k: string, d: T, store: Storage | null = null): T => { try { const v = (store || localStorage).getItem(k); return v ? JSON.parse(v) as T : d; } catch { return d; } };
 /** Games this browser played lately, newest first, for "Jump back in". */
 export const recentPlays = (): RecentPlay[] => readJson<RecentPlay[]>(RECENT_KEY, []).filter((r) => r && r.slug);
-export function rememberPlay(g: { slug: string; title: string; cover: string | null }) {
-  const list = [{ slug: g.slug, title: g.title, cover: g.cover, at: Date.now() }, ...recentPlays().filter((r) => r.slug !== g.slug)].slice(0, 8);
+export function rememberPlay(g: { slug: string; title: string; cover: string | null; lang?: string; i18n?: ListingI18n }) {
+  // kept in every language the listing is in, so the row follows the platform language too
+  const list = [{ slug: g.slug, title: g.title, cover: g.cover, at: Date.now(), lang: g.lang, i18n: g.i18n }, ...recentPlays().filter((r) => r.slug !== g.slug)].slice(0, 8);
   try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); } catch { /* private mode */ }
 }
 /** Games this browser has opened or skipped, for the discovery queue. */

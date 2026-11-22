@@ -55,9 +55,11 @@ export interface Project {
   cover_key: string | null; price_cents: number; trial_minutes: number; sales: number; featured: number; plays: number; seconds: number; rating_sum: number; rating_count: number;
   removed_reason: string | null; created_at: number; updated_at: number; published_at: number | null;
   open_implementation: number; open_implementation_at: number | null;
-  skill_price_cents: number; skill_sales: number; skill_copies: number; skill_views: number;
-  sale_price_cents?: number | null; sale_starts_at?: number | null; sale_ends_at?: number | null; price_raised_at?: number | null;   // limited-time sale (src/sales.ts)   // the build skill (src/skills.ts)
-  listing_i18n: string;                         // JSON: the store listing translated into platform languages
+  skill_price_cents: number; skill_sales: number; skill_copies: number; skill_views: number;   // the build skill (src/skills.ts)
+  sale_price_cents?: number | null; sale_starts_at?: number | null; sale_ends_at?: number | null; price_raised_at?: number | null;   // limited-time sale (src/sales.ts)
+  listing_i18n: string;                         // JSON: the store listing translated into platform languages, each with an optional cover_key
+  listing_lang?: string | null;                 // the language the project's own listing is in (null: worked out from the text)
+  langs?: string | null;                        // platform languages the live version is played in, comma-separated (null until recorded)
   age: number | null;                           // the live version's age rating (null until recorded)
   mature: string;                               // adults-only categories of the live version, comma-separated: sexual, violence, other ('' for everyone)
   storage_bytes?: number | null;                // storage this game may use; null: the platform default (bundle_max_bytes)

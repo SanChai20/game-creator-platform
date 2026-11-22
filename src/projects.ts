@@ -14,7 +14,7 @@ import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
 import { buildControls, type TouchControls } from '../web/src/touch-controls';
 import { buildMeta, genreTags, genresOf, normGenre, GENRES, type Genre, type MetaIssue, type MetaRecord } from '../web/src/gamemeta';
-import { parseListings } from '../web/src/languages';
+import { listingLangCode, parseListings } from '../web/src/languages';
 import { MAX_TAGS, normalizeStoredTags, parseTags, TAG_GROUPS, tagsOnly, type TagIssue } from '../web/src/tags';
 
 export const wsKey = (pid: string, path: string) => `ws/${pid}/${path}`;
@@ -101,9 +101,19 @@ export async function updateProjectMeta(env: Env, p: Project, input: Record<stri
     const parsed = parseListings(input.listing_translations);
     const errs = parsed.issues.filter((i) => i.level === 'error');
     if (errs.length) throw bad(errs.map((i) => i.message + (i.hint ? ` ${i.hint}` : '')).join(' · '));
-    const cur = JSON.parse(p.listing_i18n || '{}') as Record<string, unknown>;
-    for (const [k, v] of Object.entries(parsed.value)) { if (v === null || !Object.keys(v).length) delete cur[k]; else cur[k] = v; }
+    const cur = JSON.parse(p.listing_i18n || '{}') as Record<string, Record<string, string>>;
+    // a language's cover (update_project covers) stays when its text is replaced; null removes the language, cover too
+    for (const [k, v] of Object.entries(parsed.value)) { if (v === null) delete cur[k]; else if (!Object.keys(v).length && !cur[k]?.cover_key) delete cur[k]; else cur[k] = { ...v, ...(cur[k]?.cover_key ? { cover_key: cur[k].cover_key } : {}) }; }
     put('listing_i18n', JSON.stringify(cur));
+  }
+  // the language the project's own listing (title, tagline, description, controls, cover) is written in
+  if (input.listing_language !== undefined) {
+    if (input.listing_language === null || input.listing_language === '') put('listing_lang', null);
+    else {
+      const l = listingLangCode(input.listing_language);
+      if (!l) throw bad(`listing_language "${input.listing_language}" is not a language code.`, 'Use the language the title, tagline and description are written in: en, zh, zh-TW, ja, ko, es (or another BCP 47 code).');
+      put('listing_lang', l);
+    }
   }
   if (input.price_cents !== undefined) {
     const s = await getSettings(env), price = Math.round(Number(input.price_cents));

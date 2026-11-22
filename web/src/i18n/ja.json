@@ -2105,5 +2105,8 @@
  "Longest sale a creator can run (days)": "セールの最長期間（日）",
  "Smallest discount a sale can offer (percent off the regular price)": "セールの最小割引率（通常価格に対する%）",
  "Lowest price a game can have on sale": "セール中の最低価格",
- "Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)": "セール終了後または値上げ後、次のセールを始められるまでの日数（0：待ち時間なし）"
+ "Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)": "セール終了後または値上げ後、次のセールを始められるまでの日数（0：待ち時間なし）",
+ "The language the title, tagline, description and cover are written in (worked out from the text when not set)": "タイトル、キャッチコピー、説明、カバーの記述言語（未設定ならテキストから判定）",
+ "The title, tagline, description and controls in every other platform language the game is played in. Players see the listing in their platform language when the game supports it, else in English, else in the game's own language. Required for each platform language the game declares.": "ゲームが対応するほかのプラットフォーム言語それぞれでのタイトル、キャッチコピー、説明、操作説明。プレイヤーには、ゲームが対応していればプラットフォーム言語で、なければ英語で、それもなければゲーム自身の言語で表示されます。ゲームが宣言したプラットフォーム言語ごとに必須です。",
+ "A cover per language (update_project), for covers that show the game's name or other text": "言語ごとのカバー（update_project）。ゲーム名などの文字が入ったカバー向け"
 }

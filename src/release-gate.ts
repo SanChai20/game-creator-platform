@@ -17,9 +17,10 @@ import { skillGate } from './skills';
 import { publishGate } from './originality-check';
 import { missingToPublish } from '../web/src/tags';
 import { now, parseJson } from './util';
+import { LANG_NAMES_EN, listingCoverage } from './listing';
 
 /** The ruleset's version. Bump it whenever a rule is added or tightened; each stored outcome names the one it used. */
-export const RULESET = '2026-11-22.1';
+export const RULESET = '2026-11-22.2';
 
 export type GateMode = 'publish' | 'rollback' | 'restore';
 export type RuleStatus = 'pass' | 'fail' | 'waived' | 'skipped';
@@ -43,6 +44,7 @@ export const RULES: { id: string; title: string; modes: GateMode[]; waivable: bo
   { id: 'verified', title: 'It passed verification', modes: ['publish', 'rollback', 'restore'], waivable: true, what: 'The automated browser check passed (boots with GCP.ready(), keeps rendering, a real picture, survives input, serves every file, no uncaught errors, stays on the page, hands over its frame, plays on the devices it lists), or a person approved a version the browser could not run. An admin can waive only checks a verifier can get wrong; boot, conduct, originality and content failures stand.' },
   { id: 'current_checks', title: 'It was verified against today\'s requirements', modes: ['publish'], waivable: true, what: 'A new release must have been checked by every verification check the platform runs today: the frame hand-over (capture), the phone and tablet pass for the devices it lists, and the rest. A version verified before a check existed, or while a check only warned, is deployed again first.' },
   { id: 'metadata', title: 'Its store metadata is complete', modes: ['publish'], waivable: true, what: 'Genre, 2 to 8 tags, requirements, languages, players and content descriptors are on record.' },
+  { id: 'listing_languages', title: 'Its store listing is in every language it is played in', modes: ['publish'], waivable: true, what: 'Everything about the game outside the game follows the player\'s platform language. For every platform language (English, Simplified and Traditional Chinese, Japanese, Korean, Spanish) the version declares in languages, the store listing has the title, and the tagline and description when the game\'s own listing has them, in that language (game_metadata listing_translations; a cover per language is optional, update_project covers).' },
   { id: 'storage', title: 'It fits the game\'s storage', modes: ['publish'], waivable: false, what: 'All of its files fit the game\'s storage and file count. An admin can give the game more storage instead.' },
   { id: 'build_skill', title: 'Its build skill is up to date', modes: ['publish'], waivable: true, what: 'A game that shares its build skill in the Creator Store has one written for this exact version.' },
   { id: 'original', title: 'It is original work and safe for players', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Compared again with every other creator\'s live game right before it goes live, and reviewed for content when it never was. Copies and content that is never allowed are refused.' },
@@ -176,6 +178,13 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
     const { compat, meta } = await ensureVersionMeta(env, v), missing = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]'));
     rule('metadata', missing.length ? { code: 'metadata_incomplete', http: 409, missing, reason: `Version ${v.n} cannot be published until its store metadata is complete. Missing: ${missing.join('; ')}.`, fix: 'game_metadata {project} shows the checklist; declare each field with game_metadata {action: "declare", …}. Build fields (requirements, languages, players, content) are frozen with a version, so deploy_preview again after declaring them.' } : null);
   } else rule('metadata', null);
+
+  if (has('listing_languages') && s.metadata_required) {
+    const { meta } = await ensureVersionMeta(env, v), cov = listingCoverage(p, meta?.languages);
+    const list = cov.missing.map((m) => `${LANG_NAMES_EN[m.lang]} (${m.lang}): ${m.fields.join(', ')}`);
+    const example = Object.fromEntries(cov.missing.map((m) => [m.lang, Object.fromEntries(m.fields.map((f) => [f, '…']))]));
+    rule('listing_languages', cov.missing.length ? { code: 'listing_untranslated', http: 409, missing: list, reason: `Version ${v.n} is played in ${cov.supported.map((l) => LANG_NAMES_EN[l]).join(', ')}, but the store listing (written in ${cov.lang}) is missing ${list.join('; ')}. Players whose platform language is one of those would see the game's name and description in another language.`, fix: `Translate the listing faithfully and call game_metadata ${JSON.stringify({ project: p.id, action: 'declare', listing_translations: example })}. Set listing_language too if the game's own listing is not in ${cov.lang}. No deploy is needed; publish again afterwards.` } : null);
+  } else rule('listing_languages', null);
 
   const over = has('storage') ? overBudget(s, p, v.bytes, v.file_count) : null;
   rule('storage', over ? { code: 'storage_full', http: 413, reason: `Version ${v.n} does not fit: ${over.message}`, fix: over.hint } : null);

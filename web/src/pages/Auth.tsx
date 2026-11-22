@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { announceAuth } from '../account-sync';
-import { api, ApiError, artStyle, Link, navigate, num, query, t, useApp, useData, type GameCard } from '../lib';
+import { api, ApiError, artStyle, shown, Link, navigate, num, query, t, useApp, useData, type GameCard } from '../lib';
 import { Button, CelScene, Eyebrow, Field, Input, Notice } from '../ui';
 import { PageSkeleton } from '../skeletons';
 import { legalTitle } from './Legal';
@@ -58,7 +58,7 @@ export function Auth({ mode, tools }: { mode: 'login' | 'signup'; tools?: ReactN
 /** The other half of the sign-in page: the rendered scene, a few of the store's covers and what the account is for. */
 function Showcase() {
   const { data } = useData<{ stats: { games: number; creators: number }; shelves: { trending: GameCard[]; new: GameCard[] } }>('/home');
-  const covers = data ? [...data.shelves.trending, ...data.shelves.new].filter((g, i, a) => !g.mature?.length && a.findIndex((x) => x.id === g.id) === i).slice(0, 4) : [];
+  const covers = data ? [...data.shelves.trending, ...data.shelves.new].filter((g, i, a) => !g.mature?.length && a.findIndex((x) => x.id === g.id) === i).slice(0, 4).map(shown) : [];
   return (
     <aside className="auth-show ink" aria-hidden="true">
       <CelScene seed={4} />
