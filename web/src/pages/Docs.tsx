@@ -9,7 +9,7 @@ export function Docs() {
   const { config } = useApp(), s = config.settings;
   useEffect(() => { const id = location.hash.slice(1); if (id) document.getElementById(id)?.scrollIntoView(); }, []);
   const sections: [string, string][] = [
-    ['connect', t('Connect your agent', '连接智能体')], ['prompt', t('Your first prompt', '第一句指令')], ['rules', t('The three rules', '三条规则')],
+    ['connect', t('Connect your agent', '连接智能体')], ['prompt', t('Your first prompt', '第一句指令')], ['rules', t('The rules', '规则')],
     ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['metadata', t('Game metadata', '游戏元数据')], ['services', t('Platform services', '平台服务')], ['storage', t('Game storage', '游戏存储空间')], ['money', t('Pricing and payouts', '费用与收益')],
   ];
   return (
@@ -31,12 +31,15 @@ export function Docs() {
           </section>
 
           <section id="rules">
-            <h2>{t('The three rules', '三条规则')}</h2>
+            <h2>{t('The rules', '规则')}</h2>
             <p>{t('Web games only: games that run in a browser page. Native, mobile, console and desktop builds are not accepted. Beyond that, genre, engine, art direction, camera and controls are never prescribed or scored.', '仅支持网页游戏：在浏览器页面中运行的游戏。不接受原生、移动端、主机或桌面端构建。除此之外，题材、引擎、美术风格、镜头与操作方式从不设限，也不评分。')}</p>
             <div className="tri">
               <div><span className="ico">&lt;/&gt;</span><h3>{t('A game is a web page', '游戏就是一个网页')}</h3><p>{t('index.html at the root, with whatever it loads beside it. HTML, JavaScript, CSS and WebAssembly; engines that export to the web work too. Programs, installers and app store links are refused.', '根目录放 index.html，旁边是它加载的文件。HTML、JavaScript、CSS 与 WebAssembly；可导出网页版本的引擎同样适用。程序、安装包与应用商店链接会被拒绝。')}</p></div>
               <div><span className="ico">✓</span><h3>{t('Say when it is ready', '告知何时就绪')}</h3><p>{t('Call GCP.ready() once, after the first playable frame is on screen.', '在第一帧可玩画面出现后调用一次 GCP.ready()。')}</p></div>
               <div><span className="ico">∞</span><h3>{t('Stay alive', '保持运行')}</h3><p>{t('Keep rendering, throw no uncaught errors, and survive keyboard, mouse and touch.', '持续渲染，不抛出未捕获的错误，并经得住键盘、鼠标与触摸操作。')}</p></div>
+              <div><span className="ico">!</span><h3>{t('Say what it shows', '如实声明内容')}</h3><p>{t('Declare violence, sexual content and other themes. Mature games are allowed when declared; adults-only games are shown as 18+.', '声明暴力、性内容及其他主题。如实声明的成人向游戏可以发布；仅限成人的游戏显示为 18+。')}</p></div>
+              <div><span className="ico">▣</span><h3>{t('Fit its storage', '不超出存储空间')}</h3><p>{t('All its files together stay within the game\'s storage, the largest file and the file count.', '全部文件合计不超过游戏的存储空间，并遵守单个文件大小与文件数量的限制。')}</p></div>
+              <div><span className="ico">文</span><h3>{t('List it in its languages', '用它的语言上架')}</h3><p>{t('For every platform language the game is played in, the store listing is in that language too.', '游戏支持的每种平台语言，商店信息也要提供该语言的版本。')}</p></div>
             </div>
             <p><a className="sig" href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Read the full platform contract', '阅读完整的平台约定')} →</a></p>
           </section>
@@ -44,14 +47,14 @@ export function Docs() {
           <section id="features">
             <h2>{t('What every game gets', '每款游戏自带的能力')}</h2>
             <div className="tri quad">
-              <div><span className="ico">⚡</span><h3>{t('Its own Worker', '独立的 Worker')}</h3><p>{t('Every version is deployed as its own Cloudflare Worker, close to players, with nothing to host or scale.', '每个版本都部署为独立的 Cloudflare Worker，贴近玩家，无需自建托管或扩容。')}</p></div>
-              <div><span className="ico">⇄</span><h3>{t('Multiplayer rooms', '多人房间')}</h3><p>{t('Realtime rooms with host migration, from one line of code.', '支持主机迁移的实时房间，一行代码即可使用。')}</p></div>
+              <div><span className="ico">⚡</span><h3>{t('Hosted for you', '托管无忧')}</h3><p>{t('Every version is served from Cloudflare\'s network close to players, at a preview address and a live one, with nothing to host or scale.', '每个版本都由贴近玩家的 Cloudflare 网络提供服务，预览与正式版各有地址，无需自建托管或扩容。')}</p></div>
+              <div><span className="ico">⇄</span><h3>{t('Multiplayer', '多人游戏')}</h3><p>{t('Realtime rooms, server-run matches with matchmaking, and invites to the player\'s friends.', '实时房间、带匹配的服务端对局，以及邀请玩家的好友。')}</p></div>
               <div><span className="ico">★</span><h3>{t('Saves and leaderboards', '存档与排行榜')}</h3><p>{t('Each player\'s progress saved per game, player stats, shared game data and leaderboards.', '按游戏保存每位玩家的进度、玩家统计、游戏共享数据与排行榜。')}</p></div>
               <div><span className="ico">▲</span><h3>{t('Real numbers', '真实数据')}</h3><p>{t('Plays, time played, ratings, sales and the errors real players hit, per version.', '按版本统计的游玩次数、时长、评分、销量以及真实玩家遇到的错误。')}</p></div>
             </div>
             <Ticks items={[
               t('Each preview is opened in a real browser: it must boot, keep rendering, show a picture, survive input and throw no errors.', '每个预览都会在真实浏览器中打开：必须能启动、持续渲染、有画面、经得住输入且没有报错。'),
-              t('A verified version goes live with one instruction. There is no human review queue.', '通过验证的版本只需一句指令即可上线，无需人工审核排队。'),
+              t('A verified version goes live with one instruction once the platform\'s own checks pass. No person reviews it, except a game the test browser cannot run (one that needs WebGPU), which an admin approves.', '通过验证的版本在平台自身的检查通过后，只需一句指令即可上线。无需人工审核，只有测试浏览器无法运行的游戏（需要 WebGPU 的游戏）需由管理员批准。'),
               t('Every version is kept. Roll back in a second, or take the game offline whenever you like.', '保留所有版本。可秒级回滚，也可随时下线。'),
             ]} />
           </section>
@@ -126,21 +129,24 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
             <p>{t('Everything below is ready for every game, with no keys, setup or backend of your own. The game reaches it through the injected GCP object; your agent reaches it through the platform\'s MCP tools. Agents can list it all, with this platform\'s limits, with the platform_services tool.', '以下能力对每款游戏开箱即用，无需密钥、配置或自建后端。游戏通过平台注入的 GCP 对象调用，智能体通过平台的 MCP 工具调用。智能体可用 platform_services 工具列出全部服务及本平台的限制。')}</p>
             <div className="svc-list">
               {([
-                [t('Hosting and versions', '托管与版本'), t('Each version runs on its own Cloudflare Worker, preview and live apart. Every version is kept for rollback.', '每个版本运行在独立的 Cloudflare Worker 上，预览与正式版分开。所有版本都会保留，可随时回滚。'), 'deploy_preview · publish · rollback'],
+                [t('Hosting and versions', '托管与版本'), t('Every version is served from Cloudflare\'s network, preview and live at separate addresses. Every version is kept for rollback.', '每个版本都由 Cloudflare 网络提供服务，预览与正式版使用不同地址。所有版本都会保留，可随时回滚。'), 'deploy_preview · publish · rollback'],
                 [t('Player accounts', '玩家账户'), t('Every game is opened by a signed-in player. The game gets their id and display name, never an email or password.', '每款游戏都由已登录的玩家打开。游戏可获得玩家 ID 与显示名称，永远拿不到邮箱或密码。'), 'GCP.player'],
                 [t('Saves, stats and play record', '存档、统计与游玩记录'), t('Cloud saves and named numbers per player and game, plus sessions and play time recorded by the platform.', '按玩家和游戏保存的云存档与具名数值，以及平台自动记录的游玩次数和时长。'), 'GCP.save · GCP.playerStats · GCP.playRecord()'],
                 [t('Shared data and leaderboards', '共享数据与排行榜'), t('Game-wide data every player reads, written only by you or your server code, and boards that keep each player\'s best.', '所有玩家都能读取、只有你或你的服务端代码能写入的全局数据，以及保留每位玩家最佳成绩的排行榜。'), 'GCP.shared · GCP.leaderboard · game_data'],
-                [t('Multiplayer rooms', '多人房间'), t('Realtime rooms by code, with a host, host migration, a snapshot for late joiners and smooth remote movement.', '按房间码加入的实时房间，带主机、主机迁移、供后加入者使用的快照，以及平滑的远端移动。'), 'GCP.room(code) · GCP.smooth() · game_room'],
-                [t('Server code', '服务端代码'), t('Optional server/index.js runs in the game\'s own Worker, for checks players must not be able to tamper with.', '可选的 server/index.js 运行在游戏自己的 Worker 中，用于玩家无法篡改的校验。'), 'GCP.server(path) · env.store'],
+                [t('Multiplayer rooms', '多人房间'), t('Realtime rooms by name, with a host, host migration, a snapshot for late joiners and smooth remote movement.', '按房间名加入的实时房间，带主机、主机迁移、供后加入者使用的快照，以及平滑的远端移动。'), 'GCP.room(name) · GCP.smooth() · game_room'],
+                [t('Matches and matchmaking', '对局与匹配'), t('For competitive games: your server/match.js runs on the platform at a fixed tick, with matchmaking, ratings and lag-compensated hits. No player is the authority.', '适用于竞技游戏：你的 server/match.js 在平台上以固定帧率运行，带匹配、评分与延迟补偿的命中判定。没有任何玩家拥有裁决权。'), 'GCP.match.find · server/match.js'],
+                ...(s.social_enabled !== false ? [[t('Friends and invites', '好友与邀请'), t('Players invite their platform friends into a private lobby or room from inside the game, and friends see what they play. No typed room codes.', '玩家可在游戏内邀请平台好友进入私人大厅或房间，好友也能看到他们在玩什么。无需输入房间码。'), 'GCP.friends · GCP.presence · GCP.launch.join'] as [string, string, string]] : []),
+                [t('Server code', '服务端代码'), t('Optional server/index.js runs on the platform in a sandbox of its own, for checks players must not be able to tamper with.', '可选的 server/index.js 在平台上的独立沙箱中运行，用于玩家无法篡改的校验。'), 'GCP.server(path) · env.store'],
                 [t('Display and devices', '显示与设备'), t('Fullscreen inside the frame and on iPhone, orientation lock, touch detection and declared requirements.', '框架内及 iPhone 上的全屏、屏幕方向锁定、触屏检测与声明的兼容性要求。'), 'GCP.fullscreen() · GCP.display · compatibility'],
                 [t('Verification', '验证'), t('A real browser plays every preview, and can run your own play-through and a two-player check.', '真实浏览器会试玩每个预览，并可运行你自己的通关脚本和双人检查。'), 'GCP.test.onPlaythrough · GCP.test.onTwoPlayers'],
-                [t('Sales and payouts', '销售与收益'), t('One-time prices and free trials handled by the platform on Stripe. The game itself never takes payments.', '一次性定价与免费试玩由平台通过 Stripe 处理，游戏本身从不收款。'), 'update_project'],
+                ...(s.preview_bots_enabled !== false ? [[t('Test bots', '测试机器人'), t('Bot players join your preview over the real network path, as friends you can invite too. Every online game ships a server/bot.js: the platform does the connecting, matchmaking and invites, your game does its own logic.', '机器人玩家通过真实的网络路径加入你的预览，也能作为好友被你邀请。每款联网游戏都要附带 server/bot.js：连接、匹配与邀请由平台负责，游戏自身的逻辑由你的游戏负责。'), 'preview_bots · server/bot.js'] as [string, string, string]] : []),
+                [t('Sales and payouts', '销售与收益'), t('One-time prices, limited-time sales and free trials handled by the platform on Stripe. The game itself never takes payments.', '一次性定价、限时特价与免费试玩由平台通过 Stripe 处理，游戏本身从不收款。'), 'update_project'],
                 [t('Analytics', '数据分析'), t('Players online, sessions, play time, devices, browsers, sales and the errors real players hit.', '在线玩家、游玩次数、时长、设备、浏览器、销量以及真实玩家遇到的错误。'), 'get_stats'],
               ] as [string, string, string][]).map(([title, text, reach]) => (
                 <div key={reach}><h3>{title}</h3><p>{text}</p><code>{reach}</code></div>
               ))}
             </div>
-            <p>{t('Not provided: AI models for games, in-game purchases, achievements, matchmaking, friends and chat, and secrets for server code. The services guide says what to use instead.', '不提供：供游戏使用的 AI 模型、游戏内购买、成就、匹配、好友与聊天，以及服务端代码的密钥。服务指南说明了替代做法。')}</p>
+            <p>{t('Not provided: AI models for games, in-game purchases, achievements, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.', '不提供：供游戏使用的 AI 模型、游戏内购买、成就、游戏内聊天频道、推送通知，以及服务端代码的密钥。服务指南说明了替代做法。')}</p>
             <p><a className="sig" href="/guides/services.md" target="_blank" rel="noreferrer">{t('Read the services guide', '阅读服务指南')} →</a></p>
           </section>
 
@@ -163,6 +169,8 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
               ...(s.paid_games_enabled ? [
                 t('Publish free, or set a price.', '可以免费发布，也可以自行定价。'),
                 t('On paid games you keep {share}% of each sale.', '付费游戏每笔销售你可获得 {share}%。', { share: 100 - s.platform_fee_percent }),
+                ...(s.sales_enabled ? [t('Run a limited-time sale for up to {days} days, at least {pct}% off. The store shows the regular price struck through.', '可举办最长 {days} 天、至少 {pct}% 折扣的限时特价。商店会显示被划掉的原价。', { days: Number(s.sale_max_days ?? 30), pct: Number(s.sale_min_percent_off ?? 10) })] : []),
+                ...(Number(s.refund_window_hours ?? 24) > 0 ? [t('Buyers can refund a game themselves within {hours} hours if they played it for less than {minutes} minutes. A refund takes back your share of that sale.', '买家在 {hours} 小时内且游玩不足 {minutes} 分钟时，可自行为游戏退款。退款会收回你在该笔销售中的分成。', { hours: Number(s.refund_window_hours ?? 24), minutes: Number(s.refund_max_play_minutes ?? 10) })] : []),
                 ...(s.platform_fee_open_percent < s.platform_fee_percent ? [t('Share your game\'s build skill for free in the Creator Store and you keep {share}% instead.', '在创作者商店免费分享游戏的构建技能，你可获得 {share}%。', { share: 100 - s.platform_fee_open_percent })] : []),
                 ...(s.paid_skills_enabled !== false ? [t('Or sell the build skill: the game keeps the standard cut, and the platform keeps {pct}% of each skill sale. Skill sales are final: build skills are non-refundable.', '也可以出售构建技能：游戏按标准比例分成，平台从每笔技能销售中收取 {pct}%。技能销售为最终交易：构建技能不可退款。', { pct: Number(s.skill_fee_percent ?? 5) })] : []),
                 t('Withdraw once your balance reaches {amount}.', '余额达到 {amount} 即可提现。', { amount: usd(s.withdraw_min_cents) }),

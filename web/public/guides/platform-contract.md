@@ -16,7 +16,7 @@ That is all. Genre, art style, camera, engine, rendering technique, file layout,
 
 ## What the platform gives the page
 
-The platform serves each version of a game from its own Cloudflare Worker on its own origin, and adds two things to the top of `index.html` before any of your code runs:
+The platform serves each version of a game from Cloudflare's network on the game's own origin (one for the preview, one for the live game), and adds two things to the top of `index.html` before any of your code runs:
 
 - `window.GCP`, the SDK. Never import or bundle it. Guard for local testing with `if (window.GCP) GCP.ready();`.
 - An import map, so these bare imports work with no bundler:
