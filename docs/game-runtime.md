@@ -72,6 +72,10 @@ What no script can fix is caught before publishing:
 
 ## Versions
 
+- **2.6.1** — Fixed: after `GCP.match.rejoin()` the page's inputs were ignored for as long as the player had been in
+  the match before the reload (the reloaded page numbered its inputs from zero, and a match takes only numbers above
+  the last it saw). The page now carries on from the match's own count. Works for matches already running.
+
 - **2.6.0** — New: `GCP.match.find({ wait, settle })`. A search can bring its own short-start wait (5 to 120 s instead of
   the fixed 30 s) and a settling time (a short match does not take a player who joined the queue less than `settle`
   seconds ago). Nothing changes for a game that passes neither.
