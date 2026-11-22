@@ -20,7 +20,7 @@ async function run(ui, setup = '', layers = '[W, U]') {
   const z = await zonesOf(p, 'landscape'); await p.close(); return z;
 }
 const zones = (z) => z.zones.map((x) => x.zone).sort();
-let z = await run('u.fillRect(0, 0, 140, 48); u.fillRect(0, innerHeight - 14, innerWidth, 14);');
+let z = await run('u.fillRect(10, 4, 140, 48); u.fillRect(0, innerHeight - 14, innerWidth, 14);');
 assert.equal(z.checked, true); assert.deepEqual(zones(z), ['home-bar', 'menu-button', 'notch-left'].sort());
 z = await run('u.fillRect(s.left + 300, s.top + 8, 140, 48); u.fillRect(s.left, innerHeight - s.bottom - 30, 200, 30);');
 assert.deepEqual(zones(z), [], 'a HUD inside the safe area and out of the corner');
@@ -30,6 +30,11 @@ z = await run('u.fillRect(innerWidth - s.right - 60, s.top + 4, 56, 56);', "GCP.
 assert.deepEqual(zones(z), ['menu-button'], 'HUD in the corner the button moved to');
 z = await run('u.fillRect(0, 0, 140, 48);', "GCP.setDisplay({ edgeToEdge: false, exitButton: 'none' });");
 assert.deepEqual(zones(z), [], 'kept inside the insets, no button');
+z = await run("u.fillStyle = '#312'; u.fillRect(0, innerHeight - 90, innerWidth, 90); u.fillStyle = '#fff'; u.fillRect(s.left + 10, innerHeight - 80, 100, 40);");
+assert.deepEqual(zones(z), [], 'a bottom panel whose plain background runs to the edges, its content inside the safe area');
+z = await run("u.fillStyle = '#312'; u.fillRect(0, innerHeight - 90, innerWidth, 90); u.fillStyle = '#fff'; u.fillRect(300, innerHeight - 30, 200, 30);");
+assert.deepEqual(zones(z), ['home-bar'], 'a button on that panel reaching into the home bar');
+assert.equal(z.zones[0].bleed, true);
 z = await run('u.fillRect(0, 0, 140, 48);', '', 'W');
 assert.equal(z.checked, false); assert.equal(z.reason, 'one-layer');
 await b.close();

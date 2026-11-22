@@ -355,7 +355,10 @@ export function checkStandards(input = {}) {
     if (phones && !req.orientation && !/orientation\s*:\s*['"](landscape|portrait|any)/.test(code)) add('window-orientation', 'warning', 'The game lists phones or tablets but declares no orientation.', 'Declare requirements.orientation ("landscape", "portrait" or "any") with compatibility declare, or call GCP.setDisplay({ orientation }).', { check: 'orientation' });
     if (!/GCP\.progress\s*\(|\.progress\s*\(\s*[\d.]/.test(code)) add('splash-loading', 'note', 'The game never calls GCP.progress(), so the platform splash waits 1.2 s before handing over to the game.', 'Call GCP.progress(f, label) while loading (at least twice) and draw the loading screen in its final look before the second call.', { check: 'no-progress' });
     const brand = String(input.brand || 'HearthCade');
-    if (brand && new RegExp(`['"\`][^'"\`\\n]*\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(code)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
+    // only what a player can see: page code without comments, not the server-side bot or tooling
+    const shown = [...texts].filter(([p]) => /\.(m?js|html?)$/i.test(p) && !/(^|\/)(server|tools?|scripts?|tests?|vendor|libs?|node_modules|three)[^/]*\//i.test(p) && !/\.min\.js$/i.test(p))
+      .map(([, t]) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/(^|[^:\\'"`])\/\/.*$/gm, '$1')).join('\n');
+    if (brand && new RegExp(`['"\`][^'"\`\\n]*\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(shown)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
     if (/achievement/i.test(code) && !/playerStats/.test(code)) add('no-achievements', 'note', 'The game has achievements but keeps them only on the device.', 'Keep them with GCP.playerStats so they follow the player and show on the game page.', { check: 'achievements' });
   }
   const paths = input.paths || [...texts.keys()];

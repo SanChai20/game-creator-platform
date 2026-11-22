@@ -104,6 +104,11 @@ test('the code checks', () => {
   assert.ok(run('GCP.ready()').includes('no-progress'));
   assert.ok(run('ctx.fillText("Powered by HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(!run('// works on HearthCade\nGCP.ready()').includes('platform-logo'));
+  // a comment with an apostrophe before the name (Noctelle's bot), and server-side code, are not drawn
+  assert.ok(!run("// the platform's preview bots (HearthCade: preview_bots)\nGCP.ready()").includes('platform-logo'));
+  assert.ok(!run("/* the player's HearthCade page */ GCP.ready()").includes('platform-logo'));
+  assert.ok(checkStandards({ texts: { 'index.html': 'GCP.progress(1)', 'server/bot.js': 'const n = "HearthCade";' } }).every((x) => x.check !== 'platform-logo'));
+  assert.ok(run('const url = "https://example.com"; ctx.fillText("HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(run('GCP.ready()', {}, ['index.html', 'icons/icon-512.png', 'promo/shot1.png']).includes('unused-store-files'));
   assert.ok(!run('GCP.ready()', {}, ['index.html', 'sprites/hero.png', 'music/theme.ogg']).includes('unused-store-files'));
   // libraries are not the game's own code
