@@ -25,6 +25,7 @@ import { admin } from './routes/admin';
 import { api, autoPayouts, retryTransfers } from './routes/api';
 import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './routes/device';
 import { rt } from './routes/rt';
+import { social } from './routes/social';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now } from './util';
@@ -41,12 +42,15 @@ import { idleGuestCleanupStmts, verifierCleanupStmts } from './player-data.js';
 import { claimedGuestCleanupStmts } from './session-binding.js';
 // @ts-ignore plain JS module
 import { oldSeatsStmt } from './match-seats.js';
+// @ts-ignore plain JS module
+import { cleanupStmts as socialCleanupStmts } from './social-rules.js';
 
 import { recentStmt, refreshCatalog } from './catalog';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
 export { Pipeline } from './pipeline';
+export { SocialHub } from './social';
 export { PlayClock, GameTally } from './clock-do';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
@@ -98,6 +102,7 @@ app.use('/api/*', async (c, next) => {
 });
 app.route('/api/admin', admin);
 app.route('/api/device', deviceApi);
+app.route('/api/social', social);
 app.route('/api', api);
 app.all('/api/*', (c) => c.json({ error: 'Not found', code: 'not_found' }, 404));
 
@@ -389,6 +394,8 @@ const handler = {
     job('old versions', () => purgeOldVersions(env));
     job('removed game data', () => purgeRemovedGameData(env));
     job('old feedback', () => purgeOldFeedback(env));
+    // chat older than the setting, answered invites after a week, seen notifications after 90 days (src/social-rules.js)
+    job('old chat', async () => eachStmt(socialCleanupStmts(env.DB, t, Math.max(7, Number((await getSettings(env)).dm_keep_days) || 365))));
   },
 } satisfies ExportedHandler<Env>;
 export default handler;
