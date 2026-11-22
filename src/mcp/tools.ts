@@ -53,6 +53,7 @@ interface Tool {
 
 export { WEB_ONLY } from '../web-only.js';
 import { WEB_ONLY } from '../web-only.js';
+import { COVER, checkCover, coverRules } from '../cover-spec.js';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
 
 /** The platform guides an agent can read: how the platform behaves, not how to make a game. */
@@ -373,6 +374,18 @@ const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The prim
 /** The only thing between this version and going live is the review a person gives versions the browser could not run. */
 const onlyReviewNeeded = (g: GateResult) => g.failures.length > 0 && g.failures.every((f) => f.review === 'needed');
 
+/** After publishing: a word on the store cover when the game has no designed one, or when its size is wrong. */
+async function coverAdvice(c: ToolCtx, q: Project, v: any): Promise<{ cover?: string }> {
+  try {
+    if (!q.cover_key || q.cover_key === v.screenshot_key || q.cover_key.startsWith('shots/'))
+      return { cover: `The store is using the verification screenshot as the cover. Design a cover and set it with update_project {project, cover} (and covers per language when it shows the title). ${coverRules(c.origin)}` };
+    const obj = await c.env.FILES.get(q.cover_key, { range: { offset: 0, length: 65536 } });
+    if (!obj) return {};
+    const chk = checkCover(new Uint8Array(await obj.arrayBuffer()));
+    return chk.notes.length ? { cover: `The store cover needs work: ${chk.notes.join(' ')} ${coverRules(c.origin)}` } : {};
+  } catch { return {}; }
+}
+
 async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: boolean): Promise<unknown> {
   const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
   if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
@@ -434,7 +447,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   }
   if (refused) throw new AppError(409, refused.detail, 'publish_failed', `Fix what it says, then publish again. publish {project, version: ${v.n}, dry_run: true} checks every requirement without publishing.`);
   const vm = await ensureVersionMeta(c.env, v);
-  return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+  return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), ...(await coverAdvice(c, q, v)), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
 }
 
 export const TOOLS: Tool[] = [
@@ -573,13 +586,13 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'update_project', title: 'Update listing, price, sale, cover or sharing',
-    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. sale puts a paid game on a limited-time sale: {price_cents, days}; the store shows the sale price with the regular price struck through and when it ends, and buyers pay the sale price until it ends (then the regular price is back by itself). Sending sale again while one runs changes it; null ends it early. The regular price cannot change during a sale. Only start a sale when the user has chosen one. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share. Sharing puts the game\'s build skill (written with build_skill) in the Creator Store; skill_price_cents 0 shares it for free, a price sells it (the user\'s choice).',
+    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. sale puts a paid game on a limited-time sale: {price_cents, days}; the store shows the sale price with the regular price struck through and when it ends, and buyers pay the sale price until it ends (then the regular price is back by itself). Sending sale again while one runs changes it; null ends it early. The regular price cannot change during a sale. Only start a sale when the user has chosen one. cover is the workspace path of the store cover; without one, the verification screenshot is used, which rarely survives the store\'s crops, so design one. ' + coverRules() + ' The answer carries cover_check: the image size and anything wrong with it. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share. Sharing puts the game\'s build skill (written with build_skill) in the Creator Store; skill_price_cents 0 shares it for free, a price sells it (the user\'s choice).',
     inputSchema: obj({
       project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: TAGS_SCHEMA,
       controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
       price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
       trial_minutes: { type: 'integer', description: 'Paid games only: minutes of free play before buying (e.g. 30). 0 turns the free trial off. get_started shows the longest allowed.' },
-      cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png": the cover for the listing\'s own language, and for every language without one of its own.' },
+      cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.jpg": the cover for the listing\'s own language, and for every language without one of its own. 1920x1080 (16:9); title and main subject inside the safe area x 30%-80%, y 12%-86%; nothing important in the left 30% (hidden in the home page banner). See the description.' },
       covers: { type: 'object', description: 'A cover per platform language, for covers that show text such as the game\'s name: {"zh": "cover-zh.jpg", "ja": "cover-ja.jpg"}, workspace paths; null removes one. The listing\'s own language uses cover. Players see the cover of the language the listing is shown in.' },
       listing_language: LISTING_LANGUAGE_SCHEMA,
       open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code), and its build skill in the Creator Store. Default off.' },
@@ -591,11 +604,13 @@ export const TOOLS: Tool[] = [
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
       let cover: string | undefined;
+      const coverChecks: Record<string, unknown> = {};
       const storeCover = async (raw: unknown, tag: string) => {
         const path = cleanPath(String(raw)) || '', ext = extOf(path);
         if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) throw bad(`The ${tag} cover must be a png, jpg or webp file.`);
         const { row, bytes } = await readFile(c.env, p.id, path);
         if (row.size > 2 * 1024 * 1024) throw bad(`The ${tag} cover must be under 2 MB.`);
+        const chk = checkCover(bytes); coverChecks[tag] = { size: chk.size, ...(chk.notes.length ? { fix: chk.notes } : {}) };
         const key = `covers/${p.id}-${tag === 'main' ? '' : tag + '-'}${now().toString(36)}.${ext}`;
         await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: row.ctype } });
         return key;
@@ -636,7 +651,7 @@ export const TOOLS: Tool[] = [
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
       const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
   },
   {
