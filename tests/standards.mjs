@@ -137,6 +137,10 @@ test('the code checks', () => {
   // orientation: every game declares it, the code agrees with it, and the game draws no rotate prompt of its own
   assert.ok(run('GCP.progress(1)', { requirements: { devices: ['mobile'] } }).includes('orientation'));
   assert.ok(run('GCP.progress(1)', { requirements: { devices: ['desktop'] } }).includes('orientation'), 'desktop games declare too');
+  const level = (gcp) => checkStandards({ texts: { 'index.html': 'GCP.progress(1)' }, gcp }).find((x) => x.check === 'orientation')?.level;
+  assert.equal(level({ requirements: { devices: ['desktop'] } }), 'note', 'a game for computers only is never turned: advice, not a deploy warning');
+  assert.equal(level({ requirements: { devices: ['desktop', 'tablet'] } }), 'warning');
+  assert.equal(level({}), 'warning', 'no devices declared: it may be played on a phone');
   for (const o of ['landscape', 'portrait', 'both', 'any']) assert.ok(!run('GCP.progress(1)', { requirements: { orientation: o } }).some((c) => c.startsWith('orientation')), o);
   assert.ok(!run('GCP.progress(1)', { orientation: 'landscape' }).includes('orientation'), 'the older top-level gcp.json field counts');
   assert.ok(run('GCP.progress(1); GCP.setDisplay({ orientation: "portrait" })', { requirements: { orientation: 'landscape' } }).includes('orientation-conflict'));
@@ -160,6 +164,9 @@ test('the code checks', () => {
   assert.ok(!run("/* the player's HearthCade page */ GCP.ready()").includes('platform-logo'));
   assert.ok(checkStandards({ texts: { 'index.html': 'GCP.progress(1)', 'server/bot.js': 'const n = "HearthCade";' } }).every((x) => x.check !== 'platform-logo'));
   assert.ok(run('const url = "https://example.com"; ctx.fillText("HearthCade", 0, 0)').includes('platform-logo'));
+  // the name inside a storage key, a host or a path is not the game presenting itself as the platform
+  for (const code of ["localStorage.getItem('hearthcade-save')", "const u = 'https://hearthcade.com/g/bloomguard'", "fetch('/api/hearthcade/x')", "const k = 'game:hearthcade:v1'"]) assert.ok(!run(code).includes('platform-logo'), code);
+  assert.ok(run("ctx.fillText('Thanks for playing on HearthCade.', 0, 0)").includes('platform-logo'), 'the end of a sentence is still the name');
   assert.ok(run('GCP.ready()', {}, ['index.html', 'icons/icon-512.png', 'promo/shot1.png']).includes('unused-store-files'));
   assert.ok(!run('GCP.ready()', {}, ['index.html', 'sprites/hero.png', 'music/theme.ogg']).includes('unused-store-files'));
   // libraries are not the game's own code

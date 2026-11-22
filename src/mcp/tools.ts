@@ -372,7 +372,8 @@ const TRANSLATIONS_SCHEMA = { type: 'object', description: 'The listing in other
 const LANGUAGES_SCHEMA = { type: ['object', 'array'], description: 'Languages the game can be played in. {"default": "en", "supported": [{"code": "en", "interface": true, "audio": true, "subtitles": false}, {"code": "ja", "interface": true, "subtitles": true}], "follows_platform": true} or the shorthand ["en", "ja"] (interface text). Codes are BCP 47: en, ja, ko, es, zh-Hans, zh-Hant, fr, de, pt-BR… follows_platform: the game starts in GCP.lang (the player\'s platform language) when it has it.' };
 const PLAYERS_SCHEMA = { type: 'object', description: `{"min": 1, "max": 4, "modes": ["single", "coop-online"]}. Modes: ${MODES.join(', ')}.` };
 const CONTENT_SCHEMA = { type: 'object', description: `Content descriptors; the platform derives the age rating from them. Each one left out means none. ${Object.entries(CONTENT_CHOICES).map(([k, v]) => `${k}: ${v.join(' | ')}`).join('; ')}. Pass {} for a game with none of them (rated 3+). Adults only (18+): sexual nudity or explicit, violence graphic, violence realistic with blood, or adult_themes; such games are allowed, shown blurred with a warning players confirm. Declare everything a player can see: the review plays the game, and undeclared nudity, sexual content or realistic or graphic violence fails it.` };
-const TAGS_SCHEMA = { type: 'array', maxItems: MAX_TAGS, items: { type: 'string', enum: [...TAGS] }, description: `${MIN_TAGS} to ${MAX_TAGS} tags from the platform list (only these are accepted; genres go in genre and genres). ${Object.entries(TAG_GROUPS).map(([g, l]) => `${g}: ${l.join(', ')}`).join('. ')}.` };
+// the allowed tags are the enum; the description names the groups only, so tools/list does not carry the list twice
+const TAGS_SCHEMA = { type: 'array', maxItems: MAX_TAGS, items: { type: 'string', enum: [...TAGS] }, description: `${MIN_TAGS} to ${MAX_TAGS} tags from the platform list (the allowed values; nothing else is accepted, and genres go in genre and genres). Pick across the groups: ${Object.keys(TAG_GROUPS).join(', ')}. game_metadata {project} shows the list by group with suggestions.` };
 const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The primary genre; the store groups games by it.' };
 
 /** The only thing between this version and going live is the review a person gives versions the browser could not run. */
@@ -406,7 +407,6 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
   // Input is checked before the license, so a wrong version number is reported as such for any account.
   if (s.creator_fee_required && !c.user.creator && !a.dry_run) throw forbidden(`Publishing needs a valid creator license (${licenseText(c.user)} on this account).`, `Ask the user to get one at ${c.origin}/license: ${offersText(s)}. Then call publish again. Preview stays available meanwhile.`);
-  if (!p.tagline && !p.description && !a.dry_run) await updateProjectMeta(c.env, p, { tagline: p.title });
   // Every platform requirement, checked on the server (src/release-gate.ts). The pipeline checks them again right before
   // the switch, so this answer is for the agent: every rule that fails, with what to do.
   const openAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : undefined;
@@ -483,7 +483,7 @@ export const TOOLS: Tool[] = [
           `Fit the game's storage: all of a game's files together may use ${mb(s.bundle_max_bytes)} by default (one file at most ${mb(s.file_max_bytes)}, ${s.bundle_max_files} files). Uploads that would go over are refused, and a version over it cannot be deployed or published.`,
         ],
         standards: {
-          rule: 'The platform sets the standard for everything a game shows or hands over: the cover and its crops, the listing text and how the store renders it, what the platform draws over the game (menu button, on-screen controls, friend pop-ups), safe areas, the loading hand-off, and what the store does not take (trailers, icons, logos). Before making any of these, read its entry with game_standards {action: "get", id}; before publishing, run game_standards {project, action: "check"} and fix every warning. deploy_preview and publish report the same findings.',
+          rule: 'Recommendations and best practice, not rules: the platform says exactly how its own surfaces behave (the cover and its crops, how the store renders the listing text, what it draws over the game: menu button, on-screen controls, friend pop-ups; safe areas, the loading hand-off) and what the store does not take (trailers, icons, logos), and recommends how to fit the game around them. How the game looks, lays out its interface and plays is its own design decision, and no finding ever stops a version. Before making one of these things, read its entry with game_standards {action: "get", id}; before publishing, run game_standards {project, action: "check"} and weigh each warning against the game\'s design. deploy_preview and publish report the same findings. What does stop a version is in rules above and in publish {dry_run: true}.',
           index: standardsIndex(),
           guide: 'get_started {topic: "standards"}',
         },

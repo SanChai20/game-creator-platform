@@ -492,7 +492,7 @@ More: [platform-contract.md#hand-over-the-frame](/guides/platform-contract.md#ha
 
 **Where:** Test bots in the preview.
 
-- Every online game ships server/bot.js: think/actions for matches, room() for GCP.room games, invite() for room games that invite friends. The platform does connecting, matchmaking and invites; the bot does the game's own moves.
+- Recommended for every online game, so the creator can test it with bots: ship server/bot.js with think/actions for matches, room() for GCP.room games, invite() for room games that invite friends. The platform does connecting, matchmaking and invites; the bot does the game's own moves.
 
 **Do:** Test with preview_bots before publishing.
 

@@ -326,7 +326,7 @@ export const STANDARDS = [
   {
     id: 'bot-hook', area: 'game', title: 'Bot hook for online games',
     where: 'Test bots in the preview.',
-    spec: ['Every online game ships server/bot.js: think/actions for matches, room() for GCP.room games, invite() for room games that invite friends. The platform does connecting, matchmaking and invites; the bot does the game\'s own moves.'],
+    spec: ['Recommended for every online game, so the creator can test it with bots: ship server/bot.js with think/actions for matches, room() for GCP.room games, invite() for room games that invite friends. The platform does connecting, matchmaking and invites; the bot does the game\'s own moves.'],
     do: ['Test with preview_bots before publishing.'], dont: ['Leave a hook out for a mode the game has.'],
     enforced: 'deploy_preview and publish warn when an online game has no server/bot.js or misses a hook it needs.', checks: [], guide: '/guides/test-bots.md',
   },
@@ -477,7 +477,9 @@ export function checkStandards(input = {}) {
     else if (/\bui\.rect\s*\(/.test(code) && !/\bui\.rect\s*\(\s*\{[^}]*\bid\s*:/.test(code)) add('ui-layout', 'note', 'The game places its interface with GCP.ui.rect but gives no element an id, so verification cannot measure its layout (overlaps, off screen, under the notch) at each screen size.', 'Pass an id (and a layer for menus and dialogs) to every rect() that places an interface element: rect({ id: "coins", anchor: "top-right", ... }).', { check: 'layout-no-ids' });
     // orientation: declared, consistent with what the code asks for at run time, and no rotate prompt of the game's own
     const declared = orientationOf(req.orientation ?? gcp.orientation), setIn = [...code.matchAll(/setDisplay\s*\(\s*\{[^}]*?orientation\s*:\s*['"](landscape|portrait|any|both)['"]/g)].map((m) => orientationOf(m[1]));
-    if (!declared) add('orientation', 'warning', `The game declares no orientation, so the platform treats it as playable both ways${phones ? ' and checks it upright and sideways on phones' : ''}.`, 'Declare requirements.orientation: "landscape", "portrait" or "both" (compatibility {action: "declare"}). Pick the shapes the interface is designed for; a single orientation gets the platform\'s rotate-your-device prompt.', { check: 'orientation' });
+    // a game declared for computers only is never turned, so the missing declaration is only worth a note there
+    const desktopOnly = devices.length > 0 && !phones;
+    if (!declared) add('orientation', desktopOnly ? 'note' : 'warning', `The game declares no orientation, so the platform treats it as playable both ways${phones ? ' and checks it upright and sideways on phones' : ''}.`, 'Declare requirements.orientation: "landscape", "portrait" or "both" (compatibility {action: "declare"}). Pick the shapes the interface is designed for; a single orientation gets the platform\'s rotate-your-device prompt.', { check: 'orientation' });
     else if (setIn.some((o) => o !== declared)) add('orientation', 'warning', `The code calls GCP.setDisplay({ orientation: '${setIn.find((o) => o !== declared)}' }) but requirements.orientation declares ${declared === 'any' ? 'both' : declared}; the store page, the device checks and the rotate prompt follow different answers.`, 'Make them agree: change the declaration or the call (or drop the call; the declaration is enough).', { check: 'orientation-conflict' });
     if (OWN_PROMPT.test(shownCode(texts))) add('orientation', 'warning', 'The game draws its own rotate-your-device prompt. The platform shows one for a one-orientation game, pauses the game behind it and lifts it when the device is turned, so the player meets two.', declared && declared !== 'any' ? 'Remove the game\'s prompt; the declaration is enough.' : 'Remove the game\'s prompt and declare the orientation it needs; or, if it plays both ways, lay out for both and drop the prompt.', { check: 'orientation-own-prompt' });
     if (!/GCP\.progress\s*\(|\.progress\s*\(\s*[\d.]/.test(code)) add('splash-loading', 'note', 'The game never calls GCP.progress(), so the platform splash waits 1.2 s before handing over to the game.', 'Call GCP.progress(f, label) while loading (at least twice) and draw the loading screen in its final look before the second call.', { check: 'no-progress' });
@@ -491,7 +493,8 @@ export function checkStandards(input = {}) {
     const brand = String(input.brand || 'HearthCade');
     // only what a player can see: page code without comments, not the server-side bot or tooling
     const shown = shownCode(texts);
-    if (brand && new RegExp(`['"\`][^'"\`\\n]*\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(shown)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
+    // the name as words a player reads, not inside a storage key, a host name or a path ('hearthcade-save', 'hearthcade.com/g/…')
+    if (brand && new RegExp(`['"\`][^'"\`\\n]*(?<![\\w./:@-])${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w/:-]|\\.\\w)`, 'i').test(shown)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
     if (/achievement/i.test(code) && !/playerStats/.test(code)) add('no-achievements', 'note', 'The game has achievements but keeps them only on the device.', 'Keep them with GCP.playerStats so they follow the player and show on the game page.', { check: 'achievements' });
   }
   const paths = input.paths || [...texts.keys()];

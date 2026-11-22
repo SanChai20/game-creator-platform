@@ -222,7 +222,10 @@ test('a room game: an invited bot enters the room its server/bot.js names, says 
   assert.ok(await until(() => host.moves >= 10, 8000), 'the bot moves during the run');
   const back = JSON.parse(JSON.stringify(host.state)); back.phase = 'lobby'; for (const id in back.players) if (id !== host.me) back.players[id].ready = false; setState(back);
   assert.ok(await until(() => Object.entries(host.state.players).some(([id, p]) => id !== host.me && p.ready), 8000), 'ready again after the run');
-  assert.deepEqual((await get('/status')).needs, [], 'nothing missing');
+  const fin = await get('/status');
+  assert.deepEqual(fin.needs, [], 'nothing missing');
+  const rb = fin.bots.find((b) => b.phase === 'in room');
+  assert.ok(rb && rb.room_messages_sent >= 10 && rb.inputs_sent >= rb.room_messages_sent, `a room bot counts what it sends: ${JSON.stringify(fin.bots.map((b) => [b.phase, b.inputs_sent, b.room_messages_sent]))}`);
   try { host.ws.close(); } catch { /* closed */ }
   await post('/stop');
 });

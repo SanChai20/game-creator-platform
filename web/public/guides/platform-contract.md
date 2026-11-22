@@ -243,7 +243,7 @@ Requirements are one part of the metadata every game declares: also its genre, l
 
 ## Game standards
 
-The platform sets the standard for everything a game shows or hands over: the cover and its crops, how the store renders the title, tagline, description and controls text, what the platform draws over the game (its menu button, on-screen controls, friend pop-ups), safe areas, the loading hand-off, and what the store does not take (trailers, icons, logos, achievements). Each standard gives where it appears, exact sizes and limits, and what is checked: the `standards` guide (`get_started {"topic": "standards"}`, or {{ORIGIN}}/guides/standards.md) and `game_standards`, which also checks a game against all of them.
+The game standards are recommendations and best practice, not rules: no finding ever stops a version, and how the game looks, lays out its interface and plays stays its own design decision. They describe exactly how the platform's own surfaces behave around everything a game shows or hands over: the cover and its crops, how the store renders the title, tagline, description and controls text, what the platform draws over the game (its menu button, on-screen controls, friend pop-ups), safe areas, the loading hand-off, and what the store does not take (trailers, icons, logos, achievements). Each standard gives where it appears, exact sizes and limits, and what is checked: the `standards` guide (`get_started {"topic": "standards"}`, or {{ORIGIN}}/guides/standards.md) and `game_standards`, which also checks a game against all of them.
 
 ## Who runs the platform
 
