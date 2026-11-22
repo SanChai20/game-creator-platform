@@ -438,14 +438,12 @@ select.input option { background: var(--surface); color: var(--text); }
 
 /* Phones and tablets, in the browser and the Home Screen app: no scrollbars anywhere (the page, rows that scroll
    sideways, tables, panels, dialogs, menus). Everything still scrolls by touch; the shaded edges on tables and the
-   cut-off cards on rows already say there is more. Computers with a mouse keep their scrollbars.
+   cut-off cards on rows already say there is more. Computers with a mouse keep their scrollbars, the installed app on a computer too.
    (!important: some panels ask for a thin scrollbar on computers, and this wins over them.) */
 @media (pointer: coarse) {
   html, html * { scrollbar-width: none !important; }
   html::-webkit-scrollbar, html *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
 }
-html.app, html.app * { scrollbar-width: none !important; }
-html.app::-webkit-scrollbar, html.app *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
 
 /* Phones and tablets: iOS zooms the whole page into any field whose text is under 16px when it is focused,
    and does not zoom back out. Keep every field at 16px there. */
