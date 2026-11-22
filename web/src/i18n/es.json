@@ -1811,5 +1811,8 @@
  "removed": "retirada",
  "ended": "vencida",
  "until {d}": "hasta el {d}",
- "Release requirements": "Requisitos de publicación"
+ "Release requirements": "Requisitos de publicación",
+ "Close to another game": "Parecido a otro juego",
+ "likely a copy": "probablemente una copia",
+ "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "versiones que el navegador de verificación no pudo ejecutar o que se parecen al juego de otro creador, revisadas por una persona antes de publicarse"
 }

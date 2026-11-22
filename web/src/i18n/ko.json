@@ -1812,5 +1812,8 @@
  "removed": "취소됨",
  "ended": "만료됨",
  "until {d}": "{d}까지",
- "Release requirements": "공개 요건"
+ "Release requirements": "공개 요건",
+ "Close to another game": "다른 게임과 유사",
+ "likely a copy": "복제 가능성",
+ "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "검증 브라우저에서 실행할 수 없었거나 다른 크리에이터의 게임과 비슷한 버전으로, 공개 전에 사람이 확인합니다"
 }

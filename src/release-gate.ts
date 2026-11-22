@@ -46,6 +46,7 @@ export const RULES: { id: string; title: string; modes: GateMode[]; waivable: bo
   { id: 'storage', title: 'It fits the game\'s storage', modes: ['publish'], waivable: false, what: 'All of its files fit the game\'s storage and file count. An admin can give the game more storage instead.' },
   { id: 'build_skill', title: 'Its build skill is up to date', modes: ['publish'], waivable: true, what: 'A game that shares its build skill in the Creator Store has one written for this exact version.' },
   { id: 'original', title: 'It is original work and safe for players', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Compared again with every other creator\'s live game right before it goes live, and reviewed for content when it never was. Copies and content that is never allowed are refused.' },
+  { id: 'original_review', title: 'A person approved it when it is close to another game', modes: ['publish'], waivable: false, what: 'When the duplication check finds a version close to another creator\'s live game but cannot be sure, a platform admin looks at it first (the Reviews queue); it goes live once approved.' },
 ];
 const RULE = new Map(RULES.map((r) => [r.id, r]));
 
@@ -118,6 +119,8 @@ export async function activeWaivers(env: Env, pid: string, n: number): Promise<M
   const rows = await env.DB.prepare('SELECT * FROM release_waivers WHERE project_id = ? AND version = ? AND revoked_at IS NULL AND expires_at > ?').bind(pid, n, now()).all<Waiver>();
   return new Map(rows.results.map((w) => [w.rule, w]));
 }
+
+const statusOfRule = (out: RuleOutcome[], id: string) => out.find((r) => r.id === id)?.status;
 
 /** Runs every rule for this release and returns each outcome. Never throws for a failed rule; see assertReleasable. */
 export async function releaseGate(env: Env, p: Project, v: Version, input: GateInput): Promise<GateResult> {
@@ -192,6 +195,17 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
     const copy = await (input.deps?.originality || publishGate)(env, p, v);
     rule('original', copy ? { code: 'not_original', http: 409, reason: copy, fix: 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.' } : null);
   }
+
+  // an unsure duplication verdict (src/originality-check.ts sets report.originality.review) waits for an admin's approval
+  if (has('original_review') && statusOfRule(out, 'original') !== 'pass') out.push({ id: 'original_review', title: RULE.get('original_review')!.title, status: 'skipped', waivable: false, reason: 'Runs once the comparison has run.' });
+  else if (has('original_review')) {
+    const dup = statusOfRule(out, 'original') === 'pass' ? parseJson<{ originality?: { review?: { title?: string; slug?: string; why?: string } } }>(v.report, {}).originality?.review : null;
+    const near = dup ? `it is close to "${dup.title}" by another creator (${dup.why})` : '';
+    rule('original_review', !dup || v.review === 'approved' ? null
+      : v.review === 'denied' ? { code: 'review_denied', http: 409, review: 'denied', reason: `The platform did not approve version ${v.n}${v.review_note ? `: ${v.review_note}` : '.'}`, fix: 'Fix what the review note says (usually: give the game its own title, tagline and names), deploy_preview again, and publish the new version.' }
+      : v.review === 'pending' ? { code: 'awaiting_review', http: 409, review: 'pending', reason: `Version ${v.n} is waiting for the platform to review it: ${near}.`, fix: 'Nothing to do: the game goes live by itself once a platform admin approves it.' }
+      : { code: 'review_needed', http: 409, review: 'needed', reason: `Version ${v.n} needs a review by the platform: ${near}.`, fix: 'Call publish to ask for the review, or give the game its own title, tagline and names and deploy_preview again.' });
+  } else rule('original_review', null);
 
   const failures = out.filter((r) => r.status === 'fail');
   return { ok: !failures.length, ruleset: RULESET, mode, project: p.id, version: v.n, checked_at: now(), rules: out, failures, waived: out.filter((r) => r.status === 'waived').map((r) => r.id) };

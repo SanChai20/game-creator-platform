@@ -88,3 +88,71 @@ test('is it a game', () => {
   {
   }
 });
+
+// ---- identity: a rebuild from a description shares no code, but keeps the name, the tagline and the names in it ----
+import { contentNames, identityKeys, kinship, normText, textSim, titleSkeleton } from '../src/originality.js';
+const SRC = (names) => [{ path: 'src/cards.js', text: `export const CARDS = [${names.map((n) => `{ name: ${JSON.stringify(n)}, cost: 1 }`).join(', ')}];` }];
+const HEROES = ['Vesper Dusk', 'Hollow Mite', 'Ash Hound', 'Grave Warden', 'The Void Echo', 'Kindle', 'Nightfall', 'Riposte', 'Second Wind', 'Vigil'];
+
+test('titles and taglines are compared without case, accents, punctuation or a leading "the"', () => {
+  assert.equal(normText('The  Void-Échoes!'), 'void echoes');
+  assert.equal(textSim('void echoes', 'void echoes'), 1);
+  assert.ok(textSim('void echoes', 'void echos') > 0.75);
+  assert.ok(textSim('void echoes', 'star miner') < 0.3);
+});
+
+test('content names are Title Case strings of the game, without menu words or keys', () => {
+  const n = contentNames([{ path: 'a.js', text: 'const a = ["Hollow Mite", "Play", "New Game", "Escape", "ArrowUp", "hello world", "x", "Second Wind", `Grave Warden`];' }]);
+  assert.deepEqual(n, ['grave warden', 'hollow mite', 'second wind']);
+  assert.deepEqual(contentNames([{ path: 'index.html', text: '<script>let k = "Ash Hound"</script><p>Not Here</p>' }]), ['ash hound']);
+});
+
+test('the same title is a copy whatever the code, and says so', () => {
+  const k = kinship({ title: 'Void Echoes', tagline: 'Something else entirely here', tags: ['card'] }, { title: 'void echoes', tagline: 'A roguelike deckbuilder about the last day', tags: ['roguelike'] });
+  assert.equal(k.verdict, 'copy');
+  assert.match(k.why.join(' '), /the same title "void echoes"/);
+});
+
+test('the same tagline is a copy; a short one is not compared', () => {
+  const tag = 'A roguelike deckbuilder about the last day of a city that refuses to end.';
+  assert.equal(kinship({ title: 'Ash City', tagline: tag }, { title: 'Void Echoes', tagline: tag }).verdict, 'copy');
+  assert.equal(kinship({ title: 'Ash City', tagline: 'Fun!' }, { title: 'Void Echoes', tagline: 'Fun!' }).verdict, 'different');
+});
+
+test('many of the same names are a copy and are listed; a few are only similar', () => {
+  const theirs = contentNames(SRC([...HEROES, 'Lantern', 'Mire Queen']));
+  const all = kinship({ title: 'Echo Night', names: contentNames(SRC(HEROES)) }, { title: 'Void Echoes', names: theirs });
+  assert.equal(all.verdict, 'copy');
+  assert.ok(all.shared_names >= 8 && all.name_examples.includes('hollow mite'));
+  const few = kinship({ title: 'Echo Night', names: contentNames(SRC(['Hollow Mite', 'Ash Hound', 'Grave Warden', 'Kindle', 'Sun Lord', 'Moon Pike', 'Tide Wyrm', 'Reef Imp', 'Coral Knight', 'Brine Hag'])) }, { title: 'Void Echoes', names: theirs });
+  assert.equal(few.verdict, 'similar');
+});
+
+test('the same genre and mechanics are allowed; built the same way too is only a closer look', () => {
+  const a = { title: 'Star Miner', tagline: 'Dig through asteroids for ore and glory.', tags: ['roguelike', 'deck-building', 'space'], traits: ['engine:PixiJS', 'render:WebGL', 'input:mouse'] };
+  const b = { title: 'Void Echoes', tagline: 'A roguelike deckbuilder about the last day of a city.', tags: ['roguelike', 'deck-building', 'fantasy'], traits: ['engine:PixiJS', 'render:WebGL', 'input:mouse', 'input:touch'] };
+  assert.equal(kinship({ ...a, traits: [] }, b).verdict, 'different');
+  assert.equal(kinship(a, b).verdict, 'similar');
+});
+
+test('identity keys meet for the same or a near title, the same tagline and shared names', () => {
+  assert.equal(titleSkeleton('Void Echoes'), titleSkeleton('The Void Echos'));
+  const a = identityKeys({ title: 'Void Echoes', tagline: 'A roguelike deckbuilder about the last day.', names: contentNames(SRC(HEROES)) });
+  const b = identityKeys({ title: 'Voyd Echoes', tagline: 'Something new and different from it.', names: contentNames(SRC([...HEROES, 'Lantern'])) });
+  assert.ok(a.strong.some((h) => b.strong.includes(h)), 'skeleton meets');
+  assert.ok(a.names.filter((h) => b.names.includes(h)).length >= 8, 'name sketches meet');
+  const c = identityKeys({ title: 'Star Miner', tagline: 'Dig through asteroids for ore and glory.', names: contentNames(SRC(['Ore Golem', 'Drill Bot'])) });
+  assert.equal(a.strong.filter((h) => c.strong.includes(h)).length + a.names.filter((h) => c.names.includes(h)).length, 0);
+  assert.ok(identityKeys({ title: 'X', names: contentNames(SRC(Array.from({ length: 200 }, (_, i) => 'Card Number ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i % 26] + 'abcdefghij'[i % 10] + 'x'.repeat(1 + (i % 7))))) }).names.length <= 48);
+});
+
+test('pictures that look alike share screenshot bands in the identity index', () => {
+  const a = identityKeys({ title: 'A', look: { dhash: '0123456789abcdef' } }), b = identityKeys({ title: 'B', look: { dhash: '0123456789abcdee' } }), c = identityKeys({ title: 'C', look: { dhash: 'fedcba9876543210' } });
+  assert.equal(a.look.filter((h) => b.look.includes(h)).length, 3);
+  assert.equal(a.look.filter((h) => c.look.includes(h)).length, 0);
+  assert.deepEqual(identityKeys({ title: 'A', look: null }).look, []);
+});
+
+test('names that come from a template are not counted', () => {
+  assert.deepEqual(contentNames(SRC(['Hollow Mite', 'Ash Hound']), new Set(['hollow mite'])), ['ash hound']);
+});

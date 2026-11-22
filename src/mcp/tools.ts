@@ -328,7 +328,7 @@ const TAGS_SCHEMA = { type: 'array', maxItems: MAX_TAGS, items: { type: 'string'
 const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The primary genre; the store groups games by it.' };
 
 /** The only thing between this version and going live is the review a person gives versions the browser could not run. */
-const onlyReviewNeeded = (g: GateResult) => g.failures.length === 1 && g.failures[0].id === 'verified' && g.failures[0].review === 'needed';
+const onlyReviewNeeded = (g: GateResult) => g.failures.length > 0 && g.failures.every((f) => f.review === 'needed');
 
 async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: boolean): Promise<unknown> {
   const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
@@ -371,6 +371,14 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
     throw err;
   }
   if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
+  // The duplication check found it close to another creator's game and could not be sure: a person decides.
+  const dupNeeded = gate.failures.find((f) => f.id === 'original_review' && f.review === 'needed');
+  if (dupNeeded) {
+    const dup = parseJson<any>(v.report, {}).originality?.review || {};
+    await c.env.DB.prepare("UPDATE versions SET review = 'pending', review_note = NULL, reviewed_at = NULL, reviewed_by = NULL WHERE project_id = ? AND n = ?").bind(p.id, v.n).run();
+    await logEvent(c.env, p.id, 'review_requested', `Close to ${dup.slug}: ${dup.why}`.slice(0, 300), v.n, c.client);
+    return { live: false, version: v.n, review: 'pending', matched: { game: dup.title, page: `${c.origin}/g/${dup.slug}`, what: dup.why }, next: `Version ${v.n} is waiting for a platform review because it is close to "${dup.title}" by another creator (${dup.why}). It goes live by itself once approved; list_versions {project, version: ${v.n}} shows the review state. Tell the user. To skip the review, give the game its own title, tagline and names, deploy_preview again and publish that version.` };
+  }
   if (onlyReviewNeeded(gate)) {
     // Every other requirement holds; a person looks at the game before it goes live (the admin's Reviews queue).
     await c.env.DB.prepare("UPDATE versions SET review = 'pending', review_note = NULL, reviewed_at = NULL, reviewed_by = NULL WHERE project_id = ? AND n = ?").bind(p.id, v.n).run();
