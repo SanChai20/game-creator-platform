@@ -13,6 +13,7 @@ import {
 import { takeOffline, trialStats } from '../routes/api';
 import { trialMinutes } from '../trials';
 import type { GameRoom } from '../room';
+import { actBots, botOptions, botStatus, startBots, stopBots } from '../bots';
 import { getSettings } from '../settings';
 import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
@@ -59,6 +60,7 @@ export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summ
   { topic: 'saves', file: 'saves', title: 'Player progress, saves, leaderboards and server code', summary: 'Each player\'s progress: cloud saves and stats per player and game, the play record the platform keeps, shared game data, leaderboards, and optional server code that runs in the game\'s own Worker.' },
   { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, playing with friends (friend invites, GCP.friends, GCP.presence), the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
   { topic: 'matches', file: 'matches', title: 'Server-run matches', summary: 'Competitive real-time games (shooters, fighting games, sports, racing): server/match.js runs the match at a fixed tick on the platform, with matchmaking by region and rating, private lobbies, client prediction, smooth playback and lag-compensated hit checks.' },
+  { topic: 'bots', file: 'test-bots', title: 'Testing online games with bots', summary: 'Bot players in the preview that connect like real ones over the platform\'s network: following the creator into a match or room, a public queue, a private lobby or a room; server/bot.js for what they do; network profiles, lag spikes, drops and reloads; the numbers per bot; limits. Read before testing a multiplayer game.' },
   { topic: 'storage', file: 'storage', title: 'Game storage', summary: 'How much a game\'s files may add up to, how uploads, deploys and publishing enforce it, how to keep a game small (generate content from code, load large or optional content at run time from your own host with CORS, compress what ships), and how to ask for more. Read before adding large assets.' },
   { topic: 'touch', file: 'input', title: 'Phones, tablets and input', summary: 'What the platform does so every game plays on touch screens (on-screen controls from the game\'s keys, mouse from the finger, pointer lock, taps, pixel density), gcp.json "controls" and GCP.controls, and what makes touch controls of your own good.' },
   { topic: 'services', file: 'services', title: 'Platform services', summary: 'Every service the platform gives games and agents (hosting, accounts, saves, stats, shared data, leaderboards, rooms, server code, display, verification, payments, analytics, agent access): how each works, how to reach it, its limits, and what the platform does not provide.' },
@@ -978,6 +980,45 @@ export const TOOLS: Tool[] = [
       const bytes = r.state_json ? r.state_json.length : 0;
       const state = !r.state_json ? null : bytes > 20000 ? `${r.state_json.slice(0, 20000)} …[truncated, ${bytes} bytes]` : JSON.parse(r.state_json);
       return { env, room: code, players: r.players, host: r.host, state, state_bytes: bytes, limits: { players_per_room: s.room_max_peers, message_bytes: 64 * 1024, state_bytes: 256 * 1024 }, ...(r.players.length ? {} : { note: 'Nobody is in this room now. Rooms are created when the first player joins and forget everything when the last one leaves.' }) };
+    },
+  },
+  {
+    name: 'preview_bots', title: 'Test an online game with bot players',
+    description: 'Puts bot players into the game\'s preview to test online play over the platform\'s real network path. Each bot is a remote client like a player\'s page: it has a play session of its own (preview only, never rated), waits in the real matchmaker (GCP.match.find) or joins the real room (GCP.room), and plays the match over a WebSocket to the game\'s own Worker, from the region you pick, with an optional last mile of added latency, jitter and packet loss. Bots play with the game\'s own server/bot.js (export default { thinkMs, think(view, me, ctx) -> input } or actions(view, me, ctx) -> [inputs] for a generic random bot; room(ctx) -> messages for rooms), run in a sandbox with no network; without it they join and stay connected but send nothing. '
+      + 'action start: target "follow" (default) sends the bots wherever the creator searches or opens a room in their preview; "queue" puts them in a public queue (queue, players, min, teams, mode as the game passes them to GCP.match.find, so they meet the players searching the same); "code" into a private lobby; "room" into a room. Bots alone can fill a match: with target queue and bots >= the queue\'s min the match starts without anyone else, so an agent can run an online match end to end without a browser. '
+      + 'status: per bot its phase, round trip (last, median, 95th percentile), snapshots per second and their spacing and jitter, the longest gap, unacknowledged inputs, traffic, reconnects, errors (the match\'s and server/bot.js\'s), plus the fleet\'s log. act: drop (the connection drops and comes back after ms with the same ticket, like the SDK\'s reconnect), reload (comes back after ms like a reloaded page, through GCP.match.rejoin\'s path), spike (extra ms of delay for ms), outage (nothing gets through for ms), net (a new network profile), leave (for good), rejoin; bot "all" or one bot\'s id or name. stop ends the fleet and its sessions. '
+      + 'Limits: a fleet stops by itself after its minutes; bots per fleet, fleets at once and bot-minutes per day are capped (status shows them).',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['options', 'start', 'status', 'act', 'stop'], description: 'Default status.' },
+      bots: { type: 'integer', description: 'start: how many bots (default 3).' },
+      target: { type: 'string', enum: ['follow', 'queue', 'code', 'room'], description: 'start: where the bots go. Default follow.' },
+      queue: { type: 'string', description: 'start with target queue: the queue name the game uses (default "default").' },
+      players: { type: 'integer', description: 'start with target queue or code: the match size the game asks for (GCP.match.find players).' },
+      min: { type: 'integer', description: 'start with target queue: the game\'s min.' },
+      teams: { type: 'integer', description: 'start with target queue: the game\'s teams.' },
+      mode: { type: 'string', description: 'start with target queue: the game\'s mode.' },
+      code: { type: 'string', description: 'start with target code: the private lobby code.' },
+      room: { type: 'string', description: 'start with target room: the room code.' },
+      region: { type: 'string', enum: ['auto', 'wnam', 'enam', 'sam', 'weur', 'eeur', 'apac', 'oc', 'afr', 'me'], description: 'start: where the bots connect from. Default auto.' },
+      net: { description: 'start: the last mile every bot gets: a profile (none, fiber, wifi, 4g, 3g, poor, far) or { latency, jitter, loss } (one-way ms, ms, percent). act net: the new one.' },
+      nets: { type: 'array', description: 'start: one network per bot (profile names or objects), overriding net for those bots.' },
+      names: { type: 'array', items: { type: 'string' }, description: 'start: display names for the bots.' },
+      skill: { type: 'number', description: 'start: 0 to 1, handed to server/bot.js as ctx.skill (default 1).' },
+      minutes: { type: 'integer', description: 'start: how long the fleet may run before it stops by itself.' },
+      bot: { type: 'string', description: 'act: a bot\'s id or name, or "all" (default).' },
+      what: { type: 'string', enum: ['drop', 'reload', 'spike', 'outage', 'net', 'leave', 'rejoin'], description: 'act: what to do.' },
+      ms: { type: 'integer', description: 'act: how long (drop, reload: until the bot comes back; spike, outage: how long it lasts). Default 5000.' },
+      extra: { type: 'integer', description: 'act spike: the extra delay in ms (default 400).' },
+    }, ['project']), annotations: { destructiveHint: false },
+    run: async (a, c) => {
+      const action = a.action || 'status';
+      if (action === 'options') { const p = await ownedProject(c.env, c.user, a.project); return botOptions(c.env, p, c.user); }
+      if (action === 'start') return startBots(c.env, c.origin, c.user, a.project, a);
+      if (action === 'act') return actBots(c.env, c.user, a.project, { bot: a.bot, action: a.what, ms: a.ms, extra: a.extra, net: a.net });
+      if (action === 'stop') return stopBots(c.env, c.user, a.project);
+      if (action !== 'status') throw bad('action must be options, start, status, act or stop.');
+      return botStatus(c.env, c.user, a.project);
     },
   },
   {

@@ -9,6 +9,7 @@ import { CaptureButtons, FeedbackEditor, FeedbackQueue, type Shot } from '../fee
 import { projectTabs } from './Analytics';
 import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
 import { AgeBadge, ageLabel } from '../meta-ui';
+import { TestPlayers } from '../test-bots';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
 const metaField = (f: string) => ({ genre: t('Genre', '类型'), tags: t('Tags from the platform list', '平台标签'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
@@ -274,6 +275,7 @@ export function Project({ id }: { id: string }) {
             {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
           </div>;
         })()}
+        <TestPlayers projectId={id} />
         <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>
       </div></Modal>}
     </div>
