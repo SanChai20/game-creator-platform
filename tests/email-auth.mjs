@@ -3,7 +3,7 @@
 // code ever matches; a proof keeps a sign-in confirmed for ten minutes. The migration drops every password.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { register } from 'node:module';
 
@@ -128,4 +128,15 @@ test('the live-test mailbox answers only @example.com, only with the exact secre
   assert.equal(testMailbox({ TEST_MAIL_TOKEN: secret }, req(), 'a@example.com'), false);
   assert.equal(testMailbox({ TEST_MAIL_TOKEN: 'short' }, req('short'), 'a@example.com'), false);
   assert.equal(testMailbox({}, req(''), 'a@example.com'), false);
+});
+
+test('the live-test secret stays on the server: no client code or config names it', () => {
+  const ls = readdirSync;
+  const walk = (d) => ls(d).flatMap((f) => { const p = `${d}/${f}`; return statSync(p).isDirectory() ? walk(p) : [p]; });
+  const root = new URL('..', import.meta.url).pathname;
+  const files = ['web/src', 'web/public', 'web/dist'].flatMap((d) => { try { return walk(root + d); } catch { return []; } }).filter((f) => /\.(m?[jt]sx?|html|json|md)$/.test(f));
+  assert.ok(files.length > 20);
+  for (const f of files) assert.doesNotMatch(readFileSync(f, 'utf8'), /TEST_MAIL_TOKEN|x-test-mail|test_token|test_code/, f);
+  // a secret, never a plain [vars] value in the Worker config
+  for (const f of ls(root).filter((f) => /^wrangler\./.test(f))) assert.doesNotMatch(readFileSync(root + f, 'utf8'), /TEST_MAIL_TOKEN/, f);
 });

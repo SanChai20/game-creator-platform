@@ -96,6 +96,41 @@ assert.match(home, /<link rel="canonical"/); assert.match(home, /"@type":"WebSit
 assert.match(await (await fetch(`${BASE}/account`)).text(), /<meta name="robots" content="noindex, nofollow">/);
 ok('crawlers: robots.txt, sitemap, llms.txt and the guides; personal pages noindex; public pages carry JSON-LD');
 
+// the live-test mailbox (TEST_MAIL_TOKEN, src/mail.ts testMailbox): only @example.com, only with the exact secret; every
+// other address is emailed as usual and gets no code or link back, whatever header it sends
+const SECRET = process.env.TEST_MAIL_TOKEN;
+if (!SECRET) console.log('  - live-test mailbox not checked: set TEST_MAIL_TOKEN to the value in .dev.vars');
+else {
+  const raw = async (path, body, h = {}) => { const r = await fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', origin: BASE, ...h }, body: JSON.stringify(body) }); return { status: r.status, json: await r.json().catch(() => null), text: '' }; };
+  const outbox = async (to) => (await (await fetch(`${BASE}/api/dev/mail?to=${encodeURIComponent(to)}`)).json()).mail.length;
+  const right = { 'x-test-mail': SECRET }, wrong = { 'x-test-mail': SECRET.slice(0, -1) + (SECRET.endsWith('a') ? 'b' : 'a') };
+  // real addresses: emailed, nothing comes back, even with the right secret
+  for (const addr of [`real-${run}@example.org`, `real-${run}@sub.example.com`, `real-${run}@example.com.evil.io`]) {
+    const su = must(await raw('/api/auth/signup', { email: addr, name: 'Real ' + run }, right));
+    assert.equal(su.test_token, undefined, addr); assert.equal(await outbox(addr), 1, `${addr}: the sign-up link is emailed`);
+    const li = must(await raw('/api/auth/login', { email: addr }, right));
+    assert.equal(li.test_code, undefined, addr); assert.equal(await outbox(addr), 2, `${addr}: the sign-in email is sent`);
+  }
+  // @example.com without the secret, or with a wrong one: emailed, nothing comes back
+  for (const [h, tag] of [[{}, 'none'], [wrong, 'wrong']]) {
+    const addr = `nokey-${tag}-${run}@example.com`;
+    const su = must(await raw('/api/auth/signup', { email: addr, name: 'No key ' + run }, h));
+    assert.equal(su.test_token, undefined, tag); assert.equal(await outbox(addr), 1, `${tag}: emailed`);
+    const li = must(await raw('/api/auth/login', { email: addr }, h));
+    assert.equal(li.test_code, undefined, tag); assert.equal(await outbox(addr), 2, `${tag}: emailed`);
+  }
+  // @example.com with the secret: the link and code come back and nothing is sent
+  const T = client(), addr = `key-${run}@example.com`;
+  const su = must(await raw('/api/auth/signup', { email: addr, name: 'Key ' + run }, right));
+  assert.match(su.test_token, /^[\w-]{20,}$/); assert.equal(await outbox(addr), 0, 'not emailed');
+  must(await T.post('/api/auth/signup/confirm', { token: su.test_token }));
+  const li = must(await raw('/api/auth/login', { email: addr }, right));
+  assert.match(li.test_code, /^\d{6}$/); assert.equal(await outbox(addr), 0, 'not emailed');
+  must(await T.post('/api/auth/login/verify', { challenge: li.challenge, code: li.test_code }));
+  assert.equal(must(await T.get('/api/me')).user.email, addr);
+  ok('live-test mailbox: real addresses are always emailed and get nothing back; @example.com only with the exact secret');
+}
+
 // deleting the account needs a fresh proof too, and works
 must(await B.post('/api/account/delete'));
 assert.equal(must(await B.get('/api/me')).user, null);
