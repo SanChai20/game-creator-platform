@@ -62,7 +62,8 @@ export function CompatPill({ v, big }: { v: Verdict | null; big?: boolean }) {
   return (
     <span className={`cpill c-${v.verdict}` + (big ? ' big' : '')} role="status">
       <i aria-hidden="true">{v.verdict === 'ok' ? '✓' : v.verdict === 'no' ? '✕' : '!'}</i>
-      {v.verdict === 'ok' ? t('Works on this device', '可在此设备上运行') : v.verdict === 'maybe' ? t('Should work: some things are checked at launch', '应该可以运行：部分项目将在启动时检测') : <>{t('Not supported on this device', '此设备不受支持')}{first && <span className="cpill-why"> · {first}</span>}</>}
+      {/* one text box, so the reason wraps under the verdict instead of standing beside it as a second column */}
+      <span>{v.verdict === 'ok' ? t('Works on this device', '可在此设备上运行') : v.verdict === 'maybe' ? t('Should work: some things are checked at launch', '应该可以运行：部分项目将在启动时检测') : <>{t('Not supported on this device', '此设备不受支持')}{first && <span className="cpill-why"> · {first}</span>}</>}</span>
     </span>
   );
 }

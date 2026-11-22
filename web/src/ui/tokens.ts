@@ -80,7 +80,7 @@ export const size = {
 export const space = { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '56px', 10: '80px', 11: '120px' } as const;
 export const radius = { xs: '3px', sm: '4px', md: '6px', lg: '8px', xl: '10px', '2xl': '12px', pill: '3px' } as const;
 export const motion = { ease: 'cubic-bezier(.2, .7, .1, 1)', fast: '.14s', base: '.24s', slow: '.5s' } as const;
-export const layout = { wrap: '1320px', gutter: 'clamp(16px, 4vw, 48px)', nav: '68px' } as const;
+export const layout = { wrap: '1320px', gutter: 'max(clamp(16px, 4vw, 48px), env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px))', nav: '68px' } as const;
 export const z = { nav: 50, sticky: 20, modal: 120, toast: 200 } as const;
 export const shadow = {
   1: '0 1px 2px rgb(23 21 28 / .06), 0 2px 8px -2px rgb(23 21 28 / .06)',

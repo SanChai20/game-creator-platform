@@ -379,4 +379,21 @@ html.app, html.app body { overscroll-behavior: none; }
 html.app { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 html.app body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; z-index: calc(var(--z-nav) + 1); height: env(safe-area-inset-top, 0px); background: #111015; pointer-events: none; }
 html.app .nav { padding-top: env(safe-area-inset-top, 0px); }
-html.app .nav, html.app .tabbar { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+
+/* The page is laid out edge to edge (viewport-fit=cover), in Safari as well as in the app, so on a phone on its side the
+   notch and the rounded corners sit over the page. The gutter (--gut, ui/tokens.ts) grows to the side insets, which
+   keeps every .wrap, the top bar and the footer clear of them; the tab bar spans the screen, so it pads itself. */
+.tabbar { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+
+/* A phone on its side has well under 500 pixels of height: the full-size top bar and tab bar would take a third of it.
+   Both get slimmer, and each tab sets its icon beside its label. */
+@media (max-width: 900px) and (max-height: 500px) {
+  html:root { --nav-h: 54px; }
+  .tabbar { height: calc(44px + env(safe-area-inset-bottom)); }
+  .tabbar a { grid-auto-flow: column; align-items: center; gap: 7px; }
+  .tabbar a.on::before { width: 24px; margin-left: -12px; height: 3px; }
+  #root { padding-bottom: calc(44px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(56px + env(safe-area-inset-bottom)); }
+  .savebar { bottom: calc(56px + env(safe-area-inset-bottom)); }
+  .sbar { padding-top: 10px; }
+}
