@@ -132,5 +132,12 @@
  "Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)": "在 Durable Objects 中运行游戏时钟（数万玩家同时在线时需要；数据最多可能延迟约一分钟）",
  "The exact frame the game drew when you pressed Capture.": "你按下截图时游戏画出的那一帧，原样保存。",
  "Text fields over the game are drawn from the page.": "游戏上方的输入框是根据页面重新绘制的。",
- "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "版本未交出它画出的那一帧时判为不通过（截帧检查：所有可见内容都画在画布里，并注册了 GCP.test.onCapture 和 onState）；只对已上线的游戏判失败，其他游戏只记一条说明；关闭后只报告不判失败"
+ "Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing": "版本未交出它画出的那一帧时判为不通过（截帧检查：所有可见内容都画在画布里，并注册了 GCP.test.onCapture 和 onState）；只对已上线的游戏判失败，其他游戏只记一条说明；关闭后只报告不判失败",
+ "Platform cut of each sale of a game that shares its build skill for free (percent; a game whose skill is sold pays the standard cut)": "免费分享构建技能的游戏，平台从每笔销售中收取的比例（百分比；出售技能的游戏按标准比例）",
+ "Creator Store": "创作者商店",
+ "Platform commission on each build skill sale (percent; separate from the game's own cut)": "每笔构建技能销售的平台佣金（百分比；与游戏自身分成分开）",
+ "Allow creators to sell their game's build skill": "允许创作者出售游戏的构建技能",
+ "Lowest price a paid build skill can have": "付费构建技能的最低价格",
+ "Highest price a paid build skill can have": "付费构建技能的最高价格",
+ "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "分享构建技能的游戏，在其智能体为新版本编写技能前拒绝发布该版本（让每个技能与线上游戏保持一致）"
 }

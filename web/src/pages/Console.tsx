@@ -48,7 +48,8 @@ export function Console() {
         <StatGrid>
           <Stat label={t('Games', '游戏')} value={projects.length} sub={`${projects.filter((p) => p.status === 'live').length} ${t('live', '款已上线')}`} />
           <Stat label={t('Plays', '游玩次数')} value={num(projects.reduce((a, p) => a + p.plays, 0))} sub={`${num(projects.reduce((a, p) => a + p.minutes, 0))} ${t('minutes played', '分钟游玩时长')}`} />
-          <Stat label={t('Sales', '销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('earned', '累计收益')}`} />
+          <Stat label={t('Game sales', '游戏销量')} value={num(data.sales.n)} sub={`${usd(data.sales.net)} ${t('earned', '累计收益')}`} />
+          <Stat to="/creator-store" label={t('Skill sales', '技能销量')} value={num(data.skill_sales?.n || 0)} sub={<>{usd(data.skill_sales?.net || 0)} {t('earned', '累计收益')} · {t('Creator Store', '创作者商店')} →</>} />
           <Stat tone="accent" to="/console/earnings" label={t('Available', '可提现')} value={usd(data.balance.available)} sub={<>{data.balance.pending > 0 ? `${usd(data.balance.pending)} ${t('pending', '待结算')}` : t('Open earnings', '查看收益')} →</>} />
         </StatGrid>
 
@@ -78,6 +79,14 @@ export function Console() {
           </div>
 
           <div className="stack l">
+            <Card title={t('Creator Store', '创作者商店')} pad>
+              <div className="stack">
+                <p className="mute fs-sm">{data.skills_shared
+                  ? t('{n} of your live games share their build skill. Your agent keeps each one in step with every release.', '你有 {n} 款线上游戏分享了构建技能。智能体会在每次发布时同步更新。', { n: data.skills_shared })
+                  : t('Share how your games are built as agent skills, free or for a price. A free skill lowers your game\'s platform cut.', '以智能体技能的形式分享游戏的制作方式，可免费或定价。免费技能会降低游戏的平台抽成。')}</p>
+                <div className="row wrapx"><Button size="sm" variant="primary" to="/creator-store">{t('Open the Creator Store', '打开创作者商店')}</Button><Button size="sm" to="/console/earnings">{t('Skill sales', '技能销量')}</Button></div>
+              </div>
+            </Card>
             <Card title={t('Connect your agent', '连接你的智能体')} pad><ConnectAgent /></Card>
             <Card title={t('Connected agents', '已连接的智能体')}>
               {agents.data?.agents.length ? agents.data.agents.map((a) => (

@@ -3,7 +3,8 @@
 // pipelines are the agent's business. Descriptions say when to call a tool and what comes next.
 import { unzipSync } from 'fflate';
 import { AppError, bad, forbidden, type Env, type User } from '../env';
-import { balanceOf, splitSale } from '../earnings';
+import { balanceOf, freeSkillShared, splitSale, splitSkillSale } from '../earnings';
+import { NO_CODE, setSkillPrice, skillForAgent, skillGate, storeItem, writeSkill } from '../skills';
 import { enqueue } from '../pipeline';
 import {
   assetText, checkProject, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getVersion, listFiles, logEvent, ownedProject, publicVersion,
@@ -80,7 +81,9 @@ const trialText = (p: { price_cents: number; trial_minutes: number }, s: Awaited
   const m = trialMinutes(p, s);
   return m ? `${m} min: players who have not bought it can play ${m} minutes in total (per account, across devices), then are asked to buy` : p.price_cents > 0 ? 'none: players must buy before playing' : 'not applicable: the game is free';
 };
-const sharing = (p: { open_implementation: number }) => (p.open_implementation ? 'on: other agents can read how the live game is built through get_implementation (never its code)' : 'off: nothing about how this game is built is shared');
+const sharing = (p: { open_implementation: number; skill_price_cents?: number }) => (p.open_implementation
+  ? `on: the game's build skill is in the Creator Store, ${Number(p.skill_price_cents) > 0 ? `sold for ${usd(Number(p.skill_price_cents))}` : 'free'} (never its code). Write the skill for every version before publishing it: build_skill {action: "write"}`
+  : 'off: nothing about how this game is built is shared');
 
 async function account(c: ToolCtx) {
   const s = await getSettings(c.env), u = c.user, bal = await balanceOf(c.env, u.id);
@@ -90,7 +93,8 @@ async function account(c: ToolCtx) {
     license: u.creator ? licenseText(u) : `${licenseText(u) === 'none' ? 'Not purchased' : 'Expired (' + licenseText(u) + ')'}. Publishing and the console need ${offersText(s)}. Uploading, previewing and verifying are free. The account owner gets it at ${c.origin}/license`,
     console_url: `${c.origin}/console`,
     earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
-    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_open_implementation: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled' } : 'disabled',
+    build_skills: { free_skill: `a game that shares its build skill for free pays a ${s.platform_fee_open_percent}% cut on its own sales instead of ${s.platform_fee_percent}%`, paid_skill: s.paid_skills_enabled ? `a skill can be sold for ${usd(s.skill_price_min_cents)} to ${usd(s.skill_price_max_cents)}; the platform keeps ${s.skill_fee_percent}% of each skill sale and the game keeps the standard ${s.platform_fee_percent}% cut` : 'disabled', store: `${c.origin}/creator-store` },
+    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_free_build_skill: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled' } : 'disabled',
     limits: { storage_per_game: mb(s.bundle_max_bytes), storage_per_game_bytes: s.bundle_max_bytes, largest_file: mb(s.file_max_bytes), files_per_game: s.bundle_max_files, more_storage: s.storage_requests_open ? `ask with game_storage, up to ${mb(s.storage_max_bytes)} per game` : 'closed', server_code: s.allow_server_code },
   };
 }
@@ -358,6 +362,12 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   // Storage: a new version must fit the game's storage. A rollback to a version that was live before is not held to it.
   const over = !rollback && overBudget(s, p, v.bytes, v.file_count);
   if (over) throw new AppError(413, `Version ${v.n} cannot be published: ${over.message}`, 'storage_full', over.hint);
+  // The build skill must match every release while it is shared: a new version needs its skill written first.
+  if (!rollback) {
+    const sharedAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : !!p.open_implementation;
+    const gate = await skillGate(c.env, s, { ...p, open_implementation: sharedAfter ? 1 : 0 }, v.n);
+    if (gate) throw new AppError(409, gate, 'skill_missing', `Update the build skill for version ${v.n}: build_skill {project, action: "get"} returns the current skill and the outline; revise it for what changed in this version and call build_skill {project, action: "write", version: ${v.n}, content}. Then call publish again.`);
+  }
   const copy = await publishGate(c.env, p, v);
   if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
   if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
@@ -418,6 +428,7 @@ export const TOOLS: Tool[] = [
           '3. deploy_preview: static checks, then a new numbered version deployed to its own preview address and checked in a real browser. With dry_run: true it runs only the static checks.',
           '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
           '4b. Look at the game and listen to the creator: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game\'s state), and creator_feedback returns the annotated screenshots and notes the creator left while playing the preview. Read creator_feedback at the start of every session and whenever an answer carries creator_feedback; each item is removed once you read it.',
+          '4c. If the game shares its build skill (Open Implementation on), update it before every release: build_skill {project, action: "get"}, revise it for what changed, then build_skill {project, action: "write", version, content}. publish refuses a version without one while sharing is on.',
           '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover; game_data and game_room manage the game\'s data and multiplayer rooms.',
         ],
         services: {
@@ -428,7 +439,7 @@ export const TOOLS: Tool[] = [
           multiplayer: 'GCP.room(code): a realtime room per code on the platform\'s multiplayer servers, with a host and host migration. Host-authoritative (one player\'s browser runs the game): right for co-op, party, casual versus and turn-based games, not for ranked or competitive shooters and fighting games (the host can cheat, no lag compensation). game_room inspects or resets one. get_started {topic: "multiplayer"}.',
           matches: 'GCP.match.find({ queue, players }) with server/match.js: for competitive real-time games. The platform matches players by region and rating, runs the game\'s rules at a fixed tick on its own servers near the players, predicts each player\'s own movement and judges shots where the target was on the shooter\'s screen (lag compensation). get_started {topic: "matches"}.',
           server_code: s.allow_server_code ? 'Optional server/index.js runs in the game\'s own Worker and is reached with GCP.server. get_started {topic: "saves"}.' : 'Disabled on this platform.',
-          open_implementations: `Learn how other developers' live games were built, when they chose to share it: find_implementations searches them by kind of game, engine or technique and shows the patterns across them; get_implementation {game} returns one card (engine, rendering, input, audio, assets, platform services, loop and performance techniques, structure, verified play-through, summary). ${NEVER_SHARED} To share your own, ask the user, then update_project {open_implementation: true} or publish {open_implementation: true}. ${openPerks(s)}`,
+          open_implementations: `Learn how other developers' live games were built, when they chose to share it: find_implementations searches them by kind of game, engine or technique and shows the patterns across them; get_implementation {game} returns one card (engine, rendering, input, audio, assets, platform services, loop and performance techniques, structure, verified play-through, summary). ${NEVER_SHARED} Games that share also publish a build skill in the Creator Store (${c.origin}/creator-store): an agent skill their own agent wrote. get_implementation includes it when it is free. To share your own, ask the user, write the skill with build_skill {action: "write"}, then update_project {open_implementation: true}; the user chooses free or a price (update_project skill_price_cents). While shared, write the skill again for each version before publishing it: publish refuses a version without one. ${openPerks(s)}`,
           compatibility: 'Each version carries its requirements: declared in gcp.json "requirements" (compatibility {action: "declare"} writes it), merged with what the platform detects in the code, frozen at deploy_preview. The store page lists them in a Compatibility section and checks the player\'s browser against them before launch. compatibility {action: "check"} shows what was detected and suggests a block.',
           interface_scale: 'Make the interface fit every screen and let the player size it: GCP.ui.configure({ reference: [1280, 720] }) once, then draw the interface in units with the canvas transform at devicePixelRatio * GCP.ui.scale, place boxes with anchors (GCP.ui.rect({ anchor: "top-right", w, h, margin }), GCP.ui.split) against GCP.ui.view and GCP.ui.safe, offer an Interface size setting with GCP.ui.sizes and GCP.ui.setSize, and redraw on GCP.ui.onChange. Fullscreen always overrides the size of the window the game was first shown in, so size from innerWidth and innerHeight on every resize. get_started {topic: "services"}, "Interface scale and the player\'s UI size".',
           touch_devices: 'Every game is playable on phones and tablets without code for it: the SDK gives keyboard games an on-screen stick and buttons that press the keys found in the game\'s code (or gcp.json "controls": {"touch": "auto" | "overlay" | "none", "stick", "buttons"}; GCP.controls at run time), gives mouse-only games mouse events from the finger and a pointer-lock stand-in, stops long-press selection, tap flashes and zoom, and caps devicePixelRatio at 2. Touch controls made for the game are still better: when the game has its own, the platform\'s stay away. get_started {topic: "touch"} has the details.',
@@ -510,14 +521,15 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'update_project', title: 'Update listing, price, cover or sharing',
-    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share.',
+    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share. Sharing puts the game\'s build skill (written with build_skill) in the Creator Store; skill_price_cents 0 shares it for free, a price sells it (the user\'s choice).',
     inputSchema: obj({
       project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: TAGS_SCHEMA,
       controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
       price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
       trial_minutes: { type: 'integer', description: 'Paid games only: minutes of free play before buying (e.g. 30). 0 turns the free trial off. get_started shows the longest allowed.' },
       cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png".' },
-      open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code). Default off.' },
+      open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code), and its build skill in the Creator Store. Default off.' },
+      skill_price_cents: { type: 'integer', description: 'The build skill\'s price in US cents, or 0 to share it for free. A free skill lowers the game\'s own platform cut; a sold one keeps the standard cut and pays the skill commission on skill sales. Only when the user has chosen.' },
       genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
       listing_translations: { type: 'object', description: 'The listing in other platform languages: {"ja": {"title", "tagline", "description", "controls"}}; null removes one.' },
     }, ['project']),
@@ -534,12 +546,13 @@ export const TOOLS: Tool[] = [
         await c.env.DB.prepare('UPDATE projects SET cover_key = ? WHERE id = ?').bind(key, p.id).run();
         cover = `${c.origin}/api/media/${key}`;
       }
-      const { cover: _c, open_implementation: open, ...meta } = a;
+      const { cover: _c, open_implementation: open, skill_price_cents: skillPrice, ...meta } = a;
       await updateProjectMeta(c.env, p, meta);
+      if (skillPrice !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, skillPrice, c.client);
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
       const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, !!q.open_implementation).net) : null, ...(cover ? { cover } : {}), open_implementation: sharing(q) };
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
   },
   {
@@ -833,7 +846,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'publish', title: 'Publish a verified version',
-    description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. open_implementation sets whether other developers\' agents may learn how the game is built (never its code); leave it out to keep the current choice, and ask the user before turning it on.',
+    description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. open_implementation sets whether other developers\' agents may learn how the game is built (never its code) and whether its build skill is in the Creator Store; leave it out to keep the current choice, and ask the user before turning it on. While it is on, every new version needs its build skill written first (build_skill {action: "write", version}), so the skill always matches the live game.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' } }, ['project']),
     run: (a, c) => publishVersion(a, c, false),
   },
@@ -975,6 +988,33 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'build_skill', title: 'Write this game\'s build skill',
+    description: `The build skill is an agent skill (a SKILL.md) about how this game is built, written by you, its development agent, so other developers' agents can build a similar game. It is what the game shares in the Creator Store when Open Implementation is on, free or for a price the user sets. Write it from what you know of the game: architecture, rendering and art, the loop and feel, controls and devices, content and progression, platform services, performance, testing and release, and pitfalls. ${NO_CODE} A skill is written for one version and the store always shows the one for the live version: before each release, call get, revise the skill for what changed, and write it for the version you are about to publish. While sharing is on, publish refuses a version without one. Actions: get (the current skill, whether it matches, and the outline with what to cover), write (content in Markdown, a one-line description; version defaults to the newest deployed version).`,
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['get', 'write'] },
+      version: { type: 'integer', description: 'The game version the skill describes. Default: the newest deployed version (the one you are about to publish).' },
+      description: { type: 'string', description: 'write: one line, what the skill helps an agent build (at most 300 characters).' },
+      content: { type: 'string', description: 'write: the skill in Markdown, organised under level-two headings (##), 600 to 60000 characters, no code. The platform adds the front matter, the title and the facts it measured.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project);
+      const v = a.version === undefined || a.version === null ? undefined : Math.round(Number(a.version));
+      if (a.action === 'get') return skillForAgent(c.env, c.origin, p, v);
+      if (a.action !== 'write') throw bad('action must be get or write.');
+      const r = await writeSkill(c.env, p, a, c.client);
+      const q = await ownedProject(c.env, c.user, p.id);
+      return {
+        ok: true, ...r,
+        matches_live_game: q.live_version === r.version,
+        shared: !!q.open_implementation, store_page: `${c.origin}/creator-store/${q.slug}`,
+        next: q.live_version === r.version ? 'The Creator Store now shows this skill for the live game.'
+          : `Saved for version ${r.version}. It shows in the Creator Store once version ${r.version} is live: publish {project, version: ${r.version}}.`,
+        ...(q.open_implementation ? {} : { not_shared: 'Open Implementation is off, so nothing is shared yet. Ask the user before turning it on (update_project {open_implementation: true}).' }),
+      };
+    },
+  },
+  {
     name: 'find_implementations', title: 'Find how other games were built',
     description: `Searches live games whose creators chose to share how they were built, and shows the patterns across the matches: which engines, rendering, input, audio, art approach, platform services and loop techniques games of that kind use. Use it before building a kind of game you have not built here, e.g. {query: "multiplayer racing"} or {tags: ["puzzle"], uses: ["touch"]}. Each match has a short summary; get_implementation {game} returns the full card. ${NEVER_SHARED}`,
     inputSchema: obj({
@@ -990,7 +1030,14 @@ export const TOOLS: Tool[] = [
     name: 'get_implementation', title: 'Read how one game was built',
     description: `Returns the implementation card of one live game whose creator shares it: engine and libraries, rendering and graphics techniques, input, audio, art approach, platform services (saves, leaderboards, rooms, server code), loop and performance techniques, code structure in numbers, the verified play-through, and a summary for building something similar. Your own games can always be read (marked as a preview when not shared). ${NEVER_SHARED}`,
     inputSchema: obj({ game: { type: 'string', description: 'The game slug from find_implementations or its marketplace address (/g/<slug>).' } }, ['game']), annotations: { readOnlyHint: true },
-    run: async (a, c) => implementationCard(c.env, c.origin, c.user, a.game),
+    run: async (a, c) => {
+      const card = await implementationCard(c.env, c.origin, c.user, a.game);
+      // the game's build skill: in full when it is free (or yours, or bought), otherwise where to get it
+      const skill = await storeItem(c.env, c.origin, c.user, card.game.slug, false).catch(() => null);
+      return { ...card, build_skill: !skill ? null : skill.locked
+        ? { price: usd(skill.skill.price_cents), sections: skill.skill.sections, version: skill.skill.version, store_page: skill.skill.page, note: 'This build skill is sold. The user can buy it in the Creator Store; it then shows here in full.' }
+        : { name: skill.skill.name, version: skill.skill.version, in_sync: skill.skill.in_sync, written_by: skill.skill.written_by_platform ? 'the platform (the game\'s agent has not written one yet)' : 'the game\'s development agent', skill_md: skill.skill_md, store_page: skill.skill.page, how_to_use: 'Save skill_md as SKILL.md in a folder named after the skill in your skills directory, or follow it directly.' } };
+    },
   },
 ];
 

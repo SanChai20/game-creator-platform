@@ -8,7 +8,8 @@ import { ensurePreview } from '../cleanup';
 import { deleteAccount, deleteBlocker, newResetToken, takeResetToken } from '../account';
 import { passwordResetMail } from '../mail';
 import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
-import { holdMs, balanceOf, disputePurchase, disputeWon, owns, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale } from '../earnings';
+import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
+import { liveSkill, setSkillPrice, skillCopied, skillSalesOf, storeItem, storeList } from '../skills';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
@@ -53,7 +54,7 @@ function card(origin: string, r: Record<string, any>) {
     id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: normalizeStoredTags(parseJson<string[]>(r.tags, [])), /* only genres and tags on the platform list */ cover: media(origin, r.cover_key), price_cents: r.price_cents,
     trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
-    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, playing: Number(r.playing) || 0,
+    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, skill_price_cents: Number(r.skill_price_cents) || 0, playing: Number(r.playing) || 0,
     // adults-only games: the store blurs the cover and labels it 18+ (sexual, violence, other)
     age: r.age || null, mature: matureList(r),
     // on today's picks: why the game was picked (featured, trending, rising, new, gem, free, more)
@@ -725,6 +726,31 @@ api.post('/billing/license', async (c) => {
   return checkout(c, u, `${s.brand_name} ${planName(o.plan, o.days)}`, o.cents, { kind: 'creator_fee', user_id: u.id, plan: o.plan }, '/license');
 });
 
+// ----- the Creator Store: build skills, free or sold, each under its game (src/skills.ts) -------------------------------
+api.get('/creator-store', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  return c.json(await storeList(c.env, c.get('origin'), c.get('user'), { query: c.req.query('q'), price: c.req.query('price'), sort: c.req.query('sort'), limit: Number(c.req.query('limit')) || undefined, offset: Number(c.req.query('offset')) || undefined }));
+});
+api.get('/creator-store/:slug', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  return c.json(await storeItem(c.env, c.get('origin'), c.get('user'), c.req.param('slug')));
+});
+api.post('/creator-store/:slug/copied', async (c) => {
+  const u = c.get('user');
+  return c.json(await skillCopied(c.env, u, c.req.param('slug'), u?.id || 'net:' + clientNet(c.req.raw)));
+});
+api.post('/creator-store/:slug/buy', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env), p = await getProject(c.env, c.req.param('slug'));
+  if (!p || p.status !== 'live' || !p.open_implementation) throw notFound('That build skill is not in the Creator Store.');
+  if (!(p.skill_price_cents > 0)) throw bad('This build skill is free.');
+  if (!s.paid_skills_enabled) throw forbidden('Build skill sales are turned off on this platform.');
+  if (u.id === p.owner_id) throw bad('This is your own game\'s skill.');
+  if (await ownsSkill(c.env, u.id, p.id)) throw new AppError(409, 'You already own this build skill.', 'already');
+  const live = await liveSkill(c.env, p);
+  if (!live || live.generated) throw new AppError(409, 'This build skill is not written yet.', 'not_ready');
+  return checkout(c, u, `Build skill: ${p.title}`, p.skill_price_cents, { kind: 'skill', user_id: u.id, project_id: p.id }, `/creator-store/${p.slug}`, true);
+});
+
 api.post('/games/:slug/buy', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   if (p.status !== 'live') throw new AppError(409, 'This game is offline.', 'offline');
@@ -836,7 +862,7 @@ async function applySession(env: Env, session: any): Promise<string> {
     const p = await getProject(env, m.project_id);
     if (!p) return 'missing_project';
     const sale = { userId: m.user_id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: session.amount_total || p.price_cents, provider: 'stripe' as const, providerRef: session.id, paymentIntent: pi };
-    try { await recordPurchase(env, await getSettings(env), { ...sale, openImplementation: !!p.open_implementation }); }
+    try { await recordPurchase(env, await getSettings(env), { ...sale, openImplementation: freeSkillShared(p) }); }
     catch (e) {
       // The buyer already owns the game (two checkouts open at once, or paid in two tabs): the second payment is given
       // back at once and kept on record as refunded, instead of failing and leaving the money taken.
@@ -848,6 +874,22 @@ async function applySession(env: Env, session: any): Promise<string> {
       return 'duplicate_refunded';
     }
     return 'game';
+  }
+  if (m.kind === 'skill' && m.user_id && m.project_id) {
+    // a build skill: its own table and sales count, the skill commission (src/earnings.ts splitSkillSale)
+    const p = await getProject(env, m.project_id);
+    if (!p) return 'missing_project';
+    const sale = { userId: m.user_id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: session.amount_total || p.skill_price_cents, provider: 'stripe' as const, providerRef: session.id, paymentIntent: pi, item: 'skill' as const };
+    try { await recordPurchase(env, await getSettings(env), sale); }
+    catch (e) {
+      if (!/UNIQUE/i.test(String((e as Error).message))) throw e;
+      if (await env.DB.prepare('SELECT 1 FROM skill_purchases WHERE provider_ref = ?').bind(session.id).first()) return 'skill';
+      if (pi) await stripe(env, 'POST', '/refunds', { payment_intent: pi, reason: 'duplicate', metadata: { session: session.id } }, 'dup:' + session.id);
+      await env.DB.prepare("INSERT INTO skill_purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at, refunded_at) VALUES (?, ?, ?, ?, ?, 0, 0, 'stripe', ?, ?, 'refunded', ?, ?)")
+        .bind('spur_' + rid(20), m.user_id, p.id, p.owner_id, sale.priceCents, session.id, pi, now(), now()).run();
+      return 'duplicate_refunded';
+    }
+    return 'skill';
   }
   return 'ignored';
 }
@@ -948,9 +990,11 @@ api.get('/console/overview', async (c) => {
   const u = requireUser(c), origin = c.get('origin'), s = await getSettings(c.env);
   const projects = await c.env.DB.prepare("SELECT p.*, ? AS author FROM projects p WHERE p.owner_id = ? AND p.status != 'removed' ORDER BY p.updated_at DESC").bind(u.name, u.id).all<Record<string, any>>();
   const sales = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>();
+  const skillSales = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>();
   return c.json({
-    user: pubUser(u), balance: await balanceOf(c.env, u.id), sales: sales || { n: 0, net: 0 },
-    projects: projects.results.map((p) => ({ ...card(origin, p), live_version: p.live_version, preview_version: p.preview_version, sales: p.sales, updated_at: p.updated_at })),
+    user: pubUser(u), balance: await balanceOf(c.env, u.id), sales: sales || { n: 0, net: 0 }, skill_sales: skillSales || { n: 0, net: 0 },
+    skills_shared: projects.results.filter((p) => p.open_implementation && p.status === 'live').length,
+    projects: projects.results.map((p) => ({ ...card(origin, p), live_version: p.live_version, preview_version: p.preview_version, sales: p.sales, skill_price_cents: p.skill_price_cents, skill_sales: p.skill_sales, updated_at: p.updated_at })),
   });
 });
 
@@ -964,6 +1008,10 @@ api.get('/console/projects/:id', async (c) => {
     listFiles(c.env, p.id),
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
   ]);
+  const [skillSales, skillRows] = await Promise.all([
+    db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
+    db.prepare('SELECT version, description, written_by, updated_at, LENGTH(content) AS characters FROM game_skills WHERE project_id = ? ORDER BY version DESC LIMIT 10').bind(p.id).all(),
+  ]);
   const s = await getSettings(c.env), trials = await trialStats(c.env, p.id);
   // The newest version's store-page metadata: what publishing still needs (field ids), and the age rating it works out to.
   const newest = versions.results[0], vm = newest ? await ensureVersionMeta(c.env, newest).catch(() => null) : null;
@@ -974,7 +1022,13 @@ api.get('/console/projects/:id', async (c) => {
     versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
-    split: p.price_cents > 0 ? splitSale(p.price_cents, s, !!p.open_implementation) : null,
+    split: p.price_cents > 0 ? splitSale(p.price_cents, s, freeSkillShared(p)) : null,
+    skill: {
+      shared: !!p.open_implementation, price_cents: p.skill_price_cents || 0, sales: skillSales, copies: p.skill_copies, views: p.skill_views,
+      split: p.skill_price_cents > 0 ? splitSkillSale(p.skill_price_cents, s) : null, versions: skillRows.results,
+      live: await liveSkill(c.env, p).then((l) => l && { version: l.row.version, in_sync: l.current, written_by_platform: l.generated }).catch(() => null),
+      newest_version: p.preview_version, required_to_publish: !!s.skill_required_to_publish,
+    },
     trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },
     online: await onlineNow(c.env, p.id),
     implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
@@ -1059,6 +1113,7 @@ api.patch('/console/projects/:id', async (c) => {
   const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, any>));
   if (b.price_cents !== undefined || b.trial_minutes !== undefined) await updateProjectMeta(c.env, p, { price_cents: b.price_cents, trial_minutes: b.trial_minutes });
   if (b.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(b.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(b.trial_minutes))} min` : 'Free trial turned off', null, 'console');
+  if (b.skill_price_cents !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, b.skill_price_cents, 'console');
   if (typeof b.open_implementation === 'boolean') await setOpenImplementation(c.env, p, b.open_implementation, 'console');
   return c.json({ ok: true });
 });
@@ -1076,8 +1131,13 @@ api.get('/console/earnings', async (c) => {
     db.prepare('SELECT id, amount_cents, method, status, error, created_at, settled_at FROM withdrawals WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').bind(u.id).all(),
     db.prepare("SELECT p.title, p.slug, COUNT(*) AS n, SUM(x.price_cents) AS gross, SUM(x.fee_cents) AS fees, SUM(x.net_cents) AS net FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid' GROUP BY x.project_id ORDER BY net DESC").bind(u.id).all(),
   ]);
+  const [gameTotal, skills] = await Promise.all([
+    db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(fee_cents), 0) AS fees, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first(),
+    skillSalesOf(c.env, u.id),
+  ]);
   return c.json({
     balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: Math.ceil(holdMs(s, now() - u.created_at) / 86400000), fee_percent: s.platform_fee_percent, fee_open_percent: s.platform_fee_open_percent,
+    skill_fee_percent: s.skill_fee_percent, game_sales: gameTotal, skill_sales: skills.total, by_skill: skills.by_game,
     payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, auto: !!s.auto_payouts, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
   });
 });

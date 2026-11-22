@@ -35,6 +35,7 @@ import { Browse } from './pages/Browse';
 import { Categories, Category } from './pages/Categories';
 import { Queue } from './pages/Queue';
 import { Library } from './pages/Library';
+import { CreatorStore, SkillPage } from './pages/CreatorStore';
 import { Legal, LEGAL_DOCS, legalTitle, type LegalDoc } from './pages/Legal';
 import { OPERATOR } from './operator';
 import { SearchBox, StoreBar } from './store';
@@ -79,7 +80,8 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
           <nav className="nav-links" aria-label={t('Main', '主导航')}>
             <Link to="/" className={'nl' + (isStore(path) ? ' on' : '')}>{t('Store', '商店')}</Link>
             {user && <Link to="/library" className={on('/library')}>{t('Library', '游戏库')}</Link>}
-            <Link to="/create" className={on('/create')}>{t('For creators', '创作者')}</Link>
+            <Link to="/create" className={'nl' + (path === '/create' ? ' on' : '')}>{t('For creators', '创作者')}</Link>
+            <Link to="/creator-store" className={on('/creator-store')}>{t('Creator Store', '创作者商店')}</Link>
             <Link to="/docs" className={on('/docs')}>{t('Docs', '文档')}</Link>
             {user?.makes_games && <Link to="/console" className={on('/console')}>{t('Console', '控制台')}</Link>}
             {user?.role === 'admin' && <Link to="/admin" className={on('/admin')}>{t('Admin', '管理')}</Link>}
@@ -97,6 +99,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                     <Link to="/library">{t('Library', '游戏库')}</Link>
                     {/* the creator's side, only for creators: a player-only account has no console or earnings to look at */}
                     {user.makes_games && <><Link to="/console">{t('Console', '控制台')}</Link><Link to="/console/earnings">{t('Earnings', '收益')}</Link></>}
+                    <Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link>
                     <Link to="/docs">{t('Docs', '文档')}</Link>
                     <Link to="/account">{t('Account', '账户')}</Link>
                     {user.role === 'admin' && <Link to="/admin">{t('Admin', '管理后台')}</Link>}
@@ -118,7 +121,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
         <Link to="/" className={path === '/' || path.startsWith('/g/') ? 'on' : ''}><Icon kind="store" /><span>{t('Store', '商店')}</span></Link>
         <Link to="/categories" className={path === '/categories' || path === '/browse' || path.startsWith('/c/') ? 'on' : ''}><Icon kind="grid" /><span>{t('Categories', '分类')}</span></Link>
         {user && <Link to="/library" className={path === '/library' ? 'on' : ''}><Icon kind="shelf" /><span>{t('Library', '游戏库')}</span></Link>}
-        <Link to="/create" className={path.startsWith('/create') || path.startsWith('/docs') ? 'on' : ''}><Icon kind="spark" /><span>{t('Creators', '创作者')}</span></Link>
+        <Link to="/create" className={path === '/create' || path.startsWith('/creator-store') || path.startsWith('/docs') ? 'on' : ''}><Icon kind="spark" /><span>{t('Creators', '创作者')}</span></Link>
         {user?.makes_games ? <Link to="/console" className={path.startsWith('/console') || path.startsWith('/admin') ? 'on' : ''}><Icon kind="desk" /><span>{t('Console', '控制台')}</span></Link>
           : user ? <Link to="/account" className={path === '/account' ? 'on' : ''}><Icon kind="user" /><span>{t('Account', '账户')}</span></Link>
           : <Link to={onAuth ? '/login' + keep : loginUrl()} className={onAuth ? 'on' : ''}><Icon kind="user" /><span>{t('Sign in', '登录')}</span></Link>}
@@ -174,6 +177,8 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/account') return <Account />;
   if (path === '/library') return <Library />;
   if (path === '/create') return <Creators />;
+  if (path === '/creator-store') return <CreatorStore />;
+  if ((m = path.match(/^\/creator-store\/([^/]+)$/))) return <SkillPage key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/docs') return <Docs />;
   if (path === '/license') return <License />;
   // The console is for creators only: without a valid license every console page is the Get License page.
@@ -228,7 +233,7 @@ function App() {
             <p className="foot-web">{t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</p>
           </div>
           <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link></nav>
-          <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
+          <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
           <nav className="foot-col" aria-label={t('Legal', '法律信息')}><b>{t('Legal', '法律信息')}</b>{LEGAL_DOCS.map((d) => <Link key={d} to={`/legal/${d}`}>{legalTitle(d)}</Link>)}</nav>
         </div>
         <div className="foot-note">

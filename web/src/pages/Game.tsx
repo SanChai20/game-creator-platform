@@ -312,7 +312,7 @@ export function Game({ slug }: { slug: string }) {
                 [t('Runs on', '运行平台'), data.compat ? <a href="#compatibility" className="sig">{t('See compatibility', '查看兼容性')}</a> : t('Any modern browser', '任意现代浏览器')],
               ]} />
             </Card>
-            {g.open_implementation && <p className="dim fs-sm">{t('Open implementation: its creator lets other developers\' agents learn how it is built, never its code.', '开放实现：作者允许其他开发者的智能体了解它的实现方式，但不包括代码。')}</p>}
+            {g.open_implementation && <p className="dim fs-sm">{t('Open implementation: its creator shares how it is built as a build skill, never its code.', '开放实现：作者以构建技能的形式分享它的制作方式，但不包括代码。')} <Link to={`/creator-store/${g.slug}`} className="sig">{g.skill_price_cents > 0 ? t('Get the build skill', '获取构建技能') : t('Copy the build skill', '复制构建技能')} →</Link></p>}
           </aside>
         </div>
         <MoreFrom owner={g.owner_id} author={g.author} slug={g.slug} />
