@@ -4,6 +4,7 @@ import { getSettings } from './settings';
 import { stripe, stripeReady } from './stripe';
 import { now, rid } from './util';
 import { payoutSentMail } from './mail';
+import { availableRow } from './earnings';
 
 /**
  * Takes `amount` off a creator's available balance and, for Stripe, sends the Transfer. Used by the Withdraw button and
@@ -19,7 +20,7 @@ export async function startWithdrawal(env: Env, userId: string, amount: number, 
     env.DB.prepare(
       `INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at)
        SELECT ?1, 'withdrawal', -?2, ?3, 'Withdrawal', ?4, ?4
-       WHERE (SELECT COALESCE(SUM(CASE WHEN available_at <= ?4 OR amount_cents < 0 THEN amount_cents ELSE 0 END), 0) FROM ledger WHERE user_id = ?1) >= ?2`).bind(userId, amount, id, t),
+       WHERE (SELECT COALESCE(SUM(CASE WHEN ${availableRow('lb', '?4')} THEN lb.amount_cents ELSE 0 END), 0) FROM ledger lb WHERE lb.user_id = ?1) >= ?2`).bind(userId, amount, id, t),
     env.DB.prepare("INSERT INTO withdrawals (id, user_id, amount_cents, method, details, status, created_at) SELECT ?1, ?2, ?3, ?4, ?5, 'pending', ?6 WHERE EXISTS (SELECT 1 FROM ledger WHERE ref = ?1 AND kind = 'withdrawal')")
       .bind(id, userId, amount, method, details.slice(0, 500), t),
   ]);
@@ -39,7 +40,7 @@ export async function autoPayouts(env: Env, max = 200): Promise<void> {
   if (!s.auto_payouts || !stripeReady(env)) return;
   const t = now();
   const rows = await env.DB.prepare(
-    `SELECT u.id, SUM(CASE WHEN l.available_at <= ?1 OR l.amount_cents < 0 THEN l.amount_cents ELSE 0 END) AS available
+    `SELECT u.id, SUM(CASE WHEN ${availableRow('l', '?1')} THEN l.amount_cents ELSE 0 END) AS available
      FROM users u JOIN ledger l ON l.user_id = u.id
      WHERE u.stripe_account IS NOT NULL AND u.stripe_payouts_enabled = 1 AND u.status = 'active'
        AND NOT EXISTS (SELECT 1 FROM withdrawals w WHERE w.user_id = u.id AND w.status = 'pending')

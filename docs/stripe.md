@@ -16,13 +16,31 @@ HearthCade is a marketplace on Stripe Connect with **separate charges and transf
 
 Creator licenses (`POST /api/billing/license` with `plan` "term" or "lifetime", see `src/license.ts`) are plain one-time Checkout payments to the platform, never subscriptions. A license paid for while the account already holds a valid one is refunded at once.
 
-**Refunds.** A buyer refunds a game themselves from its page (`POST /api/games/:slug/refund`) when it was bought less
-than `refund_window_hours` ago (default 24) and played less than `refund_max_play_minutes` (default 30, free trial
-included), once per game. Play time is the platform's own measure: each session counts from when the platform started
-it to the last check-in of the store page showing the game, which checks in every 30 seconds (`plays.seen_at`, see
-`src/play-clock.ts`). The game's heartbeats and service calls do not count, so a game can neither hide play time nor
-keep a session going after the player left to block a refund. After that a purchase is final; an admin can still refund
-from the console where the law requires it. Game checkouts collect a required consent checkbox (Checkout's
+**Refunds.** A buyer refunds a game themselves from its page or from Purchases and refunds (`POST /api/me/purchases/:id/refund`,
+or `POST /api/games/:slug/refund` for their current purchase; `GET /api/me/purchases` lists every purchase with its refund
+state) when it was bought less than `refund_window_hours` ago (default 24) and played less than `refund_max_play_minutes`
+(default 10, free trial included), once per game: a game refunded and bought again is final. The server checks every rule
+and refunds an eligible purchase through Stripe at once (`POST /v1/refunds`, idempotency key `refund:<purchase>`); when a
+purchase does not qualify, the page shows the button greyed out with each reason. Play time is the platform's own measure:
+each session counts from when the platform started it to the last check-in of the store page showing the game, which
+checks in every 30 seconds (`plays.seen_at`, see `src/play-clock.ts`). The game's heartbeats and service calls do not
+count, so a game can neither hide play time nor keep a session going after the player left to block a refund.
+
+What the platform cannot settle by itself becomes a request for an admin (Admin, Money, Refunds): an account that refunded
+`refund_limit_count` games (default 3) within `refund_limit_days` (default 30) loses self-service until an admin restores
+it, heartbeats that ran past the page's check-ins (the play time cannot be confirmed), `refund_auto` off, or Stripe not
+answering. A request is judged by when it was made; while it is open the sale's credit is held from payouts.
+
+The books of a refund (`src/refunds.ts` `settleRefund`, stored on its `refund_requests` row): the buyer gets the full
+price back; the creator's credit for the sale is taken back (ledger `refund`), and when their share was already paid out
+the shortfall is reversed from their latest Transfer (`POST /v1/transfers/:id/reversals`, ledger `transfer_reversal`);
+the platform gives back its own cut (`platform_fee_cents`); Stripe keeps its processing fee (read from the charge's
+balance transaction), which the platform absorbs or the creator bears as a ledger `refund_fee` debit, by the admin
+setting `refund_fee_bearer` (platform by default). Sales are separate charges and transfers, so there is no application
+fee object to refund: the platform's cut lives in the purchase row. Stripe says a refund takes 5 to 10 business days to
+reach the buyer's statement, and the confirmation and emails say so. After the window a purchase is final; an admin can
+still refund from the console where the law requires it, with the same books.
+Game checkouts collect a required consent checkbox (Checkout's
 `consent_collection.terms_of_service`) in which the buyer asks for immediate access and gives up the EU/UK 14-day right
 to cancel. If live mode refuses it, set the terms of service URL (`https://hearthcade.com/legal/terms`) under
 Settings → Business → Public details.
@@ -57,8 +75,9 @@ Create a restricted key (`rk_…`) named "HearthCade Worker" with only these per
 | Resource | Why |
 | --- | --- |
 | Checkout Sessions | Create sessions; retrieve and list them (Read is not enough) |
-| Refunds | Admin refunds; automatic refund of a duplicate purchase |
-| Transfers | Creator withdrawals |
+| Refunds | Buyers' self-service refunds, admin refunds, automatic refund of a duplicate purchase |
+| Transfers | Creator withdrawals; reversing part of a Transfer when a sale already paid out is refunded |
+| PaymentIntents, Charges, Balance (**Read**) | The processing fee Stripe keeps on a refunded charge, for the refund's books and `refund_fee_bearer` (without them the fee is recorded as unknown and nothing is charged to the creator) |
 | Accounts v2 (`v2_account_storer_write` and account links) | Create a creator's payout account, read its status, onboarding links |
 
 If a call fails with a 403 in the sandbox, `stripe logs tail` names the missing permission. Add an IP access policy to

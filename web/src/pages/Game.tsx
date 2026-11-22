@@ -13,6 +13,7 @@ import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, ty
 import type { Lang } from '../lib';
 import { legalTitle } from './Legal';
 import { OPERATOR } from '../operator';
+import { RefundBox, type RefundState } from '../refund-ui';
 
 /** Under the Buy button: who the seller is, and the terms a purchase falls under. */
 const SoldBy = () => <p className="dim fs-xs sold-by">{t('Sold by {op}. Payments by Stripe.', '由 {op} 销售，付款由 Stripe 处理。', { op: OPERATOR.name })} <Link to="/legal/terms">{legalTitle('terms')}</Link> · <Link to="/legal/refunds">{legalTitle('refunds')}</Link></p>;
@@ -175,10 +176,6 @@ export function Game({ slug }: { slug: string }) {
     if (!user) return navigate(loginUrl());
     void act('buy', async () => { const r = await api<{ url: string }>(`/games/${slug}/buy`, { method: 'POST' }); location.href = r.url; });
   };
-  const refund = () => {
-    if (!confirm(t('Refund {title}? The money goes back to how you paid, and the game leaves your library. Each game can be refunded once.', '确定为 {title} 退款吗？款项将原路退回，该游戏会从你的游戏库中移除。每款游戏只能退款一次。', { title: local(g, 'title') }))) return;
-    void act('refund', async () => { await api(`/games/${slug}/refund`, { method: 'POST' }); await reload(); }, t('Refunded. The money is on its way back to you.', '已退款，款项正在退回给你。'));
-  };
   // The library: a free game is added (or removed) here; a paid one is in it from the moment it is bought.
   const inLibrary = data.library as 'bought' | 'added' | null;
   const toggleLibrary = () => act('lib', async () => { await api(`/me/library/${slug}`, { method: inLibrary ? 'DELETE' : 'POST' }); await reload(); },
@@ -256,7 +253,7 @@ export function Game({ slug }: { slug: string }) {
                 {user && (inLibrary === 'bought' ? <p className="gp-buy-note gp-lib"><Link to="/library">{t('In your library', '已在你的游戏库中')} →</Link></p>
                   : !paid ? <div className="gp-lib"><Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>{inLibrary && <Link to="/library" className="fs-sm">{t('Open library', '打开游戏库')}</Link>}</div> : null)}
                 <p className="gp-buy-note">{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
-                {data.refund_until && <p className="gp-buy-note">{t('Not what you hoped? You can refund it until {time}, while you have played less than {minutes} minutes.', '不满意？在 {time} 前且游玩不足 {minutes} 分钟时，你可以申请退款。', { time: dateTime(data.refund_until), minutes: Number(config.settings.refund_max_play_minutes ?? 30) })} <Button size="sm" variant="ghost" onClick={refund} disabled={busy === 'refund'}>{t('Refund', '退款')}</Button></p>}
+                {data.refund && !data.is_owner && <RefundBox st={data.refund as RefundState} title={title} onDone={reload} />}
                 {data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}
                 {meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}
               </div>

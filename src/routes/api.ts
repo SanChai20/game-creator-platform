@@ -9,7 +9,8 @@ import { ensurePreview } from '../cleanup';
 import { deleteAccount, deleteBlocker, newResetToken, takeResetToken } from '../account';
 import { passwordResetMail } from '../mail';
 import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
-import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
+import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
+import { gameRefundState, purchaseHistory, requestRefund, stripePay } from '../refunds';
 import { liveSkill, setSkillPrice, skillCopied, skillSalesOf, storeItem, storeList } from '../skills';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
@@ -474,7 +475,8 @@ api.get('/games/:slug', async (c) => {
     if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
   }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
-  const refundable = u && p.price_cents > 0 ? await refundablePurchase(c.env, s, u.id, p.id) : null;
+  // the buyer's refund: whether the Refund button is enabled, and every reason it is not (src/refunds.ts)
+  const refund = u && p.price_cents > 0 && u.id !== p.owner_id ? await gameRefundState(c.env, s, u.id, p.id) : null;
   const [v, on] = await Promise.all([
     p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
     s.play_clock_do ? c.env.DB.prepare('SELECT live_players AS n FROM game_online WHERE project_id = ? AND updated_at > ?').bind(p.id, now() - CLOCK_ONLINE_FRESH_MS).first<{ n: number }>()
@@ -489,9 +491,8 @@ api.get('/games/:slug', async (c) => {
     library,
     // where this player left off (null when they have nothing saved here): the page's Continue button
     continue: resume,
-    // Until when this buyer can still refund the game themselves (null once the window has passed or it was refunded before).
-    refund_until: refundable?.until ?? null,
-    refund_play_left: refundable ? Math.max(0, s.refund_max_play_minutes * 60 - refundable.played_seconds) : null,
+    // This buyer's purchase of it: the Refund button, enabled or greyed out with every reason (null without a paid purchase).
+    refund,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
@@ -797,22 +798,36 @@ api.post('/plays/:sid/seen', async (c) => {
   return c.json(await checkIn(c.env, s, sid, player, b.visible_ms, now()));
 });
 
-// A buyer refunds a game themselves within the refund window (refund_window_hours after paying), once per game. The money
-// goes back through Stripe at once, access goes, and the creator's credit (still on hold, see holdMs) is taken back.
-api.post('/games/:slug/refund', async (c) => {
+// A buyer refunds a game themselves (src/refunds.ts): within refund_window_hours of buying it and with less than
+// refund_max_play_minutes played, once per game. The server checks every rule; an eligible refund goes back through
+// Stripe at once, access goes and the creator's credit (still on hold) is taken back. What the platform cannot settle
+// by itself becomes a request an admin decides. Build skills are non-refundable.
+async function buyerRefund(c: Ctx, purchaseId: string | null, projectId: string | null) {
   const u = requireUser(c), s = await getSettings(c.env);
   await rateLimit(c.env, 'refund:' + u.id, 5, 3600);
-  const p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
-  if (!p) throw notFound('That game is not available.');
+  const b = await c.req.json<{ note?: string }>().catch(() => ({} as { note?: string }));
   // the play time a refund depends on must be the clock's latest, not its last batch (src/clock-do.ts)
   if (s.play_clock_do && c.env.PLAY_CLOCK) await playClock(c.env, u.id).flush();
-  const x = await refundablePurchase(c.env, s, u.id, p.id);
-  if (!x) throw new AppError(409, s.refund_window_hours > 0 ? `A game can be refunded within ${s.refund_window_hours} hours of buying it if you have played it for less than ${s.refund_max_play_minutes} minutes, once per game.` : 'Refunds are not available.', 'not_refundable');
-  // Stripe first, keyed on the purchase: a double press or a retry refunds once. The charge.refunded webhook arrives
-  // later and finds the purchase already refunded.
-  await stripe(c.env, 'POST', '/refunds', { payment_intent: x.payment_intent, reason: 'requested_by_customer', metadata: { purchase: x.id, by: 'buyer' } }, 'refund:' + x.id);
-  await refundPurchase(c.env, { id: x.id });
-  return c.json({ ok: true });
+  let id = purchaseId;
+  if (!id) {
+    const x = await c.env.DB.prepare("SELECT id FROM purchases WHERE user_id = ? AND project_id = ? AND status = 'paid' ORDER BY created_at DESC LIMIT 1").bind(u.id, projectId).first<{ id: string }>();
+    if (!x) throw new AppError(409, 'You have no purchase of this game to refund.', 'not_refundable');
+    id = x.id;
+  }
+  const r = await requestRefund(c.env, s, u.id, id, String(b.note || ''), stripePay(c.env), c.get('origin'));
+  return c.json({ ok: true, status: r.status, id: r.id, review: r.review_reason, timeline: '5-10 business days' });
+}
+api.post('/games/:slug/refund', async (c) => {
+  const p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  return buyerRefund(c, null, p.id);
+});
+api.post('/me/purchases/:id/refund', (c) => buyerRefund(c, c.req.param('id'), null));
+// The buyer's purchase history: every game and build skill bought, each game with its refund button state.
+api.get('/me/purchases', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env);
+  c.header('cache-control', 'private, no-store');
+  return c.json(await purchaseHistory(c.env, s, u.id, c.get('origin')));
 });
 
 async function creatorFeeSession(env: Env, paymentIntent: string): Promise<string | null> {
