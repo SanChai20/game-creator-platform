@@ -62,7 +62,7 @@
   // (dispatcher/wrangler.jsonc). Uncomment when the namespace exists.
   // "dispatch_namespaces": [{ "binding": "DISPATCHER", "namespace": "gcp-games" }],
   "vars": {
-    // "cloudflare" deploys each game as its own standard Worker (today). "dispatch" deploys each game as a user Worker in
+    // "cloudflare" deploys each game as its own standard Worker. "dispatch" deploys each game as a user Worker in
     // the DISPATCH_NAMESPACE dispatch namespace (Workers for Platforms). "local" serves games from this Worker (wrangler dev).
     // Switching from "cloudflare" to "dispatch" moves every game over a few at a time (the scheduled rollout).
     // "shared" serves every game from this Worker on *.<GAME_HOST> (src/game-host.ts); only games with server-run matches

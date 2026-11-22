@@ -123,7 +123,7 @@ export const SETTING_DEFS = {
   friend_requests_per_day: { v: 50, type: 'int', group: 'Friends and chat', label: 'Friend requests one account may send per day' },
   messages_per_minute: { v: 30, type: 'int', group: 'Friends and chat', label: 'Chat messages one account may send per minute' },
   invites_per_10min: { v: 30, type: 'int', group: 'Friends and chat', label: 'Game invites one account may send per 10 minutes' },
-  dm_keep_days: { v: 365, type: 'int', group: 'Friends and chat', label: 'Days chat messages are kept' },
+  dm_keep_days: { v: 365, type: 'int', group: 'Friends and chat', label: 'Days chat messages are kept', public: true },
 
   oauth_access_ttl_s: { v: 3600, type: 'int', group: 'Agent access (OAuth)', label: 'Access token lifetime (seconds)' },
   oauth_grant_ttl_s: { v: 30 * 86400, type: 'int', group: 'Agent access (OAuth)', label: 'Authorization lifetime before the agent must be re-approved (seconds)' },

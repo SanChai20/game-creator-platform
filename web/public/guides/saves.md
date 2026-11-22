@@ -113,7 +113,7 @@ const daily = await GCP.shared.get('daily');       // readable by every player, 
 Most games need none. Add it when something must be decided where players cannot tamper with it (validating a score, a daily challenge, a shared world). Put a module at `server/index.js` in the bundle:
 
 ```js
-// server/index.js — runs inside this game's own Cloudflare Worker, for requests under /api/
+// server/index.js — run by the platform in a sandbox of its own, for requests under /api/
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -152,7 +152,7 @@ What the server module receives in `env`:
 | `env.player` | `{ id, name, guest }` of the caller, or `null` when the request carries no valid play session |
 | `env.store` | `get(key, { player })`, `set(key, value, { player })`, `delete(key, { player })`, `list(prefix, { player })`. Without `player` the data is game-wide and is what `GCP.shared.get` reads. With `player` it is that player's save, the same data `GCP.save` uses. |
 
-Rules for server code: it is an ES module with a default export that has `fetch`; it may import other files under `server/` by relative path; it has no access to the platform's own data or secrets (and `import { env } from 'cloudflare:workers'` is empty: use the `env` argument); keep each request short, because each one has a CPU time budget and a budget of outgoing requests, counting `env.store` calls (see `platform_services`, `server_code.limits`), and a request past either fails with HTTP 503 and code `limit_exceeded`. Files under `server/` are never served to players (the game Worker answers 404 for them), but there is no secrets store: a key written there stays readable to you and to the platform's checks, so use keys you can revoke. `deploy_preview` validates the syntax, and whether this platform allows server code is shown by `get_started` under `account.limits`.
+Rules for server code: it is an ES module with a default export that has `fetch`; it may import other files under `server/` by relative path; it has no access to the platform's own data or secrets (and `import { env } from 'cloudflare:workers'` is empty: use the `env` argument); keep each request short, because each one has a CPU time budget and a budget of outgoing requests, counting `env.store` calls (see `platform_services`, `server_code.limits`), and a request past either fails with HTTP 503 and code `limit_exceeded`. Files under `server/` are never served to players (the game host answers 404 for them), but there is no secrets store: a key written there stays readable to you and to the platform's checks, so use keys you can revoke. `deploy_preview` validates the syntax, and whether this platform allows server code is shown by `get_started` under `account.limits`.
 
 ## Privacy
 
