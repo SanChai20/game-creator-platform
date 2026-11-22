@@ -207,18 +207,9 @@ test('every way to go live passes through the gate, and the pipeline checks it l
   }
 });
 
-test('an unsure duplication verdict waits for an admin approval on every path, the pipeline included', async () => {
-  const report = { ...FULL, originality: { review: { slug: 'void-echoes', title: 'Void Echoes', why: 'the same title', judge_p: 0.6 } } };
-  const w = world({ report });
-  const reviewOf = async () => (await gate(w)).rules.find((r) => r.id === 'original_review');
-  let r = await reviewOf();
-  assert.equal(r.status, 'fail'); assert.equal(r.review, 'needed'); assert.match(r.reason, /Void Echoes/); assert.equal(r.waivable, false);
-  w.DB.sql.exec("UPDATE versions SET review = 'pending'"); w.v = w.DB.sql.prepare('SELECT * FROM versions WHERE n = 3').get();
-  assert.equal((await reviewOf()).code, 'awaiting_review');
-  w.DB.sql.exec("UPDATE versions SET review = 'denied', review_note = 'rename it'"); w.v = w.DB.sql.prepare('SELECT * FROM versions WHERE n = 3').get();
-  assert.match((await reviewOf()).reason, /rename it/);
-  w.DB.sql.exec("UPDATE versions SET review = 'approved'"); w.v = w.DB.sql.prepare('SELECT * FROM versions WHERE n = 3').get();
-  assert.equal((await reviewOf()).status, 'pass');
-  assert.equal((await gate(w)).ok, true);
-  await assert.rejects(waive(w.env, { id: 'a' }, w.p, 3, 'original_review', 'A long enough reason.', 3), /cannot be waived/);
+test('a close duplication match never waits for a person: the AI decides and the gate has no review rule for it', async () => {
+  const w = world({ report: { ...FULL, originality: { matches: [] } } });
+  const g = await gate(w);
+  assert.equal(g.rules.some((r) => r.id === 'original_review'), false);
+  assert.equal(g.ok, true);
 });

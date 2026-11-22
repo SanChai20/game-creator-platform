@@ -1812,8 +1812,5 @@
  "removed": "取り消し済み",
  "ended": "期限切れ",
  "until {d}": "{d} まで",
- "Release requirements": "公開要件",
- "Close to another game": "他のゲームに類似",
- "likely a copy": "コピーの可能性",
- "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "検証ブラウザで実行できなかったバージョン、または他のクリエイターのゲームに近いバージョン。公開前に担当者が確認します"
+ "Release requirements": "公開要件"
 }

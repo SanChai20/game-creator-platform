@@ -1833,8 +1833,5 @@
  "removed": "已撤銷",
  "ended": "已到期",
  "until {d}": "至 {d}",
- "Release requirements": "發布要求",
- "Close to another game": "與其他遊戲相似",
- "likely a copy": "可能是複製",
- "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "驗證瀏覽器無法執行或與其他創作者遊戲相似的版本，上線前需人工檢查"
+ "Release requirements": "發布要求"
 }
