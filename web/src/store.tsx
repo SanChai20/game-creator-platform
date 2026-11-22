@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { CountUp } from './ui/count';
 import { SkHits, SkShelf } from './skeletons';
-import { ago, api, artStyle, blurb, count, CoverImg, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, MatureTag, useLocation, Verdict, type GameCard } from './lib';
+import { ago, api, artStyle, blurb, shown, count, CoverImg, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, PriceTag, RARITY, rarity, rarityHint, recentPlays, SaleTag, seenGames, t, trialLabel, trialOf, MatureTag, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[]; group?: string | null }
@@ -79,11 +79,11 @@ export function SearchBox({ initial = '', autoFocus, big, hotkey, onSubmit }: { 
       {(big || hotkey) && !q && <kbd className="sbox-k" aria-hidden="true">/</kbd>}
       {show && (
         <div className="sbox-pop" id={id} role="listbox">
-          {hits.map((g, i) => (
+          {hits.map(shown).map((g, i) => (
             <Link key={g.id} to={`/g/${g.slug}`} className={'sbox-row' + (i === sel ? ' on' : '')} onClick={() => setOpen(false)}>
               <span className="thumb" id={`${id}-${i}`} role="option" aria-selected={i === sel} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}</span>
               <span className="grow"><b className="clip">{g.title}</b><small className="clip">{g.author} · {g.tags.slice(0, 2).map(genreName).join(' · ')}</small></span>
-              <span className="sbox-p">{price(g.price_cents)}</span>
+              <PriceTag g={g} className="sbox-p" />
             </Link>
           ))}
           {!hits.length && wait && <SkHits />}
@@ -127,7 +127,7 @@ export function StoreBar() {
                 {!genres.length && <span className="dim fs-sm">{t('Loading…', '加载中…')}</span>}
               </div>
               <div className="mega-f">
-                <Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/browse?price=under5">{t('Under $5', '5 美元以下')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link>
+                <Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/browse?price=under5">{t('Under $5', '5 美元以下')}</Link><Link to="/browse?price=sale">{t('On sale', '限时特价')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link>
               </div>
             </div>
           )}
@@ -161,7 +161,7 @@ function pickLabel(g: GameCard, i: number): string {
 }
 
 export function Spotlight({ games }: { games: GameCard[] }) {
-  const picks = games.slice(0, 6), [i, setI] = useState(0), [paused, setPaused] = useState(false);
+  const picks = games.slice(0, 6).map(shown), [i, setI] = useState(0), [paused, setPaused] = useState(false);
   const calm = useMemo(still, []);
   useEffect(() => {
     if (calm || paused || picks.length < 2) return;
@@ -188,7 +188,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
         </dl>
         <div className="hero-buy">
           <Link to={to} className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : <><i className="play-tri" aria-hidden="true" />{t('Play free', '免费游玩')}</>}</Link>
-          <span className="hero-price">{price(g.price_cents)}</span>
+          <PriceTag g={g} className="hero-price" /><SaleTag g={g} />
           {!!trial && <span className="trial-tag">{trialLabel(trial)}</span>}
         </div>
       </div>
@@ -231,7 +231,8 @@ export function Stats({ s }: { s: StoreStats }) {
 
 // ---- a game as a row ----------------------------------------------------------------------------
 /** A game as one line: art, title, genres, the verdict and the price. For long lists and tabbed lists. */
-export function GameRow({ g, onFocus, active, rank }: { g: GameCard; onFocus?: () => void; active?: boolean; rank?: number }) {
+export function GameRow({ g: raw, onFocus, active, rank }: { g: GameCard; onFocus?: () => void; active?: boolean; rank?: number }) {
+  const g = shown(raw);
   return (
     <Link to={`/g/${g.slug}`} className={'grow-row' + (active ? ' on' : '') + (rank != null ? ' has-rank' : '')} onMouseEnter={onFocus} onFocus={onFocus}>
       {rank != null && <span className="gr-rank num">{rank}</span>}
@@ -241,14 +242,14 @@ export function GameRow({ g, onFocus, active, rank }: { g: GameCard; onFocus?: (
         <span className="gr-tags">{g.tags.slice(0, 3).map((x) => <i key={x} style={hue(x)}>{genreName(x)}</i>)}</span>
       </span>
       <span className="gr-meta"><Verdict g={g} />{!!g.playing && <small className="live">{num(g.playing)} {t('playing', '人在玩')}</small>}{!g.playing && g.published_at && <small>{ago(g.published_at)}</small>}</span>
-      <span className="gr-buy">{!!trialOf(g) && <small className="gr-trial">{trialLabel(trialOf(g), true)}</small>}<span className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span></span>
+      <span className="gr-buy">{!!trialOf(g) && <small className="gr-trial">{trialLabel(trialOf(g), true)}</small>}<SaleTag g={g} /><PriceTag g={g} className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')} /></span>
     </Link>
   );
 }
 
 /** The preview beside a tabbed list: the game under the pointer, large. */
-function Preview({ g }: { g: GameCard }) {
-  const R = RARITY[rarity(g)];
+function Preview({ g: raw }: { g: GameCard }) {
+  const g = shown(raw), R = RARITY[rarity(g)];
   return (
     <Link to={`/g/${g.slug}`} className="tl-prev" key={g.id} style={hue(g.tags[0])}>
       <span className="art" style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}<MatureTag g={g} /></span>
@@ -341,7 +342,7 @@ export function Since({ newCount, since, recent: showRecent = true }: { newCount
       {recent.length > 0 && (
         <div className="since-recent">
           <span className="since-h">{t('Jump back in', '继续玩')}</span>
-          <div className="since-list">{recent.map((r) => (
+          <div className="since-list">{recent.map(shown).map((r) => (
             <Link key={r.slug} to={`/g/${r.slug}`} className="since-item">
               <span className="thumb" style={artStyle(r.slug)}>{r.cover && <img src={r.cover} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} />}</span>
               <span className="grow"><b className="clip">{r.title}</b><small>{ago(r.at)}</small></span>
@@ -358,7 +359,7 @@ export function QueueBand({ pool }: { pool: GameCard[] }) {
   const [seen] = useState(() => new Set(seenGames()));
   const left = pool.filter((g) => !seen.has(g.slug));
   if (pool.length < 3) return null;
-  const fan = (left.length ? left : pool).slice(0, 3);
+  const fan = (left.length ? left : pool).slice(0, 3).map(shown);
   return (
     <Link to="/queue" className="qband ink">
       <span className="qband-fan" aria-hidden="true">{fan.map((g, k) => <span key={g.id} className={'q' + k} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}</span>)}</span>

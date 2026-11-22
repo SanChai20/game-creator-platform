@@ -3,13 +3,13 @@
 // Free skills show in full; a paid one shows its outline until it is bought. Copy skill puts a complete SKILL.md on the
 // clipboard for the reader's own agent. Served by src/skills.ts.
 import { useEffect, useState } from 'react';
-import { api, artStyle, date, Fail, Link, loginUrl, navigate, num, query, t, usd, useAct, useApp, useData } from '../lib';
+import { api, artStyle, date, shown, type ListingI18n, Fail, Link, loginUrl, navigate, num, query, t, usd, useAct, useApp, useData } from '../lib';
 import { Badge, Button, Card, Crumbs, EmptyState, KeyValue, Notice, PageHeader, Segmented, Stat, StatGrid, Steps, Ticks } from '../ui';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { SkillMarkdown } from '../skill-md';
 
 interface SkillEntry {
-  game: { id: string; slug: string; title: string; tagline: string; by: string; tags: string[]; cover: string | null; game_page: string; plays: number; live_version: number; price_cents: number };
+  game: { id: string; slug: string; title: string; tagline: string; by: string; tags: string[]; cover: string | null; lang?: string; i18n?: ListingI18n; game_page: string; plays: number; live_version: number; price_cents: number };
   skill: { name: string; price_cents: number; free: boolean; version: number; in_sync: boolean; written_by_platform: boolean; description: string; sections: string[]; characters: number; sales: number; copies: number; updated_at: number; page: string; owned?: boolean };
 }
 interface SkillItem extends SkillEntry {
@@ -62,7 +62,8 @@ export function CreatorStore() {
   );
 }
 
-function SkillCard({ e }: { e: SkillEntry }) {
+function SkillCard({ e: raw }: { e: SkillEntry }) {
+  const e = { ...raw, game: shown(raw.game) };
   return (
     <Link to={`/creator-store/${e.game.slug}`} className="skill-card">
       <div className="thumb" style={e.game.cover ? undefined : artStyle(e.game.slug)}>{e.game.cover && <img src={e.game.cover} alt="" loading="lazy" />}</div>
@@ -90,7 +91,7 @@ export function SkillPage({ slug }: { slug: string }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <div className="wrap page"><Skeleton><SkRows n={6} /></Skeleton></div>;
-  const d = data!, g = d.game, s = d.skill;
+  const d = data!, g = shown(d.game), s = d.skill;
   const counted = () => { void api(`/creator-store/${encodeURIComponent(slug)}/copied`, { method: 'POST' }).catch(() => {}); };
   const copy = async () => {
     try { await navigator.clipboard.writeText(d.skill_md || ''); setCopied(true); setTimeout(() => setCopied(false), 1600); toast(t('Skill copied. Paste it into your agent.', '技能已复制，粘贴到你的智能体中即可。')); counted(); }

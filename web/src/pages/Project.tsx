@@ -9,6 +9,7 @@ import { CaptureButtons, FeedbackEditor, FeedbackQueue, type Shot } from '../fee
 import { projectTabs } from './Analytics';
 import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
 import { AgeBadge, ageLabel } from '../meta-ui';
+import { TestPlayers } from '../test-bots';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
 const metaField = (f: string) => ({ genre: t('Genre', '类型'), tags: t('Tags from the platform list', '平台标签'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
@@ -129,6 +130,50 @@ function FreeTrial({ id, paid, trial, max, reload }: { id: string; paid: boolean
   );
 }
 
+type SaleView = {
+  enabled: boolean; running: { price_cents: number; regular_cents: number; percent_off: number; starts_at: number; ends_at: number } | null;
+  last: { price_cents: number; starts_at: number; ended_at: number } | null; next_sale_at: number | null;
+  rules: { max_days: number; min_percent_off: number; min_price_cents: number; gap_days: number }; split: { fee: number; net: number } | null;
+};
+/** A limited-time sale (src/sales.ts): a lower price for a number of days, then the regular price again by itself. */
+function SaleCard({ id, regular, sale, reload }: { id: string; regular: number; sale: SaleView; reload: () => Promise<unknown> }) {
+  const { busy, act } = useAct(), [form, setForm] = useState<{ price: string; days: string } | null>(null);
+  const r = sale.rules, run = sale.running, most = Math.floor((regular * (100 - r.min_percent_off)) / 100);
+  const daysSoFar = run ? Math.ceil((Date.now() - run.starts_at) / 86_400_000) : 0;
+  const open = () => setForm(run ? { price: (run.price_cents / 100).toFixed(2), days: String(Math.round((run.ends_at - run.starts_at) / 86_400_000)) } : { price: (Math.max(r.min_price_cents, Math.round(regular * 0.75)) / 100).toFixed(2), days: String(Math.min(7, r.max_days)) });
+  const save = () => act('sale', async () => {
+    const cents = Math.round(parseFloat(form?.price || '') * 100), days = Number(form?.days);
+    if (!Number.isFinite(cents) || cents <= 0) throw new Error(t('Enter a sale price like 2.99.', '请输入类似 2.99 的特价。'));
+    if (!Number.isInteger(days) || days < 1 || days > r.max_days) throw new Error(t('Enter a whole number of days from 1 to {max}.', '请输入 1 到 {max} 之间的整数天数。', { max: r.max_days }));
+    await api(`/console/projects/${id}`, { method: 'PATCH', body: { sale: { price_cents: cents, days } } }); setForm(null); await reload();
+  }, run ? t('Sale updated.', '特价已更新。') : t('Sale started. The store shows it now.', '特价已开始，商店已同步显示。'));
+  const end = () => { if (confirm(t('End the sale now? The game goes back to {price} at once.', '确定现在结束特价吗？游戏将立即恢复为 {price}。', { price: usd(regular) }))) void act('sale', async () => { await api(`/console/projects/${id}`, { method: 'PATCH', body: { sale: null } }); await reload(); }, t('Sale ended.', '特价已结束。')); };
+  const waiting = !run && sale.next_sale_at && sale.next_sale_at > Date.now() ? sale.next_sale_at : null;
+  return (
+    <Card title={t('Limited-time sale', '限时特价')} pad>
+      {!sale.enabled ? <p className="mute fs-sm">{t('Sales are turned off on this platform.', '平台暂未开放特价。')}</p>
+        : !(regular > 0) ? <p className="mute fs-sm">{t('Set a price first. A free game cannot go on sale.', '请先设置价格。免费游戏无法设置特价。')}</p>
+        : <>
+          {run && form === null && <>
+            <div className="row"><b className="price-big">{usd(run.price_cents)}</b><Badge tone="accent" dot={false}>−{run.percent_off}%</Badge><s className="mute">{usd(run.regular_cents)}</s></div>
+            <KeyValue items={[[t('Ends', '结束时间'), dateTime(run.ends_at)], ...(sale.split ? [[t('You receive per sale', '每笔销售你获得'), usd(sale.split.net), 'good'] as [string, string, string]] : [])]} />
+            <div className="row"><Button size="sm" onClick={open}>{t('Change', '修改')}</Button><Button size="sm" variant="ghost" onClick={end} disabled={busy === 'sale'}>{t('End sale', '结束特价')}</Button></div>
+          </>}
+          {!run && form === null && <div className="row"><span className="grow">{waiting ? t('The next sale can start {date}.', '下一次特价可于 {date} 开始。', { date: dateTime(waiting) }) : t('Not on sale.', '目前没有特价。')}</span><Button size="sm" variant="primary" onClick={open} disabled={!!waiting}>{t('Start a sale', '开始特价')}</Button></div>}
+          {form !== null && (
+            <div className="stack s">
+              <div className="price-edit"><span className="mute">$</span><Input mono inputMode="decimal" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} autoFocus aria-label={t('Sale price in US dollars', '特价（美元）')} />
+                <Input mono inputMode="numeric" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value.replace(/[^0-9]/g, '') })} aria-label={t('Sale length in days', '特价天数')} /><span className="mute">{run ? t('days in total', '天（总计）') : t('days', '天')}</span></div>
+              <div className="row"><Button variant="primary" onClick={save} disabled={busy === 'sale'}>{run ? t('Save', '保存') : t('Start sale', '开始特价')}</Button><Button variant="ghost" onClick={() => setForm(null)}>{t('Cancel', '取消')}</Button></div>
+              {run && <p className="dim fs-sm">{t('Counted from when the sale started, {days} days ago.', '从特价开始时计算，已进行 {days} 天。', { days: daysSoFar })}</p>}
+            </div>
+          )}
+          <p className="dim fs-sm">{t('Buyers pay the sale price until it ends; the store shows it with your regular price struck through and when it ends. A sale takes at least {pct}% off ({most} or less), lasts up to {max} days, and your regular price stays fixed while it runs.', '特价结束前，买家按特价付款；商店会显示特价、划掉的原价以及结束时间。特价至少优惠 {pct}%（{most} 或更低），最长 {max} 天，期间原价不可修改。', { pct: r.min_percent_off, most: usd(most), max: r.max_days })}{r.gap_days > 0 ? ' ' + t('The next sale can start {gap} days after one ends or after the regular price goes up.', '特价结束或原价上调后，需等待 {gap} 天才能开始下一次特价。', { gap: r.gap_days }) : ''}</p>
+        </>}
+    </Card>
+  );
+}
+
 export function Project({ id }: { id: string }) {
   const { config } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
@@ -145,7 +190,7 @@ export function Project({ id }: { id: string }) {
 
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <ProjectSkeleton />;
-  const p = data.project, versions = data.versions as any[];
+  const p = data.project, versions = data.versions as any[], reg: number = p.regular_price_cents ?? p.price_cents;   // the regular price; p.price_cents is the sale price during a sale
   const playPreview = () => act('pv', async () => { const r = await api<{ url: string; session: string; clock?: string }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreviewSession(r.session); setPreviewClock(r.clock || null); setPreview(r.url); });
   const offline = () => { if (confirm(t('Take this game offline? Players will not be able to open it until you put it back.', '确定下线这款游戏吗？在重新上线之前，玩家将无法打开它。'))) void act('off', async () => { await api(`/console/projects/${id}/offline`, { method: 'POST' }); await reload(); }, t('The game is offline.', '游戏已下线。')); };
   const online = () => act('on', async () => { await api(`/console/projects/${id}/online`, { method: 'POST' }); await reload(); }, t('Going back online. This takes a moment.', '正在重新上线，请稍候。'));
@@ -231,13 +276,14 @@ export function Project({ id }: { id: string }) {
             {data.metadata && <StoreMetadata m={data.metadata} />}
             <Card title={t('Price', '价格')} pad>
               {priceText === null ? (
-                <div className="row"><b className="price-big">{p.price_cents > 0 ? usd(p.price_cents) : t('Free', '免费')}</b>{s.paid_games_enabled && <Button size="sm" className="right" onClick={() => setPriceText((p.price_cents / 100).toFixed(2))}>{t('Change', '修改')}</Button>}</div>
+                <div className="row"><b className="price-big">{reg > 0 ? usd(reg) : t('Free', '免费')}</b>{s.paid_games_enabled && <Button size="sm" className="right" onClick={() => setPriceText((reg / 100).toFixed(2))} disabled={!!data.sale?.running} title={data.sale?.running ? t('End the sale to change the regular price.', '结束特价后才能修改原价。') : undefined}>{t('Change', '修改')}</Button>}</div>
               ) : (
                 <div className="price-edit"><span className="mute">$</span><Input mono inputMode="decimal" value={priceText} onChange={(e) => setPriceText(e.target.value)} autoFocus aria-label={t('Price in US dollars', '美元价格')} /><Button variant="primary" onClick={savePrice} disabled={busy === 'price'}>{t('Save', '保存')}</Button><Button variant="ghost" onClick={() => setPriceText(null)}>{t('Cancel', '取消')}</Button></div>
               )}
               {data.split ? <KeyValue items={[[t('Platform fee', '平台服务费'), usd(data.split.fee)], [t('You receive per sale', '每笔销售你获得'), usd(data.split.net), 'good']]} />
                 : <p className="mute fs-sm">{s.paid_games_enabled ? t('Free to play. Set a price between {min} and {max} to sell it; the platform keeps {cut}% of each sale.', '目前免费。可在 {min} 至 {max} 之间定价销售，平台从每笔销售中收取 {cut}%。', { min: usd(s.game_price_min_cents), max: usd(s.game_price_max_cents), cut: s.platform_fee_percent }) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
             </Card>
+            {s.paid_games_enabled && data.sale && <SaleCard id={id} regular={reg} sale={data.sale as SaleView} reload={reload} />}
             {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
             <BuildSkill id={id} p={p} skill={data.skill} reload={reload} />
             <Card title={t('Details', '详情')} pad>
@@ -274,6 +320,7 @@ export function Project({ id }: { id: string }) {
             {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
           </div>;
         })()}
+        <TestPlayers projectId={id} />
         <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>
       </div></Modal>}
     </div>

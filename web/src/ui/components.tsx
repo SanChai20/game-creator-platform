@@ -41,7 +41,7 @@ export function StatusBadge({ status }: { status: string }) {
     live: ['good', t('Live', '已上线')], draft: ['neutral', t('Draft', '草稿')], offline: ['accent', t('Offline', '已下线')], removed: ['bad', t('Removed', '已移除')],
     verified: ['good', t('Verified', '已验证')], failed: ['bad', t('Failed', '未通过')], queued: ['info', t('Queued', '排队中')], deploying: ['info', t('Deploying', '部署中')], verifying: ['info', t('Verifying', '验证中')],
     paid: ['good', t('Paid', '已支付')], pending: ['accent', t('Pending', '处理中')], rejected: ['bad', t('Rejected', '已拒绝')], refunded: ['neutral', t('Refunded', '已退款')],
-    active: ['good', t('Active', '正常')], suspended: ['bad', t('Suspended', '已停用')],
+    active: ['good', t('Active', '正常')], suspended: ['bad', t('Suspended', '已停用')], disputed: ['bad', t('Disputed', '有争议')], dispute_won: ['good', t('Paid', '已支付')], closed: ['neutral', t('Closed', '已关闭')],
     approved: ['good', t('Approved', '已批准')], denied: ['bad', t('Denied', '已拒绝')], withdrawn: ['neutral', t('Withdrawn', '已撤回')],
   };
   const [tone, label] = map[status] || ['neutral', status];

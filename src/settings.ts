@@ -33,8 +33,18 @@ export const SETTING_DEFS = {
   new_creator_days: { v: 90, type: 'int', group: 'Paid games', label: 'A creator counts as new for this many days after signing up (0: nobody is new)', public: true },
   new_creator_hold_days: { v: 30, type: 'int', group: 'Paid games', label: 'Days a new creator\'s sales are held before they can be withdrawn (card disputes can arrive weeks later)', public: true },
   earnings_hold_days: { v: 3, type: 'int', group: 'Paid games', label: 'Days a sale is held before the creator can withdraw it (never shorter than the refund window)', public: true },
-  refund_window_hours: { v: 24, type: 'int', group: 'Paid games', label: 'Hours after paying that a buyer can refund a game themselves, once per game (0 turns self-serve refunds off)', public: true },
-  refund_max_play_minutes: { v: 30, type: 'int', group: 'Paid games', label: 'Most minutes a buyer can have played a game (trial included) and still refund it themselves', public: true },
+  refund_window_hours: { v: 24, type: 'int', group: 'Paid games', label: 'Hours after paying that a buyer can ask for a refund of a game, once per game (0 turns refund requests off)', public: true },
+  refund_max_play_minutes: { v: 10, type: 'int', group: 'Paid games', label: 'Minutes of play (free trial included) from which a game can no longer be refunded', public: true },
+  refund_auto: { v: true, type: 'bool', group: 'Paid games', label: 'Refund eligible games automatically when the buyer asks (off: every refund waits for an admin)', public: true },
+  refund_fee_bearer: { v: 'platform', type: 'select', options: ['platform', 'creator'], group: 'Paid games', label: 'Who bears the payment processing fee Stripe keeps when a game is refunded (platform or creator)', public: true },
+  refund_limit_count: { v: 3, type: 'int', group: 'Paid games', label: 'Refunds within the period after which an account loses self-service refunds and its refunds wait for an admin (0: no limit)', public: true },
+  // Limited-time sales (src/sales.ts)
+  sales_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to put a paid game on sale for a limited time', public: true },
+  sale_max_days: { v: 30, type: 'int', group: 'Paid games', label: 'Longest sale a creator can run (days)', public: true },
+  sale_min_percent_off: { v: 10, type: 'int', group: 'Paid games', label: 'Smallest discount a sale can offer (percent off the regular price)', public: true },
+  sale_price_min_cents: { v: 99, type: 'cents', group: 'Paid games', label: 'Lowest price a game can have on sale', public: true },
+  sale_gap_days: { v: 30, type: 'int', group: 'Paid games', label: 'Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)', public: true },
+  refund_limit_days: { v: 30, type: 'int', group: 'Paid games', label: 'Period for the refund limit (days)', public: true },
 
   play_min_seconds: { v: 30, type: 'int', group: 'Play counting', label: 'Seconds before a session counts as a play', public: true },
   play_clock_do: { v: false, type: 'bool', group: 'Play counting', label: 'Run the play clock in Durable Objects (needed for tens of thousands of players online; numbers can lag up to a minute)' },
@@ -64,6 +74,12 @@ export const SETTING_DEFS = {
   room_max_peers: { v: 16, type: 'int', group: 'Limits', label: 'Players per multiplayer room' },
   allow_matches: { v: true, type: 'bool', group: 'Limits', label: 'Allow server-run matches (server/match.js) and the matchmaker' },
   match_max_players: { v: 16, type: 'int', group: 'Limits', label: 'Players per server-run match (2 to 64)' },
+  // Preview test bots (src/bots.ts): bot players a creator adds to their own preview, connected over the real network path
+  preview_bots_enabled: { v: true, type: 'bool', group: 'Limits', label: 'Let creators add test bots to their previews (bot players that connect like real ones; preview only, never rated)', public: true },
+  preview_bots_max: { v: 15, type: 'int', group: 'Limits', label: 'Test bots per fleet (one creator, one game)', public: true },
+  preview_bots_max_minutes: { v: 30, type: 'int', group: 'Limits', label: 'Longest a test-bot fleet runs before it stops by itself (minutes)', public: true },
+  preview_bots_daily_minutes: { v: 600, type: 'int', group: 'Limits', label: 'Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)', public: true },
+  preview_bots_fleets: { v: 2, type: 'int', group: 'Limits', label: 'Test-bot fleets one creator can run at once' },
   room_msgs_per_second: { v: 60, type: 'int', group: 'Limits', label: 'Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)' },
 
   dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },

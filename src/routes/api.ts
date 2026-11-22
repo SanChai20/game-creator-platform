@@ -1,4 +1,5 @@
 // The web app's API: accounts, marketplace, play sessions, purchases, the creator console and billing.
+import { actBots, botOptions, botStatus, startBots, stopBots } from '../bots';
 import { Hono } from 'hono';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from '../env';
 import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestCookieId, guestIdentity, userFromRequest, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
@@ -8,14 +9,17 @@ import { ensurePreview } from '../cleanup';
 import { deleteAccount, deleteBlocker, newResetToken, takeResetToken } from '../account';
 import { passwordResetMail } from '../mail';
 import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
-import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundablePurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
+import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
+import { gameRefundState, purchaseHistory, requestRefund, stripePay } from '../refunds';
 import { liveSkill, setSkillPrice, skillCopied, skillSalesOf, storeItem, storeList } from '../skills';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
 import { missingToPublish, normalizeStoredTags, tagGroup } from '../../web/src/tags';
+import { listingLangs } from '../listing';
 import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { currentChecks, gateError, gateView, recordGate, releaseGate, storedGate } from '../release-gate';
+import { PRICE_NOW_SQL, applySale, checkoutExpiry, saleOf, saleView } from '../sales';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -53,9 +57,13 @@ const media = (origin: string, key: string | null) => (key ? `${origin}/api/medi
 const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.role, creator: !!u.creator, creator_since: u.creator_since,
   license: licenseOf({ ...u, creator: u.creator_licensed ?? u.creator }), payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country, two_factor: !!u.totp_enabled_at });
 
-function card(origin: string, r: Record<string, any>) {
+function card(origin: string, r: Record<string, any>, at = now()) {
+  // price_cents is what a buyer pays now; during a limited-time sale (src/sales.ts) that is the sale price, and `sale`
+  // carries the regular price (struck through in the store), the percent off and when the sale ends
+  const sale = saleOf(r as Project, at);
   return {
-    id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: normalizeStoredTags(parseJson<string[]>(r.tags, [])), /* only genres and tags on the platform list */ cover: media(origin, r.cover_key), price_cents: r.price_cents,
+    id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: normalizeStoredTags(parseJson<string[]>(r.tags, [])), /* only genres and tags on the platform list */ cover: media(origin, r.cover_key), price_cents: sale ? sale.price_cents : r.price_cents,
+    sale: sale && { regular_cents: sale.regular_cents, percent_off: sale.percent_off, ends_at: sale.ends_at },
     trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
     author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, skill_price_cents: Number(r.skill_price_cents) || 0, playing: Number(r.playing) || 0,
@@ -63,10 +71,12 @@ function card(origin: string, r: Record<string, any>) {
     age: r.age || null, mature: matureList(r),
     // on today's picks: why the game was picked (featured, trending, rising, new, gem, free, more)
     ...(r.pick ? { pick: r.pick } : {}),
-    // the title and tagline in other platform languages, when the creator translated the listing
-    ...(r.listing_i18n && r.listing_i18n !== '{}' ? { i18n: Object.fromEntries(Object.entries(parseJson<Record<string, { title?: string; tagline?: string }>>(r.listing_i18n, {})).map(([k, v]) => [k, { title: v.title, tagline: v.tagline }])) } : {}),
+    // the listing's own language and the title, tagline and cover in every other platform language the game is
+    // played in: the web app shows the viewer's language, else English, else the game's own (web/src/languages.ts)
+    ...listingLangs(r, ['title', 'tagline'], (k) => media(origin, k)),
   };
 }
+
 
 // ----- config + auth ---------------------------------------------------------------------------
 api.get('/config', async (c) => {
@@ -331,10 +341,11 @@ async function listGames(c: Ctx, o: ListOpts) {
   const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
   const limit = Math.max(1, Math.min(60, o.limit || 24)), offset = Math.max(0, Math.min(100000, o.offset || 0));
   const where = ["p.status = 'live'"], args: unknown[] = [];
-  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\')"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase()); }
+  // the title and tagline in every language the listing is in, so a game is found by its name in any of them
+  if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\' OR (p.listing_i18n != '{}' AND EXISTS (SELECT 1 FROM json_each(p.listing_i18n) j WHERE json_extract(j.value, '$.title') LIKE ? ESCAPE '\\' OR json_extract(j.value, '$.tagline') LIKE ? ESCAPE '\\')))"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase(), like, like); }
   // tag can name several genres, comma separated: a game must carry all of them
   for (const one of tag.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5)) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + one.replace(/[\\%_]/g, '\\$&') + '"%'); }
-  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') where.push('p.price_cents > 0 AND p.price_cents < 500'); else if (o.price === 'trial') where.push('p.price_cents > 0 AND p.trial_minutes > 0');
+  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') { where.push(`p.price_cents > 0 AND ${PRICE_NOW_SQL} < 500`); args.push(now()); } else if (o.price === 'sale') { where.push('p.sale_price_cents > 0 AND p.sale_ends_at > ? AND p.sale_starts_at <= ? AND p.sale_price_cents < p.price_cents'); const t = now(); args.push(t, t); } else if (o.price === 'trial') where.push('p.price_cents > 0 AND p.trial_minutes > 0');
   if (o.minRating) { where.push('p.rating_count > 0 AND p.rating_sum >= ? * p.rating_count'); args.push(Math.max(1, Math.min(5, o.minRating))); }
   if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
   if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
@@ -425,13 +436,14 @@ async function edgeCached(c: Ctx, seconds: number, make: () => Promise<Response>
 api.get('/home', (c) => edgeCached(c, 20, () => homeData(c)));
 async function homeData(c: Ctx): Promise<Response> {
   const t = now(), weekAgo = t - 7 * 86400000;
-  const [picks, trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+  const [picks, trending, playing, fresh, top, free, sale, genres, stats] = await Promise.all([
     currentPicks(c.env.DB, t),
     listGames(c, { sort: 'trending', limit: 16 }),
     listGames(c, { sort: 'playing', limit: 12 }),
     listGames(c, { sort: 'new', limit: 12 }),
     listGames(c, { sort: 'top', limit: 12 }),
     listGames(c, { sort: 'trending', price: 'free', limit: 12 }),
+    listGames(c, { sort: 'trending', price: 'sale', limit: 12 }),
     genreCounts(c, 18),
     c.env.DB.prepare(`SELECT
         (SELECT COUNT(*) FROM projects WHERE status = 'live') AS games,
@@ -446,6 +458,8 @@ async function homeData(c: Ctx): Promise<Response> {
       // today's picks lead the page (chosen each day by the schedule, src/rankings.ts)
       picks: picks.map((r) => card(c.get('origin'), r)),
       trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
+      // games on a limited-time sale right now (src/sales.ts)
+      sale: sale.games,
     },
     genres,
   });
@@ -473,14 +487,15 @@ api.get('/games/:slug', async (c) => {
     if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
   }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
-  const refundable = u && p.price_cents > 0 ? await refundablePurchase(c.env, s, u.id, p.id) : null;
+  // the buyer's refund: whether the Refund button is enabled, and every reason it is not (src/refunds.ts)
+  const refund = u && p.price_cents > 0 && u.id !== p.owner_id ? await gameRefundState(c.env, s, u.id, p.id) : null;
   const [v, on] = await Promise.all([
     p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
     s.play_clock_do ? c.env.DB.prepare('SELECT live_players AS n FROM game_online WHERE project_id = ? AND updated_at > ?').bind(p.id, now() - CLOCK_ONLINE_FRESH_MS).first<{ n: number }>()
       : c.env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ? AND env = 'live' AND seen_at > ? AND kind != 'verify'").bind(p.id, now() - ONLINE_WINDOW_MS).first<{ n: number }>(),
   ]);
   return c.json({
-    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: parseJson(p.listing_i18n, {}), version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
+    game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: listingLangs(p, ['title', 'tagline', 'description', 'controls'], (k) => media(origin, k)).i18n || {}, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
@@ -488,9 +503,8 @@ api.get('/games/:slug', async (c) => {
     library,
     // where this player left off (null when they have nothing saved here): the page's Continue button
     continue: resume,
-    // Until when this buyer can still refund the game themselves (null once the window has passed or it was refunded before).
-    refund_until: refundable?.until ?? null,
-    refund_play_left: refundable ? Math.max(0, s.refund_max_play_minutes * 60 - refundable.played_seconds) : null,
+    // This buyer's purchase of it: the Refund button, enabled or greyed out with every reason (null without a paid purchase).
+    refund,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
@@ -671,15 +685,17 @@ api.post('/games/:slug/reviews', async (c) => {
 const MEDIA_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
 api.get('/media/*', async (c) => {
   const key = decodeURIComponent(new URL(c.req.url).pathname.replace(/^\/api\/media\//, ''));
-  // shots/<project>/<version>[-play-i].ext and covers/<project>-<time>.ext
-  const m = key.match(/^(shots)\/([A-Za-z0-9_\-]+)\/([A-Za-z0-9_.\-]+)$/) || key.match(/^(covers)\/([A-Za-z0-9_]+)-([A-Za-z0-9]+\.[a-z0-9]+)$/);
+  // shots/<project>/<version>[-play-i].ext, covers/<project>-<time>.ext and a language's cover covers/<project>-<lang>-<time>.ext
+  const m = key.match(/^(shots)\/([A-Za-z0-9_\-]+)\/([A-Za-z0-9_.\-]+)$/) || key.match(/^(covers)\/([A-Za-z0-9_]+)-((?:[A-Za-z]{2}(?:-[A-Za-z]{2})?-)?[A-Za-z0-9]+\.[a-z0-9]+)$/);
   if (!m || key.includes('..')) throw notFound();
   // Public only for a live game's cover and the pictures of versions that went live. A draft's, a removed game's or the
   // verifier's frames of an unpublished version are for the creator and admins.
-  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null }>();
+  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key, listing_i18n FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null; listing_i18n: string | null }>();
   if (!p) throw notFound();
   const n = m[1] === 'shots' ? Number((m[3].match(/^(\d+)/) || [])[1]) : NaN;
-  const published = p.status === 'live' && (key === p.cover_key || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
+  // a live game's covers: the main one and each listing language's (update_project covers)
+  const langCover = m[1] === 'covers' && Object.values(parseJson<Record<string, { cover_key?: string }>>(p.listing_i18n || '{}', {})).some((x) => x?.cover_key === key);
+  const published = p.status === 'live' && (key === p.cover_key || langCover || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
   const u = c.get('user');
   if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
   // Only pictures, typed by their name, never by what was stored with them: this is the platform's own origin, so an
@@ -695,7 +711,7 @@ api.get('/media/*', async (c) => {
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------
-async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false) {
+async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false, closeBy?: number) {
   // A build skill is final once bought: it shows in full the moment the payment succeeds and is never refunded.
   const skill = metadata.kind === 'skill';
   const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
@@ -716,6 +732,7 @@ async function checkout(c: Ctx, u: User, name: string, amount: number, metadata:
     },
     ...(digitalGoods ? { consent_collection: { terms_of_service: 'required' } } : {}),
     success_url: `${origin}${back}${back.includes('?') ? '&' : '?'}paid={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}${back}`,
+    ...(closeBy ? { expires_at: checkoutExpiry(closeBy) } : {}),
   });
   return c.json({ url: session.url });
 }
@@ -768,7 +785,11 @@ api.post('/games/:slug/buy', async (c) => {
   if (p.price_cents <= 0) throw bad('This game is free.');
   if (u.id === p.owner_id) throw bad('This is your own game.');
   if (await owns(c.env, u.id, p.id)) throw new AppError(409, 'You already own this game.', 'already');
-  return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`, true);
+  // During a sale the buyer pays the sale price. The checkout closes when the sale ends (Stripe keeps a session open at
+  // least 30 minutes), so a sale price is never charged long after the sale. Stripe's amount_total is what gets recorded,
+  // and what a refund gives back.
+  const sale = saleOf(p), amount = sale ? sale.price_cents : p.price_cents;
+  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
 });
 
 // The page showing a game (the store page, or the console's preview) checks in every 30 seconds while the game is open,
@@ -796,22 +817,36 @@ api.post('/plays/:sid/seen', async (c) => {
   return c.json(await checkIn(c.env, s, sid, player, b.visible_ms, now()));
 });
 
-// A buyer refunds a game themselves within the refund window (refund_window_hours after paying), once per game. The money
-// goes back through Stripe at once, access goes, and the creator's credit (still on hold, see holdMs) is taken back.
-api.post('/games/:slug/refund', async (c) => {
+// A buyer refunds a game themselves (src/refunds.ts): within refund_window_hours of buying it and with less than
+// refund_max_play_minutes played, once per game. The server checks every rule; an eligible refund goes back through
+// Stripe at once, access goes and the creator's credit (still on hold) is taken back. What the platform cannot settle
+// by itself becomes a request an admin decides. Build skills are non-refundable.
+async function buyerRefund(c: Ctx, purchaseId: string | null, projectId: string | null) {
   const u = requireUser(c), s = await getSettings(c.env);
   await rateLimit(c.env, 'refund:' + u.id, 5, 3600);
-  const p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
-  if (!p) throw notFound('That game is not available.');
+  const b = await c.req.json<{ note?: string }>().catch(() => ({} as { note?: string }));
   // the play time a refund depends on must be the clock's latest, not its last batch (src/clock-do.ts)
   if (s.play_clock_do && c.env.PLAY_CLOCK) await playClock(c.env, u.id).flush();
-  const x = await refundablePurchase(c.env, s, u.id, p.id);
-  if (!x) throw new AppError(409, s.refund_window_hours > 0 ? `A game can be refunded within ${s.refund_window_hours} hours of buying it if you have played it for less than ${s.refund_max_play_minutes} minutes, once per game.` : 'Refunds are not available.', 'not_refundable');
-  // Stripe first, keyed on the purchase: a double press or a retry refunds once. The charge.refunded webhook arrives
-  // later and finds the purchase already refunded.
-  await stripe(c.env, 'POST', '/refunds', { payment_intent: x.payment_intent, reason: 'requested_by_customer', metadata: { purchase: x.id, by: 'buyer' } }, 'refund:' + x.id);
-  await refundPurchase(c.env, { id: x.id });
-  return c.json({ ok: true });
+  let id = purchaseId;
+  if (!id) {
+    const x = await c.env.DB.prepare("SELECT id FROM purchases WHERE user_id = ? AND project_id = ? AND status = 'paid' ORDER BY created_at DESC LIMIT 1").bind(u.id, projectId).first<{ id: string }>();
+    if (!x) throw new AppError(409, 'You have no purchase of this game to refund.', 'not_refundable');
+    id = x.id;
+  }
+  const r = await requestRefund(c.env, s, u.id, id, String(b.note || ''), stripePay(c.env), c.get('origin'));
+  return c.json({ ok: true, status: r.status, id: r.id, review: r.review_reason, timeline: '5-10 business days' });
+}
+api.post('/games/:slug/refund', async (c) => {
+  const p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  return buyerRefund(c, null, p.id);
+});
+api.post('/me/purchases/:id/refund', (c) => buyerRefund(c, c.req.param('id'), null));
+// The buyer's purchase history: every game and build skill bought, each game with its refund button state.
+api.get('/me/purchases', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env);
+  c.header('cache-control', 'private, no-store');
+  return c.json(await purchaseHistory(c.env, s, u.id, c.get('origin')));
 });
 
 async function creatorFeeSession(env: Env, paymentIntent: string): Promise<string | null> {
@@ -1029,11 +1064,14 @@ api.get('/console/projects/:id', async (c) => {
   const metadata = newest ? { version: newest.n, required: s.metadata_required, missing: missingToPublish(vm?.meta, !!vm?.compat?.declared, JSON.parse(p.tags || '[]')).map((m) => m.split(' ')[0]), age: vm?.meta?.rating?.age ?? null, declared: vm?.meta?.declared ?? [] } : null;
   return c.json({
     metadata,
-    project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
+    project: { ...card(origin, { ...p, author: u.name }), regular_price_cents: p.price_cents, open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => { const g = storedGate(v); return { ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required), current: currentChecks(v, s), release: g ? gateView(g) : null }; }),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s, freeSkillShared(p)) : null,
+    // the limited-time sale: the one running (with what the creator receives per sale at that price), the last one, and
+    // when the next can start (src/sales.ts)
+    sale: (() => { const v = saleView(p, s); return { ...v, split: v.running ? splitSale(v.running.price_cents, s, freeSkillShared(p)) : null }; })(),
     skill: {
       shared: !!p.open_implementation, price_cents: p.skill_price_cents || 0, sales: skillSales, copies: p.skill_copies, views: p.skill_views,
       split: p.skill_price_cents > 0 ? splitSkillSale(p.skill_price_cents, s) : null, versions: skillRows.results,
@@ -1044,6 +1082,26 @@ api.get('/console/projects/:id', async (c) => {
     online: await onlineNow(c.env, p.id),
     implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
   });
+});
+
+// Preview test bots (src/bots.ts): bot players that join the creator's own preview over the real network path.
+api.get('/console/projects/:id/bots', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const [options, status] = await Promise.all([botOptions(c.env, p, u), botStatus(c.env, u, p.id)]);
+  return c.json({ options, status });
+});
+api.post('/console/projects/:id/bots', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  await rateLimit(c.env, 'bots:' + u.id, 30, 3600);
+  return c.json(await startBots(c.env, c.get('origin'), u, c.req.param('id'), b));
+});
+api.post('/console/projects/:id/bots/act', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  return c.json(await actBots(c.env, u, c.req.param('id'), b));
+});
+api.delete('/console/projects/:id/bots', async (c) => {
+  const u = requireUser(c);
+  return c.json(await stopBots(c.env, u, c.req.param('id')));
 });
 
 /** Players who started a free trial of this game, and how many of them then bought it. */
@@ -1131,6 +1189,7 @@ api.patch('/console/projects/:id', async (c) => {
   if (b.price_cents !== undefined || b.trial_minutes !== undefined) await updateProjectMeta(c.env, p, { price_cents: b.price_cents, trial_minutes: b.trial_minutes });
   if (b.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(b.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(b.trial_minutes))} min` : 'Free trial turned off', null, 'console');
   if (b.skill_price_cents !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, b.skill_price_cents, 'console');
+  if (b.sale !== undefined) await applySale(c.env, p, b.sale, 'console');
   if (typeof b.open_implementation === 'boolean') await setOpenImplementation(c.env, p, b.open_implementation, 'console');
   return c.json({ ok: true });
 });

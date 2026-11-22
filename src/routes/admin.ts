@@ -2,7 +2,8 @@
 import { Hono } from 'hono';
 import { AppError, bad, notFound, type Env, type User } from '../env';
 import { requireAdmin } from '../auth';
-import { balanceOf, freeSkillShared, recordPurchase, refundPurchase } from '../earnings';
+import { balanceOf, freeSkillShared, recordPurchase } from '../earnings';
+import { adminRefund, adminRefundRequests, decideRefund, setRefundReview, stripePay } from '../refunds';
 import { getProject, getVersion, logEvent } from '../projects';
 import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
@@ -245,7 +246,7 @@ admin.get('/money', async (c) => {
     db.prepare('SELECT w.id, w.amount_cents, w.method, w.details, w.status, w.error, w.provider_ref, w.created_at, w.settled_at, u.email, u.name FROM withdrawals w JOIN users u ON u.id = w.user_id ORDER BY (w.status = \'pending\') DESC, w.created_at DESC LIMIT 200').all(),
     db.prepare("SELECT x.id, 'skill' AS item, x.price_cents, x.fee_cents, x.net_cents, x.status, x.provider, x.created_at, p.title, p.slug, b.email AS buyer, o.email AS creator FROM skill_purchases x JOIN projects p ON p.id = x.project_id JOIN users b ON b.id = x.user_id JOIN users o ON o.id = x.owner_id ORDER BY x.created_at DESC LIMIT 200").all(),
   ]);
-  return c.json({ purchases: [...purchases.results, ...skillPurchases.results].sort((a: any, b: any) => b.created_at - a.created_at).slice(0, 200), payments: payments.results, withdrawals: withdrawals.results });
+  return c.json({ purchases: [...purchases.results, ...skillPurchases.results].sort((a: any, b: any) => b.created_at - a.created_at).slice(0, 200), payments: payments.results, withdrawals: withdrawals.results, refunds: await adminRefundRequests(c.env) });
 });
 
 admin.post('/withdrawals/:id', async (c) => {
@@ -261,16 +262,26 @@ admin.post('/withdrawals/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// Refunds a game purchase. Build skills are non-refundable: the platform never starts a refund for one.
+// Refunds a game purchase (support cases, or where the law requires it), with the same books as a buyer's refund
+// (src/refunds.ts settleRefund). Build skills are non-refundable: the platform never starts a refund for one.
 admin.post('/purchases/:id/refund', async (c) => {
-  const x = await c.env.DB.prepare('SELECT * FROM purchases WHERE id = ?').bind(c.req.param('id')).first<{ id: string; status: string; provider: string; payment_intent: string | null }>();
-  if (!x) {
-    if (await c.env.DB.prepare('SELECT 1 FROM skill_purchases WHERE id = ?').bind(c.req.param('id')).first()) throw new AppError(409, 'Build skills are non-refundable.', 'skill_non_refundable');
-    throw notFound();
-  }
-  if (x.status !== 'paid') throw bad('Already refunded.');
-  if (x.provider === 'stripe' && x.payment_intent) await stripe(c.env, 'POST', '/refunds', { payment_intent: x.payment_intent }, 'refund:' + x.id);
-  await refundPurchase(c.env, { id: x.id });
+  const me = requireAdmin(c as any);
+  await adminRefund(c.env, await getSettings(c.env), me.id, c.req.param('id'), stripePay(c.env), c.get('origin'));
+  return c.json({ ok: true });
+});
+
+// A refund waiting for the platform: approve (refund it) or deny (with a note the buyer reads).
+admin.post('/refunds/:id', async (c) => {
+  const me = requireAdmin(c as any), b = await c.req.json<{ action?: string; note?: string }>().catch(() => ({} as any));
+  if (b.action !== 'approve' && b.action !== 'deny') throw bad('action must be "approve" or "deny".');
+  const r = await decideRefund(c.env, await getSettings(c.env), me.id, c.req.param('id'), b.action, String(b.note || ''), stripePay(c.env), c.get('origin'));
+  return c.json({ ok: true, status: r });
+});
+
+// Gives an account its self-service refunds back (on: false) after it lost them for refunding too often, or takes them away.
+admin.post('/users/:id/refund-review', async (c) => {
+  const b = await c.req.json<{ on?: boolean }>().catch(() => ({} as any));
+  await setRefundReview(c.env, c.req.param('id'), !!b.on);
   return c.json({ ok: true });
 });
 

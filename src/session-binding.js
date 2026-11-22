@@ -11,6 +11,7 @@
 //     id (its signed, HttpOnly cookie), once: the guest id is then claimed, never handed out again, and its tokens stop.
 //   - Moving never overwrites anything the account already has. In a game where the account already has progress, the
 //     account's progress is kept as it is and the guest's is left behind (reported as kept), so two saves are never mixed.
+import { gameRef } from './social-rules.js';
 
 export const SESSION_ENDED = 'session_ended';
 
@@ -31,6 +32,9 @@ export async function bindingProblem(db, tok, t = Date.now()) {
   if (r.project_id !== tok.g || (r.env != null && r.env !== tok.e)) return unknown;
   if (tok.k === 'verify') return r.kind === 'verify' && tok.u === `verify:${tok.s}` ? null : unknown;
   if (r.kind === 'verify') return unknown;
+  // A preview test bot (src/bots.ts): a session of kind 'bot' in the preview of this game, nowhere else. Its row is
+  // removed when the creator's fleet stops, which ends it (unknown above).
+  if (tok.k === 'bot' || r.kind === 'bot') return tok.k === 'bot' && r.kind === 'bot' && r.env === 'preview' && tok.e === 'preview' && r.user_id === tok.u ? null : unknown;
   // A claimed guest: the progress moved to an account (or was left behind), so the guest session is over.
   if (guest && r.claimed) return { code: SESSION_ENDED, reason: 'signed_in', message: 'You signed in, so this guest session ended. Reopen the game to keep playing on your account.' };
   if (r.user_id !== tok.u) return unknown;
@@ -48,7 +52,7 @@ const SCOPED = ['saves', 'player_stats', 'scores', 'player_games'];
 export async function guestProgress(db, guestId, userId) {
   if (!String(guestId).startsWith('guest_')) return [];
   if (await db.prepare('SELECT 1 AS x FROM guest_claims WHERE guest_id = ?').bind(guestId).first()) return [];
-  const rows = await db.prepare(`SELECT g.project_id AS scope, p.slug, p.title, pg.seconds, pg.last_at,
+  const rows = await db.prepare(`SELECT g.project_id AS scope, p.slug, p.title, p.listing_i18n, p.listing_lang, p.langs, pg.seconds, pg.last_at,
       (SELECT COUNT(*) FROM saves s WHERE s.project_id = g.project_id AND s.user_id = ?1) AS saves,
       (SELECT COUNT(*) FROM player_stats s WHERE s.project_id = g.project_id AND s.user_id = ?1) AS stats,
       (SELECT COUNT(*) FROM scores s WHERE s.project_id = g.project_id AND s.user_id = ?1) AS scores,
@@ -58,7 +62,7 @@ export async function guestProgress(db, guestId, userId) {
     LEFT JOIN projects p ON p.id = g.project_id LEFT JOIN player_games pg ON pg.project_id = g.project_id AND pg.user_id = ?1
     WHERE g.project_id NOT LIKE '%:preview' ORDER BY pg.last_at DESC LIMIT 200`).bind(guestId, userId || '').all();
   return rows.results.filter((r) => r.slug).map((r) => ({
-    game: r.scope, slug: r.slug, title: r.title, seconds: r.seconds || 0, last_played: r.last_at || null,
+    game: r.scope, ...gameRef(r, null), seconds: r.seconds || 0, last_played: r.last_at || null,
     saves: r.saves, stats: r.stats, scores: r.scores,
     // the account already has a save or stats here: its own progress stays and the guest's is not moved
     kept: !!r.account_has,
@@ -100,7 +104,7 @@ export async function claimGuest(db, guestId, userId, name, { move = true, t = D
   if (move) stmts.push(db.prepare("UPDATE plays SET user_id = ? WHERE user_id = ? AND env = 'live'").bind(userId, guestId));
   stmts.push(db.prepare('UPDATE guest_claims SET moved = ?, kept = ? WHERE guest_id = ?').bind(go.length, kept, guestId));
   await db.batch(stmts);
-  return { moved: go.length, kept, games: games.map((g) => ({ slug: g.slug, title: g.title, moved: !g.kept })) };
+  return { moved: go.length, kept, games: games.map((g) => ({ slug: g.slug, title: g.title, ...(g.lang ? { lang: g.lang } : {}), ...(g.i18n ? { i18n: g.i18n } : {}), moved: !g.kept })) };
 }
 
 /** Daily cleanup: what a claimed guest left behind (kept or declined) is unreachable; it goes after 30 days. */

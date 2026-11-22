@@ -310,7 +310,7 @@ function Money() {
     const note = prompt(action === 'paid' ? t('Reference for this payment (for your records)', '本次打款的参考编号（用于留档）') : t('Reason shown to the creator', '向创作者显示的原因')); if (note === null) return;
     void act(w.id, async () => { await api(`/admin/withdrawals/${w.id}`, { body: { action, note } }); await reload(); }, action === 'paid' ? t('Marked as paid.', '已标记为已打款。') : t('Rejected. The balance was returned.', '已拒绝，余额已退回。'));
   };
-  const refund = (x: any) => { if (confirm(t('Refund {price} to {buyer}? Access is revoked and the creator\'s credit is reversed.', '确定向 {buyer} 退款 {price} 吗？对方将失去访问权限，创作者的相应收益也会被冲回。', { price: usd(x.price_cents), buyer: x.buyer }))) void act(x.id, async () => { await api(`/admin/purchases/${x.id}/refund`, { method: 'POST' }); await reload(); }, t('Refunded.', '已退款。')); };
+  const refund = (x: any) => { if (confirm(t('Refund {price} to {buyer}? Access is revoked, the creator\'s credit is reversed (from their payout if it was already sent) and the platform gives back its cut.', '确定向 {buyer} 退款 {price} 吗？对方将失去访问权限，创作者的相应收益会被冲回（若已打款则从打款中收回），平台也会退回其分成。', { price: usd(x.price_cents), buyer: x.buyer }))) void act(x.id, async () => { await api(`/admin/purchases/${x.id}/refund`, { method: 'POST' }); await reload(); }, t('Refunded.', '已退款。')); };
   const doGrant = () => act('grant', async () => { await api('/admin/grant-game', { body: grant }); setGrant({ email: '', slug: '' }); await reload(); }, t('Access granted.', '已授予访问权限。'));
   const waiting = data.withdrawals.filter((w: any) => w.status === 'pending');
   return (
@@ -324,6 +324,7 @@ function Money() {
             <td>{w.status === 'pending' && w.method === 'manual' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === w.id} onClick={() => settle(w, 'paid')}>{t('Mark paid', '标记已打款')}</Button><Button size="sm" variant="danger" disabled={busy === w.id} onClick={() => settle(w, 'reject')}>{t('Reject', '拒绝')}</Button></div>}</td>
           </tr>)}</tbody></Table> : <div className="pad mute">{t('No withdrawals yet.', '暂无提现。')}</div>}
       </Card>
+      <Refunds rows={data.refunds || []} reload={reload} />
       <Card title={t('Game sales', '游戏销售')}>
         {data.purchases.length ? <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th>{t('Creator', '创作者')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Platform', '平台')}</th><th className="n">{t('Creator', '创作者')}</th><th>{t('Status', '状态')}</th><th>{t('When', '时间')}</th><th /></tr></thead>
           <tbody>{data.purchases.map((x: any) => <tr key={x.id}><td>{x.item === 'skill' ? <><Link to={`/creator-store/${x.slug}`}>{x.title}</Link> <Badge dot={false} tone="accent">{t('skill', '技能')}</Badge></> : <Link to={`/g/${x.slug}`}>{x.title}</Link>}</td><td className="mute">{x.buyer}</td><td className="mute">{x.creator}</td><td className="n">{usd(x.price_cents)}</td><td className="n">{usd(x.fee_cents)}</td><td className="n">{usd(x.net_cents)}</td><td><StatusBadge status={x.status} />{x.provider === 'admin' && <Badge dot={false}>{t('granted', '赠送')}</Badge>}</td><td className="mute">{dateTime(x.created_at)}</td>
@@ -342,6 +343,47 @@ function Money() {
         </div></Card>
       </div>
     </div>
+  );
+}
+
+/** Every game refund, open requests first: the ones the platform could not settle by itself wait here for a decision. */
+const REVIEW: Record<string, () => string> = {
+  play_unconfirmed: () => t('Play time could not be confirmed', '无法确认游玩时间'),
+  frequent: () => t('Account refunds often: self-service turned off', '该账户退款频繁：已关闭自助退款'),
+  account: () => t('Account without self-service refunds', '该账户无自助退款权限'),
+  manual: () => t('Automatic refunds are off', '自动退款已关闭'),
+  refund_failed: () => t('Stripe did not refund it: try again', 'Stripe 未能退款：请重试'),
+  admin: () => t('Refunded by an admin', '由管理员退款'),
+};
+function Refunds({ rows, reload }: { rows: any[]; reload: () => Promise<unknown> }) {
+  const { busy, act } = useAct();
+  const open = rows.filter((r) => r.status === 'pending');
+  const decide = (r: any, action: 'approve' | 'deny') => {
+    const note = action === 'deny' ? prompt(t('Reason shown to the buyer', '向买家显示的原因')) : '';
+    if (note === null) return;
+    if (action === 'approve' && !confirm(t('Refund {price} to {buyer}?', '确定向 {buyer} 退款 {price} 吗？', { price: usd(r.price_cents), buyer: r.buyer || '—' }))) return;
+    void act(r.id, async () => { await api(`/admin/refunds/${r.id}`, { body: { action, note } }); await reload(); }, action === 'approve' ? t('Refunded.', '已退款。') : t('Declined. The buyer was told why.', '已拒绝，并已告知买家原因。'));
+  };
+  const restore = (r: any) => act('rv' + r.user_id, async () => { await api(`/admin/users/${r.user_id}/refund-review`, { body: { on: false } }); await reload(); }, t('Self-service refunds are back on for this account.', '已为该账户恢复自助退款。'));
+  return (
+    <Card title={t('Refunds', '退款')} actions={open.length > 0 ? <Badge tone="accent">{open.length} {t('waiting', '笔待处理')}</Badge> : undefined}>
+      {rows.length ? <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th className="n">{t('Price', '价格')}</th><th>{t('Played', '已游玩')}</th><th>{t('Asked', '申请时间')}</th><th>{t('Status', '状态')}</th><th>{t('Books', '账目')}</th><th /></tr></thead>
+        <tbody>{rows.map((r) => <tr key={r.id}>
+          <td><Link to={`/g/${r.slug}`}>{r.title}</Link>{r.note && <div className="mute fs-sm" style={{ maxWidth: 280, whiteSpace: 'pre-wrap' }}>“{r.note}”</div>}</td>
+          <td className="mute">{r.buyer || '—'}{r.buyer_review_at && <div><Badge dot={false} tone="accent">{t('no self-service', '无自助退款')}</Badge></div>}</td>
+          <td className="n">{usd(r.price_cents)}</td>
+          <td className="mute">{t('{n} min', '{n} 分钟', { n: Math.floor((r.played_seconds || 0) / 60) })} · {t('bought {when}', '购买于 {when}', { when: dateTime(r.bought_at) })}</td>
+          <td className="mute">{dateTime(r.created_at)}</td>
+          <td><StatusBadge status={r.status} />{r.review_reason && REVIEW[r.review_reason] && <div className="mute fs-sm">{REVIEW[r.review_reason]()}</div>}{r.decided_by && <div className="dim fs-xs">{r.decided_by === 'auto' ? t('automatic', '自动') : r.decided_by.startsWith('admin:') ? t('by an admin', '由管理员') : t('from Stripe', '来自 Stripe')}</div>}{r.decision_note && <div className="mute fs-sm">{r.decision_note}</div>}</td>
+          <td className="mute fs-sm">{r.status === 'refunded' && r.creator_net_cents != null ? <>
+            {t('Creator −{amount}', '创作者 −{amount}', { amount: usd(r.creator_net_cents) })} · {t('Platform cut −{amount}', '平台分成 −{amount}', { amount: usd(r.platform_fee_cents || 0) })}
+            {r.stripe_fee_cents != null && <div>{t('Stripe fee {amount}, borne by the {who}', 'Stripe 手续费 {amount}，由{who}承担', { amount: usd(r.stripe_fee_cents), who: r.fee_bearer === 'creator' ? t('creator', '创作者') : t('platform', '平台') })}</div>}
+            {r.transfer_reversal_cents > 0 && <div>{t('{amount} taken back from payout {ref}', '已从打款 {ref} 收回 {amount}', { amount: usd(r.transfer_reversal_cents), ref: r.transfer_ref })}</div>}
+          </> : '—'}</td>
+          <td>{r.status === 'pending' ? <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>{t('Refund', '退款')}</Button><Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => decide(r, 'deny')}>{t('Decline', '拒绝')}</Button></div>
+            : r.buyer_review_at ? <Button size="sm" disabled={busy === 'rv' + r.user_id} onClick={() => restore(r)}>{t('Restore self-service', '恢复自助退款')}</Button> : null}</td>
+        </tr>)}</tbody></Table> : <div className="pad mute">{t('No refunds yet.', '暂无退款。')}</div>}
+    </Card>
   );
 }
 

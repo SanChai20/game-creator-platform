@@ -9,7 +9,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { register } from 'node:module';
 
 register('./ts-hook.mjs', import.meta.url);
-const { recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns, refundablePurchase, holdMs, playedSeconds } = await import('../src/earnings.ts');
+const { recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns, holdMs, playedSeconds } = await import('../src/earnings.ts');
+const { gameRefundState } = await import('../src/refunds.ts');
 const { verifyWebhook, STRIPE_API_VERSION } = await import('../src/stripe.ts');
 const { hmacHex } = await import('../src/util.ts');
 
@@ -144,46 +145,46 @@ test('daily automatic payouts send each ready creator their available balance on
   assert.match(mails[0].subject, /\$9\.00 is on its way/);
 });
 
-test('a buyer can refund within the window, under the play limit, and once per game', async () => {
-  const env = await setup(), R = { refund_window_hours: 24, refund_max_play_minutes: 30 }, db = env.DB.sql;
-  const x = await refundablePurchase(env, R, 'u_buyer', 'g1');
-  assert.equal(x.payment_intent, 'pi_1');
+test('a buyer can refund within the window, under the play limit, and once per game (play time is the platform clock)', async () => {
+  const env = await setup(), R = { refund_window_hours: 24, refund_max_play_minutes: 10 }, db = env.DB.sql;
+  // the full rules, requests and books are in tests/refunds.mjs; here, what counts as play time
+  const ok = async (u = 'u_buyer') => { const st = await gameRefundState(env, R, u, 'g1'); return !!st?.refundable; };
+  const x = await gameRefundState(env, R, 'u_buyer', 'g1');
+  assert.ok(x.refundable);
   assert.ok(x.until > Date.now() + 23 * 3600000);
-  assert.equal(await refundablePurchase(env, R, 'u_other', 'g1'), null);           // not their purchase
-  assert.equal(await refundablePurchase(env, { ...R, refund_window_hours: 0 }, 'u_buyer', 'g1'), null);   // switched off
-  // 29 minutes of play (a trial before buying counts too) still qualifies; 30 does not
+  assert.equal(await gameRefundState(env, R, 'u_other', 'g1'), null);           // not their purchase
+  assert.deepEqual((await gameRefundState(env, { ...R, refund_window_hours: 0 }, 'u_buyer', 'g1')).reasons, ['off']);
+  // 9 minutes of play (a trial before buying counts too) still qualifies; 10 does not
   const t = Date.now();
-  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl1', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 3600000, t - 3600000, t - 3600000 + 1740000);
-  assert.ok(await refundablePurchase(env, R, 'u_buyer', 'g1'));
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl1', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 3600000, t - 3600000, t - 3600000 + 540000);
+  assert.ok(await ok());
   db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl2', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 60)").run(t - 60000, t - 60000, t);
-  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  assert.equal(await ok(), false);
   db.exec("DELETE FROM plays");
   // a game reporting a huge play time of its own changes nothing: only the platform's clock counts
   db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl4', 'g1', 1, 'live', 'u_buyer', ?, ?, 99999)").run(t - 120000, t - 60000);
-  assert.ok(await refundablePurchase(env, R, 'u_buyer', 'g1'));
+  assert.ok(await ok());
   db.exec("DELETE FROM plays");
-  // heartbeats never add play time; when they run well past the page's last check-in (a buyer blocking the check-ins,
-  // or a game running on after the player left) the play time cannot be confirmed and the refund goes to support
+  // heartbeats never add play time (when they run well past the page's last check-in the refund goes to the platform,
+  // see tests/refunds.mjs)
   db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl5', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 2400000, t, t - 2340000);
   assert.equal(await playedSeconds(env, 'u_buyer', 'g1'), 60);
-  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
   db.exec("DELETE FROM plays");
   db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seconds) VALUES ('pl6', 'g1', 1, 'live', 'u_buyer', ?, ?, 0)").run(t - 2400000, t);
   assert.equal(await playedSeconds(env, 'u_buyer', 'g1'), 0);
-  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null, 'check-ins blocked for a whole play-through: no self-serve refund');
   db.exec("DELETE FROM plays");
-  // the platform's own clock: a session whose game sent no heartbeats but stayed open on the store page for 31 minutes
-  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl3', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 1860000, t - 1860000, t);
-  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  // the platform's own clock: a session whose game sent no heartbeats but stayed open on the store page for 11 minutes
+  db.prepare("INSERT INTO plays (id, project_id, version, env, user_id, started_at, last_beat_at, seen_at, seconds) VALUES ('pl3', 'g1', 1, 'live', 'u_buyer', ?, ?, ?, 0)").run(t - 660000, t - 660000, t);
+  assert.equal(await ok(), false);
   db.exec("DELETE FROM plays");
   // past the window
   db.prepare("UPDATE purchases SET created_at = ? WHERE payment_intent = 'pi_1'").run(t - 25 * 3600000);
-  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  assert.deepEqual((await gameRefundState(env, R, 'u_buyer', 'g1')).reasons, ['window']);
   db.prepare("UPDATE purchases SET created_at = ? WHERE payment_intent = 'pi_1'").run(t);
   // refunded once, bought again: the second purchase is final
   await refundPurchase(env, { paymentIntent: 'pi_1' });
   await recordPurchase(env, S, { userId: 'u_buyer', projectId: 'g1', ownerId: 'u_maker', title: 'G', priceCents: 1000, provider: 'stripe', providerRef: 'cs_2', paymentIntent: 'pi_2' });
-  assert.equal(await refundablePurchase(env, R, 'u_buyer', 'g1'), null);
+  assert.deepEqual((await gameRefundState(env, R, 'u_buyer', 'g1')).reasons, ['refunded_before']);
 });
 
 test('a sale is held at least as long as the buyer can refund it', () => {

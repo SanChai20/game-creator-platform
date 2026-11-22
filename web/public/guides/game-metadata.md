@@ -10,7 +10,7 @@ Metadata comes in two kinds, stored in two places.
 
 | Kind | Fields | Stored in | Takes effect |
 |---|---|---|---|
-| **Listing** (about the project) | `genre`, `genres`, `tags`, `title`, `tagline`, `description`, `controls`, `listing_translations` | the project | at once, on every version |
+| **Listing** (about the project) | `genre`, `genres`, `tags`, `title`, `tagline`, `description`, `controls`, `listing_language`, `listing_translations`, and the cover and a cover per language (`update_project` `cover`, `covers`) | the project | at once, on every version |
 | **Build** (about one version) | `requirements`, `languages`, `players`, `session_minutes`, `progress`, `accessibility`, `content` | `gcp.json` in the workspace | frozen with the next `deploy_preview`; the store shows the live version's |
 
 Build metadata is versioned with the code on purpose: a version that adds Japanese or online co-op declares it in the same deploy, and a rollback brings back the metadata that matched that code.
@@ -27,6 +27,8 @@ Build metadata is versioned with the code on purpose: a version that adds Japane
 | 4 | `languages` | The Languages section and the "in your language" check |
 | 5 | `players` | How many people play, and how |
 | 6 | `content` | The platform's age rating |
+
+A game played in more than one platform language also needs its store listing in each of them (see [The store listing in every language](#the-store-listing-in-every-language)); `publish` answers `409 listing_untranslated` otherwise.
 
 The others are recommended: they fill the At a glance panel. When a required field is missing, `publish` answers `409 metadata_incomplete` with the missing steps. Rolling back to an earlier version is never blocked. An admin can turn the requirement off with the `metadata_required` setting.
 
@@ -145,25 +147,50 @@ Only follow the platform language this way if the player has not picked a langua
 
 At every deploy the platform looks for languages in the code: locale files (`locales/ja.json`, `i18n/ko.json`, `lang/es/…`), the `lang` attribute of `index.html`, and the scripts in text strings (Japanese kana, Korean Hangul, Chinese, Cyrillic, Arabic and others). It also notices when the code reads `GCP.lang`. With no declaration, the store shows what was detected and says so. With one, the declaration wins and anything that disagrees is reported as a warning, for example a detected language the declaration never lists.
 
-## Store listing translations
+## The store listing in every language
 
-The platform itself is in six languages: English, 简体中文, 繁體中文, 日本語, 한국어 and Español. Players see the store page in their platform language, and the game's own listing (title, tagline, description, controls) can be translated into each of them.
+A game that is played in several languages is in those languages outside the game too. The platform itself is in six languages: English (`en`), 简体中文 (`zh`), 繁體中文 (`zh-TW`), 日本語 (`ja`), 한국어 (`ko`) and Español (`es`). Everything about a game outside the game, its **name, tagline, description, controls text and cover**, follows the player's platform language on every surface: the home page and its shelves, cards, search, the game page, the library, the Continue row, the Creator Store and friends' lists and invites. When the player switches the platform language, every game switches with it, without a reload.
+
+Which language a player sees, for each game:
+
+1. the player's platform language, when the game is played in it (its `languages` lists it, with interface text or subtitles) and the listing has it;
+2. otherwise English, when the listing has English;
+3. otherwise the language the listing itself is written in (for a game in one language, that language).
+
+So a game in English and Chinese is shown in Chinese to a player whose platform is in Simplified Chinese, and in English to a player in Japanese. A game only in Japanese is shown in Japanese to everyone.
+
+**What an agent does.** For every platform language in the game's `languages`, give the listing in that language. `publish` checks it (release requirement `listing_languages`): a version played in a platform language the listing lacks is refused with the missing languages and fields, and the exact call to fix it. No deploy is needed for listing changes.
 
 ```json
 {
+  "listing_language": "en",
   "listing_translations": {
+    "zh": { "title": "星之庭", "tagline": "培育小星星的解谜游戏", "description": "…", "controls": "方向键移动" },
     "ja": { "title": "星の庭", "tagline": "小さな星を育てるパズル", "description": "…", "controls": "矢印キーで移動" },
-    "es": { "tagline": "Un puzle para cultivar estrellas" },
     "ko": null
   }
 }
 ```
 
-- Keys: `zh` (Simplified Chinese), `zh-TW` (Traditional Chinese), `ja`, `ko`, `es`. English is the listing itself.
-- Fields: `title` (80 characters), `tagline` (140), `description` (5000), `controls` (1000). A field left out falls back to the listing as written.
-- `null` removes a language. The call merges: other languages are kept.
+- `listing_language`: the language the project's own `title`, `tagline`, `description`, `controls` and `cover` are written in. When it is not set, the platform works it out from the text (Chinese, Japanese and Korean script, else English); set it when that would be wrong. Any of the six codes, or another BCP 47 code for a game listed in a language the platform does not speak.
+- `listing_translations` keys: `en`, `zh` (Simplified Chinese), `zh-TW` (Traditional Chinese), `ja`, `ko`, `es`. `zh-Hans` and `zh-Hant` are accepted and stored as `zh` and `zh-TW`.
+- Fields: `title` (80 characters), `tagline` (140), `description` (5000), `controls` (1000). Required for publishing in each language: the title, and the tagline and description when the listing has them. A field left out falls back to the listing as written.
+- Use the names the game itself uses in that language (its title screen, characters and places), and translate faithfully; never machine-translate names the game keeps in one language.
+- `null` removes a language (and its cover). The call merges: other languages are kept.
+- Translations of languages the game is not played in are kept but not shown: players in those languages see English (or the listing's own language).
 
-Translate the listing into the languages the game itself supports at least. The Languages table shows, for each language, whether the store page is translated into it.
+### Covers and other images with text
+
+The cover is the one image the store shows for a game (the game page also shows the verification screenshot of the live version). When the cover shows text, such as the game's name, give each listing language its own cover with that text in the language:
+
+```json
+update_project { "project": "…", "cover": "cover-en.jpg", "covers": { "zh": "cover-zh.jpg", "zh-TW": "cover-zh.jpg", "ja": "cover-ja.jpg" } }
+```
+
+- `cover` is the cover of the listing's own language, and of every language without a cover of its own; `covers` sets one per platform language (workspace paths, png, jpg or webp under 2 MB, 16:9). `null` removes one.
+- A language without its own cover shows the main cover, so a game without per-language covers should keep text off the cover or keep it language-neutral.
+
+The game page's Languages table shows, for each language, whether the store page is in it.
 
 ## Players
 

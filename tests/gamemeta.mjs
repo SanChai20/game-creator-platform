@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ageRating, buildMeta, matureOf, genresOf, genreTags, missingForPublish, normGenre, parseContent, parsePlayers, sessionBucket } from '../web/src/gamemeta.ts';
-import { buildLanguages, detectLanguages, inYourLanguage, languageRows, normLang, parseLanguages, parseListings } from '../web/src/languages.ts';
+import { baseListingLang, buildLanguages, detectLanguages, guessListingLang, inYourLanguage, languageRows, listingLangCode, missingListings, normLang, offeredListings, parseLanguages, parseListings, pickListing, platformLangsOf } from '../web/src/languages.ts';
 
 test('genres are normalized and become the first tags', () => {
   assert.equal(normGenre('Role-Playing'), 'rpg');
@@ -71,6 +71,50 @@ test('listing translations are checked per platform language and field', () => {
   assert.equal(ok.value.ko, null);
   const bad = parseListings({ fr: { title: 'x' }, ja: { title: 'x'.repeat(81), cover: 'x' } });
   assert.ok(bad.issues.length >= 3);
+});
+
+test('the listing follows the platform language: the viewer\'s when the game is played in it, else English, else its own', () => {
+  // a game in English and Simplified Chinese, listed in English with a Chinese translation (and a Japanese one it is not played in)
+  const supported = platformLangsOf({ default: 'en', supported: [{ code: 'en', interface: true }, { code: 'zh-hans', interface: true }], follows_platform: true, notes: '' });
+  assert.deepEqual(supported, ['en', 'zh']);
+  const offered = offeredListings('en', ['zh', 'ja'], supported);
+  assert.deepEqual(offered, ['en', 'zh']);
+  assert.equal(pickListing('zh', 'en', offered), 'zh');
+  assert.equal(pickListing('ja', 'en', offered), 'en');        // not played in Japanese: English
+  assert.equal(pickListing('zh-TW', 'en', offered), 'en');     // Traditional Chinese is a language of its own
+  // languages not on record: every translation counts
+  assert.deepEqual(offeredListings('en', ['ja'], []), ['en', 'ja']);
+  // a game listed only in Chinese: Chinese for everyone without a listing of their own
+  assert.equal(pickListing('en', 'zh', ['zh']), 'zh');
+  assert.equal(pickListing('es', 'zh', offeredListings('zh', ['en'], ['zh', 'en'])), 'en');
+  // a game in one language the platform does not speak
+  assert.equal(pickListing('ja', 'fr', offeredListings('fr', [], ['en'])), 'fr');
+  // subtitles count, audio alone does not
+  assert.deepEqual(platformLangsOf({ default: 'en', supported: [{ code: 'en', interface: true }, { code: 'ja', interface: false, subtitles: true }, { code: 'ko', interface: false, audio: true }], follows_platform: false, notes: '' }), ['en', 'ja']);
+});
+
+test('the listing\'s own language is declared or worked out from its text', () => {
+  assert.equal(listingLangCode('zh-Hans'), 'zh');
+  assert.equal(listingLangCode('zh-Hant'), 'zh-TW');
+  assert.equal(listingLangCode('EN-gb'), 'en');
+  assert.equal(listingLangCode('fr'), 'fr');
+  assert.equal(listingLangCode('not a code'), null);
+  assert.equal(guessListingLang('永夜王庭：血月弈局'), 'zh');
+  assert.equal(guessListingLang('虛空迴響，這座城市'), 'zh-TW');
+  assert.equal(guessListingLang('ノクテル：血月のギャンビット'), 'ja');
+  assert.equal(guessListingLang('녹텔: 핏빛 달의 갬빗'), 'ko');
+  assert.equal(guessListingLang('Noctelle: Gambit of the Blood Moon'), 'en');
+  assert.equal(guessListingLang('Un puzle para cultivar las estrellas del jardín'), 'es');
+  assert.equal(baseListingLang({ listing_lang: 'ja', title: 'Noctelle' }), 'ja');
+  assert.equal(baseListingLang({ title: 'Noctelle', tagline: 'Eight heirs' }), 'en');
+});
+
+test('a release lists the platform languages its listing is missing', () => {
+  const own = { lang: 'en', title: 'Bloomguard', tagline: 'Guard the Heartbloom', description: 'Pick a garden.' };
+  assert.deepEqual(missingListings(own, { zh: { title: 'Bloomguard', tagline: '守护心之花', description: '选一座花园。' } }, ['en', 'zh']), []);
+  assert.deepEqual(missingListings(own, { zh: { title: '花园守护者' } }, ['en', 'zh', 'ja']), [{ lang: 'zh', fields: ['tagline', 'description'] }, { lang: 'ja', fields: ['title', 'tagline', 'description'] }]);
+  // fields the game's own listing leaves empty are not asked for
+  assert.deepEqual(missingListings({ lang: 'zh', title: '星', tagline: '', description: '' }, { en: { title: 'Star' } }, ['zh', 'en']), []);
 });
 
 test('players are validated, with friendly mode names', () => {

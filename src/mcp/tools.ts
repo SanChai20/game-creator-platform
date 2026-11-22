@@ -13,7 +13,9 @@ import {
 import { takeOffline, trialStats } from '../routes/api';
 import { trialMinutes } from '../trials';
 import type { GameRoom } from '../room';
+import { actBots, botOptions, botStatus, startBots, stopBots } from '../bots';
 import { getSettings } from '../settings';
+import { applySale, saleView } from '../sales';
 import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
 import { gameAnalytics, onlineNow } from '../analytics';
@@ -27,7 +29,9 @@ import { THREE_VERSION } from '../generated/runtime-source';
 import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
 import { ACCESSIBILITY, BUILD_FIELDS, CONTENT_CHOICES, MANIFEST, mergeManifest, GENRES, MODES, genresOf, matureOf, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
 import { MAX_TAGS, MIN_TAGS, missingTags, missingToPublish, normalizeStoredTags, TAG_GROUPS, tagGroup, TAGS, tagsOnly } from '../../web/src/tags';
-import { languageName, parseLanguages, type Languages } from '../../web/src/languages';
+import { baseListingLang, languageName, listingLangCode, parseLanguages, type Languages } from '../../web/src/languages';
+import { isLang } from '../../web/src/i18n/langs';
+import { listingCoverage } from '../listing';
 import { OPERATOR } from '../../web/src/operator';
 import type { Project } from '../env';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, parseJson, sha256, token as randomToken, unb64, usd } from '../util';
@@ -59,6 +63,7 @@ export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summ
   { topic: 'saves', file: 'saves', title: 'Player progress, saves, leaderboards and server code', summary: 'Each player\'s progress: cloud saves and stats per player and game, the play record the platform keeps, shared game data, leaderboards, and optional server code that runs in the game\'s own Worker.' },
   { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, playing with friends (friend invites, GCP.friends, GCP.presence), the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
   { topic: 'matches', file: 'matches', title: 'Server-run matches', summary: 'Competitive real-time games (shooters, fighting games, sports, racing): server/match.js runs the match at a fixed tick on the platform, with matchmaking by region and rating, private lobbies, client prediction, smooth playback and lag-compensated hit checks.' },
+  { topic: 'bots', file: 'test-bots', title: 'Testing online games with bots', summary: 'Bot players in the preview that connect like real ones over the platform\'s network: following the creator into a match or room, a public queue, a private lobby or a room; server/bot.js for what they do; network profiles, lag spikes, drops and reloads; the numbers per bot; limits. Read before testing a multiplayer game.' },
   { topic: 'storage', file: 'storage', title: 'Game storage', summary: 'How much a game\'s files may add up to, how uploads, deploys and publishing enforce it, how to keep a game small (generate content from code, load large or optional content at run time from your own host with CORS, compress what ships), and how to ask for more. Read before adding large assets.' },
   { topic: 'touch', file: 'input', title: 'Phones, tablets and input', summary: 'What the platform does so every game plays on touch screens (on-screen controls from the game\'s keys, mouse from the finger, pointer lock, taps, pixel density), gcp.json "controls" and GCP.controls, and what makes touch controls of your own good.' },
   { topic: 'services', file: 'services', title: 'Platform services', summary: 'Every service the platform gives games and agents (hosting, accounts, saves, stats, shared data, leaderboards, rooms, server code, display, verification, payments, analytics, agent access): how each works, how to reach it, its limits, and what the platform does not provide.' },
@@ -81,6 +86,14 @@ const trialText = (p: { price_cents: number; trial_minutes: number }, s: Awaited
   const m = trialMinutes(p, s);
   return m ? `${m} min: players who have not bought it can play ${m} minutes in total (per account, across devices), then are asked to buy` : p.price_cents > 0 ? 'none: players must buy before playing' : 'not applicable: the game is free';
 };
+// the limited-time sale, in words (src/sales.ts)
+const saleText = (p: Parameters<typeof saleView>[0], s: Awaited<ReturnType<typeof getSettings>>) => {
+  const v = saleView(p, s);
+  if (v.running) return `on sale: ${usd(v.running.price_cents)} (${v.running.percent_off}% off ${usd(v.running.regular_cents)}) until ${new Date(v.running.ends_at).toISOString().slice(0, 16).replace('T', ' ')} UTC; creator receives ${usd(splitSale(v.running.price_cents, s, freeSkillShared(p as any)).net)} per sale meanwhile`;
+  if (!(p.price_cents > 0)) return 'not applicable: the game is free';
+  if (!v.enabled) return 'disabled on this platform';
+  return v.next_sale_at ? `none; the next sale can start on ${new Date(v.next_sale_at).toISOString().slice(0, 10)}` : 'none (update_project sale {price_cents, days} starts one)';
+};
 const sharing = (p: { open_implementation: number; skill_price_cents?: number }) => (p.open_implementation
   ? `on: the game's build skill is in the Creator Store, ${Number(p.skill_price_cents) > 0 ? `sold for ${usd(Number(p.skill_price_cents))}` : 'free'} (never its code). Write the skill for every version before publishing it: build_skill {action: "write"}`
   : 'off: nothing about how this game is built is shared');
@@ -94,7 +107,7 @@ async function account(c: ToolCtx) {
     console_url: `${c.origin}/console`,
     earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
     build_skills: { free_skill: `a game that shares its build skill for free pays a ${s.platform_fee_open_percent}% cut on its own sales instead of ${s.platform_fee_percent}%`, paid_skill: s.paid_skills_enabled ? `a skill can be sold for ${usd(s.skill_price_min_cents)} to ${usd(s.skill_price_max_cents)}; the platform keeps ${s.skill_fee_percent}% of each skill sale and the game keeps the standard ${s.platform_fee_percent}% cut; skill sales are final, build skills are non-refundable` : 'disabled', store: `${c.origin}/creator-store` },
-    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_free_build_skill: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled' } : 'disabled',
+    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_free_build_skill: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled', sales: s.sales_enabled ? { max_days: s.sale_max_days, min_percent_off: s.sale_min_percent_off, min_sale_price_cents: s.sale_price_min_cents, days_between_sales: s.sale_gap_days, how: 'update_project sale {price_cents, days}; null ends it' } : 'disabled' } : 'disabled',
     limits: { storage_per_game: mb(s.bundle_max_bytes), storage_per_game_bytes: s.bundle_max_bytes, largest_file: mb(s.file_max_bytes), files_per_game: s.bundle_max_files, more_storage: s.storage_requests_open ? `ask with game_storage, up to ${mb(s.storage_max_bytes)} per game` : 'closed', server_code: s.allow_server_code },
   };
 }
@@ -266,10 +279,14 @@ const AGE_TEXT: Record<number, string> = { 3: '3+ (everyone)', 7: '7+', 12: '12+
 const langList = (l: Languages) => l.supported.map((g) => `${languageName(g.code)[0]} (${[g.interface && 'interface', g.audio && 'voice', g.subtitles && 'subtitles'].filter(Boolean).join(', ')})${g.code === l.default ? ' default' : ''}`);
 /** The game's metadata as an agent reads it back: what the store page will show, and what is still missing. */
 function metaSummary(p: Project, compat: Compat | null | undefined, meta: MetaRecord | null | undefined) {
-  const tags = JSON.parse(p.tags || '[]') as string[], g = genresOf(tags), listings = Object.keys(JSON.parse(p.listing_i18n || '{}'));
-  const m = meta?.meta, rating = meta?.rating;
+  const tags = JSON.parse(p.tags || '[]') as string[], g = genresOf(tags), stored = JSON.parse(p.listing_i18n || '{}') as Record<string, { cover_key?: string }>, listings = Object.keys(stored);
+  const m = meta?.meta, rating = meta?.rating, cov = listingCoverage(p, meta?.languages);
   return {
-    listing: { title: p.title, tagline: p.tagline || null, genre: g.primary, secondary_genres: g.secondary, tags: tagsOnly(normalizeStoredTags(tags)), ...(tagsOffList(tags).length ? { tags_not_on_the_platform_list: tagsOffList(tags) } : {}), controls: p.controls || null, translated_into: listings },
+    listing: { title: p.title, tagline: p.tagline || null, genre: g.primary, secondary_genres: g.secondary, tags: tagsOnly(normalizeStoredTags(tags)), ...(tagsOffList(tags).length ? { tags_not_on_the_platform_list: tagsOffList(tags) } : {}), controls: p.controls || null,
+      // the store shows the listing in the viewer's platform language when the game is played in it, else English, else this one
+      listing_language: `${cov.lang}${p.listing_lang ? '' : ' (worked out from the text; set listing_language if wrong)'}`, translated_into: listings,
+      covers_per_language: listings.filter((k) => stored[k]?.cover_key),
+      ...(cov.missing.length ? { listing_missing_in: cov.missing.map((x) => `${x.lang}: ${x.fields.join(', ')}`) } : {}) },
     build: meta ? {
       declared: meta.declared,
       requirements: compat ? describeRequirements(compat.requirements) : null,
@@ -322,12 +339,31 @@ function metadataChecklist(p: Project, compat: Compat, meta: MetaRecord) {
     step(7, 'accessibility', false, d.has('accessibility'), 'Which accessibility features does the game have? [] when none.', ACCESSIBILITY, [], declare({ accessibility: [] })),
     step(8, 'progress', false, d.has('progress'), 'Confirm what is kept for the player: cloud saves, leaderboards, and whether it plays offline.', { cloud_saves: 'boolean', leaderboards: 'boolean', offline: 'boolean' }, det.progress, declare({ progress: det.progress })),
     step(9, 'listing', false, !!(p.tagline && p.description && p.controls), 'Is the listing complete: a one-line tagline, a description and the controls?', { tagline: '<=140 chars', description: '<=4000 chars', controls: '<=1000 chars' }, null, declare({ tagline: '…', description: '…', controls: '…' })),
-    step(10, 'listing_translations', false, Object.keys(JSON.parse(p.listing_i18n || '{}')).length > 0, 'Should the store listing be shown in other platform languages (zh, zh-TW, ja, ko, es)? Only with translations the user approves.', ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es'], null, declare({ listing_translations: { ja: { title: '…', tagline: '…' } } })),
+    ...listingSteps(p, meta, declare, step),
   ]).map((x, i) => ({ ...x, step: i + 1 }));
 }
 
+/** The listing-language steps: the store listing, cover included, follows the player's platform language, so a game
+ *  played in several languages lists itself in each of them (publish checks it: release rule listing_languages). */
+function listingSteps<S>(p: Project, meta: MetaRecord, declare: (a: Record<string, unknown>) => string, step: (n: number, field: string, required: boolean, done: boolean, ask: string, allowed: unknown, suggestion: unknown, call: string) => S): S[] {
+  const cov = listingCoverage(p, meta.languages), others = cov.supported.filter((l) => l !== cov.lang);
+  const example = Object.fromEntries((cov.missing.length ? cov.missing.map((m) => m.lang) : others.length ? others : ['ja']).map((l) => [l, { title: '…', tagline: '…', description: '…', controls: '…' }]));
+  return [
+    step(10, 'listing_language', false, !!p.listing_lang, `Which language are the title, tagline, description and cover above written in? Worked out from the text as ${cov.lang}; confirm it.`, ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es', 'or another BCP 47 code'], cov.lang, declare({ listing_language: cov.lang })),
+    step(11, 'listing_translations', others.length > 0, others.length > 0 ? !cov.missing.length : Object.keys(JSON.parse(p.listing_i18n || '{}')).length > 0,
+      others.length > 0
+        ? `The game is played in ${cov.supported.join(', ')}, so everything players see about it outside the game must be too: the platform shows the store listing (name, tagline, description, controls) in the player's platform language when the game supports it, else in English, else in the listing's own language. Translate the listing faithfully into ${others.join(', ')}; publish refuses a version whose listing misses one of them.${cov.missing.length ? ` Missing: ${cov.missing.map((m) => `${m.lang} (${m.fields.join(', ')})`).join('; ')}.` : ''}`
+        : 'Should the store listing be shown in other platform languages (zh, zh-TW, ja, ko, es)? A game in one language does not need it; only with translations the user approves.',
+      { languages: ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es'], fields: { title: '<=80 chars', tagline: '<=140', description: '<=5000', controls: '<=1000' } }, null, declare({ listing_translations: example })),
+    step(12, 'covers', false, others.every((l) => JSON.parse(p.listing_i18n || '{}')[l]?.cover_key) || !others.length,
+      'Does the cover (or any other store image) show text, such as the game\'s name? Then give each listing language its own cover with that text in the language: update_project {covers: {"<lang>": "<workspace path>"}}. A language without its own cover shows the main cover, so keep text off the main cover or make it language-neutral.', 'png, jpg or webp under 2 MB, 16:9 (1920x1080 is ideal)', null, `update_project ${JSON.stringify({ project: p.id, covers: Object.fromEntries((others.length ? others : ['zh']).map((l) => [l, `cover-${l}.jpg`])) })}`),
+  ];
+}
+
 const metaIssueLine = (i: MetaIssue) => `${i.level.toUpperCase()} ${i.field}: ${i.message}${i.hint ? `\n  fix: ${i.hint}` : ''}`;
-const LISTING_FIELDS = ['title', 'tagline', 'description', 'controls', 'genre', 'genres', 'tags', 'listing_translations'] as const;
+const LISTING_FIELDS = ['title', 'tagline', 'description', 'controls', 'genre', 'genres', 'tags', 'listing_language', 'listing_translations'] as const;
+const LISTING_LANGUAGE_SCHEMA = { type: ['string', 'null'], description: 'The language the title, tagline, description, controls and cover are written in: en, zh (Simplified Chinese), zh-TW (Traditional Chinese), ja, ko, es, or another BCP 47 code. Worked out from the text when not set.' };
+const TRANSLATIONS_SCHEMA = { type: 'object', description: 'The listing in other platform languages: {"zh": {"title": "…", "tagline": "…", "description": "…", "controls": "…"}, "ja": {…}}. Languages: en, zh, zh-TW, ja, ko, es. A game played in several platform languages needs one for each of them (publish checks): players see the listing in their platform language when the game is played in it, else English, else the listing\'s own language. null for a language removes it. Translate faithfully; use the names the game itself uses in that language.' };
 const LANGUAGES_SCHEMA = { type: ['object', 'array'], description: 'Languages the game can be played in. {"default": "en", "supported": [{"code": "en", "interface": true, "audio": true, "subtitles": false}, {"code": "ja", "interface": true, "subtitles": true}], "follows_platform": true} or the shorthand ["en", "ja"] (interface text). Codes are BCP 47: en, ja, ko, es, zh-Hans, zh-Hant, fr, de, pt-BR… follows_platform: the game starts in GCP.lang (the player\'s platform language) when it has it.' };
 const PLAYERS_SCHEMA = { type: 'object', description: `{"min": 1, "max": 4, "modes": ["single", "coop-online"]}. Modes: ${MODES.join(', ')}.` };
 const CONTENT_SCHEMA = { type: 'object', description: `Content descriptors; the platform derives the age rating from them. Each one left out means none. ${Object.entries(CONTENT_CHOICES).map(([k, v]) => `${k}: ${v.join(' | ')}`).join('; ')}. Pass {} for a game with none of them (rated 3+). Adults only (18+): sexual nudity or explicit, violence graphic, violence realistic with blood, or adult_themes; such games are allowed, shown blurred with a warning players confirm. Declare everything a player can see: the review plays the game, and undeclared nudity, sexual content or realistic or graphic violence fails it.` };
@@ -424,6 +460,7 @@ export const TOOLS: Tool[] = [
           'Hand over the frame: draw everything the player sees (world, HUD, menus, text) in your canvases, never as page elements over the game (text fields are the one exception), and register GCP.test.onCapture(() => canvas or [canvases, bottom to top]) and GCP.test.onState(() => where the game is). The creator\'s feedback screenshots are that exact frame on every device, iPhone and iPad included (without the hook, Capture feedback is greyed out for the version: there is no other way to take one), and once the game is live the preview check "capture" fails a version without the hooks, with page elements painted over the game, or whose handed-over picture does not match the screen. get_started {topic: "contract"}, "Hand over the frame".',
           'Run with no uncaught errors, keep rendering frames (or, for a turn-based page, change when the player acts), survive keyboard, mouse and touch input, and stay on the page (no redirects, downloads or popups). That is what verification checks.',
           'Declare what the game shows (game_metadata content). Sexual content, violence and other mature themes are allowed when declared; adults-only games are shown blurred, labelled 18+ and start only after the player confirms a warning. The review plays the game and refuses a version whose sexual content or violence is not declared.',
+          'A game in several languages is in those languages outside the game too. The platform (in en, zh, zh-TW, ja, ko and es) shows everything about a game in the player\'s platform language when the game is played in it, else in English, else in the game\'s own language: its name, tagline, description, controls text and cover, on the home page, cards, search, the game page, the library and friends\' lists. So for every platform language in game_metadata languages, give the store listing in that language (game_metadata listing_translations, and listing_language for the language the listing itself is in), and a cover per language when the cover shows text (update_project covers). publish refuses a version whose listing misses one of its languages.',
           `Fit the game's storage: all of a game's files together may use ${mb(s.bundle_max_bytes)} by default (one file at most ${mb(s.file_max_bytes)}, ${s.bundle_max_files} files). Uploads that would go over are refused, and a version over it cannot be deployed or published.`,
         ],
         storage: {
@@ -438,19 +475,19 @@ export const TOOLS: Tool[] = [
         workflow: [
           '1. create_project, once per game.',
           '2. upload_files for text files, small edits and deletions; create_upload_url to send big or binary files, or a whole folder as a zip, with curl. Each answer shows the game\'s storage; keep inside it (game_storage).',
-          '2b. game_metadata: define what players see on the store page: genre, languages (interface, voice, subtitles; GCP.lang is the player\'s platform language; GCP.onLang(fn) hears when the player switches it mid-game, which never restarts the game), players and modes, session length, accessibility, content descriptors (the age rating) and the browser requirements. check shows what the code reveals and what is missing; declare saves it. Publishing a new version needs genre, requirements, languages, players and content.',
+          '2b. game_metadata: define what players see on the store page: genre, languages (interface, voice, subtitles; GCP.lang is the player\'s platform language; GCP.onLang(fn) hears when the player switches it mid-game, which never restarts the game), players and modes, session length, accessibility, content descriptors (the age rating) and the browser requirements, and the store listing in each platform language the game is played in (listing_language, listing_translations; covers with text per language through update_project covers). check shows what the code reveals and what is missing; declare saves it. Publishing a new version needs genre, requirements, languages, players, content and the listing in every platform language the game is played in.',
           '3. deploy_preview: static checks, then a new numbered version deployed to its own preview address and checked in a real browser. With dry_run: true it runs only the static checks.',
           '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
           '4b. Look at the game and listen to the creator: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game\'s state), and creator_feedback returns the annotated screenshots and notes the creator left while playing the preview. Read creator_feedback at the start of every session and whenever an answer carries creator_feedback; each item is removed once you read it.',
           '4c. If the game shares its build skill (Open Implementation on), update it before every release: build_skill {project, action: "get"}, revise it for what changed, then build_skill {project, action: "write", version, content}. publish refuses a version without one while sharing is on.',
-          '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover; game_data and game_room manage the game\'s data and multiplayer rooms.',
+          '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover (and a cover per language); game_data and game_room manage the game\'s data and multiplayer rooms.',
         ],
         services: {
           catalog: 'platform_services lists every service (what it is, how it works, SDK calls, MCP tools, limits, guidelines) and what the platform does not provide. Read it before planning a game that needs more than hosting. get_started {topic: "services"} is the long form.',
           sdk: 'window.GCP, injected into every page. GCP.ready(), GCP.progress(f, label), GCP.fatal(err), GCP.player, GCP.env, GCP.lang and GCP.onLang(fn) (the platform language; switching it mid-game never restarts the game, fn(lang, previous) lets it swap text live), GCP.display (fullscreen, touch, paused), one pause owner: GCP.onEscape(fn) (Esc closes an open menu first; fn returns false only when nothing was open), GCP.pauseMenu(open) and GCP.setPaused(on) for a game with its own pause menu (Esc then opens that menu, never the platform menu too), GCP.paused and GCP.onPause(fn) (platform pause and game pause combined; freeze on it, never open a menu from it), GCP.menu(), GCP.quit(), GCP.setDisplay({ orientation, exitButton, edgeToEdge }). GCP.fullscreen() toggles fullscreen (the player also has a button and Alt+Enter, and phones start in fullscreen); see the input guide for touch controls. Every page is opened by a signed-in player (the platform requires an account to play, free games included; GCP.player.guest is true only if an administrator opens free games to guests). GCP.player.id is always that player.',
           saves: 'Every game should keep each player\'s progress with the platform: GCP.save.get/set/remove for the player\'s save (JSON), GCP.playerStats.add/max/min/set for numbers worth tracking (levels cleared, coins, best lap), GCP.playRecord() for what the platform recorded on its own (sessions, play time, first and last played). All of it is private to the signed-in player and this game, and preview is kept apart from live; the server enforces it, so a game cannot read another player\'s data. GCP.shared.get reads data every player sees. Load the save before the first playable frame and save at checkpoints and when the tab is hidden. game_data seeds shared data, aggregates saves and stats and manages leaderboards. get_started {topic: "saves"}.',
           leaderboards: 'GCP.leaderboard.submit(board, score, order) and GCP.leaderboard.top(board, n, order). game_data {action: "leaderboard"} reads or clears one.',
-          multiplayer: 'GCP.room(code): a realtime room per code on the platform\'s multiplayer servers, with a host and host migration. Host-authoritative (one player\'s browser runs the game): right for co-op, party, casual versus and turn-based games, not for ranked or competitive shooters and fighting games (the host can cheat, no lag compensation). game_room inspects or resets one. get_started {topic: "multiplayer"}.',
+          multiplayer: 'GCP.room(name): a realtime room per room name on the platform\'s multiplayer servers, with a host and host migration. To play with friends, create the room under a random name and send it with a friend invite (see friends); never ask players to type or share a code. Host-authoritative (one player\'s browser runs the game): right for co-op, party, casual versus and turn-based games, not for ranked or competitive shooters and fighting games (the host can cheat, no lag compensation). game_room inspects or resets one. get_started {topic: "multiplayer"}.',
           friends: s.social_enabled ? 'Play with friends through friend invites, never typed codes: GCP.match.find({ private: true }) opens an invite-only lobby, GCP.friends.open({ match }) shows the platform\'s invite picker over the game (or GCP.friends.invite(id, { match }) from your own list, GCP.friends.list()), and a friend who accepts arrives with GCP.launch.join (or a GCP.friends.on("join") event) and calls GCP.match.join(join). A room game sends { data: { room } } instead. Only Online, Away and Busy friends can be invited. GCP.presence.set({ detail, joinable }) shows friends what the player does. get_started {topic: "multiplayer"}, section Playing with friends.' : 'Friends are switched off on this platform.',
           matches: 'GCP.match.find({ queue, players }) with server/match.js: for competitive real-time games. The platform matches players by region and rating, runs the game\'s rules at a fixed tick on its own servers near the players, predicts each player\'s own movement and judges shots where the target was on the shooter\'s screen (lag compensation). get_started {topic: "matches"}.',
           server_code: s.allow_server_code ? 'Optional server/index.js runs in the game\'s own Worker and is reached with GCP.server. get_started {topic: "saves"}.' : 'Disabled on this platform.',
@@ -505,7 +542,7 @@ export const TOOLS: Tool[] = [
       return {
         project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, tags: JSON.parse(p.tags || '[]'),
         cover: p.cover_key ? `${c.origin}/api/media/${p.cover_key}` : null,
-        status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', free_trial: trialText(p, await getSettings(c.env)), live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
+        status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', sale: saleText(p, await getSettings(c.env)), free_trial: trialText(p, await getSettings(c.env)), live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
         workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) }, storage: await storageLine(c.env, p, files),
         latest_version: latest ? await versionReport(c, p, latest.n, latest) : null,
         game_page: p.status === 'live' ? `${c.origin}/g/${p.slug}` : null, console_page: `${c.origin}/console/projects/${p.id}`,
@@ -535,39 +572,71 @@ export const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'update_project', title: 'Update listing, price, cover or sharing',
-    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share. Sharing puts the game\'s build skill (written with build_skill) in the Creator Store; skill_price_cents 0 shares it for free, a price sells it (the user\'s choice).',
+    name: 'update_project', title: 'Update listing, price, sale, cover or sharing',
+    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. sale puts a paid game on a limited-time sale: {price_cents, days}; the store shows the sale price with the regular price struck through and when it ends, and buyers pay the sale price until it ends (then the regular price is back by itself). Sending sale again while one runs changes it; null ends it early. The regular price cannot change during a sale. Only start a sale when the user has chosen one. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share. Sharing puts the game\'s build skill (written with build_skill) in the Creator Store; skill_price_cents 0 shares it for free, a price sells it (the user\'s choice).',
     inputSchema: obj({
       project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: TAGS_SCHEMA,
       controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
       price_cents: { type: 'integer', description: '0 for free, or the price in US cents (e.g. 499 = $4.99).' },
       trial_minutes: { type: 'integer', description: 'Paid games only: minutes of free play before buying (e.g. 30). 0 turns the free trial off. get_started shows the longest allowed.' },
-      cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png".' },
+      cover: { type: 'string', description: 'Workspace path of the cover image, e.g. "cover.png": the cover for the listing\'s own language, and for every language without one of its own.' },
+      covers: { type: 'object', description: 'A cover per platform language, for covers that show text such as the game\'s name: {"zh": "cover-zh.jpg", "ja": "cover-ja.jpg"}, workspace paths; null removes one. The listing\'s own language uses cover. Players see the cover of the language the listing is shown in.' },
+      listing_language: LISTING_LANGUAGE_SCHEMA,
       open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code), and its build skill in the Creator Store. Default off.' },
+      sale: { type: ['object', 'null'], properties: { price_cents: { type: 'integer', description: 'The sale price in US cents, below the regular price (get_started shows the smallest discount and lowest sale price allowed).' }, days: { type: 'integer', description: 'How many days the sale lasts, from now (or from when the running sale started).' } }, description: 'A limited-time sale of a paid game: {price_cents, days}; null ends the running sale. Only when the user has chosen.' },
       skill_price_cents: { type: 'integer', description: 'The build skill\'s price in US cents, or 0 to share it for free. A free skill lowers the game\'s own platform cut; a sold one keeps the standard cut and pays the skill commission on skill sales. Only when the user has chosen.' },
       genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
-      listing_translations: { type: 'object', description: 'The listing in other platform languages: {"ja": {"title", "tagline", "description", "controls"}}; null removes one.' },
+      listing_translations: TRANSLATIONS_SCHEMA,
     }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
       let cover: string | undefined;
-      if (a.cover) {
-        const path = cleanPath(a.cover) || '', ext = extOf(path);
-        if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) throw bad('The cover must be a png, jpg or webp file.');
+      const storeCover = async (raw: unknown, tag: string) => {
+        const path = cleanPath(String(raw)) || '', ext = extOf(path);
+        if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) throw bad(`The ${tag} cover must be a png, jpg or webp file.`);
         const { row, bytes } = await readFile(c.env, p.id, path);
-        if (row.size > 2 * 1024 * 1024) throw bad('The cover must be under 2 MB.');
-        const key = `covers/${p.id}-${now().toString(36)}.${ext}`;
+        if (row.size > 2 * 1024 * 1024) throw bad(`The ${tag} cover must be under 2 MB.`);
+        const key = `covers/${p.id}-${tag === 'main' ? '' : tag + '-'}${now().toString(36)}.${ext}`;
         await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: row.ctype } });
+        return key;
+      };
+      // covers per language are checked whole before anything is stored
+      const perLang: [string, unknown][] = [];
+      if (a.covers !== undefined && a.covers !== null) {
+        if (typeof a.covers !== 'object' || Array.isArray(a.covers)) throw bad('covers must map a platform language to a workspace path: {"zh": "cover-zh.jpg"}.');
+        for (const [k, v] of Object.entries(a.covers as Record<string, unknown>)) {
+          const l = listingLangCode(k);
+          if (!l || !isLang(l)) throw bad(`covers: "${k}" is not one of the platform languages.`, 'Platform languages: en, zh, zh-TW, ja, ko, es.');
+          if (v !== null && typeof v !== 'string') throw bad(`covers.${k} must be a workspace path or null.`);
+          perLang.push([l, v]);
+        }
+      }
+      const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, sale: saleIn, ...meta } = a;
+      await updateProjectMeta(c.env, p, meta);
+      if (saleIn !== undefined) await applySale(c.env, await ownedProject(c.env, c.user, p.id), saleIn, c.client);
+      const fresh = await ownedProject(c.env, c.user, p.id), own = baseListingLang(fresh), langCovers: Record<string, string | null> = {};
+      // the cover of the listing's own language is the main cover
+      const mainPath = a.cover || perLang.find(([l, v]) => l === own && v)?.[1];
+      if (mainPath) {
+        const key = await storeCover(mainPath, 'main');
         await c.env.DB.prepare('UPDATE projects SET cover_key = ? WHERE id = ?').bind(key, p.id).run();
         cover = `${c.origin}/api/media/${key}`;
       }
-      const { cover: _c, open_implementation: open, skill_price_cents: skillPrice, ...meta } = a;
-      await updateProjectMeta(c.env, p, meta);
+      if (perLang.some(([l]) => l !== own)) {
+        const cur = JSON.parse(fresh.listing_i18n || '{}') as Record<string, Record<string, string>>;
+        for (const [l, v] of perLang) {
+          if (l === own) continue;
+          if (v === null) { if (cur[l]) { delete cur[l].cover_key; if (!Object.keys(cur[l]).length) delete cur[l]; } langCovers[l] = null; continue; }
+          const key = await storeCover(v, l);
+          cur[l] = { ...(cur[l] || {}), cover_key: key }; langCovers[l] = `${c.origin}/api/media/${key}`;
+        }
+        await c.env.DB.prepare('UPDATE projects SET listing_i18n = ? WHERE id = ?').bind(JSON.stringify(cur), p.id).run();
+      }
       if (skillPrice !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, skillPrice, c.client);
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
       const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
   },
   {
@@ -676,7 +745,8 @@ export const TOOLS: Tool[] = [
       title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, controls: { type: 'string' },
       genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
       tags: TAGS_SCHEMA,
-      listing_translations: { type: 'object', description: 'The listing in other platform languages: {"ja": {"title": "…", "tagline": "…", "description": "…", "controls": "…"}, "es": {…}}. null for a language removes it. Only translate what the user has approved or what you can translate faithfully.' },
+      listing_language: LISTING_LANGUAGE_SCHEMA,
+      listing_translations: TRANSLATIONS_SCHEMA,
       requirements: { ...REQUIREMENTS_SCHEMA, description: 'What the game needs from the browser (same as compatibility declare).' },
       languages: LANGUAGES_SCHEMA, players: PLAYERS_SCHEMA,
       session_minutes: { type: 'integer', description: 'Length of a typical session in minutes.' },
@@ -978,6 +1048,45 @@ export const TOOLS: Tool[] = [
       const bytes = r.state_json ? r.state_json.length : 0;
       const state = !r.state_json ? null : bytes > 20000 ? `${r.state_json.slice(0, 20000)} …[truncated, ${bytes} bytes]` : JSON.parse(r.state_json);
       return { env, room: code, players: r.players, host: r.host, state, state_bytes: bytes, limits: { players_per_room: s.room_max_peers, message_bytes: 64 * 1024, state_bytes: 256 * 1024 }, ...(r.players.length ? {} : { note: 'Nobody is in this room now. Rooms are created when the first player joins and forget everything when the last one leaves.' }) };
+    },
+  },
+  {
+    name: 'preview_bots', title: 'Test an online game with bot players',
+    description: 'Puts bot players into the game\'s preview to test online play over the platform\'s real network path. Each bot is a remote client like a player\'s page: it has a play session of its own (preview only, never rated), waits in the real matchmaker (GCP.match.find) or joins the real room (GCP.room), and plays the match over a WebSocket to the game\'s own Worker, from the region you pick, with an optional last mile of added latency, jitter and packet loss. Bots play with the game\'s own server/bot.js (export default { thinkMs, think(view, me, ctx) -> input } or actions(view, me, ctx) -> [inputs] for a generic random bot; room(ctx) -> messages for rooms), run in a sandbox with no network; without it they join and stay connected but send nothing. '
+      + 'action start: target "follow" (default) sends the bots wherever the creator searches or opens a room in their preview; "queue" puts them in a public queue (queue, players, min, teams, mode as the game passes them to GCP.match.find, so they meet the players searching the same); "code" into a private lobby; "room" into a room. Bots alone can fill a match: with target queue and bots >= the queue\'s min the match starts without anyone else, so an agent can run an online match end to end without a browser. '
+      + 'status: per bot its phase, round trip (last, median, 95th percentile), snapshots per second and their spacing and jitter, the longest gap, unacknowledged inputs, traffic, reconnects, errors (the match\'s and server/bot.js\'s), plus the fleet\'s log. act: drop (the connection drops and comes back after ms with the same ticket, like the SDK\'s reconnect), reload (comes back after ms like a reloaded page, through GCP.match.rejoin\'s path), spike (extra ms of delay for ms), outage (nothing gets through for ms), net (a new network profile), leave (for good), rejoin; bot "all" or one bot\'s id or name. stop ends the fleet and its sessions. '
+      + 'Limits: a fleet stops by itself after its minutes; bots per fleet, fleets at once and bot-minutes per day are capped (status shows them).',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['options', 'start', 'status', 'act', 'stop'], description: 'Default status.' },
+      bots: { type: 'integer', description: 'start: how many bots (default 3).' },
+      target: { type: 'string', enum: ['follow', 'queue', 'code', 'room'], description: 'start: where the bots go. Default follow.' },
+      queue: { type: 'string', description: 'start with target queue: the queue name the game uses (default "default").' },
+      players: { type: 'integer', description: 'start with target queue or code: the match size the game asks for (GCP.match.find players).' },
+      min: { type: 'integer', description: 'start with target queue: the game\'s min.' },
+      teams: { type: 'integer', description: 'start with target queue: the game\'s teams.' },
+      mode: { type: 'string', description: 'start with target queue: the game\'s mode.' },
+      code: { type: 'string', description: 'start with target code: the private lobby code.' },
+      room: { type: 'string', description: 'start with target room: the room code.' },
+      region: { type: 'string', enum: ['auto', 'wnam', 'enam', 'sam', 'weur', 'eeur', 'apac', 'oc', 'afr', 'me'], description: 'start: where the bots connect from. Default auto.' },
+      net: { description: 'start: the last mile every bot gets: a profile (none, fiber, wifi, 4g, 3g, poor, far) or { latency, jitter, loss } (one-way ms, ms, percent). act net: the new one.' },
+      nets: { type: 'array', description: 'start: one network per bot (profile names or objects), overriding net for those bots.' },
+      names: { type: 'array', items: { type: 'string' }, description: 'start: display names for the bots.' },
+      skill: { type: 'number', description: 'start: 0 to 1, handed to server/bot.js as ctx.skill (default 1).' },
+      minutes: { type: 'integer', description: 'start: how long the fleet may run before it stops by itself.' },
+      bot: { type: 'string', description: 'act: a bot\'s id or name, or "all" (default).' },
+      what: { type: 'string', enum: ['drop', 'reload', 'spike', 'outage', 'net', 'leave', 'rejoin'], description: 'act: what to do.' },
+      ms: { type: 'integer', description: 'act: how long (drop, reload: until the bot comes back; spike, outage: how long it lasts). Default 5000.' },
+      extra: { type: 'integer', description: 'act spike: the extra delay in ms (default 400).' },
+    }, ['project']), annotations: { destructiveHint: false },
+    run: async (a, c) => {
+      const action = a.action || 'status';
+      if (action === 'options') { const p = await ownedProject(c.env, c.user, a.project); return botOptions(c.env, p, c.user); }
+      if (action === 'start') return startBots(c.env, c.origin, c.user, a.project, a);
+      if (action === 'act') return actBots(c.env, c.user, a.project, { bot: a.bot, action: a.what, ms: a.ms, extra: a.extra, net: a.net });
+      if (action === 'stop') return stopBots(c.env, c.user, a.project);
+      if (action !== 'status') throw bad('action must be options, start, status, act or stop.');
+      return botStatus(c.env, c.user, a.project);
     },
   },
   {

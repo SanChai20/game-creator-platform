@@ -33,6 +33,8 @@ const mock = createServer(async (req, res) => {
   if (url.pathname === '/v2/core/account_links') return send({ url: 'https://connect.stripe.test/onboard' });
   if (url.pathname === '/v1/transfers') return send({ id: 'tr_test1', amount: Number(p.amount) });
   if (url.pathname === '/v1/refunds') return send({ id: 're_test1' });
+  if (/^\/v1\/transfers\/[^/]+\/reversals$/.test(url.pathname)) return send({ id: 'trr_test1', amount: Number(p.amount) });
+  if (url.pathname.startsWith('/v1/payment_intents/')) return send({ id: url.pathname.split('/').pop(), latest_charge: { balance_transaction: { fee: 59 } } });
   res.writeHead(404); res.end('{}');
 }).listen(8798, '127.0.0.1');
 
@@ -100,7 +102,7 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 21, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 25, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
@@ -306,11 +308,17 @@ GCP.ready();
   const gp = must(await B.get(`/api/games/${slug}`));
   assert.ok(gp.compat && gp.compat.declared === true && gp.compat.requirements.graphics === 'webgl2' && gp.compat.download_bytes > 0, JSON.stringify(gp.compat));
   assert.ok(gp.meta && gp.meta.rating.age === 3 && gp.meta.players.max === 1 && gp.meta.languages_declared && gp.meta.languages.supported.length >= 1 && gp.game.tags[0] === 'adventure', JSON.stringify(gp.meta));
-  // a translated listing is served with the game and its card
+  // the listing follows the platform language, but only in languages the game is played in: a Japanese listing of a
+  // game declared in English alone is kept and not served (Japanese players see English), and the card says what the
+  // listing itself is in
+  const played = gp.meta.languages.supported.map((l) => l.code);
   await tool('game_metadata', { project: pid, action: 'declare', listing_translations: { ja: { title: 'シャード島', tagline: '島のかけらを集めよう' } } });
-  const gpj = must(await B.get(`/api/games/${slug}`));
-  assert.equal(gpj.game.listing_i18n.ja.title, 'シャード島');
-  assert.equal(must(await B.get('/api/games')).games.find((g) => g.id === pid).i18n.ja.tagline, '島のかけらを集めよう');
+  const gpj = must(await B.get(`/api/games/${slug}`)), cardj = must(await B.get('/api/games')).games.find((g) => g.id === pid);
+  assert.equal(gpj.game.lang, 'en');
+  if (played.includes('ja')) { assert.equal(gpj.game.listing_i18n.ja.title, 'シャード島'); assert.equal(cardj.i18n.ja.tagline, '島のかけらを集めよう'); }
+  else { assert.equal(gpj.game.listing_i18n.ja, undefined, JSON.stringify(gpj.game.listing_i18n)); assert.equal(cardj.i18n?.ja, undefined); }
+  const mj = await tool('game_metadata', { project: pid });
+  assert.ok(mj.listing.translated_into.includes('ja') && /^en/.test(mj.listing.listing_language), JSON.stringify(mj.listing));
   assert.equal((await rpc('tools/call', { name: 'game_metadata', arguments: { project: pid, action: 'declare', listing_translations: { fr: { title: 'x' } } } })).isError, true);
   ok('published; visible in the marketplace with a cover, its declared requirements, metadata (age 3+, players, languages, genre) and a Japanese listing');
 
@@ -559,8 +567,13 @@ GCP.ready();
   const money = must(await ADM.get('/api/admin/money'));
   must(await ADM.post(`/api/admin/purchases/${money.purchases[0].id}/refund`));
   assert.equal(must(await B.get(`/api/games/${slug}`)).owned, false);
-  assert.equal(must(await A.get('/api/console/earnings')).balance.total, -449);
-  ok('refund: access revoked, creator credit reversed');
+  // the creator's share was already transferred, so that much of the Transfer is reversed: nothing is left owed
+  assert.equal(must(await A.get('/api/console/earnings')).balance.total, 0);
+  const rev = stripeCalls.find((c) => c.path === '/v1/transfers/tr_test1/reversals');
+  assert.equal(rev.p.amount, '449');
+  const books = must(await ADM.get('/api/admin/money')).refunds[0];
+  assert.deepEqual([books.status, books.transfer_reversal_cents, books.stripe_fee_cents, books.fee_bearer], ['refunded', 449, 59, 'platform']);
+  ok('refund: access revoked, creator credit reversed from the payout already sent, the platform absorbs the Stripe fee');
 
   // versions: a second version, rollback, unpublish, console views, admin views
   await tool('upload_files', { project: pid, edits: [{ path: 'index.html', old_string: '<title>Shard Island</title>', new_string: '<title>Shard Island II</title>' }] });

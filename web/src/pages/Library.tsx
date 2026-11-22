@@ -3,7 +3,7 @@
 // bought (in the library from the moment the payment succeeds) and every free game they added from its page. Only
 // their own, from their account.
 import { useEffect, useState } from 'react';
-import { api, Fail, GameTile, t, useAct, useData } from '../lib';
+import { api, Fail, GameTile, Link, t, useAct, useData } from '../lib';
 import { Badge, Button, EmptyState, PageHeader, Segmented } from '../ui';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { ContinueCard, useHide, type ContinueGame } from '../continue';
@@ -49,7 +49,7 @@ export function Library() {
   };
   return (
     <div className="wrap page">
-      <PageHeader eyebrow={t('Library', '游戏库')} title={t('Your games', '我的游戏')} sub={t('The games you bought, the free games you added, and everything you played. Continue opens a game where you left off, on any device.', '你购买的游戏、你加入的免费游戏，以及你玩过的所有游戏。点“继续游戏”即可在任何设备上从上次离开的地方继续。')} />
+      <PageHeader eyebrow={t('Library', '游戏库')} title={t('Your games', '我的游戏')} actions={<Button to="/purchases" size="sm">{t('Purchases and refunds', '购买记录与退款')}</Button>} sub={t('The games you bought, the free games you added, and everything you played. Continue opens a game where you left off, on any device.', '你购买的游戏、你加入的免费游戏，以及你玩过的所有游戏。点“继续游戏”即可在任何设备上从上次离开的地方继续。')} />
       {!played.length && !counts.all ? (
         <EmptyState title={t('Nothing here yet', '这里还是空的')} action={<Button to="/" variant="primary">{t('Find a game', '去找游戏')}</Button>}>{t('Games you buy are added here automatically. Add free games from their page, and games you play show up here with where you left off.', '你购买的游戏会自动出现在这里。免费游戏可以在游戏页面加入游戏库，玩过的游戏也会出现在这里，并记录你上次玩到哪里。')}</EmptyState>
       ) : (
@@ -73,6 +73,7 @@ export function Library() {
                   <GameTile g={g} to={g.library.owned ? `/g/${g.slug}?play=1` : `/g/${g.slug}`} />
                   <div className="lib-tile-f">
                     {g.library.source === 'bought' ? <Badge tone="good">{t('Bought', '已购买')}</Badge> : <Badge>{t('Free', '免费')}</Badge>}
+                    {g.library.source === 'bought' && <Link to="/purchases" className="fs-sm">{t('Refund', '退款')}</Link>}
                     {g.library.source === 'added' && <button type="button" className="linkish fs-sm" onClick={() => remove(g)}>{t('Remove', '移除')}</button>}
                   </div>
                 </div>

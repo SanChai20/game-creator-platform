@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -11,8 +11,10 @@ import { encodeJoin, onLaunch, setActivity } from '../social';
 import { InstallTip } from '../install-tip';
 import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
 import type { Lang } from '../lib';
+import { offeredListings } from '../languages';
 import { legalTitle } from './Legal';
 import { OPERATOR } from '../operator';
+import { RefundBox, type RefundState } from '../refund-ui';
 
 /** Under the Buy button: who the seller is, and the terms a purchase falls under. */
 const SoldBy = () => <p className="dim fs-xs sold-by">{t('Sold by {op}. Payments by Stripe.', '由 {op} 销售，付款由 Stripe 处理。', { op: OPERATOR.name })} <Link to="/legal/terms">{legalTitle('terms')}</Link> · <Link to="/legal/refunds">{legalTitle('refunds')}</Link></p>;
@@ -130,7 +132,7 @@ export function Game({ slug }: { slug: string }) {
     return true;
   }), [slug, data, url]);
   // Friends see this game, and for how long, while it runs for a signed-in player.
-  const playTitle = data?.game?.title as string | undefined;
+  const playTitle = data?.game ? local(data.game, 'title') : undefined;
   useEffect(() => { setActivity(url && user && playingAs && !playingAs.guest && playTitle ? { slug, title: playTitle } : null); }, [url, user?.id, playingAs, slug, playTitle]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => setActivity(null), []);
   // Continue (the default once the player has progress here) opens the game with GCP.launch.continue, so it can load the
@@ -169,15 +171,11 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current; joinRef.current = null; setUrl(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j), j)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current; joinRef.current = null; setUrl(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j), j)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null, lang: g.lang, i18n: adult ? undefined : g.i18n }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
     void act('buy', async () => { const r = await api<{ url: string }>(`/games/${slug}/buy`, { method: 'POST' }); location.href = r.url; });
-  };
-  const refund = () => {
-    if (!confirm(t('Refund {title}? The money goes back to how you paid, and the game leaves your library. Each game can be refunded once.', '确定为 {title} 退款吗？款项将原路退回，该游戏会从你的游戏库中移除。每款游戏只能退款一次。', { title: local(g, 'title') }))) return;
-    void act('refund', async () => { await api(`/games/${slug}/refund`, { method: 'POST' }); await reload(); }, t('Refunded. The money is on its way back to you.', '已退款，款项正在退回给你。'));
   };
   // The library: a free game is added (or removed) here; a paid one is in it from the moment it is bought.
   const inLibrary = data.library as 'bought' | 'added' | null;
@@ -187,7 +185,7 @@ export function Game({ slug }: { slug: string }) {
   const total = data.rating_dist.reduce((a: number, b: number) => a + b, 0);
   const canReview = !!user && !data.is_owner && (data.played || !config.settings.review_requires_play);
 
-  const meta = data.meta as GameMeta | null | undefined, listings = Object.keys(g.listing_i18n || {}) as Lang[];
+  const meta = data.meta as GameMeta | null | undefined, listings = offeredListings(g.lang || 'en', Object.keys(g.listing_i18n || {}), null) as Lang[];
   const title = local(g, 'title'), tagline = blurb({ title, tagline: local(g, 'tagline') }), description = local(g, 'description'), controls = local(g, 'controls');
   const genre = g.tags?.[0] as string | undefined, R = RARITY[rarity(g)], h = genre ? genreHue(genre) : 350;
   const tryLabel = fresh || !user ? t('Try free · {minutes} min', '免费试玩 · {minutes} 分钟', { minutes: trial?.minutes ?? 0 }) : t('Continue trial · {left} min left', '继续试玩 · 剩 {left} 分钟', { left: leftMin });
@@ -234,7 +232,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage social={!!user} ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage social={!!user} ctl={stage} poster={shown(g).cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>
@@ -251,12 +249,13 @@ export function Game({ slug }: { slug: string }) {
             {live ? (
               <div className="gp-buy">
                 <span className="gp-buy-h">{locked ? t('Buy {title}', '购买 {title}', { title }) : t('Play {title}', '游玩 {title}', { title })}</span>
-                <div className="gp-price-row"><b className="gp-price">{price(g.price_cents)}</b>{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
+                <div className="gp-price-row"><PriceTag g={g} className="gp-price" /><SaleTag g={g} />{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
+                {locked && saleOn(g) && <p className="gp-sale-ends">{saleEnds(saleOn(g)!.ends_at)} · {t('then {price}', '之后恢复 {price}', { price: price(saleOn(g)!.regular_cents) })}</p>}
                 <div className="gp-buy-act">{cta}</div>
                 {user && (inLibrary === 'bought' ? <p className="gp-buy-note gp-lib"><Link to="/library">{t('In your library', '已在你的游戏库中')} →</Link></p>
                   : !paid ? <div className="gp-lib"><Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>{inLibrary && <Link to="/library" className="fs-sm">{t('Open library', '打开游戏库')}</Link>}</div> : null)}
                 <p className="gp-buy-note">{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
-                {data.refund_until && <p className="gp-buy-note">{t('Not what you hoped? You can refund it until {time}, while you have played less than {minutes} minutes.', '不满意？在 {time} 前且游玩不足 {minutes} 分钟时，你可以申请退款。', { time: dateTime(data.refund_until), minutes: Number(config.settings.refund_max_play_minutes ?? 30) })} <Button size="sm" variant="ghost" onClick={refund} disabled={busy === 'refund'}>{t('Refund', '退款')}</Button></p>}
+                {data.refund && !data.is_owner && <RefundBox st={data.refund as RefundState} title={title} onDone={reload} />}
                 {data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}
                 {meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}
               </div>
