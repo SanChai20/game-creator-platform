@@ -35,6 +35,7 @@ test('the numbers match the code that draws each surface', () => {
   // on-screen controls
   has('web/public/sdk/gcp.js', `padL = ${N.touch.edge} + (sf.left || 0), padR = ${N.touch.edge} + (sf.right || 0), padB = ${N.touch.edge} + (sf.bottom || 0)`, 'controls distance from the edges');
   has('web/public/sdk/gcp.js', `var R = Math.round(${N.touch.stick_radius} * s)`, 'stick radius');
+  has('web/public/sdk/gcp.js', `sq = ${N.menu_button.size + 2 * N.menu_button.inset}, sf = display.safe`, 'display.menuButton square');
   has('web/public/sdk/gcp.js', `Math.min(vw * ${N.touch.stick_zone_w}, R * 3.4)), zh = Math.round(Math.min(vh * ${N.touch.stick_zone_h}, R * 3.4))`, 'stick zone');
   // the window and friend pop-ups
   assert.equal(PLAY_MAX_W, N.window.max_w); assert.equal(N.window.max_h, N.window.max_w * 9 / 16);
@@ -101,9 +102,15 @@ test('the code checks', () => {
   assert.ok(!run('GCP.progress(1); GCP.setDisplay({ orientation: "portrait" })', { requirements: { devices: ['mobile'] } }).includes('orientation'));
   assert.ok(run('GCP.ready()').includes('menu-corner'));
   assert.ok(!run("GCP.setDisplay({ exitButton: 'top-right' })").includes('menu-corner'));
+  assert.ok(!run('const m = GCP.display.menuButton; const x = m ? m.x + m.w : 0;').includes('menu-corner'));
   assert.ok(run('GCP.ready()').includes('no-progress'));
   assert.ok(run('ctx.fillText("Powered by HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(!run('// works on HearthCade\nGCP.ready()').includes('platform-logo'));
+  // a comment with an apostrophe before the name (Noctelle's bot), and server-side code, are not drawn
+  assert.ok(!run("// the platform's preview bots (HearthCade: preview_bots)\nGCP.ready()").includes('platform-logo'));
+  assert.ok(!run("/* the player's HearthCade page */ GCP.ready()").includes('platform-logo'));
+  assert.ok(checkStandards({ texts: { 'index.html': 'GCP.progress(1)', 'server/bot.js': 'const n = "HearthCade";' } }).every((x) => x.check !== 'platform-logo'));
+  assert.ok(run('const url = "https://example.com"; ctx.fillText("HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(run('GCP.ready()', {}, ['index.html', 'icons/icon-512.png', 'promo/shot1.png']).includes('unused-store-files'));
   assert.ok(!run('GCP.ready()', {}, ['index.html', 'sprites/hero.png', 'music/theme.ogg']).includes('unused-store-files'));
   // libraries are not the game's own code

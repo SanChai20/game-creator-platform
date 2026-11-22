@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.8.1', fixes: {} };
+  var RT = S.runtime = { version: '2.9.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -935,7 +935,15 @@
   // safe: the screen's notch, rounded corners and home indicator, in CSS px, as the platform page measures them. An iframe
   // never gets safe-area insets of its own (env(safe-area-inset-*) is always 0 in a frame), so they come from the page,
   // also as the CSS variables --gcp-safe-top/right/bottom/left on <html>.
-  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false }, displayFns = [];
+  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false, menuButton: null }, displayFns = [];
+  // display.menuButton: the square the platform's menu button sits in while it shows (fullscreen and phones), in the
+  // game's CSS pixels, inside display.safe: { corner, x, y, w, h }, or null. A HUD that shares that corner moves aside by it.
+  var menuSquare = function () {
+    var c = (S.displayPrefs && S.displayPrefs.exitButton) || 'top-left', sq = 56, sf = display.safe, W = window.innerWidth || 0, H = window.innerHeight || 0;
+    if (!display.fullscreen || c === 'none' || !/^(top|bottom)-(left|right)$/.test(c)) { display.menuButton = null; return; }
+    display.menuButton = { corner: c, x: /right/.test(c) ? W - sf.right - sq : sf.left, y: /bottom/.test(c) ? H - sf.bottom - sq : sf.top, w: sq, h: sq };
+  };
+  try { window.addEventListener('resize', function () { if (display.menuButton) menuSquare(); }); } catch (e) { /* no window events */ }
   function markDisplay() {
     var h = document.documentElement, c = h && h.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch);
     ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
@@ -2154,6 +2162,7 @@
       if (typeof prefs.pauseAudio === 'boolean') { PZ.audio = prefs.pauseAudio; audioHold(); }
       if (typeof prefs.textSelect === 'boolean') { noSelect = !prefs.textSelect; noSelectCss(); }
       ['orientation', 'exitButton', 'edgeToEdge'].forEach(function (k) { if (prefs[k] !== undefined) S.displayPrefs[k] = prefs[k]; });   // what the verifier reads (the game standards' zone check)
+      if (prefs.exitButton !== undefined) menuSquare();
       try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ }
     },
     /** The platform's on-screen controls for touch screens: a stick and buttons that press the game's keys. They show by
@@ -3027,7 +3036,7 @@
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
-    display.paused = !!d.paused; display.menu = !!d.menu;
+    display.paused = !!d.paused; display.menu = !!d.menu; menuSquare();
     markDisplay(); guard(); controlsFromPage(d); uiFromPage(d); fsChanged(); pauseNotify('platform');
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });

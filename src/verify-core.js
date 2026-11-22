@@ -619,8 +619,10 @@ export async function zonesOf(page, orientation) {
     }
     // read the interface layers right after the game's next frame (a WebGL canvas is readable until it is composited)
     const counts = await new Promise((done) => requestAnimationFrame(() => {
-      const res = rects.map(() => ({ hit: 0, all: 0, x0: 1e9, y0: 1e9, x1: -1, y1: -1 }));
+      const res = rects.map(() => ({ all: 0, hits: [], lines: new Map() }));
+      let li = 0;
       for (const c of layers.slice(1)) {
+        li++;
         const r = c.getBoundingClientRect(); if (!r.width || !r.height) continue;
         const k = document.createElement('canvas'); k.width = Math.max(1, Math.round(r.width)); k.height = Math.max(1, Math.round(r.height));
         const g = k.getContext('2d', { willReadFrequently: true }); let px;
@@ -629,17 +631,34 @@ export async function zonesOf(page, orientation) {
         let solid = 0, n = 0; for (let i = 3; i < px.length; i += 4 * 97) { n++; if (px[i] >= 200) solid++; }
         if (n && solid / n > 0.85) continue;
         rects.forEach((z, j) => {
-          const o = res[j];
+          const o = res[j], across = z.zone === 'home-bar' || z.zone === 'notch-top';
           for (let y = Math.max(0, Math.floor(z.y - r.top)); y < Math.min(k.height, Math.ceil(z.y + z.h - r.top)); y += 2)
             for (let x = Math.max(0, Math.floor(z.x - r.left)); x < Math.min(k.width, Math.ceil(z.x + z.w - r.left)); x += 2) {
-              o.all++; if (px[(y * k.width + x) * 4 + 3] >= 200) { o.hit++; const X = x + r.left, Y = y + r.top; if (X < o.x0) o.x0 = X; if (Y < o.y0) o.y0 = Y; if (X > o.x1) o.x1 = X; if (Y > o.y1) o.y1 = Y; }
+              o.all++; const i = (y * k.width + x) * 4, line = li + ':' + (across ? x : y), l = o.lines.get(line) || { n: 0, hit: 0 };
+              l.n++; o.lines.set(line, l);
+              if (px[i + 3] >= 200) { l.hit++; o.hits.push([x + r.left, y + r.top, ((px[i] >> 5) << 6) | ((px[i + 1] >> 5) << 3) | (px[i + 2] >> 5), line]); }
             }
         });
       }
       done(res);
     }));
     out.checked = true;
-    rects.forEach((z, j) => { const o = counts[j]; const cov = o.all ? o.hit / o.all : 0; if (cov > 0.03) out.zones.push({ zone: z.zone, coverage: Math.round(cov * 100) / 100, box: [Math.round(o.x0), Math.round(o.y0), Math.round(o.x1 - o.x0 + 1), Math.round(o.y1 - o.y0 + 1)] }); });
+    rects.forEach((z, j) => {
+      const o = counts[j]; let hits = o.hits, bleed = false;
+      // a panel or bar whose plain background runs on to the screen edge is allowed (backgrounds may bleed, content may
+      // not): across the lines the interface fills right to the edge, the commonest flat colour is that background, and
+      // only what differs from it (text, icons, buttons) counts
+      if (z.zone !== 'menu-button') {
+        const full = (h) => { const l = o.lines.get(h[3]); return l && l.hit === l.n; };
+        const n = new Map(); for (const h of hits) if (full(h)) n.set(h[2], (n.get(h[2]) || 0) + 1);
+        const top = [...n].sort((p, q) => q[1] - p[1])[0];
+        if (top && top[1] > hits.length * 0.3) { bleed = true; hits = hits.filter((h) => !(h[2] === top[0] && full(h))); }
+      }
+      const cov = o.all ? hits.length / o.all : 0;
+      if (cov <= 0.03) return;
+      let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1; for (const [X, Y] of hits) { if (X < x0) x0 = X; if (Y < y0) y0 = Y; if (X > x1) x1 = X; if (Y > y1) y1 = Y; }
+      out.zones.push({ zone: z.zone, coverage: Math.round(cov * 100) / 100, box: [Math.round(x0), Math.round(y0), Math.round(x1 - x0 + 1), Math.round(y1 - y0 + 1)], ...(bleed ? { bleed: true } : {}) });
+    });
     return out;
   }, { safe, edge: told.edge, corner: told.corner, size: mb.size, inset: mb.inset }).catch(() => null);
 }
