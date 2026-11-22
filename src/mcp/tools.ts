@@ -20,7 +20,7 @@ import { gameAnalytics, onlineNow } from '../analytics';
 // @ts-ignore plain JS module
 import { DataError, serverStoreOp } from '../player-data.js';
 import { assertGameDataRoom } from '../db-guard';
-import { publishGate } from '../originality-check';
+import { currentChecks, gateError, gateText, gateView, recordGate, releaseGate, storedGate, type GateResult } from '../release-gate';
 import { DISCOVERY, NOT_PROVIDED, openPerks, platformServices } from './services';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
@@ -114,15 +114,20 @@ async function versionReport(c: ToolCtx, p: Project, n: number, v: Awaited<Retur
   if (pub.report && typeof pub.report === 'object') delete (pub.report as Record<string, unknown>).craft;
   const { compat, meta, ...rest } = pub;
   const running = RUNNING.includes(v.status);
+  // verified, but not against today's checks: publishing it would be refused (src/release-gate.ts, current_checks)
+  const cur = el.ok ? currentChecks(v, s) : { ok: true, problems: [] }, last = storedGate(v);
   return {
     ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}). This is normal: it takes one to two minutes. Call list_versions {project, version: ${n}}; it waits for the result. Do not deploy the same files again.` } : {}),
     ...rest, can_publish: el.ok, eligibility: el.reason, compatibility: compatSummary(compat), metadata: meta ? metaSummary(p, compat, meta).build : null,
     ...(meta && compat && true ? (() => { const m = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]')); return m.length ? { metadata_missing: m, metadata_next: 'Publishing needs these. game_metadata {project} walks through each with allowed values and suggestions.' } : {}; })() : {}),
+    ...(cur.ok ? {} : { not_current: `Publishing this version would be refused: ${cur.problems.join('; ')}. deploy_preview again (retry_version: ${n} when it is the newest version) and publish the version that makes.` }),
+    ...(last ? { last_release_check: { ok: last.ok, ruleset: last.ruleset, checked_at: new Date(last.checked_at).toISOString(), failed: last.failures.map((f) => `${f.id}: ${f.reason}`) } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
     ...(await feedbackHint(c, p)),
     next: running ? `Still ${v.status} (${v.stage}). Call list_versions {project, version: ${n}}; it waits up to 40 seconds for the report.`
       : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
-        : `Verified. A person can play it on the preview page first. To make it live: publish {project, version: ${n}}.`,
+        : !cur.ok ? `Verified, but not against today's checks. deploy_preview again before publishing.`
+        : `Verified. A person can play it on the preview page first. publish {project, version: ${n}, dry_run: true} checks every platform requirement; publish {project, version: ${n}} makes it live.`,
   };
 }
 
@@ -322,6 +327,9 @@ const CONTENT_SCHEMA = { type: 'object', description: `Content descriptors; the 
 const TAGS_SCHEMA = { type: 'array', maxItems: MAX_TAGS, items: { type: 'string', enum: [...TAGS] }, description: `${MIN_TAGS} to ${MAX_TAGS} tags from the platform list (only these are accepted; genres go in genre and genres). ${Object.entries(TAG_GROUPS).map(([g, l]) => `${g}: ${l.join(', ')}`).join('. ')}.` };
 const GENRE_SCHEMA = { type: 'string', enum: [...GENRES], description: 'The primary genre; the store groups games by it.' };
 
+/** The only thing between this version and going live is the review a person gives versions the browser could not run. */
+const onlyReviewNeeded = (g: GateResult) => g.failures.length > 0 && g.failures.every((f) => f.review === 'needed');
+
 async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: boolean): Promise<unknown> {
   const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
   if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
@@ -336,62 +344,60 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
     v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
   }
   if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
-  if (v.purged_at) throw bad(`Version ${v.n} is older than the platform keeps files for, so it can no longer be published.`, 'Call deploy_preview to make a new version from the workspace, then publish that.');
   // Input is checked before the license, so a wrong version number is reported as such for any account.
-  if (s.creator_fee_required && !c.user.creator) throw forbidden(`Publishing needs a valid creator license (${licenseText(c.user)} on this account).`, `Ask the user to get one at ${c.origin}/license: ${offersText(s)}. Then call publish again. Preview stays available meanwhile.`);
-  // A rollback only goes back to a version that was live before; anything else is a new publish and meets every gate.
-  if (rollback && !v.published_at) throw bad(`Version ${v.n} was never live, so it cannot be rolled back to.`, 'Call publish {project, version} instead: a version that was never live meets the publishing checks.');
-  const el = versionEligible(v, s.verify_browser_required);
-  if (!el.ok && el.review === 'pending') throw new AppError(409, el.reason, 'awaiting_review', 'Nothing to do: the game goes live by itself once a platform admin approves it. Tell the user it is waiting for review.');
-  if (!el.ok && el.review === 'denied') throw new AppError(409, el.reason, 'review_denied', 'Fix what the review note says, deploy_preview again, and publish the new version.');
-  if (!el.ok && el.review !== 'needed') throw new AppError(409, el.reason, 'not_verified', `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`);
-  if (!p.tagline && !p.description) await updateProjectMeta(c.env, p, { tagline: p.title });
-  // The store page needs the game's metadata. A rollback to a version that was live before is not held to it.
-  if (s.metadata_required && !rollback) {
-    const { compat, meta } = await ensureVersionMeta(c.env, v), missing = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]'));
-    if (missing.length) {
-      const steps = metadataChecklist(p, compat, meta).filter((x) => x.required && x.status === 'missing').map((x) => `${x.step}. ${x.field}: ${x.ask} Allowed: ${JSON.stringify(x.allowed)}. Suggested call: ${x.call}`);
-      // Listing fields (genre, tags) take effect at once; only build fields are frozen with a version and need a new deploy.
-      const needsDeploy = missing.some((m) => (BUILD_FIELDS as readonly string[]).includes(m.split(/[\s:]/)[0]) || /^requirements/.test(m));
-      const hint = needsDeploy
-        ? 'Ask the user anything you cannot tell from the game, declare each field with game_metadata {action: "declare", …}, then deploy_preview again (build fields are frozen with a version) and publish the new version. game_metadata {project} shows the whole checklist.'
-        : `Declare the missing listing fields with game_metadata {action: "declare", …} or update_project, then call publish {project, version: ${v.n}} again. No new deploy is needed.`;
-      throw new AppError(409, `Version ${v.n} cannot be published until its store metadata is complete. Missing: ${missing.join('; ')}.\n${steps.join('\n')}`, 'metadata_incomplete', hint);
+  if (s.creator_fee_required && !c.user.creator && !a.dry_run) throw forbidden(`Publishing needs a valid creator license (${licenseText(c.user)} on this account).`, `Ask the user to get one at ${c.origin}/license: ${offersText(s)}. Then call publish again. Preview stays available meanwhile.`);
+  if (!p.tagline && !p.description && !a.dry_run) await updateProjectMeta(c.env, p, { tagline: p.title });
+  // Every platform requirement, checked on the server (src/release-gate.ts). The pipeline checks them again right before
+  // the switch, so this answer is for the agent: every rule that fails, with what to do.
+  const openAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : undefined;
+  const gate = await releaseGate(c.env, p, v, { mode: rollback ? 'rollback' : 'publish', openImplementation: openAfter });
+  await recordGate(c.env, gate);
+  if (a.dry_run) return { would_go_live: gate.ok || onlyReviewNeeded(gate), ...(onlyReviewNeeded(gate) ? { review: 'needed', note: 'Everything else holds; publish asks a platform admin to review it because the verification browser could not run it.' } : {}), requirements: gateView(gate), summary: gateText(gate) };
+  if (!gate.ok && !onlyReviewNeeded(gate)) {
+    const err = gateError(gate), meta = gate.failures.find((f) => f.id === 'metadata');
+    if (meta) {
+      // the numbered store-page checklist, so the agent can declare everything in one go
+      const { compat, meta: m } = await ensureVersionMeta(c.env, v);
+      const steps = metadataChecklist(p, compat, m).filter((x) => x.required && x.status === 'missing').map((x) => `${x.step}. ${x.field}: ${x.ask} Allowed: ${JSON.stringify(x.allowed)}. Suggested call: ${x.call}`);
+      if (steps.length) err.message += `\nStore metadata checklist:\n${steps.join('\n')}`;
+      if (gate.failures.length === 1) {
+        // Listing fields (genre, tags) take effect at once; only build fields are frozen with a version and need a new deploy.
+        const needsDeploy = (meta.missing || []).some((x) => (BUILD_FIELDS as readonly string[]).includes(x.split(/[\s:]/)[0]) || /^requirements/.test(x));
+        err.hint = needsDeploy
+          ? 'Ask the user anything you cannot tell from the game, declare each field with game_metadata {action: "declare", …}, then deploy_preview again (build fields are frozen with a version) and publish the new version. game_metadata {project} shows the whole checklist.'
+          : `Declare the missing listing fields with game_metadata {action: "declare", …} or update_project, then call publish {project, version: ${v.n}} again. No new deploy is needed.`;
+      }
     }
+    throw err;
   }
-  // Storage: a new version must fit the game's storage. A rollback to a version that was live before is not held to it.
-  const over = !rollback && overBudget(s, p, v.bytes, v.file_count);
-  if (over) throw new AppError(413, `Version ${v.n} cannot be published: ${over.message}`, 'storage_full', over.hint);
-  // The build skill must match every release while it is shared: a new version needs its skill written first.
-  if (!rollback) {
-    const sharedAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : !!p.open_implementation;
-    const gate = await skillGate(c.env, s, { ...p, open_implementation: sharedAfter ? 1 : 0 }, v.n);
-    if (gate) throw new AppError(409, gate, 'skill_missing', `Update the build skill for version ${v.n}: build_skill {project, action: "get"} returns the current skill and the outline; revise it for what changed in this version and call build_skill {project, action: "write", version: ${v.n}, content}. Then call publish again.`);
-  }
-  const copy = await publishGate(c.env, p, v);
-  if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
-  // The duplication check found it close to another creator's game and could not be sure: a person decides.
-  const dup = rollback ? null : parseJson<any>(v.report, {}).originality?.review;
-  if (dup && v.review === 'denied') throw new AppError(409, `The platform did not approve version ${v.n}${v.review_note ? `: ${v.review_note}` : '.'}`, 'review_denied', 'Fix what the review note says (usually: give the game its own title, tagline and names), deploy_preview again, and publish the new version.');
-  if (dup && v.review === 'pending') throw new AppError(409, `Version ${v.n} is waiting for the platform to review it: it is close to "${dup.title}" by another creator (${dup.why}).`, 'awaiting_review', 'Nothing to do: the game goes live by itself once a platform admin approves it. Tell the user it is waiting for review.');
   if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
-  if (dup && v.review !== 'approved') {
+  // The duplication check found it close to another creator's game and could not be sure: a person decides.
+  const dupNeeded = gate.failures.find((f) => f.id === 'original_review' && f.review === 'needed');
+  if (dupNeeded) {
+    const dup = parseJson<any>(v.report, {}).originality?.review || {};
     await c.env.DB.prepare("UPDATE versions SET review = 'pending', review_note = NULL, reviewed_at = NULL, reviewed_by = NULL WHERE project_id = ? AND n = ?").bind(p.id, v.n).run();
     await logEvent(c.env, p.id, 'review_requested', `Close to ${dup.slug}: ${dup.why}`.slice(0, 300), v.n, c.client);
     return { live: false, version: v.n, review: 'pending', matched: { game: dup.title, page: `${c.origin}/g/${dup.slug}`, what: dup.why }, next: `Version ${v.n} is waiting for a platform review because it is close to "${dup.title}" by another creator (${dup.why}). It goes live by itself once approved; list_versions {project, version: ${v.n}} shows the review state. Tell the user. To skip the review, give the game its own title, tagline and names, deploy_preview again and publish that version.` };
   }
-  if (el.review === 'needed') {
-    // Every other check passed; a person looks at the game before it goes live (the admin's Reviews queue).
+  if (onlyReviewNeeded(gate)) {
+    // Every other requirement holds; a person looks at the game before it goes live (the admin's Reviews queue).
     await c.env.DB.prepare("UPDATE versions SET review = 'pending', review_note = NULL, reviewed_at = NULL, reviewed_by = NULL WHERE project_id = ? AND n = ?").bind(p.id, v.n).run();
     await logEvent(c.env, p.id, 'review_requested', 'The verification browser could not run this version', v.n, c.client);
     return { live: false, version: v.n, review: 'pending', next: `Version ${v.n} is waiting for a platform review because the verification browser could not run it. It goes live by itself once approved; list_versions {project, version: ${v.n}} shows the review state. Tell the user.` };
   }
   await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
-  await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
+  await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client, mode: rollback ? 'rollback' : 'publish' });
   const end = Date.now() + 45000;
-  let q = await ownedProject(c.env, c.user, p.id);
-  while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); }
+  // the pipeline checks every requirement again before the switch; if it refuses, say why instead of "taking longer"
+  const failedSince = () => c.env.DB.prepare("SELECT detail FROM events WHERE project_id = ? AND version = ? AND kind = 'publish_failed' AND created_at >= ? ORDER BY id DESC LIMIT 1").bind(p.id, v.n, gate.checked_at).first<{ detail: string }>();
+  let q = await ownedProject(c.env, c.user, p.id), refused: { detail: string } | null = null;
+  while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); if (!(q.status === 'live' && q.live_version === v.n) && (refused = await failedSince())) break; }
   const live = q.status === 'live' && q.live_version === v.n;
+  if (refused) {
+    const later = storedGate((await getVersion(c.env, p.id, v.n)) as any);
+    if (later && !later.ok && later.checked_at >= gate.checked_at) throw gateError(later);
+  }
+  if (refused) throw new AppError(409, refused.detail, 'publish_failed', `Fix what it says, then publish again. publish {project, version: ${v.n}, dry_run: true} checks every requirement without publishing.`);
   const vm = await ensureVersionMeta(c.env, v);
   return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
 }
@@ -806,7 +812,7 @@ export const TOOLS: Tool[] = [
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
       if (a.version) return versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), 40000));
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
-      const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' }));
+      const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' }));
       const failed = versions.find((v) => v.status === 'failed');
       return { live_version: p.live_version, preview_version: p.preview_version, status: p.status, versions, next: failed ? `Call list_versions {project, version: ${failed.version}} for the full report of a version (every check with its detail and hint).` : 'Call list_versions {project, version} for the full report of one version.' };
     },
@@ -855,8 +861,8 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'publish', title: 'Publish a verified version',
-    description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. open_implementation sets whether other developers\' agents may learn how the game is built (never its code) and whether its build skill is in the Creator Store; leave it out to keep the current choice, and ask the user before turning it on. While it is on, every new version needs its build skill written first (build_skill {action: "write", version}), so the skill always matches the live game.',
-    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' } }, ['project']),
+    description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. Every platform requirement is checked on the server first (verification against today\'s checks, unchanged files, store metadata, storage, the build skill when shared, originality and content, license and account); a refusal lists every rule that fails with what to do, and dry_run: true checks without publishing. open_implementation sets whether other developers\' agents may learn how the game is built (never its code) and whether its build skill is in the Creator Store; leave it out to keep the current choice, and ask the user before turning it on. While it is on, every new version needs its build skill written first (build_skill {action: "write", version}), so the skill always matches the live game.',
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' }, dry_run: { type: 'boolean', description: 'Optional. true checks every platform requirement for this version and returns each rule with its status and what to do, without publishing anything.' } }, ['project']),
     run: (a, c) => publishVersion(a, c, false),
   },
   {
