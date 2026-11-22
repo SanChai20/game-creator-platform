@@ -6,6 +6,7 @@ import { getSettings } from '../settings';
 import { PLATFORM_GUIDES, TOOLS, WEB_ONLY, WithImages, guideText, type ToolCtx } from './tools';
 import { b64 } from '../util';
 import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
+import { checkArgs, listed } from './schema';
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
@@ -20,23 +21,13 @@ A game is index.html plus the files it loads. The platform injects a global GCP;
 const MAX_BATCH = 20;           // JSON-RPC messages in one POST
 const CALLS_PER_HOUR = 1200;    // tools/call per account (a busy agent makes a few hundred an hour)
 
-const TYPE_OK: Record<string, (v: unknown) => boolean> = {
-  string: (v) => typeof v === 'string', boolean: (v) => typeof v === 'boolean', object: (v) => !!v && typeof v === 'object' && !Array.isArray(v),
-  array: Array.isArray, integer: (v) => Number.isInteger(typeof v === 'string' && v.trim() !== '' ? Number(v) : v),
-  number: (v) => Number.isFinite(typeof v === 'string' && v.trim() !== '' ? Number(v) : v),
-};
-/** Holds a call to its tool's input schema: unknown arguments and arguments of the wrong type are refused with the schema. */
-export function checkArgs(schema: { properties?: Record<string, any>; required?: string[] }, args: Record<string, unknown>): string | null {
-  const props = schema.properties || {};
-  const unknown = Object.keys(args).filter((k) => !(k in props));
-  if (unknown.length) return `Unknown argument${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}. This tool accepts: ${Object.keys(props).join(', ') || 'no arguments'}.`;
-  for (const [k, v] of Object.entries(args)) {
-    if (v === null || v === undefined) continue;
-    const types = ([] as string[]).concat(props[k]?.type || []);
-    if (types.length && !types.some((t) => TYPE_OK[t]?.(v) ?? true)) return `${k} must be ${types.join(' or ')}.`;
-    if (props[k]?.enum && !props[k].enum.includes(v)) return `${k} must be one of: ${props[k].enum.join(', ')}.`;
+/** The hourly allowance of tool calls, said so an agent knows it is not its arguments and when to carry on. */
+async function callAllowance(c: ToolCtx) {
+  try { await rateLimit(c.env, 'mcp:' + c.user.id, CALLS_PER_HOUR, 3600); }
+  catch (e) {
+    if (e instanceof AppError && e.status === 429) throw new AppError(429, `This account made more than ${CALLS_PER_HOUR} tool calls in the last hour, so calls are refused for now. Nothing was changed by this call.`, 'rate_limited', 'Wait a few minutes and call again. Batch work: upload_files takes up to 40 files and edits in one call, create_upload_url sends a whole folder, and list_versions {project, version} waits for a report by itself, so there is no need to poll.');
+    throw e;
   }
-  return null;
 }
 
 async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
@@ -57,7 +48,7 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
     }
     case 'ping': return ok({});
     case 'tools/list':
-      return ok({ tools: TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { title: t.title, readOnlyHint: !!t.annotations?.readOnlyHint, destructiveHint: !!t.annotations?.destructiveHint, idempotentHint: !!t.annotations?.readOnlyHint, openWorldHint: false } })) });
+      return ok({ tools: TOOLS.map(listed) });
     case 'tools/call': {
       const tool = TOOLS.find((t) => t.name === params?.name);
       if (!tool) return rpcError(id, -32602, `Unknown tool: ${params?.name}. Call tools/list.`);
@@ -67,7 +58,7 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
         if (missing.length) throw new AppError(400, `Missing required argument${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}.`, 'bad_request', `Expected: ${JSON.stringify(tool.inputSchema.properties)}`);
         const wrong = checkArgs(tool.inputSchema as any, args);
         if (wrong) throw new AppError(400, wrong, 'bad_request', `Expected: ${JSON.stringify(tool.inputSchema.properties)}`);
-        await rateLimit(c.env, 'mcp:' + c.user.id, CALLS_PER_HOUR, 3600);
+        await callAllowance(c);
         const result = await tool.run(args, c);
         if (result instanceof WithImages) {
           return ok({ content: [{ type: 'text', text: JSON.stringify(result.data, null, 1) }, ...result.images.map((i) => ({ type: 'image', data: b64(i.data), mimeType: i.type }))], isError: false });

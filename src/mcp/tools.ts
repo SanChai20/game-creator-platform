@@ -123,6 +123,7 @@ async function versionReport(c: ToolCtx, p: Project, n: number, v: Awaited<Retur
     ...(cur.ok ? {} : { not_current: `Publishing this version would be refused: ${cur.problems.join('; ')}. deploy_preview again (retry_version: ${n} when it is the newest version) and publish the version that makes.` }),
     ...(last ? { last_release_check: { ok: last.ok, ruleset: last.ruleset, checked_at: new Date(last.checked_at).toISOString(), failed: last.failures.map((f) => `${f.id}: ${f.reason}`) } } : {}),
     preview_page: `${c.origin}/console/projects/${p.id}`,
+    ...(s.creator_fee_required && !c.user.creator ? { preview_page_note: `The console, where a person plays the preview and leaves feedback, opens only with a creator license (${c.origin}/license). Without one, debug_preview is how to see the game.` } : {}),
     ...(await feedbackHint(c, p)),
     next: running ? `Still ${v.status} (${v.stage}). Call list_versions {project, version: ${n}}; it waits up to 40 seconds for the report.`
       : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
@@ -153,6 +154,12 @@ function failedChecks(v: { status: string; report: string | null }): { failed_ch
 }
 
 export const RETRY_LIMIT = 3;
+/**
+ * How long deploy_preview waits for the browser check before answering not_finished. Many MCP clients give up on a call
+ * after 60 seconds (the TypeScript SDK's default request timeout, Codex's tool timeout), and a call that times out on the
+ * client looks like a failure the agent retries, so the answer comes back well inside that and list_versions waits for the rest.
+ */
+export const DEPLOY_WAIT_MS = 45000;
 
 /**
  * Runs the deploy and browser check again on the newest version when it failed, keeping its number: the files are frozen, so
@@ -174,7 +181,7 @@ async function retryPreview(c: ToolCtx, p: Project, n: number) {
   if (!res.meta.changes) throw new AppError(409, `Version ${n} changed while retrying.`, 'busy', `Call list_versions {project, version: ${n}}.`);
   await logEvent(c.env, p.id, 'preview_retried', `Checked again (${(tries?.k ?? 0) + 1} of ${RETRY_LIMIT})`, n, c.client);
   await enqueue(c.env, { kind: 'preview', pid: p.id, n, origin: c.origin, actor: c.client });
-  const done = await waitVersion(c, p.id, n, 80000);
+  const done = await waitVersion(c, p.id, n, DEPLOY_WAIT_MS);
   return { deployed: true, retried: true, retries_left: RETRY_LIMIT - (tries?.k ?? 0) - 1, storage: await storageLine(c.env, p), ...(await versionReport(c, p, n, done)) };
 }
 
@@ -397,7 +404,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
-    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms, server-run matches). Pass topic to read one platform guide in full: "contract", "versions", "storage", "saves", "multiplayer", "matches" or "services". Every game has a storage limit (see storage in the answer): tell the developer about it before planning large assets. debugging explains debug_preview (drive the preview in a browser and screenshot it) and creator_feedback (the creator's annotated screenshots, to read every session). platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
+    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms, server-run matches). Pass topic to read one platform guide in full: ${PLATFORM_GUIDES.map((g) => `"${g.topic}"`).join(', ')}. Every game has a storage limit (see storage in the answer): tell the developer about it before planning large assets. debugging explains debug_preview (drive the preview in a browser and screenshot it) and creator_feedback (the creator's annotated screenshots, to read every session). platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
     inputSchema: obj({ topic: { type: 'string', enum: PLATFORM_GUIDES.map((g) => g.topic), description: 'Optional. Returns that platform guide as Markdown instead of the overview.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (a.topic) {
@@ -605,9 +612,11 @@ export const TOOLS: Tool[] = [
       for (const [path, bytes] of pending) rows.set(path, await putFile(c.env, p, path, bytes, true));
       const written = [...new Set(files.map((f) => cleanPath(f.path)!))].map((path) => ({ path, bytes: rows.get(path)!.size, sha: rows.get(path)!.sha }));
       const deleted: string[] = [];
-      for (const path of dels) if (await deleteFile(c.env, p.id, String(path))) deleted.push(path);
+      const notFound: string[] = [];
+      for (const d of dels) { const path = cleanPath(String(d)); if (path && await deleteFile(c.env, p.id, path)) deleted.push(path); else notFound.push(String(d)); }
       return {
         written, edited: edited.map((e) => ({ path: e.path, bytes: rows.get(e.path)!.size, sha: rows.get(e.path)!.sha, replaced: e.replaced })), deleted,
+        ...(notFound.length ? { not_deleted: notFound, not_deleted_why: 'Not in the workspace (paths are case sensitive and relative to the bundle root). list_files shows every path.' } : {}),
         storage: await storageLine(c.env, p),
         next: 'Call deploy_preview when the changes are complete (dry_run: true for only the static checks).',
       };
@@ -778,7 +787,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
-    description: `Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after 80 seconds the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile). retry_version: n runs the deploy and browser check again on the newest version when it failed (for example a heavy game that only just missed the frame count on the verifier's software GPU), without making a new version number; up to ${RETRY_LIMIT} retries per version.`,
+    description: `Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after ${DEPLOY_WAIT_MS / 1000} seconds the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile). retry_version: n runs the deploy and browser check again on the newest version when it failed (for example a heavy game that only just missed the frame count on the verifier's software GPU), without making a new version number; up to ${RETRY_LIMIT} retries per version.`,
     inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' }, retry_version: { type: 'integer', description: 'Optional. Check this failed version again (it must be the newest) instead of making a new one from the workspace.' } }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
@@ -792,7 +801,7 @@ export const TOOLS: Tool[] = [
       const v = await snapshot(c.env, p, check.manifest, String(a.note || ''));
       await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
-      const done = await waitVersion(c, p.id, v.n, 80000);
+      const done = await waitVersion(c, p.id, v.n, DEPLOY_WAIT_MS);
       return { deployed: true, storage, warnings: check.warnings.map(issueLine), ...(await versionReport(c, p, v.n, done)) };
     },
   },
@@ -882,7 +891,7 @@ export const TOOLS: Tool[] = [
       board: { type: 'string', description: 'Leaderboard name, for leaderboard and clear_leaderboard. Default "default".' },
       order: { type: 'string', enum: ['desc', 'asc'], description: 'For leaderboard: desc (highest first, default) or asc (lowest first, for times).' },
       limit: { type: 'integer', description: 'Rows for leaderboard, 1 to 100. Default 20.' },
-    }, ['project', 'action']),
+    }, ['project', 'action']), annotations: { destructiveHint: true },
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB, env = envOf(a.env);
       const scope = `${p.id}${env === 'preview' ? ':preview' : ''}`, key = String(a.key ?? ''), board = String(a.board || 'default').slice(0, 40);
@@ -921,11 +930,12 @@ export const TOOLS: Tool[] = [
           try { await serverStoreOp(db, p.id, env, { op: 'set', key, value: a.value, player: '' }, now()); }
           catch (e) { if (e instanceof DataError) throw bad(e.message); throw e; }
           await logEvent(c.env, p.id, 'data_set', `${env}: ${key}`, null, c.client);
-          return { ok: true, env, key, bytes: v.length, read_it_with: `await GCP.shared.get(${JSON.stringify(key)})` };
+          return { ok: true, env, key, bytes: new TextEncoder().encode(v).byteLength, read_it_with: `await GCP.shared.get(${JSON.stringify(key)})` };
         }
         case 'delete': {
           needKey();
           const r = await db.prepare("DELETE FROM saves WHERE project_id = ? AND user_id = '' AND k = ?").bind(scope, key).run();
+          if (r.meta.changes) await logEvent(c.env, p.id, 'data_deleted', `${env}: ${key}`, null, c.client);
           return { ok: true, env, key, deleted: (r.meta.changes || 0) > 0 };
         }
         case 'leaderboard': {
@@ -953,7 +963,7 @@ export const TOOLS: Tool[] = [
       env: { type: 'string', enum: ['preview', 'live'], description: 'Default live.' },
       action: { type: 'string', enum: ['inspect', 'reset'], description: 'Default inspect.' },
       kick: { type: 'boolean', description: 'For reset: also disconnect everyone in the room.' },
-    }, ['project']),
+    }, ['project']), annotations: { destructiveHint: true },
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), env = envOf(a.env), code = String(a.room || 'lobby').slice(0, 40);
       if (a.action !== undefined && a.action !== 'inspect' && a.action !== 'reset') throw bad('action must be "inspect" or "reset".');

@@ -43,7 +43,7 @@ In the order worth trying:
 
 1. **Generate it.** Meshes, terrain, vegetation, textures, skies, sound effects and music can be built from code at boot, from a seed. A generated forest is a few kilobytes of code instead of megabytes of models, and it can be different every run. See the guides `procedural-generation`, `meshes`, `materials-textures`, `animation` and `audio` on {{ORIGIN}}/guides, and the platform's `@gcp/` building blocks.
 2. **Load it at run time.** Keep large or optional content (extra levels, music, high-resolution textures, cutscenes, big models) on a host the developer controls and fetch it while the game runs. See below.
-3. **Compress what ships.** glTF with Draco or Meshopt geometry; KTX2 or WebP textures sized to how big they are drawn on screen; Opus or OGG audio at 96 kbps or less; no duplicate, unused or source files (`.psd`, `.blend`, uncompressed `.wav`). `game_storage {project}` lists the largest files and the space per kind of file.
+3. **Compress what ships.** glTF with Draco or Meshopt geometry; KTX2 or WebP textures sized to how big they are drawn on screen; AAC (`.m4a`) or MP3 audio at 96 kbps or less (Opus or Ogg only with an `.m4a` or `.mp3` fallback: Safari on iPhone and iPad plays Ogg only from iOS 18.4); no duplicate, unused or source files (`.psd`, `.blend`, uncompressed `.wav`). `game_storage {project}` lists the largest files and the space per kind of file.
 4. **Use what the platform hosts.** Three.js and the `@gcp/` modules come from the import map and do not count against the game's storage.
 
 ## Loading content at run time

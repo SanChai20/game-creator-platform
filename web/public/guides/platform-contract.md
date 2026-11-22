@@ -153,7 +153,7 @@ GCP.test.onCapture(() => [world, ui]);
 GCP.test.onState(() => ({ scene: game.scene, level: game.level, menu: ui.openMenu || null }));
 ```
 
-Drawing UI in a canvas, in short (or use the platform's toolkit: `@gcp/ui.js` gives a canvas interface layer with text, buttons, scrolling lists and a sprite atlas painted in code, and `@gcp/hud.js` the common widgets on top of it; `get_started {topic: "building-blocks"}`):
+Drawing UI in a canvas, in short (or use the platform's toolkit: `@gcp/ui.js` gives a canvas interface layer with text, buttons, scrolling lists and a sprite atlas painted in code, and `@gcp/hud.js` the common widgets on top of it; each module's source, {{ORIGIN}}/kits/v1/ui.js and {{ORIGIN}}/kits/v1/hud.js, opens with how to use it):
 
 - **Text**: `ctx.font`, `fillText`, `measureText`; wrap lines yourself. Load web fonts first (`await document.fonts.load('700 24px "Your Font"')`) or the first frames draw the fallback font.
 - **Buttons and panels**: shapes (`roundRect`, gradients, shadows) with a layout pass that keeps each widget's rectangle. Hit-test `pointerdown`/`pointerup` against those rectangles in CSS pixels; scale by `devicePixelRatio` only when drawing.
