@@ -295,7 +295,7 @@ More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/gui
 - For the first 3 plays on a device a short tip (up to 440 px wide) shows at top centre for 5 s; taps go through it.
 - Move it with GCP.setDisplay({ exitButton: 'top-right' | 'bottom-left' | 'bottom-right' }), or hide it with exitButton: 'none' when the game's own pause menu has a Quit button that calls GCP.quit() and Esc / Back reach that menu (GCP.pauseMenu).
 
-**Do:** Keep a 56 px square free in the chosen corner, inside the safe area. Choose the corner where your HUD has nothing.
+**Do:** Keep a 56 px square free in the chosen corner, inside the safe area. Choose the corner where your HUD has nothing. When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.
 
 **Don't:** Put a pause, score or health widget under the button. Hide it without a Quit of your own.
 

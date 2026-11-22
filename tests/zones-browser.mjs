@@ -37,5 +37,17 @@ assert.deepEqual(zones(z), ['home-bar'], 'a button on that panel reaching into t
 assert.equal(z.zones[0].bleed, true);
 z = await run('u.fillRect(0, 0, 140, 48);', '', 'W');
 assert.equal(z.checked, false); assert.equal(z.reason, 'one-layer');
+// GCP.display.menuButton: where the button sits while it shows, for a HUD to move aside by
+{
+  const p = await b.newPage({ viewport: { width: 844, height: 390 } });
+  await p.setContent('<html><body></body></html>'); await p.addScriptTag({ path: sdk });
+  assert.equal(await p.evaluate(() => GCP.display.menuButton), null, 'no button outside fullscreen');
+  const post = () => p.evaluate(() => { window.postMessage({ gcp: 'display', fullscreen: true, touch: true, edgeToEdge: true, safe: { top: 0, right: 47, bottom: 21, left: 47 } }, '*'); return new Promise((r) => setTimeout(r, 50)); });
+  await post(); assert.deepEqual(await p.evaluate(() => GCP.display.menuButton), { corner: 'top-left', x: 47, y: 0, w: 56, h: 56 });
+  await p.evaluate(() => GCP.setDisplay({ exitButton: 'bottom-right' }));
+  assert.deepEqual(await p.evaluate(() => GCP.display.menuButton), { corner: 'bottom-right', x: 844 - 47 - 56, y: 390 - 21 - 56, w: 56, h: 56 });
+  await p.evaluate(() => GCP.setDisplay({ exitButton: 'none' })); assert.equal(await p.evaluate(() => GCP.display.menuButton), null);
+  await p.close();
+}
 await b.close();
 console.log('zones: ok');

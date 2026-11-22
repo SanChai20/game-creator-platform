@@ -35,6 +35,7 @@ test('the numbers match the code that draws each surface', () => {
   // on-screen controls
   has('web/public/sdk/gcp.js', `padL = ${N.touch.edge} + (sf.left || 0), padR = ${N.touch.edge} + (sf.right || 0), padB = ${N.touch.edge} + (sf.bottom || 0)`, 'controls distance from the edges');
   has('web/public/sdk/gcp.js', `var R = Math.round(${N.touch.stick_radius} * s)`, 'stick radius');
+  has('web/public/sdk/gcp.js', `sq = ${N.menu_button.size + 2 * N.menu_button.inset}, sf = display.safe`, 'display.menuButton square');
   has('web/public/sdk/gcp.js', `Math.min(vw * ${N.touch.stick_zone_w}, R * 3.4)), zh = Math.round(Math.min(vh * ${N.touch.stick_zone_h}, R * 3.4))`, 'stick zone');
   // the window and friend pop-ups
   assert.equal(PLAY_MAX_W, N.window.max_w); assert.equal(N.window.max_h, N.window.max_w * 9 / 16);

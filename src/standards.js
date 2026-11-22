@@ -191,7 +191,7 @@ export const STANDARDS = [
       `For the first ${N.menu_button.tip_plays} plays on a device a short tip (up to ${N.menu_button.tip_width} px wide) shows at top centre for 5 s; taps go through it.`,
       'Move it with GCP.setDisplay({ exitButton: \'top-right\' | \'bottom-left\' | \'bottom-right\' }), or hide it with exitButton: \'none\' when the game\'s own pause menu has a Quit button that calls GCP.quit() and Esc / Back reach that menu (GCP.pauseMenu).',
     ],
-    do: [`Keep a ${N.menu_button.size + 2 * N.menu_button.inset} px square free in the chosen corner, inside the safe area.`, 'Choose the corner where your HUD has nothing.'],
+    do: [`Keep a ${N.menu_button.size + 2 * N.menu_button.inset} px square free in the chosen corner, inside the safe area.`, 'Choose the corner where your HUD has nothing.', 'When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.'],
     dont: ['Put a pause, score or health widget under the button.', 'Hide it without a Quit of your own.'],
     enforced: 'Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button\'s square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.', checks: ['menu-corner', 'zone-menu-button', 'zones-one-layer'], guide: '/guides/standards.md#menu-button',
   },
