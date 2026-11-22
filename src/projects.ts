@@ -9,6 +9,7 @@ import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf 
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
 import { regionBlockedRefs, regionWarning } from './region-hosts.js';
+import { checkStandards, findingLine } from './standards.js';
 // @ts-ignore plain JS module shared with the tests
 import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
@@ -240,7 +241,9 @@ function resolveManifest(raw: unknown, origin: string): Manifest {
 // Static checks: catch what would fail in the browser before deploying anything.
 // ---------------------------------------------------------------------------------------------
 export interface Issue { level: 'error' | 'warning'; file?: string; line?: number; col?: number; message: string; hint?: string; frame?: string }
-export interface CheckResult { ok: boolean; errors: Issue[]; warnings: Issue[]; files: number; bytes: number; manifest: Manifest; compatIssues: CompatIssue[]; metaIssues: MetaIssue[] }
+/** A finding against the platform's standards (src/standards.js). */
+export interface StandardFinding { standard: string; level: 'warning' | 'note'; message: string; fix: string; check?: string; lang?: string; files?: string[] }
+export interface CheckResult { ok: boolean; errors: Issue[]; warnings: Issue[]; files: number; bytes: number; manifest: Manifest; compatIssues: CompatIssue[]; metaIssues: MetaIssue[]; standards: StandardFinding[] }
 
 function frameOf(src: string, line: number, col: number): string {
   const l = src.split('\n')[line - 1] ?? '';
@@ -269,6 +272,12 @@ function resolveRel(from: string, spec: string): string {
   }
   return parts.join('/');
 }
+
+/** The project's store listing in the shape checkStandards reads: its own fields plus each translation. */
+export function listingForStandards(p: Project) {
+  return { title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, lang: p.listing_lang || undefined, translations: parseJson<Record<string, Record<string, string>>>(p.listing_i18n || '{}', {}) };
+}
+export { findingLine };
 
 export async function checkProject(env: Env, p: Project, origin: string): Promise<CheckResult> {
   const s = await getSettings(env);
@@ -457,7 +466,11 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const tc = buildControls({ texts, declared: (gcpRaw as Record<string, unknown> | null)?.controls, declaredInput: c.compat.declared ? c.compat.requirements.input : null });
   for (const i of tc.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: i.hint });
   manifest.controls = tc.controls;
-  return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest, compatIssues: c.issues, metaIssues: gm.issues };
+  // The platform's standards (src/standards.js): the listing and the code against what the store and the player show.
+  // Warnings only for now, so live games are not blocked; game_standards {action: "check"} lists the notes too.
+  const standards = checkStandards({ listing: listingForStandards(p), texts, paths: files.map((f) => f.path), gcp: gcpRaw, brand: s.brand_name }) as StandardFinding[];
+  for (const f of standards) if (f.level === 'warning') warn({ message: `[standard ${f.standard}] ${f.message}`, hint: `${f.fix} game_standards {action: "get", id: "${f.standard}"} has the full standard.` });
+  return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest, compatIssues: c.issues, metaIssues: gm.issues, standards };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -9,6 +9,7 @@ import { enqueue } from '../pipeline';
 import {
   assetText, checkProject, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getVersion, listFiles, logEvent, ownedProject, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
+  listingForStandards,
 } from '../projects';
 import { takeOffline, trialStats } from '../routes/api';
 import { trialMinutes } from '../trials';
@@ -54,6 +55,7 @@ interface Tool {
 export { WEB_ONLY } from '../web-only.js';
 import { WEB_ONLY } from '../web-only.js';
 import { COVER, checkCover, coverRules } from '../cover-spec.js';
+import { AREAS, STANDARDS, checkStandards, findingLine, renderStandards, standardById, standardsIndex } from '../standards.js';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
 
 /** The platform guides an agent can read: how the platform behaves, not how to make a game. */
@@ -67,12 +69,14 @@ export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summ
   { topic: 'bots', file: 'test-bots', title: 'Testing online games with bots', summary: 'Bot players in the preview that connect like real ones over the platform\'s network: following the creator into a match or room, a public queue, a private lobby or a room; server/bot.js for what they do; network profiles, lag spikes, drops and reloads; the numbers per bot; limits. Read before testing a multiplayer game.' },
   { topic: 'storage', file: 'storage', title: 'Game storage', summary: 'How much a game\'s files may add up to, how uploads, deploys and publishing enforce it, how to keep a game small (generate content from code, load large or optional content at run time from your own host with CORS, compress what ships), and how to ask for more. Read before adding large assets.' },
   { topic: 'touch', file: 'input', title: 'Phones, tablets and input', summary: 'What the platform does so every game plays on touch screens (on-screen controls from the game\'s keys, mouse from the finger, pointer lock, taps, pixel density), gcp.json "controls" and GCP.controls, and what makes touch controls of your own good.' },
+  { topic: 'standards', file: 'standards', title: 'Game standards', summary: 'Everything a game or its agent provides, as the platform shows it: the cover and its crops, title, tagline, description and controls text with how the store renders them, what the store draws over the cover, what it does not take (trailers, icons, logos, achievements), the splash, the platform menu button, safe areas, on-screen controls, orientation, interface scale, quality, hooks, the friends picker and languages. Exact sizes, limits, dos and don\'ts, and what is checked. Read the entry before making the thing.' },
   { topic: 'services', file: 'services', title: 'Platform services', summary: 'Every service the platform gives games and agents (hosting, accounts, saves, stats, shared data, leaderboards, rooms, server code, display, verification, payments, analytics, agent access): how each works, how to reach it, its limits, and what the platform does not provide.' },
 ];
 export async function guideText(env: Env, origin: string, topic: string) {
   const t = String(topic || '').toLowerCase().trim();
   const g = PLATFORM_GUIDES.find((x) => x.topic === t || x.file === t);
-  const text = g && await assetText(env, `/guides/${g.file}.md`);
+  // the standards guide is rendered from the registry, so it is never out of step with what game_standards checks
+  const text = g && (g.topic === 'standards' ? renderStandards(origin) : await assetText(env, `/guides/${g.file}.md`));
   return text ? { guide: g!, markdown: text.replaceAll('{{ORIGIN}}', origin).replaceAll('{{THREE}}', THREE_VERSION) } : null;
 }
 
@@ -408,7 +412,9 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   const openAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : undefined;
   const gate = await releaseGate(c.env, p, v, { mode: rollback ? 'rollback' : 'publish', openImplementation: openAfter });
   await recordGate(c.env, gate);
-  if (a.dry_run) return { would_go_live: gate.ok || onlyReviewNeeded(gate), ...(onlyReviewNeeded(gate) ? { review: 'needed', note: 'Everything else holds; publish asks a platform admin to review it because the verification browser could not run it.' } : {}), requirements: gateView(gate), summary: gateText(gate) };
+  const listingFindings = checkStandards({ listing: listingForStandards(p) }).filter((f: { level: string }) => f.level === 'warning').map(findingLine);
+  const standardsOut = listingFindings.length ? { standards: { findings: listingFindings, note: 'Not blocking yet: the store shows these as described. Fix them with game_metadata declare (no deploy needed). game_standards {project, action: "check"} checks the code too.' } } : {};
+  if (a.dry_run) return { ...standardsOut, would_go_live: gate.ok || onlyReviewNeeded(gate), ...(onlyReviewNeeded(gate) ? { review: 'needed', note: 'Everything else holds; publish asks a platform admin to review it because the verification browser could not run it.' } : {}), requirements: gateView(gate), summary: gateText(gate) };
   if (!gate.ok && !onlyReviewNeeded(gate)) {
     const err = gateError(gate), meta = gate.failures.find((f) => f.id === 'metadata');
     if (meta) {
@@ -447,7 +453,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   }
   if (refused) throw new AppError(409, refused.detail, 'publish_failed', `Fix what it says, then publish again. publish {project, version: ${v.n}, dry_run: true} checks every requirement without publishing.`);
   const vm = await ensureVersionMeta(c.env, v);
-  return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), ...(await coverAdvice(c, q, v)), next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+  return { live, version: v.n, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), ...(await coverAdvice(c, q, v)), ...standardsOut, next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
 }
 
 export const TOOLS: Tool[] = [
@@ -476,6 +482,11 @@ export const TOOLS: Tool[] = [
           'A game in several languages is in those languages outside the game too. The platform (in en, zh, zh-TW, ja, ko and es) shows everything about a game in the player\'s platform language when the game is played in it, else in English, else in the game\'s own language: its name, tagline, description, controls text and cover, on the home page, cards, search, the game page, the library and friends\' lists. So for every platform language in game_metadata languages, give the store listing in that language (game_metadata listing_translations, and listing_language for the language the listing itself is in), and a cover per language when the cover shows text (update_project covers). publish refuses a version whose listing misses one of its languages.',
           `Fit the game's storage: all of a game's files together may use ${mb(s.bundle_max_bytes)} by default (one file at most ${mb(s.file_max_bytes)}, ${s.bundle_max_files} files). Uploads that would go over are refused, and a version over it cannot be deployed or published.`,
         ],
+        standards: {
+          rule: 'The platform sets the standard for everything a game shows or hands over: the cover and its crops, the listing text and how the store renders it, what the platform draws over the game (menu button, on-screen controls, friend pop-ups), safe areas, the loading hand-off, and what the store does not take (trailers, icons, logos). Before making any of these, read its entry with game_standards {action: "get", id}; before publishing, run game_standards {project, action: "check"} and fix every warning. deploy_preview and publish report the same findings.',
+          index: standardsIndex(),
+          guide: 'get_started {topic: "standards"}',
+        },
         storage: {
           per_game: `${mb(s.bundle_max_bytes)} for all of a game's files unless the platform set a different amount for that game; largest file ${mb(s.file_max_bytes)}; ${s.bundle_max_files} files. Platform-hosted Three.js and @gcp/ modules do not count.`,
           tell_the_developer: 'Tell the developer about this limit when you plan the game, before choosing large models, textures, audio or video, and again whenever an answer carries storage.warning (from 80% used). Do not discover it at upload time.',
@@ -752,8 +763,42 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'game_standards', title: 'Read the platform\'s standards or check the game against them',
+    description: `The platform's standard for everything a game or its agent provides, and a check against all of them. The platform sets the standard; you carry it out. Read an entry before you make the thing it covers, and check before publishing.
+- list: one line per standard (${STANDARDS.length}): the store (cover and its crops, a cover per language, what the store draws over the cover, title, tagline, description, controls text, genre and tags, screenshots, badges), what the platform does not take (trailers, icons and logos, achievements) and what happens while the game plays (splash and loading, the platform menu button, safe areas, on-screen controls, window and orientation, interface scale, quality, capture hooks, the bot hook, the friends picker and pop-ups, languages).
+- get {id}: one standard in full: where it appears, the exact sizes and limits, do and don't, what the platform checks, and a template image where there is one.
+- check {project}: checks the listing (every language) and the workspace code against the standards. Each finding names its standard, says what was found and gives the fix; warnings are also shown by deploy_preview and publish, notes only here.
+The whole set as one page: get_started {topic: "standards"}.`,
+    inputSchema: obj({
+      action: { type: 'string', enum: ['list', 'get', 'check'], description: 'Default "list", or "check" when project is given.' },
+      id: { type: 'string', enum: STANDARDS.map((x) => x.id), description: 'get: the standard to return.' },
+      project: { ...PROJECT, description: 'check: the project to check.' },
+    }), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const action = a.action || (a.project ? 'check' : a.id ? 'get' : 'list');
+      const full = (x: (typeof STANDARDS)[number]) => ({ ...x, area: AREAS[x.area as keyof typeof AREAS], guide: `${c.origin}${x.guide}`, ...(x.template ? { template: `${c.origin}${x.template}` } : {}) });
+      if (action === 'list') return { standards: standardsIndex(), next: 'game_standards {action: "get", id} for one in full; game_standards {project, action: "check"} to check a game.' };
+      if (action === 'get') {
+        const x = standardById(String(a.id || ''));
+        if (!x) throw bad(`No standard "${a.id}".`, `ids: ${STANDARDS.map((y) => y.id).join(', ')}`);
+        return full(x);
+      }
+      if (action !== 'check') throw bad('action must be "list", "get" or "check".');
+      if (!a.project) throw bad('check needs project.');
+      const p = await ownedProject(c.env, c.user, a.project);
+      const r = await checkProject(c.env, p, c.origin);
+      const warnings = r.standards.filter((f) => f.level === 'warning'), notes = r.standards.filter((f) => f.level === 'note');
+      return {
+        project: p.id, ok: !warnings.length,
+        warnings: warnings.map(findingLine), notes: notes.map(findingLine),
+        not_checked: STANDARDS.filter((x) => !x.checks.length && /^Not checked/.test(x.enforced)).map((x) => `${x.id}: ${x.enforced}`),
+        next: warnings.length ? 'Fix each warning (listing fields with game_metadata declare, code with upload_files), then check again. They are not blocking yet, but players see the result.' : 'No warnings. Read the notes and the not_checked items, and look at the cover and the preview on a phone viewport (debug_preview) yourself.',
+      };
+    },
+  },
+  {
     name: 'game_metadata', title: 'Define the game\'s store metadata',
-    description: `Everything players see about the game on its store page, in one place. Define it while building the game: publishing a new version needs genre, tags, requirements, languages, players and content (the refusal lists what is missing). Listing (any time, no deploy needed): title, tagline, description, controls, genre (one of ${GENRES.join(', ')}), up to two secondary genres, tags (${MIN_TAGS} to ${MAX_TAGS} from the platform list: setting and theme, mood, gameplay, players, visual style and view; nothing else is accepted), and listing_translations (the listing in the platform languages en, zh, zh-TW, ja, ko, es). Build (frozen with the next deploy_preview, written to gcp.json): requirements (what it needs from the browser; see the compatibility tool), languages (interface, voice and subtitles per language, and whether it follows the player's platform language GCP.lang), players (min, max, modes), session_minutes (a typical session), progress (cloud_saves, leaderboards, offline; detected from GCP.save and GCP.leaderboard), accessibility (${ACCESSIBILITY.join(', ')}; [] for none) and content (descriptors the platform turns into an age rating). action "check" (default) shows the whole picture: what is declared, what the code shows (renderer, input, online play through rooms or server-run matches, saves, leaderboards, languages from translation files and on-screen text), problems, what publishing still needs, and suggestions. action "declare" validates and saves the fields you pass (each replaces that field; nothing is saved if any field is invalid). version shows what that version went out with.`,
+    description: `Everything players see about the game on its store page, in one place. Define it while building the game: publishing a new version needs genre, tags, requirements, languages, players and content (the refusal lists what is missing). Listing (any time, no deploy needed; how the store renders each field, with limits and what to avoid, is in game_standards {action: "get", id: "title" | "tagline" | "description" | "controls-text"}: description and controls are plain text, never Markdown, and a tagline that repeats the title is hidden): title, tagline, description, controls, genre (one of ${GENRES.join(', ')}), up to two secondary genres, tags (${MIN_TAGS} to ${MAX_TAGS} from the platform list: setting and theme, mood, gameplay, players, visual style and view; nothing else is accepted), and listing_translations (the listing in the platform languages en, zh, zh-TW, ja, ko, es). Build (frozen with the next deploy_preview, written to gcp.json): requirements (what it needs from the browser; see the compatibility tool), languages (interface, voice and subtitles per language, and whether it follows the player's platform language GCP.lang), players (min, max, modes), session_minutes (a typical session), progress (cloud_saves, leaderboards, offline; detected from GCP.save and GCP.leaderboard), accessibility (${ACCESSIBILITY.join(', ')}; [] for none) and content (descriptors the platform turns into an age rating). action "check" (default) shows the whole picture: what is declared, what the code shows (renderer, input, online play through rooms or server-run matches, saves, leaderboards, languages from translation files and on-screen text), problems, what publishing still needs, and suggestions. action "declare" validates and saves the fields you pass (each replaces that field; nothing is saved if any field is invalid). version shows what that version went out with.`,
     inputSchema: obj({
       project: PROJECT,
       action: { type: 'string', enum: ['check', 'declare'], description: 'Default "check".' },
