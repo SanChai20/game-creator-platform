@@ -2,6 +2,7 @@
 import { parse } from 'acorn';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User, type Version } from './env';
 import { getSettings } from './settings';
+import { saleOf } from './sales';
 import { assertFits, overBudget } from './storage';
 import { THREE_VERSION } from './generated/runtime-source';
 import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf } from './util';
@@ -110,6 +111,12 @@ export async function updateProjectMeta(env: Env, p: Project, input: Record<stri
     if (price > 0) {
       if (!s.paid_games_enabled) throw forbidden('Paid games are turned off on this platform. Set price_cents to 0.');
       if (price < s.game_price_min_cents || price > s.game_price_max_cents) throw bad(`A paid game must cost between ${s.game_price_min_cents} and ${s.game_price_max_cents} cents. Use 0 for a free game.`);
+    }
+    if (price !== p.price_cents) {
+      // The regular price is the struck-through "was" price of a running sale, so it stays put until the sale ends;
+      // a price that goes up starts the wait before the next sale (src/sales.ts).
+      if (saleOf(p)) throw bad('This game is on sale. End the sale before changing its regular price.');
+      if (price > p.price_cents && p.price_cents > 0) put('price_raised_at', now());
     }
     put('price_cents', price);
   }

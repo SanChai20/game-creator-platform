@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -248,7 +248,8 @@ export function Game({ slug }: { slug: string }) {
             {live ? (
               <div className="gp-buy">
                 <span className="gp-buy-h">{locked ? t('Buy {title}', '购买 {title}', { title }) : t('Play {title}', '游玩 {title}', { title })}</span>
-                <div className="gp-price-row"><b className="gp-price">{price(g.price_cents)}</b>{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
+                <div className="gp-price-row"><PriceTag g={g} className="gp-price" /><SaleTag g={g} />{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
+                {locked && saleOn(g) && <p className="gp-sale-ends">{saleEnds(saleOn(g)!.ends_at)} · {t('then {price}', '之后恢复 {price}', { price: price(saleOn(g)!.regular_cents) })}</p>}
                 <div className="gp-buy-act">{cta}</div>
                 {user && (inLibrary === 'bought' ? <p className="gp-buy-note gp-lib"><Link to="/library">{t('In your library', '已在你的游戏库中')} →</Link></p>
                   : !paid ? <div className="gp-lib"><Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>{inLibrary && <Link to="/library" className="fs-sm">{t('Open library', '打开游戏库')}</Link>}</div> : null)}

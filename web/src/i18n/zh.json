@@ -159,5 +159,10 @@
  "Test bots per fleet (one creator, one game)": "每组测试机器人的数量（一位创作者、一款游戏）",
  "Longest a test-bot fleet runs before it stops by itself (minutes)": "一组测试机器人自动停止前最长运行时间（分钟）",
  "Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)": "每位创作者每天可用的机器人分钟数（机器人数 × 分钟；7 个机器人 30 分钟为 210）",
- "Test-bot fleets one creator can run at once": "一位创作者可同时运行的测试机器人组数"
+ "Test-bot fleets one creator can run at once": "一位创作者可同时运行的测试机器人组数",
+ "Allow creators to put a paid game on sale for a limited time": "允许创作者为付费游戏设置限时特价",
+ "Longest sale a creator can run (days)": "特价最长天数",
+ "Smallest discount a sale can offer (percent off the regular price)": "特价最低折扣（原价的百分比）",
+ "Lowest price a game can have on sale": "特价最低价格",
+ "Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)": "特价结束或原价上调后，需等待多少天才能开始下一次特价（0：无需等待）"
 }

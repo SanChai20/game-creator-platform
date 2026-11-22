@@ -49,6 +49,32 @@ export const useLang = () => useSyncExternalStore((f) => { langSubs.add(f); retu
 
 export const usd = (cents: number) => `${cents < 0 ? '−' : ''}$${(Math.abs(cents || 0) / 100).toFixed(2)}`;
 export const price = (cents: number) => (cents > 0 ? usd(cents) : t('Free', '免费'));
+/** A limited-time sale on a game card: the regular price (struck through), the percent off and when it ends. */
+export interface SaleInfo { regular_cents: number; percent_off: number; ends_at: number }
+/** A sale still running in this browser's clock (a cached card can outlive its sale by a few seconds). */
+export const saleOn = (g: { sale?: SaleInfo | null }) => (g.sale && g.sale.ends_at > Date.now() ? g.sale : null);
+/** What a buyer pays now: during a sale, the regular price struck through, then the sale price. */
+export function PriceTag({ g, className }: { g: { price_cents: number; sale?: SaleInfo | null }; className?: string }) {
+  const sale = saleOn(g);
+  if (!sale) return <span className={className}>{price(g.price_cents)}</span>;
+  return (
+    <span className={(className ? className + ' ' : '') + 'on-sale'}>
+      <s className="was" aria-hidden="true">{usd(sale.regular_cents)}</s>
+      <span className="sr-only">{t('On sale: {price}, was {was}', '特价：{price}，原价 {was}', { price: usd(g.price_cents), was: usd(sale.regular_cents) })}</span>
+      <span aria-hidden="true">{usd(g.price_cents)}</span>
+    </span>
+  );
+}
+/** The percent-off flag on a sale. */
+export const SaleTag = ({ g }: { g: { sale?: SaleInfo | null } }) => { const sale = saleOn(g); return sale ? <span className="sale-tag">−{sale.percent_off}%</span> : null; };
+/** When a sale ends, in words: "Sale ends in 3 hours", "Sale ends Nov 29". */
+export function saleEnds(endsAt: number) {
+  const left = endsAt - Date.now(), h = Math.ceil(left / 3_600_000);
+  if (left <= 0) return t('Sale ended', '特价已结束');
+  if (h <= 1) return t('Sale ends in under an hour', '特价不到 1 小时后结束');
+  if (h < 48) return t('Sale ends in {hours} hours', '特价 {hours} 小时后结束', { hours: h });
+  return t('Sale ends {date}', '特价截至 {date}', { date: dateTime(endsAt) });
+}
 // Free trials of paid games. The platform can switch them off or cap their length; the app learns that from /config.
 let trialRules = { on: true, max: 120 };
 export function setTrialRules(s: Record<string, unknown>) { trialRules = { on: s.trials_enabled !== false, max: Number(s.trial_max_minutes) || 120 }; }
@@ -153,7 +179,7 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 28 + ((h >> 9) % 40)) % 360, x = 18 + ((h >> 4) % 64), y = 22 + ((h >> 13) % 40), cut = 38 + ((h >> 17) % 30), tilt = 100 + ((h >> 21) % 50);
   return { background: `radial-gradient(circle at ${x}% ${y}%, hsl(${a} 95% 88%) 0 11%, transparent 11.4%), linear-gradient(${tilt}deg, hsl(${a} 78% 62%) 0 ${cut}%, hsl(${b} 62% 44%) ${cut}.3% ${cut + 22}%, hsl(${b} 52% 26%) ${cut + 22}.3%)` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number; age?: number | null; mature?: string[]; pick?: 'featured' | 'trending' | 'rising' | 'new' | 'gem' | 'free' | 'more' }
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; price_cents: number; sale?: SaleInfo | null; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; featured: boolean; published_at: number | null; status: string; playing?: number; age?: number | null; mature?: string[]; pick?: 'featured' | 'trending' | 'rising' | 'new' | 'gem' | 'free' | 'more' }
 /** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
@@ -270,10 +296,11 @@ export function GameTile({ g, to, fresh }: { g: GameCard; to?: string; fresh?: b
         {fresh ? <span className="stick">{t('New', '新上架')}</span> : g.featured ? <span className="stick alt">{t('Featured', '精选')}</span> : null}
         {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
         {!!trial && <span className="art-trial">{trialLabel(trial, true)}</span>}
+        <SaleTag g={g} />
       </div>
       <div className="game-b">
         <h3 className="clip">{local(g, 'title')}</h3>
-        <span className={'price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span>
+        <PriceTag g={g} className={'price' + (g.price_cents > 0 ? ' paid' : '')} />
         <div className="meta">
           {rar !== 'common' && <span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>}
           <Verdict g={g} />
