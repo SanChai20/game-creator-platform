@@ -24,7 +24,10 @@ const CASES = [
   ['a misspelt title', g({ title: 'Void Echos', tagline: 'Fight the night with borrowed hymns and old bells.', names: names(ORE) }), 'similar'],
   ['a sequel-like title', g({ title: 'Void Echoes II', tagline: 'Fight the night with borrowed hymns and old bells.', names: names(ORE) }), 'similar'],
   ['six of the same names, nothing else', g({ title: 'Ember Requiem', tagline: 'Fight the night with borrowed hymns and old bells.', names: names([...VOID.slice(0, 6), ...ORE, ...ORE.map((n) => n + ' Prime'), 'Ash Moth', 'Gravel Imp', 'Coal Wyrm']) }), 'similar'],
-  ['three shared names, nothing else', g({ title: 'Ember Requiem', tagline: 'Fight the night with borrowed hymns and old bells.', names: names([...VOID.slice(0, 3), ...ORE]), traits: ['engine:none', 'render:Canvas 2D'] }), 'different'],
+  ['three shared names, nothing else', g({ title: 'Ember Requiem', tagline: 'Fight the night with borrowed hymns and old bells.', names: names([...VOID.slice(0, 3), ...ORE]), traits: ['engine:none', 'render:Canvas 2D'] }), 'similar'],
+  ['two shared names, nothing else', g({ title: 'Ember Requiem', tagline: 'Fight the night with borrowed hymns and old bells.', names: names([...VOID.slice(0, 2), ...ORE]), traits: ['engine:none', 'render:Canvas 2D'] }), 'different'],
+  ['retitled, the same tagline and a few names', g({ title: 'Ember Requiem', names: names([...VOID.slice(0, 4), ...ORE]), traits: ['engine:none', 'render:Canvas 2D'] }), 'similar'],
+  ['retitled, the same tagline and nothing else', g({ title: 'Ember Requiem', names: names(ORE), traits: ['engine:none', 'render:Canvas 2D'], tags: ['arcade'] }), 'similar'],
   ['three shared names, built the same way', g({ title: 'Ember Requiem', tagline: 'Fight the night with borrowed hymns and old bells.', names: names([...VOID.slice(0, 3), ...ORE]) }), 'similar'],
   ['the same genre and build, its own identity', g({ title: 'Star Miner', tagline: 'Mine the asteroid belt for ore and glory.', names: names(ORE) }), 'similar'],
   ['the same genre, built differently, its own identity', g({ title: 'Star Miner', tagline: 'Mine the asteroid belt for ore and glory.', names: names(ORE), traits: ['engine:none', 'render:Canvas 2D', 'input:keyboard'] }), 'different'],
@@ -75,4 +78,18 @@ test('rules: the index finds what the rules would look at, and nothing for an un
   const hit = (a) => { const x = identityKeys(a), y = identityKeys(void0); return x.strong.filter((h) => y.strong.includes(h)).length * 10 + x.names.filter((h) => y.names.includes(h)).length; };
   for (const [what, a, want] of CASES) if (want === 'copy') assert.ok(hit(a) >= 3, what);
   assert.equal(hit(CASES.find((c) => c[0] === 'an unrelated game')[1]), 0);
+});
+
+test('rules: the same tagline or 3+ shared names always goes to clef, never settled by the cheap model', () => {
+  const other = { title: 'Ember Requiem', tagline: 'Fight the night with borrowed hymns and old bells.', traits: ['engine:none', 'render:Canvas 2D'] };
+  const k = (over) => kinship(g({ ...other, ...over }), void0);
+  const few = k({ tagline: TAG, names: names([...VOID.slice(0, 4), ...ORE]) });
+  assert.equal(few.verdict, 'similar');
+  assert.equal(few.clef_only, true);
+  assert.match(few.why.join('; '), /the same tagline; 4 of the same names \(/);
+  assert.equal(k({ tagline: TAG, names: names(ORE) }).clef_only, true, 'the same tagline alone');
+  assert.equal(k({ names: names([...VOID.slice(0, 3), ...ORE]) }).clef_only, true, 'three shared names alone');
+  assert.equal(k({ names: names([...VOID.slice(0, 2), ...ORE]) }).clef_only, false, 'two shared names are not enough');
+  assert.equal(k({ names: names(ORE), title: 'Void Echoes II' }).clef_only, false, 'a close title alone may be settled by the cheap model');
+  assert.equal(k({ tagline: 'Fun!', names: names(ORE) }).clef_only, false, 'a short tagline is not a tagline match');
 });

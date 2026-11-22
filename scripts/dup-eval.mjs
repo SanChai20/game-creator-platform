@@ -1,7 +1,7 @@
 // The duplication check's AI stages measured on a labelled set of mock game pairs: copies (identity taken, code rebuilt),
 // derivatives (the same kind of game with its own identity) and independent games (only the title shared). It calls
 // Workers AI with the same question and state the platform uses (src/originality.js JUDGE_QUESTIONS, judgeState) and
-// prints how each threshold would decide. About $0.01 per run of both models on the 60 pairs (80 with SHIFT set).
+// prints how each threshold would decide. About $0.01 per run of both models on the 70 pairs (90 with SHIFT set); KIND=... runs only the pairs of that kind.
 //   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... node scripts/dup-eval.mjs [clef-flash] [clef]   (SHIFT=4: held-out set)
 import { kinship, JUDGE_QUESTIONS, judgeState, FLASH_SURE, CLEF_COPY } from '../src/originality.js';
 // A labelled set of game pairs as the AI review sees them (listing, build facts, measurements), built from mock games.
@@ -25,7 +25,7 @@ const T = ['Ember Requiem', 'Night Ledger', 'Ashen Bells', 'Copper Sky', 'Lanter
 const pair = (label, kind, a, b, code) => {
   const k = kinship({ ...a, names: nm(a.names), traits: [] }, { ...b, names: nm(b.names), traits: [] });
   const L = (g) => ({ title: g.title, tagline: g.tagline, description: '', tags: g.tags });
-  return { label, kind, verdict: k.verdict, state: { new_game: { listing: L(a), facts: a.facts }, existing_game: { listing: L(b), facts: b.facts }, measurements: { code, same_files: 0, assets: 0, look_distance: kind.includes('reskin') ? 8 : 30, palette_overlap: 40, looks_alike: false, title_sim: k.title_sim, tagline_sim: k.tagline_sim, same_genre: k.same_genre, tags_overlap: k.tags_overlap, shared_names: k.shared_names, names_share: k.names_share, name_examples: k.name_examples, traits_overlap: 80 } } };
+  return { label, kind, verdict: k.verdict, clefOnly: !!k.clef_only, state: { new_game: { listing: L(a), facts: a.facts }, existing_game: { listing: L(b), facts: b.facts }, measurements: { code, same_files: 0, assets: 0, look_distance: kind.includes('reskin') ? 8 : 30, palette_overlap: 40, looks_alike: false, title_sim: k.title_sim, tagline_sim: k.tagline_sim, same_genre: k.same_genre, tags_overlap: k.tags_overlap, shared_names: k.shared_names, names_share: k.names_share, name_examples: k.name_examples, traits_overlap: 80 } } };
 };
 export const PAIRS = [];
 const SH = Number(process.env.SHIFT || 0);
@@ -36,6 +36,7 @@ BASES.forEach((b, i0) => {
   PAIRS.push(pair('copy', 'retitled, whole cast kept', { ...b, title: T[i % 10], tagline: `A new story told in ${T[i % 10].toLowerCase()}.` }, b, 14));
   PAIRS.push(pair('copy', 'same tagline, most of the cast', { ...b, title: T[(i + 1) % 10], names: [...b.names.slice(0, 7), ...fresh(b, i).slice(7)] }, b, 18));
   PAIRS.push(pair('copy', 'retitled reskin, code half shared', { ...b, title: T[(i + 2) % 10], tagline: 'Same nights, new paint.', names: b.names.slice(0, 8) }, b, 55));
+  PAIRS.push(pair('copy', 'retitled, same tagline, a few names', { ...b, title: T[(i + 6) % 10], names: [...b.names.slice(0, 4), ...fresh(b, i + 3).slice(4)] }, b, 10));
   // derivatives: the same kind of game with its own identity
   PAIRS.push(pair('derivative', 'same genre, own cast and title', { ...b, title: T[(i + 3) % 10], tagline: `Another take on the ${b.tags[0]} idea, with its own world.`, names: fresh(b, i) }, b, 9));
   PAIRS.push(pair('derivative', 'same genre, a couple of common names', { ...b, title: T[(i + 4) % 10], tagline: `A ${b.tags[0]} game about different people in a different place.`, names: [...fresh(b, i + 1).slice(0, 8), ...b.names.slice(0, 2)] }, b, 12));
@@ -62,14 +63,16 @@ async function ask(model, state) {
 if (!ACC || !TOK) { console.error('Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.'); process.exit(1); }
 const models = process.argv.slice(2).length ? process.argv.slice(2) : ['clef-flash', 'clef'];
 const rows = [];
-for (let i = 0; i < PAIRS.length && spent < CAP; i += 4) rows.push(...await Promise.all(PAIRS.slice(i, i + 4).map(async (x) => { const r = { label: x.label, kind: x.kind }; for (const m of models) r[m] = await ask(m, x.state); return r; })));
+const RUN = process.env.KIND ? PAIRS.filter((x) => x.kind.includes(process.env.KIND)) : PAIRS;
+for (let i = 0; i < RUN.length && spent < CAP; i += 4) rows.push(...await Promise.all(RUN.slice(i, i + 4).map(async (x) => { const r = { label: x.label, kind: x.kind, clefOnly: x.clefOnly }; for (const m of models) r[m] = await ask(m, x.state); return r; })));
 const isCopy = (r) => r.label === 'copy';
 if (rows[0]?.['clef-flash']) for (const t of [0.65, 0.7, FLASH_SURE, 0.8]) {
-  const fin = rows.filter((r) => r['clef-flash'] && r['clef-flash'].choice !== 'copy' && r['clef-flash'].p[r['clef-flash'].choice] >= t);
+  const fin = rows.filter((r) => !r.clefOnly && r['clef-flash'] && r['clef-flash'].choice !== 'copy' && r['clef-flash'].p[r['clef-flash'].choice] >= t);
   console.log(`clef-flash final at ${t}${t === FLASH_SURE ? ' (in use)' : ''}: ${fin.length}/${rows.length} pairs, copies let through ${fin.filter(isCopy).length}`);
 }
 if (rows[0]?.clef) for (const t of [0.2, CLEF_COPY, 0.5]) {
   const bad = rows.filter((r) => r.clef && (r.clef.p.copy >= t) !== isCopy(r));
   console.log(`clef refusing from ${t}${t === CLEF_COPY ? ' (in use)' : ''}: ${bad.length}/${rows.length} wrong`, bad.map((r) => `${r.label}/${r.kind} ${r.clef.p.copy.toFixed(2)}`).slice(0, 5));
 }
+if (process.env.KIND) for (const r of rows) console.log(`${r.label}/${r.kind}${r.clefOnly ? ' (clef only)' : ''}: clef p(copy) ${r.clef?.p.copy?.toFixed(2)}`);
 console.log(`spent about $${spent.toFixed(4)}`);
