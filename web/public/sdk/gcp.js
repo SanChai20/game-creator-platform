@@ -2019,8 +2019,9 @@
           not_friends, not_allowed, lobby_gone, rate_limited, guest, preview…). Online, Away and Busy friends can be invited
           (Busy ones get it quietly); Invisible and offline friends cannot. */
       invite: function (to, o) { o = o || {}; var b = { op: 'invite', to: String(to || '') }, l = lobbyOf(o.match); if (l) b.lobby = l; if (o.label != null) b.label = cleanLabel(o.label); if (o.data !== undefined) b.data = o.data; return frApi(b); },
-      /** Shows the platform's friends panel over the game, ready to invite into o.match (and fullscreen-safe). */
-      open: function (o) { o = o || {}; toParent({ gcp: 'friends_open', lobby: lobbyOf(o.match), label: cleanLabel(o.label) || '' }); },
+      /** Shows the platform's friends panel over the game, ready to invite into o.match (and fullscreen-safe). o.label and
+          o.data (a small JSON value, such as { room } for a GCP.room game) go with every invite sent from it, as in invite(). */
+      open: function (o) { o = o || {}; var m = { gcp: 'friends_open', lobby: lobbyOf(o.match), label: cleanLabel(o.label) || '' }; if (o.data !== undefined) { try { m.data = JSON.parse(JSON.stringify(o.data)); } catch (e) { /* not JSON */ } } toParent(m); },
       /** on('change', fn): a friend's status or the friends list changed (call list() again). on('join', fn(join)): the
           player accepted an invite or joined a friend into this game while it runs (call GCP.match.join(join)). Without a
           'join' listener the platform reloads the game with GCP.launch.join instead. on('answer', fn({ id, accepted, by }))

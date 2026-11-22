@@ -181,7 +181,8 @@ social.post('/invites', async (c) => {
   const u = requireUser(c), s = await enabled(c.env), b = await body(c), to = idParam(b.to);
   const p = await c.env.DB.prepare("SELECT id FROM projects WHERE slug = ? AND status = 'live'").bind(String(b.slug || '')).first<{ id: string }>();
   if (!p) throw new AppError(409, 'This game is not live.', 'offline');
-  const data = b.lobby ? await lobbyData(c.env, b.lobby, p.id, 'live', b.label) : (b.label != null ? { label: b.label } : {});
+  const data: Record<string, unknown> = b.lobby ? await lobbyData(c.env, b.lobby, p.id, 'live', b.label) : (b.label != null ? { label: b.label } : {});
+  if (b.data !== undefined) data.data = b.data;
   return c.json(await sendInvite(c.env, s, { id: u.id, name: u.name }, to, p.id, 'live', data));
 });
 social.post('/invites/:id/:answer{accept|decline}', async (c) => {

@@ -21,7 +21,7 @@ interface Msg { id: number; from: string; to: string; kind: 'text' | 'invite'; b
 export interface Join { id: string; kind: string; from: { id: string; name: string }; match: boolean; queue?: string; players?: number; min?: number; mode?: string; label?: string; data?: unknown }
 interface Toast { id: number; kind: string; title: string; body?: string; actions?: { label: string; primary?: boolean; run: () => void }[]; ttl: number }
 type Tab = 'friends' | 'requests' | 'add';
-interface OpenState { tab: Tab; peer?: { id: string; name: string } | null; invite?: { slug: string; title: string; lobby: string | null; label: string } | null }
+interface OpenState { tab: Tab; peer?: { id: string; name: string } | null; invite?: { slug: string; title: string; lobby: string | null; label: string; data?: unknown } | null }
 
 // ---- the store ----------------------------------------------------------------------------------------------------------
 const S = {
@@ -149,14 +149,14 @@ export function setActivity(g: { slug: string; title: string } | null) {
   sendAct(); emit();
 }
 /** The running game's frame (to tell it about friends), and what it says through the SDK. */
-export function attachFrame(win: Window | null) { S.frame = win; if (!win) S.frameJoin = false; }
-export function fromGame(d: { gcp: string; detail?: string; lobby?: string | null; label?: string; join?: boolean }) {
+export function attachFrame(win: Window | null) { S.frame = win; S.frameJoin = false; }
+export function fromGame(d: { gcp: string; detail?: string; lobby?: string | null; label?: string; join?: boolean; data?: unknown }) {
   if (d.gcp === 'social_hooks') { S.frameJoin = d.join === true; return; }
   if (d.gcp === 'presence' && S.activity) { S.activity = { ...S.activity, detail: String(d.detail || '').slice(0, 60), lobby: typeof d.lobby === 'string' ? d.lobby : null, label: String(d.label || '').slice(0, 60) }; sendAct(); return; }
   if (d.gcp === 'friends_open') {
     if (!S.user) { toast({ kind: 'bad', title: t('Sign in to play with friends.', '登录后即可和好友一起玩。') }); return; }
     if (!S.activity) return;
-    openPanel({ tab: 'friends', invite: { slug: S.activity.slug, title: S.activity.title, lobby: typeof d.lobby === 'string' ? d.lobby : null, label: String(d.label || '') } });
+    openPanel({ tab: 'friends', invite: { slug: S.activity.slug, title: S.activity.title, lobby: typeof d.lobby === 'string' ? d.lobby : null, label: String(d.label || ''), data: d.data } });
   }
 }
 // Where an accepted invite or a join leads. A game page showing that game takes it (it reloads the game with the join,
@@ -195,9 +195,9 @@ async function answerInvite(id: string, yes: boolean) {
 async function joinFriend(f: { id: string }) {
   try { const r = await api<{ game: { slug: string }; join: Join }>(`/social/friends/${f.id}/join`, { method: 'POST' }); launch(r.game.slug, r.join); } catch (e) { fail(e); }
 }
-async function invite(f: Friend, inv: { slug: string; lobby: string | null; label: string }) {
+async function invite(f: Friend, inv: { slug: string; lobby: string | null; label: string; data?: unknown }) {
   try {
-    const r = await api<{ status: string }>('/social/invites', { body: { to: f.id, slug: inv.slug, lobby: inv.lobby || undefined, label: inv.label || undefined } });
+    const r = await api<{ status: string }>('/social/invites', { body: { to: f.id, slug: inv.slug, lobby: inv.lobby || undefined, label: inv.label || undefined, data: inv.data } });
     toast({ kind: 'answer', title: r.status === 'busy' ? t('Invite sent to {name}. They are busy, so it waits in their notifications.', '已向 {name} 发送邀请。对方正忙，邀请会安静地留在通知里。', { name: f.name })
       : r.status === 'away' ? t('Invite sent to {name}. They are away and may not answer soon.', '已向 {name} 发送邀请。对方暂时离开，可能不会马上回复。', { name: f.name })
       : t('Invite sent to {name}.', '已向 {name} 发送邀请。', { name: f.name }) });

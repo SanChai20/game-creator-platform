@@ -110,11 +110,11 @@ const match = GCP.match.find({
   queue: 'duel', players: 2,                  // or players: 8, min: 4 (free-for-all), or teams: 2
                                               // or min: 1 to start alone after 30 s and fill the seats with bots
   // wait: 20, settle: 4,                     // this player's own short-start wait, and time to settle in (see Matchmaking)
-  // code: 'ABC123',                          // a private lobby among friends instead of the public queue
+  // private: true,                           // an invite-only lobby for friends instead of the public queue
   predict: (me, input, dt) => move(me, input, dt),   // your own movement runs at once, the server corrects it
 });
 match.on('queued', ({ waiting, waited }) => showSearching(waited));
-match.on('lobby', ({ code, players, owner, need }) => showLobby(code, players));   // private codes only
+match.on('lobby', ({ players, owner, need }) => showLobby(players));   // private lobbies only; invite with GCP.friends.open({ match })
 match.on('found', ({ players }) => showVersus(players));
 match.on('start', () => hideMenus());
 match.on('event', (e) => { if (e.hit) flash(e.at); });
@@ -190,7 +190,7 @@ back.on('none', () => showMenu());           // no match to go back to: it is ov
 - `min` is 1 to `players` (the default is `players`). With `min: 1`, a player who is still alone after 30 s starts a match by themselves: `ctx.players` in `init()` holds only them, and your `server/match.js` fills the other seats, with bots for example. Bots in `ctx.end({ ranking })` are ignored, so a match with one person in it does not move ratings.
 - `wait` (5 to 120 seconds, 30 by default) is how long this player waits for a full match before one of at least `min` players may start. It belongs to the player, not to the queue: the wait of whoever has waited longest decides, so players with different waits still meet in one queue, and a game can give every search its own, a little different each time. `settle` (0 to 20 seconds, 0 by default) is how long a player is in the queue, at least, before a short match takes them: a short match holds until everyone in it has settled, so nobody is matched the instant they press the button, and players who arrive within a few seconds of each other play together. A full match starts at once, whatever the two are. For a queue that fills empty seats with bots but never starts without company, use `min: 2` with a `wait` of your own: a player who is alone keeps searching.
 - `teams: 2` splits the players into two teams of even strength by rating; each player's `team` (0, 1, ...) is in `ctx.players` and `match.players`.
-- `code: 'ABC123'` opens a private lobby: the `lobby` event lists who is in; it starts when full, or when the player who opened it calls `match.start()` with at least `min` players (alone, with `min: 1`).
+- `private: true` opens an invite-only lobby: the `lobby` event lists who is in; it starts when full, or when the player who opened it calls `match.start()` with at least `min` players (alone, with `min: 1`). Nobody can enter it by guessing: the player invites friends with `GCP.friends.open({ match })` (the platform's picker over the game) or `GCP.friends.invite(friendId, { match })`, and a friend who accepts arrives with `GCP.launch.join` set (or a `GCP.friends.on('join')` event in a running game) and calls `GCP.match.join(join, { predict })`. A lobby that started, filled or emptied meanwhile answers `error` with `e.code` `'lobby_gone'` or `'lobby_full'`. Guests and the verifier cannot open one (`e.code: 'guest'`). See the friends section of the multiplayer guide. Typed codes (`code: 'ABC123'`) still work for old games but are not recommended: do not build them into new games.
 - Ratings start at 1000 per player, game, environment (preview or live) and queue, and change after every match that ends with a ranking. Verification runs do not count.
 
 ## Testing
