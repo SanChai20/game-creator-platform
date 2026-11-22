@@ -156,3 +156,10 @@ test('pictures that look alike share screenshot bands in the identity index', ()
 test('names that come from a template are not counted', () => {
   assert.deepEqual(contentNames(SRC(['Hollow Mite', 'Ash Hound']), new Set(['hollow mite'])), ['ash hound']);
 });
+
+test('a rebuild that only changed its title still gets a closer look for its names', () => {
+  const ours = contentNames(SRC([...HEROES.slice(0, 7), ...Array.from({ length: 30 }, (_, i) => 'Rune ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZABCD'[i] + 'aeiou'[i % 5] + 'lmn'[i % 3])]));
+  const k = kinship({ title: 'Ember Requiem', tagline: 'A new deckbuilder of ash and bells.', names: ours }, { title: 'Void Echoes', tagline: 'A roguelike deckbuilder about the last day.', names: contentNames(SRC(HEROES)) });
+  assert.ok(k.names_share < 20 && k.shared_names >= 6);
+  assert.equal(k.verdict, 'similar');
+});
