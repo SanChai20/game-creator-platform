@@ -23,10 +23,6 @@ interface Print { prints: number[]; files: string[]; assets: string[]; look: { d
 /** What a game is called and what is in it: compared with other games so a rebuild from a description is caught too. */
 interface Identity { names: string[]; traits: string[] }
 interface Built extends Print, Identity { facts: any; html: string; texts: { path: string; text: string }[]; shot: Uint8Array | null; frames: Uint8Array[] }
-/** A copy the AI judge called with less certainty than this goes to a person (the admin's Reviews queue), not a refusal. */
-export const JUDGE_SURE = 0.8;
-/** The AI judge's chance of "copy" from which a person looks, even when another answer won. */
-export const JUDGE_DOUBT = 0.4;
 
 let baseline: Promise<Set<number>> | null = null;
 function baselineOf(env: Env): Promise<Set<number>> {
@@ -185,25 +181,30 @@ async function aiBudget(env: Env, purpose: string): Promise<boolean> {
 }
 /** How long an AI answer about one pair of games is reused. */
 const JUDGE_CACHE_MS = 30 * 86400000;
-/** Below this chance of "copy" from the small model, the large one is not asked. */
-export const FLASH_CLEAR = 0.2;
+/** The small model's answer stands only when it is at least this sure, and never when that answer is "copy". */
+export const FLASH_SURE = 0.85;
 /**
- * The copy judge, cheapest first: an answer cached for the same pair and measurements; else the small decision model
- * (clef-flash, about 6x cheaper), whose clear "not a copy" stands; only a possible copy is asked of the large model
- * (clef), whose answer can refuse a publish. Each model call counts against the daily cap. Null when AI cannot answer.
+ * The copy judge, three stages with no person in the loop: the rules (kinship, compare) have already sent only a close
+ * pair here. Stage 2 is the cheap decision model, clef-flash ($0.038 per M input tokens): a confident "derivative" or
+ * "independent" is final. Anything else (unsure, or "copy", since the cheap model never blocks a publish on its own) goes
+ * to stage 3, clef ($0.24 per M), whose most likely answer is the final decision. An answer for the same pair and
+ * measurements is reused for 30 days. Each model call counts against the daily cap. Null when no model could answer.
  */
-async function judgeCopy(env: Env, state: Record<string, unknown>): Promise<{ verdict: string; p: number; probabilities: Record<string, number>; model: string } | null> {
+async function judgeCopy(env: Env, state: Record<string, unknown>): Promise<{ verdict: string; p: number; probabilities: Record<string, number>; model: string; final: boolean } | null> {
   const key = await sha256(JSON.stringify(state));
   const hit = await env.DB.prepare('SELECT answer, created_at FROM dup_judgments WHERE key = ?').bind(key).first<{ answer: string; created_at: number }>().catch(() => null);
-  if (hit && now() - hit.created_at < JUDGE_CACHE_MS) return parseJson(hit.answer, null);
+  if (hit && now() - hit.created_at < JUDGE_CACHE_MS) { const a = parseJson<any>(hit.answer, null); if (a?.final) return a; }
   const ask = async (model: 'clef' | 'clef-flash') => {
     if (!(await aiBudget(env, model === 'clef' ? 'dup_judge' : 'dup_judge_flash'))) return null;
     const a = (await aiDecide(env, model, state, JUDGE_QUESTIONS as Record<string, Question>))?.verdict;
     return a?.type === 'choice' ? { verdict: a.choice, p: a.probabilities[a.choice] ?? a.confidence, probabilities: a.probabilities, model } : null;
   };
-  let answer = await ask('clef-flash');
-  if (!answer || Number(answer.probabilities.copy || 0) >= FLASH_CLEAR) answer = (await ask('clef')) || answer;
-  if (answer) await env.DB.prepare('INSERT OR REPLACE INTO dup_judgments (key, answer, created_at) VALUES (?, ?, ?)').bind(key, JSON.stringify(answer), now()).run().catch(() => {});
+  const flash = await ask('clef-flash');
+  let answer: { verdict: string; p: number; probabilities: Record<string, number>; model: string; final: boolean } | null =
+    flash && flash.verdict !== 'copy' && flash.p >= FLASH_SURE ? { ...flash, final: true } : null;
+  if (!answer) { const big = await ask('clef'); answer = big ? { ...big, final: true } : flash ? { ...flash, final: false } : null; }
+  // only final answers are kept: a stage-2 answer that could not be escalated is asked again next time
+  if (answer?.final) await env.DB.prepare('INSERT OR REPLACE INTO dup_judgments (key, answer, created_at) VALUES (?, ?, ?)').bind(key, JSON.stringify(answer), now()).run().catch(() => {});
   return answer;
 }
 const pct = (x: number) => `${Math.round(x * 100)}%`;
@@ -226,28 +227,19 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
   // 1. a copy of someone else's live game?
   const matches = s.dup_check ? await matchesFor(env, p, v, me) : [];
   let top = matches[0], judged: any = null;
-  let review: { slug: string; title: string; why: string; judge_p: number | null } | null = null;
   if (top && top.verdict === 'similar' && (await getSettings(env)).dup_ai) {
     const other = await env.DB.prepare('SELECT * FROM versions WHERE project_id = ? AND n = ?').bind(top.project_id, top.version).first<Version>();
     const otherFacts = other ? analyzeBundle(await readTexts(env, other.project_id, other.n, parseJson<any[]>(other.files, [])), parseJson(other.report, {})) : null;
     const { listing: theirs, project_id: _p, version: _v, slug: _s, title: _t, verdict: _x, why: _w, identity: _i, kin, ...code } = top as any;
     const measures = { ...code, title_sim: kin.title_sim, tagline_sim: kin.tagline_sim, same_genre: kin.same_genre, tags_overlap: kin.tags_overlap, shared_names: kin.shared_names, name_examples: kin.name_examples, traits_overlap: kin.traits_overlap };
     judged = await judgeCopy(env, { new_game: { listing, facts: facts4ai(me.facts) }, existing_game: { listing: theirs, facts: otherFacts && facts4ai(otherFacts) }, measurements: measures });
-    // a sure copy is refused; a doubtful one goes to a person instead of blocking a game that may be legitimate
-    const pCopy = judged ? Number(judged.probabilities?.copy ?? (judged.verdict === 'copy' ? judged.p : 0)) : 0;
-    if (judged && judged.model === 'clef' && judged.verdict === 'copy' && pCopy >= JUDGE_SURE) top = { ...top, verdict: 'copy' };
-    else if (judged && pCopy >= JUDGE_DOUBT) review = { slug: top.slug, title: top.title, why: matchedText(top), judge_p: pCopy };
+    // the final model's "copy" refuses; anything else, or no final answer (AI down, cap reached), lets the rules stand
+    if (judged?.final && judged.verdict === 'copy') top = { ...top, verdict: 'copy' };
   }
-  // no AI answer, but it takes a near title, tagline or names of another game: a person looks before it goes live
-  if (!judged && !review && top && top.verdict === 'similar' && top.identity) review = { slug: top.slug, title: top.title, why: matchedText(top), judge_p: null };
   const measured = top ? matchedText(top) : '';
   if (top && top.verdict === 'copy') {
-    flag({ id: 'original', ok: false, label: 'Original work', detail: `Matches "${top.title}" (/g/${top.slug}) by another creator: ${measured}.${namesText(top)}${judged ? ` Review: judged a copy (${pct(judged.p)} likely).` : ''}`, hint: 'Publishing a copy of another creator\'s game is not allowed. Building a game like another one (its genre, mechanics, structure or style, for example from its build skill) is fine; taking its identity is not. Give the game its own title and tagline, rename the characters, cards, enemies, places and items listed above, and use your own code and look (platform templates and kits are fine to start from). Then deploy_preview again. If the other game is yours under another account, contact the platform.' });
+    flag({ id: 'original', ok: false, label: 'Original work', detail: `Matches "${top.title}" (/g/${top.slug}) by another creator: ${measured}.${namesText(top)}${judged ? ` The AI review (${judged.model}) judged it a copy (${pct(judged.p)} likely).` : ''}`, hint: 'Publishing a copy of another creator\'s game is not allowed. Building a game like another one (its genre, mechanics, structure or style, for example from its build skill) is fine; taking its identity is not. Give the game its own title and tagline, rename the characters, cards, enemies, places and items listed above, and use your own code and look (platform templates and kits are fine to start from). Then deploy_preview again. If the other game is yours under another account, contact the platform.' });
     await logEvent(env, p.id, 'copy_flagged', `Matches ${top.slug}: ${measured}`, v.n, 'originality');
-  } else if (review) {
-    flag({ id: 'original', ok: true, label: 'Original work', detail: `Close to "${review.title}" (/g/${review.slug}) by another creator: ${review.why}.${namesText(top)} ${review.judge_p === null ? 'The automated review could not decide' : `The automated review was not sure (${pct(review.judge_p)} likely a copy)`}, so a person at the platform looks at it before it goes live.`, hint: '' });
-    report.notes = [...(report.notes || []), `Originality: close to "${review.title}" (${review.why}). Publishing sends this version to a platform review; it goes live once a person approves it. To skip the review, give it its own title, tagline and names.`];
-    await logEvent(env, p.id, 'copy_review', `Close to ${review.slug}: ${review.why}`.slice(0, 300), v.n, 'originality');
   } else {
     flag({ id: 'original', ok: true, label: 'Original work', detail: top && top.verdict === 'similar' ? `Shares some code or look with "${top.title}" by another creator (${measured}), ${judged ? `judged ${judged.verdict}` : 'not enough to call it a copy'}.` : `No other creator's live game matches it.`, hint: '' });
     if (top && top.verdict === 'similar') report.notes = [...(report.notes || []), `Originality: this version shares ${measured} with "${top.title}". That is allowed; a version that copies most of another creator's game is not.`];
@@ -293,7 +285,7 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
     report.warnings = [...(report.warnings || []), ...failed.map((c) => `${c.label}: ${c.detail}`)];
   }
   report.checks = [...(report.checks || []), ...checks];
-  report.originality = { matches: matches.slice(0, 3).map(({ listing: _l, project_id: _p, ...m }) => m), review, game: g.verdict, ai: { judge: judged?.verdict || null, judge_p: judged?.probabilities || null, gameness: aiSaid ? aiSaid.is_game : null, gameness_p: aiSaid ? aiSaid.p : null, content: content?.ai?.probabilities || null }, ms: Date.now() - t0 };
+  report.originality = { matches: matches.slice(0, 3).map(({ listing: _l, project_id: _p, ...m }) => m), game: g.verdict, ai: { judge: judged?.verdict || null, judge_p: judged?.probabilities || null, judge_model: judged?.model || null, judge_final: judged?.final ?? null, gameness: aiSaid ? aiSaid.is_game : null, gameness_p: aiSaid ? aiSaid.p : null, content: content?.ai?.probabilities || null }, ms: Date.now() - t0 };
   report.content = content ? { ok: content.ok, category: content.category, undeclared: !!content.undeclared, by: content.by, sexual: content.ai?.sexual || null, violence: content.ai?.violence || null, frames: content.ai?.frames || 0 } : null;
   if (report.checks.some((c: any) => !c.ok)) { report.ok = false; report.summary = `Not publishable: ${report.checks.filter((c: any) => !c.ok).map((c: any) => c.label.toLowerCase()).join('; ')}.`; }
 }

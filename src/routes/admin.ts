@@ -220,7 +220,7 @@ admin.get('/reviews', async (c) => {
   const origin = c.get('origin');
   return c.json({ reviews: rows.results.map(({ report, screenshot_key, ...r }) => {
     const rep = JSON.parse(report || '{}');
-    return { ...r, screenshot: screenshot_key ? `${origin}/api/media/${screenshot_key}` : null, why: rep.originality?.review ? 'copy_check' : rep.gpuLimited ? 'webgpu' : rep.browser === 'unavailable' ? 'no_browser' : 'other', summary: rep.summary || '', matched: rep.originality?.review || null };
+    return { ...r, screenshot: screenshot_key ? `${origin}/api/media/${screenshot_key}` : null, why: rep.gpuLimited ? 'webgpu' : rep.browser === 'unavailable' ? 'no_browser' : 'other', summary: rep.summary || '' };
   }) });
 });
 
