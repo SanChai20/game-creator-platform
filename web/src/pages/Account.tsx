@@ -5,6 +5,7 @@ import { ago, api, navigate, t, useApp, useData } from '../lib';
 import { Badge, Button, Card, Field, Input, Notice, PageHeader } from '../ui';
 import { PageSkeleton } from '../skeletons';
 import { FriendsSettings } from '../social';
+import { PushSettings } from '../push-ui';
 
 interface TwoFactor { enabled: boolean; enabled_at: number | null; recovery_left: number }
 interface AccountData { created_at: number; sessions: { created_at: number; ua: string; current: boolean }[]; delete_blocker: string | null; two_factor: TwoFactor }
@@ -55,6 +56,7 @@ export function Account() {
           </form>
         </Card>
         <Card title={t('Friends and privacy', '好友与隐私')} pad><FriendsSettings /></Card>
+        <Card title={t('Notifications on this device', '此设备上的通知')} pad><PushSettings /></Card>
         <TwoFactorCard state={data.two_factor} creator={user.creator} reload={reload} />
         <Card title={t('Where you are signed in', '登录设备')} pad>
           <div className="stack">

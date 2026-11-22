@@ -10,6 +10,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './env';
 import { readLobby } from './lobby';
+import { notify } from './push';
 // @ts-ignore plain JS module
 import { OFFLINE_GRACE_MS, nextChange, presenceOf, samePresence } from './presence.js';
 // @ts-ignore plain JS module
@@ -27,10 +28,14 @@ const DETAIL_MAX = 60;
 
 export const socialHub = (env: Env, uid: string) => env.SOCIAL!.get(env.SOCIAL!.idFromName(uid)) as unknown as DurableObjectStub<SocialHub>;
 /** Delivers an event to an account's open pages. Never fails the caller: a hub that cannot be reached misses it, and the
-    page catches up from the database when it next opens its friends. Returns how many pages got it. */
+    page catches up from the database when it next opens its friends. Returns how many pages got it. When no page has it
+    in front of the player, it also becomes a push notification on the browsers that turned them on (src/push.ts). */
 export async function pushTo(env: Env, uid: string, ev: Record<string, unknown>): Promise<number> {
   if (!env.SOCIAL) return 0;
-  try { return await socialHub(env, uid).push(ev); } catch (e) { console.warn('social push', String((e as Error).message || e)); return 0; }
+  let r = { n: 0, seen: 0 };
+  try { r = await socialHub(env, uid).deliver(ev); } catch (e) { console.warn('social push', String((e as Error).message || e)); }
+  if (!r.seen) await notify(env, uid, ev);
+  return r.n;
 }
 /** What `viewer` sees of `uid` right now. Offline when unknown. */
 export async function presenceOfUser(env: Env, uid: string, viewer: string): Promise<Presence> {
@@ -197,6 +202,11 @@ export class SocialHub extends DurableObject<Env> {
   }
   /** An event for this account's pages. */
   async push(ev: Record<string, unknown>): Promise<number> { return this.sendAll({ t: 'event', ev }); }
+  /** The same, and how many of the pages that got it the player is looking at (a tab in front, not hidden). */
+  async deliver(ev: Record<string, unknown>): Promise<{ n: number; seen: number }> {
+    const seen = this.pages().filter(({ p }) => p.vis).length;
+    return { n: this.sendAll({ t: 'event', ev }), seen };
+  }
   /** The account changed its status or privacy: presence again, and friends told when it shows differently now. */
   async setProfile(p: Prof & { uid: string }): Promise<Presence> {
     await this.me(p.uid);

@@ -2,7 +2,7 @@
 // popup, with which steps, and when it comes back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { androidPromptNeeded, elementFullscreen, installKind, isIOSDevice, isIPad, isIOSSafari, MAX_DISMISSALS, promptDue, putAway, readPromptState, SNOOZE_MS, GOT_IT_MS } from '../web/src/install.ts';
+import { androidPromptNeeded, desktopKind, promptNeeded, elementFullscreen, installKind, isIOSDevice, isIPad, isIOSSafari, MAX_DISMISSALS, promptDue, putAway, readPromptState, SNOOZE_MS, GOT_IT_MS } from '../web/src/install.ts';
 
 const UA = {
   ipad: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15',
@@ -16,6 +16,11 @@ const UA = {
   androidWeChat: 'Mozilla/5.0 (Linux; Android 14; V2307A Build/UP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/130.0 Mobile Safari/537.36 XWEB/1300 MMWEBSDK/20240404 MicroMessenger/8.0.49',
   iphoneWeChat: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.50(0x1800323c) NetType/WIFI Language/zh_CN',
   windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36',
+  edge: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36 Edg/138.0',
+  macChrome: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36',
+  macOldSafari: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15',
+  winFirefox: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0',
+  linuxChrome: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36',
 };
 const dev = (ua, touch = 5, installed = false) => ({ userAgent: UA[ua], maxTouchPoints: touch, installed });
 
@@ -49,8 +54,9 @@ test('the install popup: which phones and tablets, with which steps, never in th
   assert.equal(installKind(dev('androidFirefox')), 'android');
   assert.equal(installKind(dev('ipad', 5, true)), null, 'installed');
   assert.equal(installKind(dev('android', 5, true)), null, 'installed');
-  assert.equal(installKind(dev('mac', 0)), null);
-  assert.equal(installKind(dev('windows', 0)), null);
+  assert.equal(installKind(dev('mac', 0)), 'mac-safari', 'Safari on a Mac: File, Add to Dock');
+  assert.equal(installKind(dev('windows', 0)), 'desktop', 'Chrome on Windows: the install prompt');
+  assert.equal(installKind(dev('windows', 0, true)), null, 'installed');
   assert.equal(isIOSSafari(dev('ipadOld')), true);
   // Chrome waits for its own install prompt (none means installed already or not installable); Firefox shows the steps
   assert.equal(androidPromptNeeded(dev('android')), true);
@@ -72,4 +78,17 @@ test('the install popup does not nag: a week after Not now, a month after Got it
   assert.equal(promptDue(putAway(readPromptState(null), now, 'installed'), now), false, 'installed');
   assert.deepEqual(readPromptState(JSON.stringify(putAway(readPromptState(null), now, 'later'))), { n: 1, until: now + SNOOZE_MS, done: false });
   assert.deepEqual(readPromptState('done'), { n: 0, until: 0 }, 'the old tip key and broken values start fresh');
+});
+
+test('computers: Chrome and Edge install through their prompt, Safari on a Mac through Add to Dock, and the popup never opens by itself there', () => {
+  for (const ua of ['windows', 'edge', 'macChrome', 'linuxChrome']) assert.equal(installKind(dev(ua, 0)), 'desktop', ua);
+  assert.equal(installKind(dev('macOldSafari', 0)), null, 'Safari before 17 has no Add to Dock');
+  assert.equal(installKind(dev('winFirefox', 0)), null, 'Firefox on a computer cannot install');
+  assert.equal(promptNeeded('desktop', dev('windows', 0)), true);
+  assert.equal(promptNeeded('mac-safari', dev('mac', 0)), false);
+  assert.equal(promptNeeded('android', dev('androidFirefox')), false);
+  assert.equal(desktopKind('desktop'), true);
+  assert.equal(desktopKind('mac-safari'), true);
+  assert.equal(desktopKind('android'), false);
+  assert.equal(desktopKind(null), false);
 });

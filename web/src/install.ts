@@ -53,18 +53,30 @@ const IN_APP = /FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|WeChat|QQ\/|Wei
  *   its menu. A Chromium browser that never offers the prompt is either installed already or cannot install, so the
  *   popup waits for the prompt there (androidPromptNeeded).
  * - in-app: an app's built-in browser, which has to hand the page to the real browser first.
+ * - desktop: Chrome and Edge on a computer, which install it as an app with its own window and taskbar or Dock icon
+ *   through the same install prompt as Android (so the popup waits for the prompt there too).
+ * - mac-safari: Safari on a Mac (Sonoma and later), through File, Add to Dock.
+ * On a computer the popup never opens by itself (desktopKind): only the footer's Install app link opens it.
  */
-export type InstallKind = 'ios-safari' | 'ios-browser' | 'android' | 'in-app';
+export type InstallKind = 'ios-safari' | 'ios-browser' | 'android' | 'in-app' | 'desktop' | 'mac-safari';
+export const desktopKind = (k: InstallKind | null) => k === 'desktop' || k === 'mac-safari';
 export function installKind(d: DeviceInfo): InstallKind | null {
   if (d.installed) return null;
   const ios = isIOSDevice(d), android = isAndroid(d);
-  if (!ios && !android) return null;
+  if (!ios && !android) {
+    if (/Firefox\/|OPR\/|SamsungBrowser/.test(d.userAgent)) return null;
+    if (/Chrome\/|Edg\//.test(d.userAgent)) return 'desktop';
+    const safari = /Macintosh/.test(d.userAgent) && /Version\/(\d+)/.exec(d.userAgent);
+    return safari && Number(safari[1]) >= 17 && /Safari\//.test(d.userAgent) ? 'mac-safari' : null;
+  }
   if (IN_APP.test(d.userAgent)) return 'in-app';
   if (ios) return isIOSSafari(d) ? 'ios-safari' : /CriOS|FxiOS|EdgiOS/.test(d.userAgent) ? 'ios-browser' : null;
   return 'android';
 }
 /** On Android, whether the browser's own install prompt is needed before the popup shows (every browser but Firefox). */
 export const androidPromptNeeded = (d: Pick<DeviceInfo, 'userAgent'>) => !/Firefox\//.test(d.userAgent);
+/** Whether the popup needs the browser's install prompt for this kind before it can offer anything. */
+export const promptNeeded = (k: InstallKind | null, d: Pick<DeviceInfo, 'userAgent'>) => k === 'desktop' || (k === 'android' && androidPromptNeeded(d));
 
 /**
  * When the install popup opens by itself. Each "Not now" puts it away for a week; after the third it stays away for good,

@@ -37,7 +37,15 @@ const S = {
   v: 0,
 };
 const subs = new Set<() => void>();
-const emit = () => { S.v++; subs.forEach((f) => f()); };
+const emit = () => { S.v++; subs.forEach((f) => f()); badge(); };
+// The installed app's icon shows the unread count (Home Screen, Dock, taskbar), where the browser supports it.
+let shownBadge = -1;
+function badge() {
+  const n = S.user ? unreadTotal() : 0, nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+  if (n === shownBadge || !nav.setAppBadge) return;
+  shownBadge = n;
+  void (n ? nav.setAppBadge(n) : nav.clearAppBadge?.())?.catch(() => {});
+}
 export const useSocial = () => { useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => S.v); return S; };
 let toastN = 0;
 function toast(x: Omit<Toast, 'id' | 'ttl'> & { ttl?: number }) {
@@ -149,6 +157,7 @@ export function socialUser(u: { id: string; name: string } | null) {
   disconnect();
   S.user = u; S.summary = null; S.friends = null; S.open = null; S.chat = null; S.toasts = []; emit();
   if (!u) return;
+  if (linked) { const l = linked; linked = null; openLinked(l.friends, l.chat); }
   void loadSummary().then(() => { connect(); clearInterval(poll); poll = window.setInterval(() => { if (S.conn !== 'on') { void loadSummary(); if (S.open) void loadFriends(); } }, 60000); });
 }
 if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { send({ t: 'vis', vis: document.visibilityState !== 'hidden' }); if (document.visibilityState !== 'hidden' && S.user && !ws) connect(); });
@@ -183,6 +192,14 @@ function launch(slug: string, join: Join) {
 }
 
 // ---- actions ------------------------------------------------------------------------------------------------------------
+// What a notification opens (web/src/pwa.ts): ?friends=requests or friends, ?chat=<player>. Kept until the account is known.
+let linked: { friends: string | null; chat: string | null } | null = null;
+export function openLinked(friends: string | null, chat: string | null) {
+  if (!friends && !chat) return;
+  if (!S.user) { linked = { friends, chat }; return; }
+  if (chat) { void api<{ peer: { id: string; name: string } }>(`/social/chat/${encodeURIComponent(chat)}`).then((r) => { openPanel({ tab: 'friends' }); openChat(r.peer); }, fail); return; }
+  openPanel({ tab: friends === 'requests' ? 'requests' : 'friends' });
+}
 export function openPanel(o: OpenState) { S.open = o; emit(); void loadFriends(); void loadSummary(); }
 export function closePanel() { S.open = null; S.chat = null; emit(); }
 export function togglePanel() { if (S.open) closePanel(); else openPanel({ tab: 'friends' }); }
