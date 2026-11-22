@@ -379,7 +379,8 @@ export async function startBots(env: Env, origin: string, u: User, projectId: st
   // at most this many fleets at once, and the day's allowance of bot-minutes (counting what this fleet may use)
   const [running, used] = await Promise.all([
     env.DB.prepare('SELECT COUNT(*) AS n FROM bot_fleets WHERE owner_id = ? AND ended_at IS NULL AND ends_at > ? AND project_id != ?').bind(u.id, t, p.id).first<{ n: number }>(),
-    env.DB.prepare('SELECT COALESCE(SUM(bot_minutes), 0) AS m FROM bot_fleets WHERE owner_id = ? AND started_at > ? AND ended_at IS NOT NULL').bind(u.id, t - 86_400_000).first<{ m: number }>(),
+    // ended fleets count what they used; running fleets of other games count what they reserved (this game's own is replaced)
+    env.DB.prepare('SELECT COALESCE(SUM(bot_minutes), 0) AS m FROM bot_fleets WHERE owner_id = ? AND started_at > ? AND (ended_at IS NOT NULL OR project_id != ?)').bind(u.id, t - 86_400_000, p.id).first<{ m: number }>(),
   ]);
   if ((running?.n || 0) >= s.preview_bots_fleets) throw new AppError(429, `You already have ${running!.n} test-bot fleets running. Stop one first.`, 'bots_busy');
   const want = cfg.bots * cfg.minutes, left = s.preview_bots_daily_minutes - (used?.m || 0);
