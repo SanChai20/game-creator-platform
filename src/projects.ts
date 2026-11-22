@@ -9,6 +9,8 @@ import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf 
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
 import { regionBlockedRefs, regionWarning } from './region-hosts.js';
+// @ts-ignore plain JS module
+import { botContract, botIssues } from './bot-contract.js';
 import { checkStandards, findingLine } from './standards.js';
 // @ts-ignore plain JS module shared with the tests
 import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
@@ -209,6 +211,7 @@ export interface Manifest {
   minSafari?: number;            // the oldest Safari (iPhone, iPad) that can load all of the code, when newer than the baseline (src/device-checks.js)
   hasServer?: boolean;
   hasMatch?: boolean;            // server/match.js: server-run matches
+  bots?: { online: boolean; match: boolean; room: boolean; invites: boolean; file: boolean; hooks: { think: boolean; actions: boolean; room: boolean; invite: boolean } };   // the test-bot contract (bot-contract.js)
   /** What this version needs from the player's browser: declared in gcp.json "requirements", merged with what the code shows. */
   compat?: Compat;
   /** The build layer of the game metadata: languages, players, session, progress, accessibility, content and the age rating. */
@@ -421,11 +424,14 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   if (files.length && !sawReady) err({ message: 'The game never calls GCP.ready().', hint: 'Call GCP.ready() once, right after the first playable frame is drawn (stage.run() from @gcp/craft.js or @gcp/craft2d.js does it for you, unless you pass { ready: false }). An engine export can call it from its index.html or a small JS plugin once the first scene is running. The platform uses it to know the game booted. See get_started {topic: "contract"}.' });
 
   const server = files.filter((f) => f.path.startsWith('server/'));
+  // server/bot.js (and what it imports) is not server code: it runs only in the test bots' sandbox (src/bots.ts), so a
+  // room game with no server of its own ships one too, whatever the server-code setting
+  const botOnly = !paths.has('server/index.js') && !paths.has('server/match.js') && paths.has('server/bot.js');
   if (server.length) {
-    if (!s.allow_server_code) err({ message: 'Server code is disabled on this platform.', hint: 'Remove the server/ folder. Use GCP.save, GCP.leaderboard and GCP.room for data and multiplayer.' });
-    else if (!paths.has('server/index.js') && !paths.has('server/match.js')) err({ message: 'server/ exists but has neither server/index.js nor server/match.js.', hint: 'server/index.js must `export default { async fetch(request, env, ctx) { … } }` (server code); server/match.js must `export default { init, input, tick }` (server-run matches).' });
+    if (!s.allow_server_code && !botOnly) err({ message: 'Server code is disabled on this platform.', hint: 'Remove the server/ folder (server/bot.js, for test bots, may stay). Use GCP.save, GCP.leaderboard and GCP.room for data and multiplayer.' });
+    else if (!paths.has('server/index.js') && !paths.has('server/match.js') && !paths.has('server/bot.js')) err({ message: 'server/ exists but has none of server/index.js, server/match.js or server/bot.js.', hint: 'server/index.js must `export default { async fetch(request, env, ctx) { … } }` (server code); server/match.js must `export default { init, input, tick }` (server-run matches); server/bot.js is what test bots do (get_started {topic: "bots"}).' });
     else {
-      for (const [entry, needs] of [['server/index.js', 'a fetch(request, env, ctx) method'], ['server/match.js', 'init(ctx), tick(state, ctx) and usually input(state, player, input, ctx) (get_started {topic: "matches"})']] as const) {
+      for (const [entry, needs] of [['server/index.js', 'a fetch(request, env, ctx) method'], ['server/match.js', 'init(ctx), tick(state, ctx) and usually input(state, player, input, ctx) (get_started {topic: "matches"})'], ['server/bot.js', 'the test-bot hooks: think, actions, room or invite (get_started {topic: "bots"})']] as const) {
         if (!paths.has(entry)) continue;
         const src = texts.get(entry) || '';
         try { parse(src, { ecmaVersion: 'latest', sourceType: 'module' }); if (!/export\s+default/.test(src)) err({ file: entry, message: `${entry} must have a default export with ${needs}.` }); }
@@ -445,10 +451,13 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
           if (!target || !/^(server|shared)\/.+\.m?js$/.test(target) || !paths.has(target)) err({ file: f.path, line: im.line, message: `Server modules can only import other .js files under server/ or shared/ by relative path ("${im.spec}").`, hint: 'Put the rules the client and the server share (movement, hit rules) in shared/ and import them as "../shared/rules.js". Bundle any library you need into those folders.' });
         }
       }
-      manifest.hasServer = true;
+      if (!botOnly) manifest.hasServer = true;
       if (paths.has('server/match.js')) manifest.hasMatch = true;
     }
   }
+  // Online games: what their test bots need from server/bot.js (the platform does the rest; see bot-contract.js)
+  const bc = botContract(texts, paths);
+  if (bc.online) { manifest.bots = bc; for (const i of botIssues(bc)) warn(i); }
   // iPhone and iPad: what in the code the game runtime cannot fill in for Safari (newer syntax, missing features, Ogg-only sound).
   const dev = deviceIssues(deviceFiles, [...paths]);
   for (const i of dev.issues) warn(i);

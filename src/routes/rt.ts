@@ -3,7 +3,7 @@
 import { readOptions } from '../file-read';
 import { Hono, type Context } from 'hono';
 import { AppError, bad, type Env } from '../env';
-import { isGuestId } from '../auth';
+import { isGuestId, rateLimit } from '../auth';
 import { playKey, runtimeHash, storeKey } from '../deploy';
 import { getSettings } from '../settings';
 import { playClock } from '../clock-do';
@@ -22,7 +22,7 @@ import { lobbyData, sendInvite } from './social';
 import { forGame } from '../presence.js';
 // @ts-ignore plain JS module
 import { acceptedInvite, listFriends } from '../social-rules.js';
-import { followCreator } from '../bots';
+import { botFriends, followCreator, inviteBot } from '../bots';
 // @ts-ignore plain JS module
 import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
@@ -323,11 +323,7 @@ rt.get('/match', async (c) => {
   // (code=<typed code> is the older private lobby, kept working for games that still use it.)
   const inviteId = c.req.query('invite'), own = c.req.query('private') === '1' && !inviteId;
   let lobby: Lobby | null = null;
-  if (tok.k === 'bot' && tok.e === 'preview' && c.req.query('lobby')) {
-    // a preview test bot following its creator into their private lobby (src/bots.ts): the lobby token is its way in
-    lobby = await readLobby(c.env, c.req.query('lobby'), tok.g, tok.e);
-    if (!lobby) throw new AppError(409, 'That lobby is gone.', 'lobby_gone');
-  } else if (inviteId) {
+  if (inviteId) {
     if (isGuestId(tok.u)) throw new AppError(403, 'Sign in to join friends.', 'guest');
     const inv = await acceptedInvite(c.env.DB, tok.u, inviteId, tok.g, tok.e) as { lobby: string } | null;
     lobby = inv ? await readLobby(c.env, inv.lobby, tok.g, tok.e) : null;
@@ -351,12 +347,11 @@ rt.get('/match', async (c) => {
     seat.lk = await signLobby(c.env, { g: tok.g, e: tok.e, c: lobby.c, q: q.queue, n: q.size, m: q.min, t: q.teams, o: q.mode });
   }
   const name = lobby ? `${tok.g}:${tok.e}:pcode:${lobby.c}` : q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
-  // the game's owner searched in their preview: test bots that follow them search the same queue, or enter the same
-  // lobby (a private lobby by its signed token: bots need no invite in the preview) (src/bots.ts)
+  // the game's owner searched in their preview: test bots that follow them search the same queue or enter the same
+  // lobby code. A private lobby of their own is entered by invite only, by bots as by friends (src/bots.ts inviteBot).
   if (tok.e === 'preview' && tok.k === 'owner') {
     const follow = new URL(c.req.url).searchParams; follow.delete('t');
-    const query = seat.lk ? new URLSearchParams({ lobby: seat.lk }).toString() : follow.toString();
-    inBackground(c, followCreator(c.env, tok.g, tok.u, { kind: 'match', query, label: seat.lk ? 'your private lobby' : q.code ? `your lobby ${q.code}` : `your search (${q.queue}, ${q.size} players)` }));
+    inBackground(c, followCreator(c.env, tok.g, tok.u, own ? { kind: 'private' } : { kind: 'match', query: follow.toString(), label: q.code ? `your lobby ${q.code}` : `your search (${q.queue}, ${q.size} players)` }));
   }
   const u = new URL(c.req.url);
   u.search = `?seat=${encodeURIComponent(JSON.stringify(seat))}`;
@@ -434,10 +429,12 @@ rt.post('/friends', async (c) => {
     const list = await listFriends(env.DB, tok.u, 500) as { id: string; name: string }[];
     const pres = env.SOCIAL && list.length ? await socialHub(env, tok.u).snapshot(list.map((f) => f.id)).catch(() => ({} as Record<string, unknown>)) : {};
     const rank: Record<string, number> = { online: 0, away: 1, busy: 2, offline: 3 };
-    const friends = list.map((f) => {
+    const friends: Record<string, unknown>[] = list.map((f) => {
       const p = forGame((pres as Record<string, unknown>)[f.id], tok.g) as { status: string; playing: unknown; since: number | null; joinable: boolean };
       return { id: f.id, name: f.name, ...p, invitable: p.status !== 'offline' && tok.e === 'live' };
     }).sort((a, b2) => (rank[a.status] ?? 3) - (rank[b2.status] ?? 3) || a.name.localeCompare(b2.name));
+    // the owner's preview: their running test bots are friends they can invite (real friends never meet a preview)
+    if (tok.e === 'preview' && tok.k === 'owner') friends.unshift(...await botFriends(env, tok.g, tok.u));
     return c.json({ ok: true, friends });
   }
   if (b.op === 'invite') {
@@ -445,6 +442,10 @@ rt.post('/friends', async (c) => {
     if (!/^[A-Za-z0-9_-]{2,64}$/.test(to)) throw bad('to must be a friend\'s id from GCP.friends.list().');
     const data = b.lobby ? await lobbyData(env, b.lobby, tok.g, tok.e, b.label) : { ...(b.label != null ? { label: b.label } : {}) };
     if (b.data !== undefined) (data as Record<string, unknown>).data = b.data;
+    if (to.startsWith('bot_') && tok.e === 'preview' && tok.k === 'owner') {
+      await rateLimit(env, 'botinvite:' + tok.u, 120, 600);
+      return c.json(await inviteBot(env, tok.g, tok.u, to, data as Record<string, unknown>));
+    }
     const me = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(tok.u).first<{ name: string }>();
     return c.json(await sendInvite(env, s, { id: tok.u, name: me?.name || tok.n }, to, tok.g, tok.e, data));
   }

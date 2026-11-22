@@ -20,6 +20,7 @@ Use [rooms](multiplayer.md) for co-op, party and casual games among friends. Use
 ```
 shared/rules.js     movement and rules, imported by the server and by the page
 server/match.js     the match: export default { ... }
+server/bot.js       what the platform's test bots do in it: think(view, me, ctx) (see the bots guide)
 index.html, game.js the page: GCP.match.find(...)
 ```
 
@@ -195,6 +196,7 @@ back.on('none', () => showMenu());           // no match to go back to: it is ov
 
 ## Testing
 
+- Test bots: ship `server/bot.js` with `think(view, me, ctx)` returning the input your page would send now (and anything your lobby waits for, such as a ready), so creators can fill a table with the platform's test bots in the preview. The platform matchmakes them, seats them and accepts invites; the moves are yours. `get_started {topic: "bots"}` has the contract.
 - Two players: in the verifier's two-player check, `GCP.test.twoPlayers` is `{ role, code }` in both pages, and the two pages are two different players (each has its own verifier id, so the lobby lists both). Have both call `GCP.match.find({ code: GCP.test.twoPlayers.code, players: 2 })` from the autostart hook (no room is needed), and in `GCP.test.onTwoPlayers` wait until `match.phase === 'running'`, check that each page sees the other player move, and return `{ players: match.players.length, world }` with `world` built from what both must agree on (the server's state, not each page's prediction). When the check fails, its detail lists each page's match: the lobby code, phase, player id, who the lobby listed and how many snapshots arrived.
 - Opened outside the platform (a file on disk), `GCP.match.find()` fails with the `standalone` error: matches need the platform.
 - `ctx.log()` lines and your code's errors appear in the game Worker's log.

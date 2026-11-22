@@ -9,6 +9,7 @@ import { NET_PROFILES, NetLink, NetStats, fleetRequest, netShape, patch, botMinu
 import { describe, runOne } from '../src/runtime/bot-runner.js';
 import { bindingProblem } from '../src/session-binding.js';
 import { BotClient } from '../src/bot-client.js';
+import { botContract, botIssues } from '../src/bot-contract.js';
 
 const seq = (seed = 1) => { let a = seed; return () => ((a = (a * 16807) % 2147483647) / 2147483647); };
 
@@ -69,6 +70,8 @@ test('what a creator may ask for', () => {
   assert.match(fleetRequest({ bots: 16 }, L).error, /between 1 and 15/);
   assert.match(fleetRequest({ bots: 2, target: 'queue' }, L).error, /players/);
   assert.ok(fleetRequest({ bots: 3, target: 'queue', players: 4, queue: 'duel' }, L).ok);
+  assert.equal(fleetRequest({ bots: 3, target: 'invite' }, L).cfg.target, 'invite', 'bots that wait for the creator\'s invites');
+  assert.match(fleetRequest({ bots: 3, target: 'nowhere' }, L).error, /follow, invite, queue/);
   assert.match(fleetRequest({ bots: 2, target: 'code', code: 'x' }, L).error, /code/);
   assert.match(fleetRequest({ bots: 2, region: 'mars' }, L).error, /region/);
   assert.equal(fleetRequest({ bots: 2, minutes: 500 }, L).cfg.minutes, 30, 'never longer than the platform allows');
@@ -83,7 +86,7 @@ test('snapshot deltas are applied like the SDK applies them', () => {
 });
 
 test('server/bot.js in its sandbox: think, the generic actions bot, rooms, memory, and errors that never escape', () => {
-  assert.deepEqual(describe(null), { think: false, actions: false, room: false, thinkMs: 250 });
+  assert.deepEqual(describe(null), { think: false, actions: false, room: false, invite: false, thinkMs: 250 });
   assert.equal(describe({ think() {}, thinkMs: 5 }).thinkMs, 50);
   const thinker = { think: (view, me, ctx) => { ctx.memory.n = (ctx.memory.n || 0) + 1; return { go: view.x + 1, me, n: ctx.memory.n, skill: ctx.skill }; } };
   const r = runOne(thinker, { kind: 'match', view: { x: 1 }, me: 'bot_1', memory: { n: 4 }, skill: 0.5 });
@@ -163,4 +166,36 @@ test('the bot client: matchmaker, hello, snapshots and inputs numbered on from t
   socks[3].h.close(4004, 'This match is over.');
   assert.equal(b.phase, 'out');
   b.stop();
+});
+
+test('the bot contract: a room bot says hello and ready from room(ctx); invite(join) names the room', () => {
+  const def = {
+    room(ctx) { const out = []; if (ctx.joined) out.push({ d: { t: 'hello', name: ctx.name } }); const me = ctx.state?.players?.[ctx.me]; if (ctx.state?.phase === 'lobby' && me && !me.ready) out.push({ d: { t: 'me', ready: true }, to: ctx.host }); return out; },
+    invite(join) { return { room: 'mygame-' + join.data.room }; },
+  };
+  assert.deepEqual(describe(def), { think: false, actions: false, room: true, invite: true, thinkMs: 250 });
+  const first = runOne(def, { kind: 'room', me: 'p2', host: 'p1', joined: true, name: 'Test Bot 1', state: { phase: 'lobby', players: {} } });
+  assert.deepEqual(first.send, [{ d: { t: 'hello', name: 'Test Bot 1' }, to: null }]);
+  const later = runOne(def, { kind: 'room', me: 'p2', host: 'p1', state: { phase: 'lobby', players: { p2: { ready: false } } } });
+  assert.deepEqual(later.send, [{ d: { t: 'me', ready: true }, to: 'p1' }]);
+  assert.deepEqual(runOne(def, { kind: 'invite', join: { data: { room: 'f123' } } }).go, { room: 'mygame-f123' });
+  assert.deepEqual(runOne({ invite: () => 'match' }, { kind: 'invite', join: {} }).go, { match: true });
+  assert.equal(runOne({}, { kind: 'invite', join: {} }).go, null);
+});
+
+test('the checks see which bot hooks an online game needs and which it has', () => {
+  const room = { 'index.html': '<script src="main.js"></script>', 'main.js': 'const r = GCP.room("x"); GCP.friends.open({ data: { room: code } });' };
+  let b = botContract(room, Object.keys(room));
+  assert.equal(b.online, true); assert.equal(b.room, true); assert.equal(b.invites, true); assert.equal(b.file, false);
+  assert.match(botIssues(b)[0].message, /no server\/bot\.js/);
+  const withBot = { ...room, 'server/bot.js': 'export default { thinkMs: 100, room(ctx) { return []; } };' };
+  b = botContract(withBot, Object.keys(withBot));
+  assert.equal(b.hooks.room, true);
+  assert.deepEqual(botIssues(b).map((i) => i.message.slice(0, 40)), ['The game invites friends into rooms, but'], 'only invite() is missing');
+  const match = { 'index.html': '', 'server/match.js': 'export default {}', 'server/bot.js': 'export default { think: (view, me) => null };' };
+  b = botContract(match, Object.keys(match));
+  assert.equal(b.match, true); assert.equal(b.hooks.think, true); assert.deepEqual(botIssues(b), []);
+  const solo = { 'index.html': '<script>GCP.ready()</script>' };
+  assert.equal(botContract(solo, Object.keys(solo)).online, false);
+  assert.deepEqual(botIssues(botContract(solo, Object.keys(solo))), []);
 });

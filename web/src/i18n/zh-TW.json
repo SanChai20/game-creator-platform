@@ -2181,5 +2181,17 @@
  "This page is open inside another app, which cannot add it to your Home Screen. Open it in your browser first.": "目前頁面是在其他應用程式內開啟的，無法加入主畫面。請先在瀏覽器中開啟。",
  "Add it to your Home Screen for the best way to play on this device.": "把它加入主畫面，在這台裝置上獲得最佳遊戲體驗。",
  "The Home Screen app keeps its own sign-in, so you may be asked to sign in once more there.": "主畫面應用程式有獨立的登入狀態，首次開啟時可能需要再登入一次。",
- "Install": "安裝"
+ "Install": "安裝",
+ "Wait for my invites (as friends)": "等我邀請（作為好友）",
+ "waiting for your invites": "等待你的邀請",
+ "In this preview the bots are your online friends: invite them from your game's own Invite Friends, and they answer and join like friends do.": "在這個預覽中，機器人就是你的線上好友：用遊戲自己的「邀請好友」邀請它們，它們會像好友一樣回覆並加入。",
+ "Invite test players": "邀請測試玩家",
+ "Your friends cannot join a preview": "好友無法加入預覽",
+ "Here your test players stand in for them: invite one as a player invites a friend, and it answers and joins through the real invite path.": "這裡由測試玩家代替好友：像玩家邀請好友一樣邀請它們，它們會透過真實的邀請流程回覆並加入。",
+ "No test players are running": "沒有正在執行的測試玩家",
+ "Start a few and they show here as your online friends.": "啟動幾個，它們就會作為你的線上好友出現在這裡。",
+ "Start 3 test players": "啟動 3 個測試玩家",
+ "Your game has to teach the bots a few things": "你的遊戲需要教會機器人一些事",
+ "The platform connects the bots, finds their matches and rooms, and handles invites and the network. What needs your game's rules (saying hello, marking ready, picking, moving) only your game's server/bot.js can do. Ask your agent to add what is missing:": "平台負責連線機器人、為它們找對局和房間，並處理邀請和網路。需要遊戲規則的部分（打招呼、準備、選擇、行動）只有遊戲自己的 server/bot.js 能做。請讓你的代理補上缺少的部分：",
+ "The bots are stuck: your game has not told them what to do": "機器人卡住了：你的遊戲還沒告訴它們該做什麼"
 }

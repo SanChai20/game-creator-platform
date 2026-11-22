@@ -124,7 +124,8 @@ export function patch(a, n) {
 /**
  * Checks a fleet request against the platform's limits. Returns { ok: true, cfg } or { ok: false, error }.
  *   bots: how many (1 to max), target: 'follow' (go where the creator searches or opens a room in the preview, the
- *   default), 'queue' (a public queue: queue, players, min, teams, mode), 'code' (a private lobby code), 'room' (a room
+ *   default; a private lobby only by invite), 'invite' (go nowhere until the creator invites them as friends from the
+ *   game), 'queue' (a public queue: queue, players, min, teams, mode), 'code' (a private lobby code), 'room' (a room
  *   code), region, net (a profile name or { latency, jitter, loss }; per bot in nets[]), names, skill (0 to 1).
  */
 export function fleetRequest(b, limits) {
@@ -132,7 +133,7 @@ export function fleetRequest(b, limits) {
   const bots = Math.round(Number(b.bots ?? 3));
   if (!(bots >= 1 && bots <= max)) return { ok: false, error: `bots must be between 1 and ${max}.` };
   const target = String(b.target || 'follow');
-  if (!['follow', 'queue', 'code', 'room'].includes(target)) return { ok: false, error: 'target must be follow, queue, code or room.' };
+  if (!['follow', 'invite', 'queue', 'code', 'room'].includes(target)) return { ok: false, error: 'target must be follow, invite, queue, code or room.' };
   const region = String(b.region || 'auto');
   if (!(region in BOT_REGIONS)) return { ok: false, error: `region must be one of ${Object.keys(BOT_REGIONS).join(', ')}.` };
   const cfg = { bots, target, region, skill: clampN(b.skill, 0, 1, 1), minutes: Math.round(clampN(b.minutes, 1, limits.maxMinutes || 30, Math.min(15, limits.maxMinutes || 30))) };

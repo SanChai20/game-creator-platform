@@ -21,48 +21,96 @@ inside your page. Latency, stutter, a reconnect or a desync only show over a rea
 
 | target | what happens |
 | --- | --- |
-| `follow` (default) | The bots wait for you. Press your game's own Find Match (or open a room) in the preview and the free bots search the same queue with the same options, or join the same private lobby or room, through the same matchmaker. An eight-seat game with seven bots starts at once. |
+| `follow` (default) | The bots wait for you. Press your game's own Find Match (or open a room) in the preview and the free bots search the same queue with the same options, or join the same lobby code or room, through the same matchmaker. An eight-seat game with seven bots starts at once. A private lobby (`GCP.match.find({ private: true })`) is entered by invite only, as with friends: invite the bots (below). |
+| `invite` | The bots go nowhere until you invite them from your game, as friends (below). |
 | `queue` | They search a public queue you name (`queue`, `players`, `min`, `teams`, `mode`, as your game passes them to `GCP.match.find`). Bots alone can fill a match: with `bots` at least the queue's `min` it starts without anyone else, so an agent can run an online match end to end without a browser. After a match they look for the next one. |
 | `code` | They join a private lobby code. |
 | `room` | They join a room code. |
 
-## What the bots do: `server/bot.js`
+## Bots as your friends: testing invites
 
-Ship an optional `server/bot.js`. The platform runs it in a sandbox of its own (no network, no bindings, nothing but
-your `server/` and `shared/` modules) and asks it, for each bot, what to do now:
+Your real friends never meet a preview, so in your preview the running bots are your friends:
+
+- `GCP.friends.list()` lists them first, `online` (or `busy` while in a match), each with `test_bot: true`.
+- `GCP.friends.open({ match })` shows the invite picker over the preview with the test players, and an **Invite** button
+  for each (with no bots running, it offers to start three).
+- `GCP.friends.invite(botId, { match })` invites one directly.
+
+A bot reads the invite for a moment and answers like a friend: your game hears `GCP.friends.on('answer')` and the page
+shows the answer. It says yes when it is free (it leaves a search or a room for you) and no when it is busy in a match. On
+yes it goes where a friend's page would after `GCP.match.join(join)`: into your private lobby, through the real invite
+path (the same invite record a friend gets, in the preview), or to the room your invite's data names (`{ room }`, for a
+`GCP.room` game). In `preview_bots`, `action: "invite"` does the same for an agent (`bot`, and `lobby` or `data`), and
+`status` lists the latest answers.
+
+## The bot contract: what the platform does, what your game does
+
+Test bots work with every online game because the work is split:
+
+| the platform does, for every game | your game does, in `server/bot.js` |
+| --- | --- |
+| the bot's session, preview only, never rated | anything that needs your game's rules |
+| the matchmaker, private lobbies, rooms | saying hello in a room, marking ready, picking a hero or a deck |
+| invites (a bot answers like a friend) | where an invite leads, when your game builds a room code from it |
+| the connection, reconnects, drops, network conditions | every move in a match or a room |
+
+The platform never guesses at game logic. A bot without `server/bot.js` joins and stays connected but never sends
+anything, so a lobby that waits for its "ready" waits forever. **Every online game ships `server/bot.js`.** The preview
+and publish checks warn when an online game (one with `server/match.js`, or one that calls `GCP.room`) has none, or is
+missing a hook it needs, and the Test players panel says which piece is missing when bots get stuck.
+
+The platform runs `server/bot.js` in a sandbox of its own (no network, no bindings, nothing but your `server/` and
+`shared/` modules) and asks it, for each bot, what to do now:
 
 ```js
 // server/bot.js
 import { legalMoves } from '../shared/rules.js';
 
 export default {
-  thinkMs: 250,   // how often think() runs for each bot (50 to 10000 ms)
-  // A match: view is exactly what match.state is in the page for this bot (your view() for it), me its player id.
-  // Return one input, what the page would pass to match.input(...), or null to send nothing this time.
+  thinkMs: 250,   // how often think() / room() run for each bot (50 to 10000 ms)
+
+  // A match (server/match.js): view is exactly what match.state is in the page for this bot (your view() for it),
+  // me its player id. Return one input, what the page would pass to match.input(...), or null to send nothing now.
   think(view, me, ctx) {
     const moves = legalMoves(view, me);
     return moves.length ? moves[Math.floor(ctx.random() * moves.length)] : null;
   },
-  // Or, instead of think: just list the inputs that are valid now and the bot sends one of them at random.
+  // Or, instead of think: list the inputs that are valid now and the bot sends one of them at random.
   // actions(view, me, ctx) { return legalMoves(view, me); },
-  // A room (GCP.room): the messages to send now ({ d, to }); ctx.messages arrived since the last call.
-  // room(ctx) { return ctx.messages.map((m) => ({ d: { ack: m.d.seq }, to: m.from })); },
+
+  // A room (GCP.room): return the messages a player's page would send now, [{ d }] to everyone or { d, to } to one
+  // peer. Everything your page sends on its own (hello, ready, picks, moves) is sent from here.
+  room(ctx) {
+    const out = [], st = ctx.state || {};
+    if (ctx.joined) out.push({ d: { t: 'hello', name: ctx.name } });                 // what your page says on 'open'
+    const mine = st.players && st.players[ctx.me];
+    if (st.phase === 'lobby' && mine && !mine.ready) out.push({ d: { t: 'ready' } });  // the lobby waits for this
+    for (const m of ctx.messages) if (m.d && m.d.t === 'ping') out.push({ d: { t: 'pong' }, to: m.from });
+    return out;
+  },
+
+  // An invite the bot accepted (join is what GCP.launch.join would be). Only needed when your game turns the invite
+  // into a room code of its own: return { room: <the code your page passes to GCP.room> }, { match: true }, or null.
+  // invite(join, ctx) { return { room: 'mygame-' + join.data.room }; },
 };
 ```
 
 `ctx`: `tick`, `phase`, `players`, `events` (match events since the last call), `elapsed` (ms since it joined),
 `random()` (seeded per bot), `memory` (an object kept for this bot between calls, up to 8 KB of JSON), `skill` (0 to 1,
-set when the fleet starts), `name`.
+set when the fleet starts), `name`. In a room also `me`, `room`, `host`, `isHost`, `peers`, `state` (the room's state),
+`messages` (`{ from, d }` since the last call) and `joined` (true on the first call after entering or re-entering).
 
 Guidelines:
 
+- Write it from your page's own code: whatever the page sends in a room or a match, in which phase, is what the bot
+  sends. Walk your lobby flow (join, hello, ready, start) and make sure a bot can get through every step a player can.
 - Put the rules in `shared/` and let the bot use them, as the page does. If your game already plays empty seats itself
   (a fill bot in `server/match.js`), call the same brain from `think()` on a copy of the view.
 - Number inputs the way your page does and resend the ones the server has not acknowledged yet (the view usually says
   what it applied, for example an `ack` per player); the server ignores what it already has.
-- Keep `think()` quick: it runs for every bot every `thinkMs`.
-- Without `server/bot.js` the bots still join and stay connected, so you can see the table fill and the network numbers,
-  but they send no inputs.
+- Keep each call quick: it runs for every bot every `thinkMs`.
+- Check it: start test players in the preview and play a round with them. The panel shows any hook the bots needed and
+  did not find.
 
 ## Breaking the network on purpose
 
@@ -88,7 +136,7 @@ with a small spread; a long gap or growing unacknowledged inputs is a stall.
 ## Where to find it
 
 - In the console: **Play preview**, then **Test players** under the game.
-- For agents: the MCP tool `preview_bots` (`options`, `start`, `status`, `act`, `stop`).
+- For agents: the MCP tool `preview_bots` (`options`, `start`, `status`, `act`, `invite`, `stop`).
 
 ## Limits
 

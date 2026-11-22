@@ -167,6 +167,7 @@ export class BotClient {
   // ----- a realtime room (GCP.room) -------------------------------------------------------------------------------------
   async joinRoom(target) {
     this.closeAll();
+    this.welcomed = false;
     this.set('connecting', `room ${target.room}`);
     const url = `${this.platform.replace(/^http/, 'ws')}/api/rt/room?room=${encodeURIComponent(target.room)}&t=${encodeURIComponent(this.token)}${target.max ? `&max=${target.max}` : ''}`;
     let sock;
@@ -192,7 +193,7 @@ export class BotClient {
     if (typeof data !== 'string') { this.stats.inBytes(now, data.byteLength || 0); this.stats.snapshot(now); return; }
     this.stats.inBytes(now, data.length);
     let m; try { m = JSON.parse(data); } catch { return; }
-    if (m.t === 'welcome') { this.me = m.id; this.host = m.host; this.peers = m.peers || []; this.roomState = m.state; this.set('in room', `${this.target.room}: ${this.peers.length + 1} here`); }
+    if (m.t === 'welcome') { this.welcomed = true; this.fresh = true; this.me = m.id; this.host = m.host; this.peers = m.peers || []; this.roomState = m.state; this.set('in room', `${this.target.room}: ${this.peers.length + 1} here`); }
     else if (m.t === 'join') { this.peers.push(m.peer); this.detail = `${this.target.room}: ${this.peers.length + 1} here`; this.io.changed(); }
     else if (m.t === 'leave') { this.peers = this.peers.filter((p) => p.id !== m.id); this.host = m.host; this.detail = `${this.target.room}: ${this.peers.length + 1} here`; this.io.changed(); }
     else if (m.t === 'msg') { this.stats.snapshot(now); this.inbox.push({ from: m.from, d: m.d }); if (this.inbox.length > BOT_LIMITS.maxEvents) this.inbox.shift(); }
@@ -201,11 +202,11 @@ export class BotClient {
     else if (m.t === 'error') { this.stats.error(m.message || m.code); this.io.log(`${this.name}: room error ${m.code || ''} ${m.message || ''}`); }
   }
   async thinkRoom() {
-    if (this.thinking || !this.room) return;
+    if (this.thinking || !this.room || !this.welcomed) return;
     this.thinking = true;
-    const messages = this.inbox; this.inbox = [];
+    const messages = this.inbox, joined = !!this.fresh; this.inbox = []; this.fresh = false;
     try {
-      const r = await this.io.think({ kind: 'room', bot: this.id, me: this.me, messages, state: this.roomState, peers: this.peers, host: this.host, elapsed: this.io.now() - this.joinedAt, memory: this.memory, skill: this.skill, name: this.name, seed: this.seed, calls: this.calls++ });
+      const r = await this.io.think({ kind: 'room', bot: this.id, me: this.me, room: this.target && this.target.room, joined, messages, state: this.roomState, peers: this.peers, host: this.host, elapsed: this.io.now() - this.joinedAt, memory: this.memory, skill: this.skill, name: this.name, seed: this.seed, calls: this.calls++ });
       if (r.memory) this.memory = r.memory;
       if (r.error) { this.brain.errors++; this.brain.last = r.error; this.stats.error(`bot.js: ${r.error}`); }
       for (const m of r.send || []) if (this.room) this.out(this.room, JSON.stringify({ t: 'msg', d: m.d, ...(m.to ? { to: m.to } : {}), at: this.io.now() }));
