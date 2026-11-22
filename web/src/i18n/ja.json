@@ -1669,5 +1669,9 @@
  "For an exact picture, leave fullscreen and press Capture feedback again: the browser asks to share this tab once.": "正確な画像を撮るには、全画面を終了してからもう一度「フィードバックを撮る」を押してください。ブラウザがこのタブの共有を一度だけ尋ねます。",
  "Sharing this tab did not give a picture; press Capture feedback again.": "タブの共有から画像を取得できませんでした。もう一度「フィードバックを撮る」を押してください。",
  "For an exact picture, allow sharing this tab when the browser asks after you press Capture feedback.": "正確な画像を撮るには、「フィードバックを撮る」を押したあとブラウザに尋ねられたら、このタブの共有を許可してください。",
- "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "自分のフレームを渡すゲーム（GCP.test.onCapture）では、いつでも正確な画像になります。"
+ "A game that hands over its own frame (GCP.test.onCapture) always gives the exact picture.": "自分のフレームを渡すゲーム（GCP.test.onCapture）では、いつでも正確な画像になります。",
+ "Swipe up for full screen": "上にスワイプして全画面にする",
+ "Safari puts its bars away when the page scrolls.": "ページがスクロールすると、Safari はバーをしまいます。",
+ "Not now": "今はしない",
+ "Hide Safari's bars": "Safari のバーを隠す"
 }

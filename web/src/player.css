@@ -17,6 +17,21 @@
 .stage:-webkit-full-screen { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; margin: 0 !important; aspect-ratio: auto; border-radius: 0; }
 .stage iframe { touch-action: manipulation; }
 html.gcp-play, html.gcp-play body { overflow: hidden; overscroll-behavior: none; }
+/* iPhone Safari's bars only leave when the page scrolls (tuck.ts). While the player is asked to swipe up, the page under
+   the game may scroll: a screen of room below it, the swipe allowed over the stage and its card, and nothing else on the
+   page (a dialog the game sits in) taking the swipe for itself. The stage is fixed, so the game does not move. */
+html.gcp-play.gcp-loose, html.gcp-play.gcp-loose body { overflow: visible !important; overscroll-behavior: auto !important; }
+html.gcp-loose body::after { content: ''; display: block; height: 100vh; }
+html.gcp-loose .modal, html.gcp-loose .modal > div { overflow: hidden !important; }
+/* the stage clips its content, which makes it a scroller of its own: the swipe has to be let through to the page */
+.stage.immersive.tuck { touch-action: pan-y; overscroll-behavior: auto; }
+.stage-tuck { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; justify-items: center; gap: 6px; padding: 16px 24px; text-align: center; color: #fff; background: rgb(8 7 12 / .9); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); touch-action: pan-y; animation: stage-fade .16s ease; }
+.stage-tuck b { font-size: 18px; }
+.stage-tuck span { color: rgb(255 255 255 / .72); font-size: 13.5px; max-width: 30em; }
+.stage-tuck .stage-btn { min-height: 40px; margin-top: 2px; }
+.tuck-ico { display: block; width: 22px; height: 22px; margin-bottom: 6px; border-left: 3px solid currentColor; border-top: 3px solid currentColor; transform: rotate(45deg); animation: tuck-up 1.4s ease-in-out infinite; }
+@keyframes tuck-up { 0% { transform: translateY(14px) rotate(45deg); opacity: 0; } 35% { opacity: 1; } 100% { transform: translateY(-10px) rotate(45deg); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .tuck-ico { animation: none; } .stage-tuck { animation: none; } }
 
 .stage-exit { position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; pointer-events: none; }
 /* The menu button is plain at first, then fades until it is barely there; touching or dragging it brings it back, and left
