@@ -15,7 +15,7 @@ import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
 import { missingToPublish, normalizeStoredTags, tagGroup } from '../../web/src/tags';
 import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
-import { currentChecks, gateView, storedGate } from '../release-gate';
+import { currentChecks, gateError, gateView, recordGate, releaseGate, storedGate } from '../release-gate';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -1105,6 +1105,12 @@ api.post('/console/projects/:id/online', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id')), s = await getSettings(c.env);
   if (p.status !== 'offline' || !p.live_version) throw bad('Only a game that was taken offline can be put back online.');
   if (s.creator_fee_required && !u.creator) throw forbidden('A creator license is required to publish.');
+  // checked here so the console can say why at once; the pipeline checks again before the game goes back live
+  const v = await getVersion(c.env, p.id, p.live_version);
+  if (!v) throw bad('The version that was live no longer exists.');
+  const g = await releaseGate(c.env, p, v, { mode: 'restore' });
+  await recordGate(c.env, g);
+  if (!g.ok) throw gateError(g);
   await enqueue(c.env, { kind: 'publish', pid: p.id, n: p.live_version, origin: c.get('origin'), actor: 'console', mode: 'restore' });
   return c.json({ ok: true });
 });
