@@ -5,6 +5,7 @@
 // clock credited time, and that a reload starts the game again.
 import { createRequire } from 'node:module';
 const { chromium, firefox, webkit, devices } = createRequire(import.meta.url)('playwright');
+import { signUp } from '../../tests/live-auth.mjs';
 
 const BASE = process.env.BASE || 'http://localhost:8788';
 const slugs = process.argv.slice(2);
@@ -52,8 +53,7 @@ for (const t of targets.filter((x) => !only || only.test(x.name))) {
     page.on('response', onResponse);
     try {
       const email = `e2e_${Date.now()}_${Math.random().toString(36).slice(2, 7)}@example.com`;
-      const s = await page.request.post('/api/auth/signup', { data: { email, name: 'E2E player', password: 'e2e-password-1' } });
-      if (!s.ok()) throw new Error('signup ' + s.status() + ' ' + (await s.text()).slice(0, 120));
+      await signUp(BASE, async (p, data, headers) => { const s = await page.request.post(p, { data, headers }); const text = await s.text(); let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ } return { status: s.status(), json, text }; }, email, 'E2E player');
       await page.goto(`/g/${slug}?play=1`, { waitUntil: 'domcontentloaded' });
       const frameEl = await page.waitForSelector('iframe[src*="gcp-"]', { timeout: 30000 });
       r.frame = new URL(await frameEl.getAttribute('src')).host;

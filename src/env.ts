@@ -35,6 +35,7 @@ export interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_ACCOUNTS_WEBHOOK_SECRET?: string;  // signing secret of the event destination for creators' Accounts v2 events (thin)
+  TEST_MAIL_TOKEN?: string;         // secret, optional: lets the live test scripts read their own sign-up links and codes for @example.com addresses (src/mail.ts testMailbox)
   DEV_MAIL?: string;                // "1" only in wrangler dev: emails are kept in memory for the tests (GET /api/dev/mail) instead of sent
   PUBLIC_ORIGIN?: string;           // set to pin the public origin (custom domain); otherwise taken from the request
   VERIFY_ORIGIN?: string;           // dev only: origin the local verifier can reach

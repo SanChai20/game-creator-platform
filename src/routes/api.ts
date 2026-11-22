@@ -11,7 +11,7 @@ import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { ensurePreview } from '../cleanup';
 import { deleteAccount, deleteBlocker } from '../account';
-import { devMailOn, devOutbox } from '../mail';
+import { devMailOn, devOutbox, testMailbox } from '../mail';
 import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
 import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
 import { gameRefundState, purchaseHistory, requestRefund, stripePay } from '../refunds';
@@ -120,6 +120,7 @@ api.post('/auth/signup', async (c) => {
   await rateLimit(c.env, 'signupmail:' + email, 4, 3600);   // nobody's inbox is flooded with links
   const lang = pageLang(c.req.raw), links = authLinks(c.get('origin'), email, next);
   const taken = await c.env.DB.prepare("SELECT 1 FROM users WHERE email = ? AND status != 'deleted'").bind(email).first();
+  if (testMailbox(c.env, c.req.raw, email)) return c.json({ ok: true, sent: true, test_token: taken ? null : await newSignupLink(c.env, email, name, next) });
   const sent = taken
     ? await sendAuthMail(c.env, email, lang, { kind: 'signup_exists', link: links.login })
     : await sendAuthMail(c.env, email, lang, { kind: 'signup_link', name, link: `${c.get('origin')}/verify?token=${await newSignupLink(c.env, email, name, next)}` });
@@ -173,6 +174,7 @@ api.post('/auth/login', async (c) => {
   await rateLimit(c.env, 'loginall:' + email, 20, 86400 / 4);
   const u = await c.env.DB.prepare("SELECT id, name, status FROM users WHERE email = ? AND status != 'deleted'").bind(email).first<{ id: string; name: string; status: string }>();
   const lang = pageLang(c.req.raw), { handle, code } = await startCode(c.env, 'login', email, u?.id || null);
+  if (testMailbox(c.env, c.req.raw, email)) return c.json({ ok: true, challenge: handle, expires_in: Math.round(CODE_TTL_MS / 1000), test_code: u ? code : null });
   const sent = u && code
     ? await sendAuthMail(c.env, email, lang, { kind: 'login_code', name: u.name, code })
     : await sendAuthMail(c.env, email, lang, { kind: 'login_unknown', link: authLinks(c.get('origin'), email, safeNext(b.next)).signup });

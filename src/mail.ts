@@ -15,6 +15,16 @@ const originOf = (env: Env) => env.PUBLIC_ORIGIN || 'https://hearthcade.com';
 export const devOutbox: (Mail & { at: number })[] = [];
 export const devMailOn = (env: Env) => env.DEV_MAIL === '1' && env.DEPLOY_DRIVER === 'local';
 
+/** The live test scripts (tests/live-auth.mjs) against a deployed platform: with the TEST_MAIL_TOKEN secret in the
+ *  x-test-mail header, sign-up and sign-in for an @example.com address (reserved, nobody's inbox) answer with the link
+ *  token or code instead of emailing it. Any other address, a missing or wrong token, or no secret: email as usual. */
+export function testMailbox(env: Env, req: Request, email: string): boolean {
+  const want = env.TEST_MAIL_TOKEN || '', got = req.headers.get('x-test-mail') || '';
+  if (want.length < 32 || got.length !== want.length || !/@example\.com$/.test(email)) return false;
+  let d = 0; for (let i = 0; i < want.length; i++) d |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  return d === 0;
+}
+
 export async function sendMail(env: Env, m: Mail): Promise<boolean> {
   if (devMailOn(env)) { devOutbox.push({ ...m, at: Date.now() }); if (devOutbox.length > 200) devOutbox.shift(); console.log(`[dev mail] to ${m.to}: ${m.subject}`); return true; }
   if (!env.EMAIL) return false;

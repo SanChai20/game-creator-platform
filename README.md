@@ -200,8 +200,10 @@ Games are served by the shared game host (`DEPLOY_DRIVER=shared`, [docs/shared-g
 To check a deployment end to end (sign-up, OAuth, MCP, a real deployed game and browser verification for each template) without touching the admin claim:
 
 ```sh
-BASE=https://<site> node tests/live-smoke.mjs
+BASE=https://<site> TEST_MAIL_TOKEN=<secret> node tests/live-smoke.mjs
 ```
+
+There are no passwords, so the live scripts (`live-smoke`, `mcp-live`, `debug-feedback-live`, `feedback-attach-browser`, `scripts/load/browsers.mjs`) sign up through `tests/live-auth.mjs`. Against a deployed site they need the Worker secret `TEST_MAIL_TOKEN` (32 or more characters, `npx wrangler secret put TEST_MAIL_TOKEN`) in the same variable: for `@example.com` addresses only, and only with that token in the `x-test-mail` header, sign-up and sign-in answer with the link token or code instead of emailing it. Against a local Worker, `DEV_MAIL=1` in `.dev.vars` is enough.
 
 It leaves a throwaway account and draft projects behind; remove them from the admin console.
 

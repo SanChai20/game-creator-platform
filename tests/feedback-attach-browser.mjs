@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { signUp } from './live-auth.mjs';
 
 const require = createRequire(import.meta.url);
 let playwright; try { playwright = require('playwright'); } catch { playwright = require(join(process.env.NODE_PATH || '', 'playwright')); }
@@ -37,7 +38,7 @@ const form = { raw: true, headers: { 'content-type': 'application/x-www-form-url
 const d1 = (sql) => execFileSync('npx', ['wrangler', 'd1', 'execute', 'gcp-db', '--local', '-c', process.env.WRANGLER_CONFIG, '--command', sql], { stdio: 'ignore' });
 if (process.env.WRANGLER_CONFIG) d1('DELETE FROM rate_limits');
 const email = `fb-attach-${run}@example.com`;
-must(await call('POST', '/api/auth/signup', { email, name: 'Attach ' + run, password: randomBytes(12).toString('base64url') }));
+await signUp(BASE, (p, b, h) => call('POST', p, b, { headers: h }), email, 'Attach ' + run);
 if (process.env.WRANGLER_CONFIG) d1(`UPDATE users SET creator = 1, creator_plan = 'lifetime' WHERE email = '${email}'`);
 const reg = must(await call('POST', '/oauth/register', { client_name: 'Attach test', redirect_uris: ['http://127.0.0.1:9999/cb'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] }), 201);
 const verifier = randomBytes(32).toString('base64url'), challenge = createHash('sha256').update(verifier).digest('base64url');
