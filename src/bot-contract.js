@@ -21,7 +21,12 @@ export function botContract(texts, paths) {
   for (const p of client) { const s = get(p) || ''; if (!room && ROOM_RE.test(s)) room = true; if (!invites && INVITE_RE.test(s)) invites = true; if (room && invites) break; }
   const file = list.includes('server/bot.js');
   const src = file ? String(get('server/bot.js') || '') : '';
-  const hooks = { think: file && hookRe('think').test(src), actions: file && hookRe('actions').test(src), room: file && hookRe('room').test(src), invite: file && hookRe('invite').test(src) };
+  // the hooks named in the default export, as shorthand or by reference: export default { thinkMs: 80, think, room: onRoom }
+  const exported = new Set();
+  const def = src.match(/export\s+default\s*\{([^{}]*)\}/);
+  if (def) for (const part of def[1].split(',')) { const m = part.trim().match(/^(?:async\s+)?([A-Za-z_$][\w$]*)\s*(?::\s*[A-Za-z_$][\w$.]*\s*)?$/); if (m) exported.add(m[1]); }
+  const has = (name) => !!file && (hookRe(name).test(src) || exported.has(name));
+  const hooks = { think: has('think'), actions: has('actions'), room: has('room'), invite: has('invite') };
   return { online: match || room, match, room, invites, file, hooks };
 }
 

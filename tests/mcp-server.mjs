@@ -56,3 +56,43 @@ test('deploy_preview answers inside a 60 second client timeout', () => {
 test('no answer tells agents to ship Ogg-only sound', () => {
   for (const f of ['src/mcp/services.ts', 'src/storage-rules.ts', 'web/public/guides/storage.md']) assert.doesNotMatch(read(f), /Opus\/OGG audio|Opus or OGG audio/, f);
 });
+
+test('arguments are repaired where clients and smaller models send them differently, and only there', async () => {
+  const { normalizeArgs, signature } = await import('../src/mcp/schema.ts');
+  const schema = { properties: { project: { type: 'string' }, dry_run: { type: 'boolean' }, version: { type: 'integer' }, files: { type: 'array' }, sale: { type: ['object', 'null'] }, note: { type: 'string' } }, required: ['project'] };
+  assert.deepEqual(normalizeArgs(schema, '{"project":"a","version":"3"}'), { project: 'a', version: 3 }, 'arguments sent as a JSON string');
+  assert.deepEqual(normalizeArgs(schema, { arguments: { project: 'a' } }), { project: 'a' }, 'arguments wrapped once more');
+  assert.deepEqual(normalizeArgs(schema, { input: '{"project":"a"}' }), { project: 'a' });
+  assert.deepEqual(normalizeArgs(schema, { project_id: 'a' }), { project: 'a' }, 'project_id for project');
+  assert.deepEqual(normalizeArgs(schema, { projectId: 'a', dry_run: 'TRUE' }), { project: 'a', dry_run: true });
+  assert.deepEqual(normalizeArgs(schema, { project: 'a', dry_run: 'false' }), { project: 'a', dry_run: false }, '"false" is false, never a truthy string');
+  assert.deepEqual(normalizeArgs(schema, { project: 'a', files: '[{"path":"index.html"}]', sale: '{"days":2}' }), { project: 'a', files: [{ path: 'index.html' }], sale: { days: 2 } }, 'an array or object sent as JSON text');
+  assert.deepEqual(normalizeArgs(schema, { project: 'a', note: 'true', dry_run: 'yes' }), { project: 'a', note: 'true', dry_run: 'yes' }, 'strings stay strings; anything unclear is left for the check');
+  assert.deepEqual(normalizeArgs(schema, null), {});
+  assert.match(checkArgs(schema, normalizeArgs(schema, { project: 'a', dry_run: 'yes' })), /dry_run must be boolean/);
+  const sig = signature(schema);
+  assert.match(sig, /project: string, dry_run\?: boolean/);
+  assert.ok(sig.length < 300, 'a refusal names the arguments in a line, not the whole schema');
+  const server = read('src/mcp/server.ts');
+  assert.match(server, /normalizeArgs\(tool\.inputSchema as any, params\?\.arguments\)/);
+  assert.doesNotMatch(server, /Expected: \$\{JSON\.stringify\(tool\.inputSchema/, 'refusals do not dump the whole schema');
+});
+
+test('publish never writes the title into the tagline', () => {
+  // a tagline equal to the title is hidden by the store, and becomes a field every listing translation then needs
+  assert.doesNotMatch(entryFn('publishVersion'), /tagline: p\.title/);
+});
+
+test('get_started presents the game standards as advice', () => {
+  const s = entry('get_started');
+  assert.doesNotMatch(s, /fix every warning/);
+  assert.match(s, /Recommendations and best practice, not rules/);
+});
+
+test('tools/list does not carry the tag list twice', () => {
+  const m = tools.match(/const TAGS_SCHEMA = [^\n]+/)[0];
+  assert.match(m, /enum: \[\.\.\.TAGS\]/);
+  assert.doesNotMatch(m, /l\.join\(', '\)/, 'the description names the groups, the enum holds the tags');
+});
+
+function entryFn(name) { const i = tools.indexOf(`async function ${name}(`); assert.ok(i > 0, name); return tools.slice(i, tools.indexOf('\n}\n', i)); }

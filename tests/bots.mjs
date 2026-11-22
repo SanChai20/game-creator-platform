@@ -195,7 +195,19 @@ test('the checks see which bot hooks an online game needs and which it has', () 
   const match = { 'index.html': '', 'server/match.js': 'export default {}', 'server/bot.js': 'export default { think: (view, me) => null };' };
   b = botContract(match, Object.keys(match));
   assert.equal(b.match, true); assert.equal(b.hooks.think, true); assert.deepEqual(botIssues(b), []);
+  // hooks named in the default export: shorthand, or a function defined above it
+  for (const src of ['function myThink(v) { return null; }\nexport default { thinkMs: 80, think: myThink };', 'const think = (v) => null;\nexport default { think };']) {
+    b = botContract({ ...match, 'server/bot.js': src }, Object.keys(match));
+    assert.equal(b.hooks.think, true, src); assert.deepEqual(botIssues(b), [], src);
+  }
+  b = botContract({ ...withBot, 'server/bot.js': 'export function invite(join) { return { room: join.data.room }; }\nexport default { thinkMs: 100 };' }, Object.keys(withBot));
+  assert.equal(b.hooks.room, false, 'a { room } an invite() returns is not a room() hook'); assert.equal(b.hooks.invite, true);
   const solo = { 'index.html': '<script>GCP.ready()</script>' };
   assert.equal(botContract(solo, Object.keys(solo)).online, false);
   assert.deepEqual(botIssues(botContract(solo, Object.keys(solo))), []);
+});
+
+test('the daily bot-minute allowance counts the fleets still running for the creator\'s other games', () => {
+  const src = readFileSync(new URL('../src/bots.ts', import.meta.url), 'utf8');
+  assert.match(src, /started_at > \? AND \(ended_at IS NOT NULL OR project_id != \?\)'\)\.bind\(u\.id, t - 86_400_000, p\.id\)/);
 });
