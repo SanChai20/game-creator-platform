@@ -415,11 +415,14 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   if (files.length && !sawReady) err({ message: 'The game never calls GCP.ready().', hint: 'Call GCP.ready() once, right after the first playable frame is drawn (stage.run() from @gcp/craft.js or @gcp/craft2d.js does it for you, unless you pass { ready: false }). An engine export can call it from its index.html or a small JS plugin once the first scene is running. The platform uses it to know the game booted. See get_started {topic: "contract"}.' });
 
   const server = files.filter((f) => f.path.startsWith('server/'));
+  // server/bot.js (and what it imports) is not server code: it runs only in the test bots' sandbox (src/bots.ts), so a
+  // room game with no server of its own ships one too, whatever the server-code setting
+  const botOnly = !paths.has('server/index.js') && !paths.has('server/match.js') && paths.has('server/bot.js');
   if (server.length) {
-    if (!s.allow_server_code) err({ message: 'Server code is disabled on this platform.', hint: 'Remove the server/ folder. Use GCP.save, GCP.leaderboard and GCP.room for data and multiplayer.' });
-    else if (!paths.has('server/index.js') && !paths.has('server/match.js')) err({ message: 'server/ exists but has neither server/index.js nor server/match.js.', hint: 'server/index.js must `export default { async fetch(request, env, ctx) { … } }` (server code); server/match.js must `export default { init, input, tick }` (server-run matches).' });
+    if (!s.allow_server_code && !botOnly) err({ message: 'Server code is disabled on this platform.', hint: 'Remove the server/ folder (server/bot.js, for test bots, may stay). Use GCP.save, GCP.leaderboard and GCP.room for data and multiplayer.' });
+    else if (!paths.has('server/index.js') && !paths.has('server/match.js') && !paths.has('server/bot.js')) err({ message: 'server/ exists but has none of server/index.js, server/match.js or server/bot.js.', hint: 'server/index.js must `export default { async fetch(request, env, ctx) { … } }` (server code); server/match.js must `export default { init, input, tick }` (server-run matches); server/bot.js is what test bots do (get_started {topic: "bots"}).' });
     else {
-      for (const [entry, needs] of [['server/index.js', 'a fetch(request, env, ctx) method'], ['server/match.js', 'init(ctx), tick(state, ctx) and usually input(state, player, input, ctx) (get_started {topic: "matches"})']] as const) {
+      for (const [entry, needs] of [['server/index.js', 'a fetch(request, env, ctx) method'], ['server/match.js', 'init(ctx), tick(state, ctx) and usually input(state, player, input, ctx) (get_started {topic: "matches"})'], ['server/bot.js', 'the test-bot hooks: think, actions, room or invite (get_started {topic: "bots"})']] as const) {
         if (!paths.has(entry)) continue;
         const src = texts.get(entry) || '';
         try { parse(src, { ecmaVersion: 'latest', sourceType: 'module' }); if (!/export\s+default/.test(src)) err({ file: entry, message: `${entry} must have a default export with ${needs}.` }); }
@@ -439,7 +442,7 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
           if (!target || !/^(server|shared)\/.+\.m?js$/.test(target) || !paths.has(target)) err({ file: f.path, line: im.line, message: `Server modules can only import other .js files under server/ or shared/ by relative path ("${im.spec}").`, hint: 'Put the rules the client and the server share (movement, hit rules) in shared/ and import them as "../shared/rules.js". Bundle any library you need into those folders.' });
         }
       }
-      manifest.hasServer = true;
+      if (!botOnly) manifest.hasServer = true;
       if (paths.has('server/match.js')) manifest.hasMatch = true;
     }
   }

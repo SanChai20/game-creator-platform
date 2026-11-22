@@ -158,7 +158,7 @@ export async function deployGame(env: Env, origin: string, p: Project, v: Versio
     const form = new FormData();
     form.set('metadata', new Blob([JSON.stringify(scriptMetadata(kind, {
       bindings: scriptBindings(await gameBindings(env, origin, p, v, e), setup.binding),
-      tags: scriptTags({ pid: p.id, owner: p.owner_id, env: e, server: files.some((f) => f.path.startsWith('server/')) }),
+      tags: scriptTags({ pid: p.id, owner: p.owner_id, env: e, server: files.some((f) => f.path === 'server/index.js' || f.path === 'server/match.js') }),
       limits: gameLimits(await getSettings(env)),
       migrations: setup.migrations,
     }))], { type: 'application/json' }));
