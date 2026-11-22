@@ -1,9 +1,8 @@
 import type { Context } from 'hono';
 import { AppError, type Env, type User } from './env';
-import { b64u, hmacHex, unb64, now, rid, sha256, token, safeEqual } from './util';
+import { hmacHex, now, rid, sha256, token, safeEqual } from './util';
 import { withLicense } from './license';
 
-const ITER = 100_000; // the Workers runtime caps PBKDF2 at 100k iterations
 const SESSION_DAYS = 30;
 export const COOKIE = 'gcp_session';
 // Over HTTPS both cookies carry the __Host- prefix: the browser then only accepts them from this exact host, Secure, on
@@ -13,17 +12,6 @@ export const cookieName = (req: Request, base: string) => (isHttps(req) ? '__Hos
 /** This request's session token, from the cookie of the right name for its scheme. */
 export const sessionToken = (req: Request) => readCookie(req, cookieName(req, COOKIE));
 
-export async function hashPassword(pw: string, salt: Uint8Array<ArrayBuffer> = crypto.getRandomValues(new Uint8Array(16))): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: ITER }, key, 256);
-  return `pbkdf2$${ITER}$${b64u(salt)}$${b64u(bits)}`;
-}
-export async function checkPassword(pw: string, stored: string): Promise<boolean> {
-  const [, , salt, hash] = stored.split('$');
-  if (!salt || !hash) return false;
-  return safeEqual(await hashPassword(pw, unb64(salt)), stored);
-}
-
 export function readCookie(req: Request, name: string): string | null {
   const m = (req.headers.get('cookie') || '').match(new RegExp('(?:^|;\\s*)' + name + '=([^;]+)'));
   return m ? m[1] : null;
@@ -32,10 +20,12 @@ export function sessionCookie(req: Request, value: string, maxAge: number): stri
   return `${cookieName(req, COOKIE)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`;
 }
 
-export async function createSession(env: Env, req: Request, userId: string): Promise<string> {
-  const t = token(32);
-  await env.DB.prepare('INSERT INTO sessions (id, user_id, created_at, expires_at, ua) VALUES (?, ?, ?, ?, ?)')
-    .bind(await sha256(t), userId, now(), now() + SESSION_DAYS * 86400000, (req.headers.get('user-agent') || '').slice(0, 200)).run();
+/** A new sign-in for this browser. `method` is how it proved who it is (an email code, the sign-up link, a passkey); the
+    proof counts as fresh for a few minutes, so sensitive changes right after signing in need no second proof. */
+export async function createSession(env: Env, req: Request, userId: string, method: 'email' | 'link' | 'passkey' = 'email'): Promise<string> {
+  const t = token(32), at = now();
+  await env.DB.prepare('INSERT INTO sessions (id, user_id, created_at, expires_at, ua, confirmed_at, method) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(await sha256(t), userId, at, at + SESSION_DAYS * 86400000, (req.headers.get('user-agent') || '').slice(0, 200), at, method).run();
   return sessionCookie(req, t, SESSION_DAYS * 86400);
 }
 

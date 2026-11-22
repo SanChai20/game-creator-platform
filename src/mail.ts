@@ -1,6 +1,7 @@
 // Email to users through Cloudflare Email Service (the EMAIL send_email binding). Sending needs the site's domain onboarded
 // as a sending domain (Dashboard: Compute > Email Service > Email Sending). Without the binding or the domain, email is
-// skipped or fails quietly: it is a courtesy, never something money or access waits on.
+// skipped or fails quietly for courtesy emails (payouts, refunds). Signing up and signing in are emailed too
+// (src/auth-mail.ts), so there a failed send is reported to the person instead of passed over.
 import type { Env } from './env';
 import { getSettings } from './settings';
 
@@ -10,7 +11,12 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const originOf = (env: Env) => env.PUBLIC_ORIGIN || 'https://hearthcade.com';
 
+/** Local development only (DEV_MAIL "1" with the local driver): the last emails, read back by tests through /api/dev/mail. */
+export const devOutbox: (Mail & { at: number })[] = [];
+export const devMailOn = (env: Env) => env.DEV_MAIL === '1' && env.DEPLOY_DRIVER === 'local';
+
 export async function sendMail(env: Env, m: Mail): Promise<boolean> {
+  if (devMailOn(env)) { devOutbox.push({ ...m, at: Date.now() }); if (devOutbox.length > 200) devOutbox.shift(); console.log(`[dev mail] to ${m.to}: ${m.subject}`); return true; }
   if (!env.EMAIL) return false;
   try {
     const host = new URL(originOf(env)).hostname.replace(/^www\./, '');
@@ -35,17 +41,6 @@ export async function payoutSentMail(env: Env, userId: string, amountCents: numb
     subject: `${brand}: ${amount} is on its way to you`,
     text: [`Hi ${u.name},`, body, `See the details on your Earnings page: ${link}`, `— ${brand}`].join('\n\n'),
     html: `<p>Hi ${esc(u.name)},</p><p>${esc(body)}</p><p><a href="${esc(link)}">See the details on your Earnings page</a></p><p>— ${esc(brand)}</p>`,
-  });
-}
-
-/** The password reset link (security review, finding 8). Returns false when email cannot be sent. */
-export async function passwordResetMail(env: Env, to: string, name: string, link: string): Promise<boolean> {
-  const brand = (await getSettings(env)).brand_name || 'HearthCade';
-  const body = 'Someone asked to reset the password of your account. If it was you, open the link below within an hour to choose a new password. If it was not you, ignore this email: your password stays as it is.';
-  return sendMail(env, {
-    to, subject: `${brand}: reset your password`,
-    text: [`Hi ${name},`, body, link, `— ${brand}`].join('\n\n'),
-    html: `<p>Hi ${esc(name)},</p><p>${esc(body)}</p><p><a href="${esc(link)}">Choose a new password</a></p><p>— ${esc(brand)}</p>`,
   });
 }
 

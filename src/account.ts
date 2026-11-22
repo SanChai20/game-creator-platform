@@ -1,14 +1,12 @@
-// Account basics (security review, finding 8): deleting an account, and the password reset link.
+// Account basics (security review, finding 8): deleting an account.
 // Deleting keeps what the platform must keep as a record (purchases, payments, the ledger, payouts) under the account's
-// id, and removes or blanks everything that is about the person: email, name, password, sign-ins, saves, stats, scores
+// id, and removes or blanks everything that is about the person: email, name, passkeys, sign-ins, saves, stats, scores
 // and reviews. The id stays, so purchase records and the creator's ledger still add up.
 import type { Env } from './env';
 import { balanceOf } from './earnings';
-import { now, sha256, token } from './util';
+import { now } from './util';
 // @ts-ignore plain JS module
 import { deleteAccountStmts as socialDeleteStmts } from './social-rules.js';
-
-export const RESET_TTL_MS = 60 * 60 * 1000;
 
 /** Why this account cannot be deleted yet, or null when it can. Each reason is something the person can do first. */
 export async function deleteBlocker(env: Env, u: { id: string; role: string }): Promise<string | null> {
@@ -40,13 +38,16 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     db.prepare('DELETE FROM match_seats WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM device_codes WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM passkeys WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM passkey_challenges WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM email_codes WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM login_challenges WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
     // friends lose the account; its chats, requests, invites and blocks go with it (reports about it stay for admins)
     ...(socialDeleteStmts(db, userId) as D1PreparedStatement[]),
     // the address is freed for a new account; the row stays so purchases and the ledger keep their owner
-    db.prepare(`UPDATE users SET email = ?1, name = 'Deleted account', pw_hash = '!', status = 'deleted', role = 'user', stripe_customer = NULL, totp_secret = NULL, totp_enabled_at = NULL, totp_pending = NULL, last_seen_at = ?2 WHERE id = ?3`)
+    db.prepare(`UPDATE users SET email = ?1, name = 'Deleted account', pw_hash = '!', email_verified_at = NULL, status = 'deleted', role = 'user', stripe_customer = NULL, totp_secret = NULL, totp_enabled_at = NULL, totp_pending = NULL, last_seen_at = ?2 WHERE id = ?3`)
       .bind(`deleted-${userId}@deleted.invalid`, t, userId),
   ]);
   // MCP agents the person connected lose their access too
@@ -60,20 +61,3 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
   } catch (e) { console.error('grants not revoked for deleted account', userId, (e as Error).message); }
 }
 
-/** A new reset link token for this account (the table keeps only its hash). Earlier unused links stop working. */
-export async function newResetToken(env: Env, userId: string): Promise<string> {
-  const tk = token(32), t = now();
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId),
-    env.DB.prepare('INSERT INTO password_resets (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(tk), userId, t, t + RESET_TTL_MS),
-  ]);
-  return tk;
-}
-
-/** Uses a reset token once: the account it belongs to, or null if it is unknown, used or expired. */
-export async function takeResetToken(env: Env, tk: string): Promise<string | null> {
-  if (!tk || tk.length > 100) return null;
-  const r = await env.DB.prepare('UPDATE password_resets SET used_at = ?1 WHERE id = ?2 AND used_at IS NULL AND expires_at > ?1 RETURNING user_id')
-    .bind(now(), await sha256(tk)).first<{ user_id: string }>();
-  return r?.user_id || null;
-}

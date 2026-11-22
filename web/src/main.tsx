@@ -20,7 +20,7 @@ import { onTheme, setTheme, theme } from './ui/theme';
 document.head.insertAdjacentHTML('afterbegin', `<style id="tokens">${TOKENS_CSS}</style>`);
 import { Home } from './pages/Home';
 import { Game } from './pages/Game';
-import { Auth, ClaimAdmin, Forgot, Reset } from './pages/Auth';
+import { Auth, ClaimAdmin, Verify } from './pages/Auth';
 import { Account } from './pages/Account';
 import { Creators } from './pages/Creators';
 import { Console } from './pages/Console';
@@ -245,6 +245,9 @@ function NotFound() {
   );
 }
 
+/** Sends an old password-reset link or bookmark to the sign-in page. */
+function ToLogin() { useEffect(() => navigate('/login', true), []); return null; }
+
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
   const needUser = path === '/library' || path === '/purchases' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account';
@@ -258,8 +261,9 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
-  if (path === '/forgot') return <Forgot />;
-  if (path === '/reset') return <Reset />;
+  if (path === '/verify') return <Verify />;
+  // passwords are gone: old reset links and bookmarks land on the sign-in page
+  if (path === '/forgot' || path === '/reset') return <ToLogin />;
   if (path === '/account') return <Account />;
   if (path === '/library') return <Library />;
   if (path === '/purchases') return <Purchases />;

@@ -244,6 +244,11 @@
 .auth-card.wide { width: min(540px, 100%); padding: clamp(22px, 4vw, 38px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); }
 .auth-card.wide h1 { font-size: var(--fs-3xl); line-height: 1.04; }
 .switch-line { text-align: center; }
+.auth-alt { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; }
+.auth-card .linkish { background: none; border: 0; cursor: pointer; font-size: 14px; color: var(--text-2); }
+.auth-card .linkish:disabled { opacity: .55; cursor: default; text-decoration: none; }
+.auth-or { display: flex; align-items: center; gap: 12px; color: var(--text-3); font-size: 13px; text-transform: uppercase; letter-spacing: .08em; }
+.auth-or::before, .auth-or::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
 .auth-show { position: relative; isolation: isolate; overflow: hidden; border-radius: var(--r-2xl); display: flex; align-items: flex-end; min-height: 560px; }
 .auth-show::after { content: ""; position: absolute; inset: 40% 0 0 0; z-index: 1; background: linear-gradient(to top, var(--ink) 18%, transparent); }
 .auth-pitch { position: relative; z-index: 2; display: grid; gap: 12px; padding: clamp(24px, 4vw, 52px); max-width: 600px; }
@@ -272,9 +277,43 @@
 :lang(zh) :is(.lead h1, .gp-head h1, .cat-hero h1), :lang(ja) :is(.lead h1, .gp-head h1, .cat-hero h1), :lang(ko) :is(.lead h1, .gp-head h1, .cat-hero h1) { font-size: var(--fs-4xl); }
 
 /* the account page (pages/Account.tsx) */
-.page.account > .stack { max-width: 720px; }
+.acct-hero { display: flex; align-items: center; gap: clamp(14px, 3vw, 24px); padding: clamp(18px, 3vw, 28px); margin-bottom: clamp(18px, 3vw, 28px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); }
+.acct-hero h1 { font: 800 var(--fs-3xl)/1 var(--font-display); font-stretch: 80%; letter-spacing: -.01em; text-transform: uppercase; overflow-wrap: anywhere; }
+.acct-hero p { overflow-wrap: anywhere; }
+.acct-avatar { flex: none; display: grid; place-items: center; width: clamp(56px, 9vw, 76px); aspect-ratio: 1; border-radius: 50%; background: var(--accent); color: var(--on-accent); font: 800 clamp(24px, 4vw, 34px)/1 var(--font-display); box-shadow: 4px 4px 0 rgb(var(--accent-rgb) / .3); }
+.acct-badges { gap: 6px; margin-top: 4px; }
+.acct-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: clamp(20px, 4vw, 44px); align-items: start; }
+.acct-nav { position: sticky; top: calc(var(--nav-h, 64px) + 20px); display: grid; gap: 2px; }
+.acct-nav a { padding: 9px 12px; border-radius: var(--r-sm); color: var(--text-2); font-weight: 550; font-size: 14.5px; border-left: 3px solid transparent; transition: color var(--dur-fast), background-color var(--dur-fast); }
+.acct-nav a:hover { color: var(--text); background: rgb(var(--text-rgb) / .05); }
+.acct-nav a.on { color: var(--text); background: rgb(var(--accent-rgb) / .09); border-left-color: var(--accent); }
+.acct-main { display: grid; gap: clamp(30px, 5vw, 48px); max-width: 760px; }
+.acct-sec { display: grid; gap: 14px; scroll-margin-top: calc(var(--nav-h, 64px) + 20px); }
+.acct-sec > header { display: grid; gap: 4px; }
+.acct-sec > header h2 { font: 750 var(--fs-xl)/1.2 var(--font-display); }
+.acct-strength { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: var(--r-md); background: var(--sunk); border: 1px solid var(--line); }
+.acct-meter { display: flex; gap: 4px; flex: none; }
+.acct-meter i { width: 10px; height: 26px; border-radius: 3px; background: var(--line-2); transform: skewX(-12deg); }
+.acct-strength.l1 .acct-meter i:nth-child(1) { background: var(--bad); }
+.acct-strength.l2 .acct-meter i:nth-child(-n+2) { background: var(--accent); }
+.acct-strength.l3 .acct-meter i { background: var(--good); }
+.acct-methods { display: grid; gap: 8px; }
+.acct-method { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface); }
+.acct-mi { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: rgb(var(--accent-rgb) / .1); color: var(--accent); font: 800 16px/1 var(--font-display); }
+.acct-mi svg { width: 18px; height: 18px; }
 .acct-list { list-style: none; margin: 0; padding: 0; }
 .acct-list li { gap: 10px; flex-wrap: wrap; }
+.acct-rows { display: grid; }
+.acct-rows li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.acct-rows li:first-child { border-top: 0; padding-top: 2px; }
+.acct-danger { border-color: rgb(var(--bad-rgb) / .35); }
+@media (max-width: 900px) {
+  .acct-grid { grid-template-columns: minmax(0, 1fr); }
+  .acct-nav { position: static; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-inline: calc(var(--gut) * -1); padding-inline: var(--gut); }
+  .acct-nav a { flex: none; border-left: 0; border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-size: 13.5px; }
+  .acct-nav a.on { border-color: var(--accent); }
+}
+@media (max-width: 560px) { .acct-hero { flex-direction: column; align-items: flex-start; } .acct-strength { align-items: flex-start; } }
 /* two-factor sign-in: the QR code beside its steps (stacked on a phone), the key, recovery codes, the code input */
 .tfa-setup { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: start; }
 .tfa-setup .qr { width: 168px; height: 168px; border-radius: var(--r-md); border: 1px solid var(--line); }

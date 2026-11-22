@@ -9,7 +9,7 @@
 // control), and anything on another site.
 const VERSION = 'v2';
 const PAGES = 'hc-pages-' + VERSION, FILES = 'hc-files-' + VERSION;
-const NEVER = /^\/(api|mcp|oauth|authorize|device|sdk|kits|vendor|guides|templates|lab|cdn-cgi)(\/|$)|^\/sw\.js$/;
+const NEVER = /^\/(api|mcp|oauth|authorize|device|verify|sdk|kits|vendor|guides|templates|lab|cdn-cgi)(\/|$)|^\/(sw\.js|robots\.txt|sitemap\.xml|llms\.txt|llms-full\.txt)$/;
 const KEPT = /^\/assets\//, REFRESHED = /^\/(icons|splash)\/|^\/(favicon\.svg|manifest\.webmanifest|offline)$/;
 
 self.addEventListener('install', (e) => {

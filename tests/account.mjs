@@ -1,5 +1,5 @@
 // Account basics (security review, finding 8): deleting an account removes what is about the person and keeps the
-// records the platform must keep; a password reset link works once and only for an hour.
+// records the platform must keep.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { register } from 'node:module';
 
 register('./ts-hook.mjs', import.meta.url);
-const { deleteAccount, deleteBlocker, newResetToken, takeResetToken, RESET_TTL_MS } = await import('../src/account.ts');
+const { deleteAccount, deleteBlocker } = await import('../src/account.ts');
 
 function d1() {
   const sql = new DatabaseSync(':memory:');
@@ -35,6 +35,7 @@ function env() {
   q("INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES ('gamea1', 'main', 'u1', 'Ann', 10, 0)");
   q("INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES ('s1', 'u1', 0, ?), ('s2', 'u1', 0, ?), ('s3', 'u2', 0, ?)", T + 1e9, T + 1e9, T + 1e9);
   q("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, status, provider, provider_ref, created_at) VALUES ('p1', 'u1', 'gamea1', 'u2', 500, 50, 450, 'paid', 'stripe', 'r1', 0)");
+  q("INSERT INTO passkeys (id, user_id, public_key, alg, name, created_at) VALUES ('pk1', 'u1', '{}', -7, 'Phone', 0), ('pk2', 'u2', '{}', -7, 'Mac', 0)");
   return { DB, OAUTH_PROVIDER, revoked };
 }
 
@@ -45,7 +46,8 @@ test('deleting an account removes the person and keeps purchases and ratings con
   const u = e.DB.sql.prepare("SELECT * FROM users WHERE id = 'u1'").get();
   assert.equal(u.status, 'deleted'); assert.notEqual(u.email, 'a@x.io'); assert.equal(u.name, 'Deleted account'); assert.equal(u.pw_hash, '!');
   const count = (t, w = "user_id = 'u1'") => e.DB.sql.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${w}`).get().n;
-  for (const t of ['reviews', 'saves', 'scores', 'sessions']) assert.equal(count(t), 0, t);
+  for (const t of ['reviews', 'saves', 'scores', 'sessions', 'passkeys']) assert.equal(count(t), 0, t);
+  assert.equal(count('passkeys', "user_id = 'u2'"), 1);
   assert.equal(count('saves', "user_id = 'u2'"), 1); assert.equal(count('sessions', "user_id = 'u2'"), 1);
   assert.equal(count('purchases'), 1, 'the purchase record stays');
   // the visible review leaves the rating; the hidden one was never counted
@@ -64,15 +66,3 @@ test('an account with games, earnings or an admin role cannot be deleted yet', a
   assert.match(await deleteBlocker(e, { id: 'u1', role: 'user' }), /earnings/);
 });
 
-test('a reset link works once, only for an hour, and a newer link replaces it', async () => {
-  const e = env();
-  const a = await newResetToken(e, 'u1'), b = await newResetToken(e, 'u1');
-  assert.equal(await takeResetToken(e, a), null, 'the earlier link stopped working');
-  assert.equal(await takeResetToken(e, b), 'u1');
-  assert.equal(await takeResetToken(e, b), null, 'used once');
-  const c = await newResetToken(e, 'u1');
-  e.DB.sql.prepare('UPDATE password_resets SET expires_at = ?').run(T - 1);
-  assert.equal(await takeResetToken(e, c), null, 'expired');
-  assert.ok(RESET_TTL_MS <= 3600000);
-  assert.ok(!e.DB.sql.prepare('SELECT id FROM password_resets').all().some((r) => r.id === c), 'only the hash is stored');
-});
