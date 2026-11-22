@@ -21,6 +21,7 @@ export interface Seat {
   u: string; n: string; s: string; k: string; px: number; tr: boolean;   // the player and their play session
   g: string; e: string; q: string; size: number; min: number; teams: number; mode: string; code: string | null;
   region: RegionHint | null; rating: number; at: number;
+  wait?: number; settle?: number;   // this player's own short-start wait and settling time, in seconds (src/match-making.ts)
 }
 
 export const TICKET_TTL_S = 2 * 3600;
@@ -106,7 +107,7 @@ export class Matchmaker extends DurableObject<Env> {
     const here = this.seats();
     if (!here.length || here.length < Math.min(2, here[0].s.min)) return;
     const shape = here[0].s;
-    const groups = formGroups(here.map(({ s }) => ({ u: s.u, n: s.n, region: s.region, rating: s.rating, at: s.at } as Waiting)), Date.now(), shape.size, shape.min);
+    const groups = formGroups(here.map(({ s }) => ({ u: s.u, n: s.n, region: s.region, rating: s.rating, at: s.at, wait: s.wait, settle: s.settle } as Waiting)), Date.now(), shape.size, shape.min);
     for (const g of groups) await this.launch(g.map((w) => here.find((x) => x.s.u === w.u)!));
   }
 

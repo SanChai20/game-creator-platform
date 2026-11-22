@@ -306,7 +306,7 @@ rt.get('/room', async (c) => {
 rt.get('/match', async (c) => {
   const tok = await authPlay(c.env, c.req.query('t')), s = await getSettings(c.env);
   if (!s.allow_matches) throw new AppError(403, 'Server-run matches are switched off on this platform.', 'matches_off');
-  const q = matchRequest({ queue: c.req.query('queue'), size: c.req.query('players'), min: c.req.query('min'), teams: c.req.query('teams'), code: c.req.query('code'), mode: c.req.query('mode') }, s.match_max_players);
+  const q = matchRequest({ queue: c.req.query('queue'), size: c.req.query('players'), min: c.req.query('min'), teams: c.req.query('teams'), code: c.req.query('code'), mode: c.req.query('mode'), wait: c.req.query('wait'), settle: c.req.query('settle') }, s.match_max_players);
   if (!q.ok) throw bad(q.error);
   // only a version that ships server/match.js can run the match the tickets lead to
   const p = await getProject(c.env, tok.g);
@@ -316,7 +316,7 @@ rt.get('/match', async (c) => {
   if (!hasMatch) throw new AppError(409, 'This version of the game has no server/match.js, so it cannot run matches.', 'no_match_code');
   const row = await c.env.DB.prepare('SELECT rating FROM match_ratings WHERE project_id = ? AND env = ? AND queue = ? AND user_id = ?').bind(tok.g, tok.e, q.queue, tok.u).first<{ rating: number }>().catch(() => null);
   const seat: Seat = { u: tok.u, n: tok.n, s: tok.s, k: tok.k, px: tok.x, tr: !!tok.tr, g: tok.g, e: tok.e, q: q.queue, size: q.size, min: q.min, teams: q.teams, mode: q.mode, code: q.code,
-    region: regionHint((c.req.raw as any).cf), rating: row?.rating ?? 1000, at: 0 };
+    region: regionHint((c.req.raw as any).cf), rating: row?.rating ?? 1000, at: 0, wait: q.wait, settle: q.settle };
   const name = q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
   const u = new URL(c.req.url);
   u.search = `?seat=${encodeURIComponent(JSON.stringify(seat))}`;

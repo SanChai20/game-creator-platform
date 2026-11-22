@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.5.0', fixes: {} };
+  var RT = S.runtime = { version: '2.6.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -850,7 +850,7 @@
     }
     if (standalone) { setTimeout(function () { var e = new Error('Server-run matches need the platform: open the game from its page.'); e.code = 'standalone'; self.phase = 'closed'; emit('error', e); emit('close', 0); }, 0); return; }
     var q = '/api/rt/match?t=' + encodeURIComponent(cfg.token);
-    ['queue', 'players', 'min', 'teams', 'code', 'mode'].forEach(function (k) { if (opts[k] != null) q += '&' + k + '=' + encodeURIComponent(opts[k]); });
+    ['queue', 'players', 'min', 'teams', 'code', 'mode', 'wait', 'settle'].forEach(function (k) { if (opts[k] != null) q += '&' + k + '=' + encodeURIComponent(opts[k]); });
     mm = new WebSocket(cfg.api.replace(/^http/, 'ws') + q);
     mm.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }

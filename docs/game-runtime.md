@@ -72,6 +72,10 @@ What no script can fix is caught before publishing:
 
 ## Versions
 
+- **2.6.0** — New: `GCP.match.find({ wait, settle })`. A search can bring its own short-start wait (5 to 120 s instead of
+  the fixed 30 s) and a settling time (a short match does not take a player who joined the queue less than `settle`
+  seconds ago). Nothing changes for a game that passes neither.
+
 - **2.5.0** — New: `GCP.match.rejoin()`. A player who reloads the page or closes the browser during a server-run match
   can be put back into it: the game calls `rejoin()` when it opens and gets the running match, or `none`. It works for
   games whose `server/match.js` sets `rejoinMs`. `match.cancel()` now tells the match that the player left on purpose, so
