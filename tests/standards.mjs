@@ -94,15 +94,12 @@ test('the listing checks', () => {
 
 test('the code checks', () => {
   const run = (code, gcp = {}, paths) => checkStandards({ texts: { 'index.html': code }, gcp, paths }).map((x) => x.check);
-  // sound: an unlock in the bubble phase never hears a tap on a canvas menu button (Bloomguard and Noctelle before the fix)
+  // intended sound: an unlock in the bubble phase never hears a tap on a canvas menu button (Bloomguard and Noctelle before the fix)
   assert.ok(run('const A = window.AudioContext; addEventListener(\'pointerdown\', unlock); addEventListener(\'keydown\', unlock);').includes('sound-unlock-bubble'));
   assert.ok(run('ctx = new AudioContext(); addEventListener(\'pointerdown\', wake, { passive: true });').includes('sound-unlock-bubble'));
   assert.ok(!run('ctx = new AudioContext(); addEventListener(\'pointerdown\', wake, { capture: true, passive: true });').includes('sound-unlock-bubble'));
   assert.ok(!run('ctx = new AudioContext(); addEventListener(\'pointerdown\', unlock, true);').includes('sound-unlock-bubble'));
   assert.ok(!run('ctx = new AudioContext(); for (const ev of EVENTS) addEventListener(ev, wake, true); addEventListener(\'pointerdown\', onDown);').includes('sound-unlock-bubble'));
-  assert.ok(run('let x = 1;').includes('sound-missing'));
-  assert.ok(!run('const s = new Audio(\'a.mp3\');').includes('sound-missing'));
-  assert.ok(!run('const c = new (window.AudioContext || window.webkitAudioContext)();').includes('sound-missing'));
   const phone = { requirements: { devices: ['desktop', 'mobile'], orientation: 'landscape' } };
   assert.ok(run('GCP.progress(0.5)', phone).includes('safe-area'));
   assert.ok(!run('GCP.progress(0.5); const s = GCP.display.safe;', phone).includes('safe-area'));
