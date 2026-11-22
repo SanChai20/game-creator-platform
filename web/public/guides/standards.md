@@ -27,7 +27,8 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 | [The platform menu button](#menu-button) | While the game plays | game_standards check |
 | [Safe areas: notch, rounded corners, home bar](#safe-area) | While the game plays | game_standards check |
 | [The platform's on-screen controls](#touch-controls) | While the game plays | by looking |
-| [Window size and orientation](#window-orientation) | While the game plays | game_standards check |
+| [Window size](#window-orientation) | While the game plays | platform |
+| [Orientation: landscape, portrait or both](#orientation) | While the game plays | game_standards check |
 | [Interface scale and the player's UI size](#interface-scale) | While the game plays | platform |
 | [Quality settings](#quality) | While the game plays | by looking |
 | [Intended sound must play correctly](#intended-sound) | While the game plays | game_standards check |
@@ -314,6 +315,7 @@ More: [standards.md#menu-button](/guides/standards.md#menu-button)
 - The insets are GCP.display.safe ({ top, right, bottom, left } in CSS px) and the CSS variables --gcp-safe-top, -right, -bottom, -left; GCP.ui.rect anchors inside them by default.
 - Draw the world to the edges; keep buttons, text and HUD inside the insets. On a phone in landscape keep nothing important in the bottom 20 px.
 - GCP.setDisplay({ edgeToEdge: false }) keeps the game inside them with black bars instead.
+- Anchor interface to the edge it belongs to, at every size and in fullscreen: position from innerWidth and innerHeight (or GCP.ui.rect), never from a fixed design height. A bar on an edge (an experience bar, a toolbar, a top HUD strip) sits flush on the screen edge: its background runs through the inset to the edge, and only its text, icons and buttons stay inside the safe area. Never leave a strip of the world between an edge bar and the screen edge, and never move the whole bar up by the inset.
 
 **Do:** Use max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px)) in CSS, or GCP.ui.rect for canvas layouts.
 
@@ -347,21 +349,43 @@ More: [input.md#phones-and-tablets](/guides/input.md#phones-and-tablets)
 
 <a id="window-orientation"></a>
 
-### Window size and orientation
+### Window size
 
 **Where:** The game page and the console preview; fullscreen on every device.
 
 - In a window the game gets a 16:9 frame of at most 1056x594 CSS px (scaled down, never smaller, on a small page). Fullscreen gives it the whole screen at any shape.
 - Size from innerWidth and innerHeight on every resize, never from the first size.
-- Declare orientation (requirements.orientation or GCP.setDisplay({ orientation })) for a game made for phones: the screen is locked to it where the browser allows, otherwise the player is asked to turn the phone.
+- Which way up the game is played is its own standard: orientation.
 
-**Do:** Lay out for both shapes anyway: a resize can come at any time.
+**Do:** Handle a resize at any time: entering fullscreen, turning the device, the browser bars coming and going.
 
 **Don't:** Hard-code 16:9 or the window size.
 
-**Checked:** game_standards check warns when a game for phones declares no orientation.
+**Checked:** Device checks note a canvas that does not fit the screen or covers under 30% of it.
 
-More: [services.md#display-fullscreen-and-devices](/guides/services.md#display-fullscreen-and-devices)
+More: [standards.md#window-orientation](/guides/standards.md#window-orientation)
+
+<a id="orientation"></a>
+
+### Orientation: landscape, portrait or both
+
+**Where:** Phones and tablets, fullscreen and the installed app; the store page's Compatibility section.
+
+- Every game declares which way up it is played, in gcp.json requirements.orientation (compatibility {action: "declare"}): "landscape", "portrait" or "both" ("any" means both). Declare the shapes the interface is designed for, not the ones it merely survives.
+- landscape or portrait (one orientation): the platform locks the screen to it where the browser allows (Android in fullscreen). Where it cannot (iPhone, iPad, a locked rotation), the platform itself covers the game with a rotate-your-device prompt while the device is held the other way, pauses the game behind it, and lifts it as soon as the device is turned. The game does not draw a prompt of its own and needs no layout for the other orientation.
+- A one-orientation game still survives the other shape without breaking: the player can dismiss the prompt ("Play this way") and the computer window is always 16:9. Then fit the game to the window whole (letterbox or pillarbox the designed shape, never crop the interface) and keep running.
+- landscape: design for aspect ratios from 4:3 (iPad, 1.33) to about 21:9 (phones, 2.17). Keep HUD on the edges and corners, controls in the bottom corners, and nothing important in the bottom 20 px on a phone (the home bar).
+- portrait: design for 9:21 (phones) to 3:4 (iPad). On a computer the 16:9 window shows a centred column: fill the sides with the world or a backdrop, never stretch.
+- both: the interface has a real layout for each shape, chosen from innerWidth > innerHeight on every resize, never once at start. Turning the device mid-game keeps all state (no restart, no reload, no lost menu) and relays out within one frame. Portrait is not landscape shrunk: stack top-bar items into rows or move secondary ones to the bottom, make primary menu buttons full-width in one column, keep thumb controls in the bottom third, and size text and buttons from the short side (GCP.ui does this).
+- In every orientation: no two interface elements overlap, no text is cut off or runs outside its box, tap targets are at least 44 CSS px, and everything stays inside the safe area (GCP.display.safe) and clear of the platform menu button's corner (GCP.display.menuButton). GCP.display.orientation tells the game what was declared, or what GCP.setDisplay({ orientation }) chose at run time.
+
+**Do:** Check each declared orientation with debug_preview: phone-portrait (390x844) and phone-landscape (844x390), and an iPad shape, on every screen (title, menus, play, pause, results). For both: rotate mid-run in debug_preview and confirm the game carries on where it was. Re-anchor the HUD from GCP.ui.rect on every GCP.ui.onChange or resize.
+
+**Don't:** Draw your own "rotate your device" screen: the platform shows one, and two prompts fight. Declare "both" for a game whose portrait view is a squeezed landscape layout. Read the orientation once at start, or reload the game on a turn. Call screen.orientation.lock() yourself: in a frame it only asks the platform, which already locks to the declaration.
+
+**Checked:** game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch, home bar or menu button upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.
+
+More: [standards.md#orientation](/guides/standards.md#orientation)
 
 <a id="interface-scale"></a>
 

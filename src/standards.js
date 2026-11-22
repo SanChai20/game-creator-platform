@@ -203,6 +203,7 @@ export const STANDARDS = [
       'The insets are GCP.display.safe ({ top, right, bottom, left } in CSS px) and the CSS variables --gcp-safe-top, -right, -bottom, -left; GCP.ui.rect anchors inside them by default.',
       'Draw the world to the edges; keep buttons, text and HUD inside the insets. On a phone in landscape keep nothing important in the bottom 20 px.',
       'GCP.setDisplay({ edgeToEdge: false }) keeps the game inside them with black bars instead.',
+      'Anchor interface to the edge it belongs to, at every size and in fullscreen: position from innerWidth and innerHeight (or GCP.ui.rect), never from a fixed design height. A bar on an edge (an experience bar, a toolbar, a top HUD strip) sits flush on the screen edge: its background runs through the inset to the edge, and only its text, icons and buttons stay inside the safe area. Never leave a strip of the world between an edge bar and the screen edge, and never move the whole bar up by the inset.',
     ],
     do: ['Use max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px)) in CSS, or GCP.ui.rect for canvas layouts.'], dont: ['Assume the frame is already inside the notch.'],
     enforced: 'Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.',
@@ -221,15 +222,41 @@ export const STANDARDS = [
     enforced: 'Not checked: look at the preview with debug_preview on a phone viewport.', checks: [], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
   },
   {
-    id: 'window-orientation', area: 'game', title: 'Window size and orientation',
+    id: 'window-orientation', area: 'game', title: 'Window size',
     where: 'The game page and the console preview; fullscreen on every device.',
     spec: [
       `In a window the game gets a 16:9 frame of at most ${N.window.max_w}x${N.window.max_h} CSS px (scaled down, never smaller, on a small page). Fullscreen gives it the whole screen at any shape.`,
       'Size from innerWidth and innerHeight on every resize, never from the first size.',
-      'Declare orientation (requirements.orientation or GCP.setDisplay({ orientation })) for a game made for phones: the screen is locked to it where the browser allows, otherwise the player is asked to turn the phone.',
+      'Which way up the game is played is its own standard: orientation.',
     ],
-    do: ['Lay out for both shapes anyway: a resize can come at any time.'], dont: ['Hard-code 16:9 or the window size.'],
-    enforced: 'game_standards check warns when a game for phones declares no orientation.', checks: ['orientation'], guide: '/guides/services.md#display-fullscreen-and-devices',
+    do: ['Handle a resize at any time: entering fullscreen, turning the device, the browser bars coming and going.'], dont: ['Hard-code 16:9 or the window size.'],
+    enforced: 'Device checks note a canvas that does not fit the screen or covers under 30% of it.', checks: [], guide: '/guides/standards.md#window-orientation',
+  },
+  {
+    id: 'orientation', area: 'game', title: 'Orientation: landscape, portrait or both',
+    where: 'Phones and tablets, fullscreen and the installed app; the store page\'s Compatibility section.',
+    spec: [
+      'Every game declares which way up it is played, in gcp.json requirements.orientation (compatibility {action: "declare"}): "landscape", "portrait" or "both" ("any" means both). Declare the shapes the interface is designed for, not the ones it merely survives.',
+      'landscape or portrait (one orientation): the platform locks the screen to it where the browser allows (Android in fullscreen). Where it cannot (iPhone, iPad, a locked rotation), the platform itself covers the game with a rotate-your-device prompt while the device is held the other way, pauses the game behind it, and lifts it as soon as the device is turned. The game does not draw a prompt of its own and needs no layout for the other orientation.',
+      'A one-orientation game still survives the other shape without breaking: the player can dismiss the prompt ("Play this way") and the computer window is always 16:9. Then fit the game to the window whole (letterbox or pillarbox the designed shape, never crop the interface) and keep running.',
+      'landscape: design for aspect ratios from 4:3 (iPad, 1.33) to about 21:9 (phones, 2.17). Keep HUD on the edges and corners, controls in the bottom corners, and nothing important in the bottom 20 px on a phone (the home bar).',
+      'portrait: design for 9:21 (phones) to 3:4 (iPad). On a computer the 16:9 window shows a centred column: fill the sides with the world or a backdrop, never stretch.',
+      'both: the interface has a real layout for each shape, chosen from innerWidth > innerHeight on every resize, never once at start. Turning the device mid-game keeps all state (no restart, no reload, no lost menu) and relays out within one frame. Portrait is not landscape shrunk: stack top-bar items into rows or move secondary ones to the bottom, make primary menu buttons full-width in one column, keep thumb controls in the bottom third, and size text and buttons from the short side (GCP.ui does this).',
+      'In every orientation: no two interface elements overlap, no text is cut off or runs outside its box, tap targets are at least 44 CSS px, and everything stays inside the safe area (GCP.display.safe) and clear of the platform menu button\'s corner (GCP.display.menuButton). GCP.display.orientation tells the game what was declared, or what GCP.setDisplay({ orientation }) chose at run time.',
+    ],
+    do: [
+      'Check each declared orientation with debug_preview: phone-portrait (390x844) and phone-landscape (844x390), and an iPad shape, on every screen (title, menus, play, pause, results).',
+      'For both: rotate mid-run in debug_preview and confirm the game carries on where it was.',
+      'Re-anchor the HUD from GCP.ui.rect on every GCP.ui.onChange or resize.',
+    ],
+    dont: [
+      'Draw your own "rotate your device" screen: the platform shows one, and two prompts fight.',
+      'Declare "both" for a game whose portrait view is a squeezed landscape layout.',
+      'Read the orientation once at start, or reload the game on a turn.',
+      'Call screen.orientation.lock() yourself: in a frame it only asks the platform, which already locks to the declaration.',
+    ],
+    enforced: 'game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch, home bar or menu button upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.',
+    checks: ['orientation', 'orientation-conflict', 'orientation-own-prompt', 'orientation-turn'], guide: '/guides/standards.md#orientation',
   },
   {
     id: 'interface-scale', area: 'game', title: 'Interface scale and the player\'s UI size',
@@ -315,6 +342,14 @@ const MD = [
 const markdownIn = (s) => MD.filter(([re]) => re.test(String(s || ''))).map(([, name]) => name);
 const VIDEO = /\.(mp4|webm|mov|m4v|ogv)$/i, ICONS = /(^|\/)(favicon|apple-touch-icon|icon-\d+|icons?|logo)[^/]*\.(png|ico|svg|jpg|webp)$|(^|\/)(manifest\.json|site\.webmanifest)$/i, SHOTS = /(^|\/)(screenshots?|store|promo|trailer)\//i;
 
+/** Only what a player can see: page code without comments, not the server-side bot, tooling or libraries. */
+const shownCode = (texts) => [...texts].filter(([p]) => /\.(m?js|html?)$/i.test(p) && !/(^|\/)(server|tools?|scripts?|tests?|vendor|libs?|node_modules|three)[^/]*\//i.test(p) && !/\.min\.js$/i.test(p))
+  .map(([, t]) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/(^|[^:\\'"`])\/\/.*$/gm, '$1')).join('\n');
+/** "landscape" | "portrait" | "any" (both) from a declaration, or '' when there is none. */
+export const orientationOf = (v) => { const s = String(v ?? '').trim().toLowerCase(); return s === 'both' || s === 'any' ? 'any' : s === 'landscape' || s === 'portrait' ? s : ''; };
+/** Text of a rotate-your-device prompt, in the platform's languages. */
+const OWN_PROMPT = /['"`][^'"`\n]*(\b(rotate|turn) (your |the )?(device|phone|screen|tablet)\b|\bplease (rotate|turn)\b|\b(best|only) (played|playable) in (landscape|portrait)\b|请(横|竖)屏|(旋转|横过来|竖过来)(你的)?(手机|设备|屏幕)|画面を(横|縦)|(横|縦)向きにして|기기를 (가로|세로)|화면을 회전|gira (tu|el) (dispositivo|teléfono|móvil))/i;
+
 /**
  * Checks a game against the standards. Every finding names its standard, says what was found and gives the exact fix.
  * levels: 'warning' (shown at deploy and publish; not blocking yet), 'note' (only in game_standards check).
@@ -352,11 +387,12 @@ export function checkStandards(input = {}) {
   if (R) {
     const pb = R.metrics && R.metrics.progressBeforeReady;
     if (typeof pb === 'number' && pb < 2) add('splash-loading', 'warning', `Verification saw ${pb} GCP.progress() call${pb === 1 ? '' : 's'} before GCP.ready(), so the platform splash waited 1.2 s and handed over to whatever was on screen.`, 'Draw the loading screen in its final look, then call GCP.progress(f, label) at least twice while loading.', { check: 'progress-hand-off' });
-    const z = R.zones;
-    if (z && z.checked) for (const x of z.zones) {
+    for (const [z, way] of [[R.zones, ''], [R.zonesUpright, ' held upright']]) if (z && z.checked) for (const x of z.zones) {
       const menu = x.zone === 'menu-button';
-      add(menu ? 'menu-button' : 'safe-area', 'warning', `On a phone in fullscreen the interface covers ${Math.round(x.coverage * 100)}% of ${menu ? `the platform menu button's ${z.corner} square` : x.zone === 'home-bar' ? 'the home bar strip' : 'the notch strip'} (around x ${x.box[0]}, y ${x.box[1]}, ${x.box[2]}×${x.box[3]} px).`, menu ? `Move that part of the HUD out of the ${N.menu_button.size + 2 * N.menu_button.inset} px corner square, or put the button in a free corner with GCP.setDisplay({ exitButton }).` : 'Anchor the HUD inside GCP.display.safe (GCP.ui.rect does it by default).', { check: menu ? 'zone-menu-button' : 'zone-safe-area' });
+      add(menu ? 'menu-button' : 'safe-area', 'warning', `On a phone${way} in fullscreen the interface covers ${Math.round(x.coverage * 100)}% of ${menu ? `the platform menu button's ${z.corner} square` : x.zone === 'home-bar' ? 'the home bar strip' : 'the notch strip'} (around x ${x.box[0]}, y ${x.box[1]}, ${x.box[2]}×${x.box[3]} px).`, menu ? `Move that part of the HUD out of the ${N.menu_button.size + 2 * N.menu_button.inset} px corner square, or put the button in a free corner with GCP.setDisplay({ exitButton }).` : 'Anchor the HUD inside GCP.display.safe (GCP.ui.rect does it by default).', { check: menu ? 'zone-menu-button' : 'zone-safe-area' });
     }
+    const z = R.zones;
+    if (R.turn && R.turn.ok === false) add('orientation', 'warning', `After the phone was turned ${R.turn.to === 'portrait' ? 'upright' : 'sideways'} (${R.turn.viewport}), ${R.turn.problem}`, 'Size the canvas and lay out the interface from innerWidth and innerHeight on every resize, keeping the game where it was; a game that plays one way only declares that orientation instead.', { check: 'orientation-turn' });
     if (z && !z.checked && z.reason === 'one-layer') add('menu-button', 'note', 'The reserved zones (notch, home bar, menu button corner) could not be checked: GCP.test.onCapture hands over a single canvas.', 'Return [world, ui] from GCP.test.onCapture, with the interface on its own canvas, so verification can check them.', { check: 'zones-one-layer' });
   }
   const texts = input.texts instanceof Map ? input.texts : new Map(Object.entries(input.texts || {}));
@@ -368,7 +404,11 @@ export function checkStandards(input = {}) {
     if (L && usesKeys && !String(L.controls || '').trim()) add('controls-text', 'note', 'The game reads the keyboard but its listing has no controls text.', 'Add the controls (game_metadata declare controls), one per line.', { check: 'controls-missing' });
     if (!/\bexitButton\b|\bmenuButton\b/.test(code)) add('menu-button', 'note', `The platform menu button (${N.menu_button.size} px) sits in the ${N.menu_button.corner} corner in fullscreen and on phones.`, `Keep that corner free, or move the button with GCP.setDisplay({ exitButton: 'top-right' }) to a corner your HUD leaves empty.`, { check: 'menu-corner' });
     if (phones && !/GCP\.display\.safe|display\.safe|--gcp-safe|ui\.rect\s*\(|ui\.safe|edgeToEdge\s*:\s*false|createUi\s*\(|createInput\s*\(/.test(code)) add('safe-area', 'warning', 'The game lists phones or tablets but never reads the safe-area insets; in fullscreen its HUD can sit under the notch or the home bar.', "Keep HUD and buttons inside GCP.display.safe (or --gcp-safe-* in CSS, or GCP.ui.rect), or call GCP.setDisplay({ edgeToEdge: false }).", { check: 'safe-area' });
-    if (phones && !req.orientation && !/orientation\s*:\s*['"](landscape|portrait|any)/.test(code)) add('window-orientation', 'warning', 'The game lists phones or tablets but declares no orientation.', 'Declare requirements.orientation ("landscape", "portrait" or "any") with compatibility declare, or call GCP.setDisplay({ orientation }).', { check: 'orientation' });
+    // orientation: declared, consistent with what the code asks for at run time, and no rotate prompt of the game's own
+    const declared = orientationOf(req.orientation ?? gcp.orientation), setIn = [...code.matchAll(/setDisplay\s*\(\s*\{[^}]*?orientation\s*:\s*['"](landscape|portrait|any|both)['"]/g)].map((m) => orientationOf(m[1]));
+    if (!declared) add('orientation', 'warning', `The game declares no orientation, so the platform treats it as playable both ways${phones ? ' and checks it upright and sideways on phones' : ''}.`, 'Declare requirements.orientation: "landscape", "portrait" or "both" (compatibility {action: "declare"}). Pick the shapes the interface is designed for; a single orientation gets the platform\'s rotate-your-device prompt.', { check: 'orientation' });
+    else if (setIn.some((o) => o !== declared)) add('orientation', 'warning', `The code calls GCP.setDisplay({ orientation: '${setIn.find((o) => o !== declared)}' }) but requirements.orientation declares ${declared === 'any' ? 'both' : declared}; the store page, the device checks and the rotate prompt follow different answers.`, 'Make them agree: change the declaration or the call (or drop the call; the declaration is enough).', { check: 'orientation-conflict' });
+    if (OWN_PROMPT.test(shownCode(texts))) add('orientation', 'warning', 'The game draws its own rotate-your-device prompt. The platform shows one for a one-orientation game, pauses the game behind it and lifts it when the device is turned, so the player meets two.', declared && declared !== 'any' ? 'Remove the game\'s prompt; the declaration is enough.' : 'Remove the game\'s prompt and declare the orientation it needs; or, if it plays both ways, lay out for both and drop the prompt.', { check: 'orientation-own-prompt' });
     if (!/GCP\.progress\s*\(|\.progress\s*\(\s*[\d.]/.test(code)) add('splash-loading', 'note', 'The game never calls GCP.progress(), so the platform splash waits 1.2 s before handing over to the game.', 'Call GCP.progress(f, label) while loading (at least twice) and draw the loading screen in its final look before the second call.', { check: 'no-progress' });
     // intended sound: the unlock must hear a tap on a menu button, which a canvas interface stops at the window in the capture phase
     if (/\b(webkit)?AudioContext\b/.test(code)) {
@@ -379,8 +419,7 @@ export function checkStandards(input = {}) {
     }
     const brand = String(input.brand || 'HearthCade');
     // only what a player can see: page code without comments, not the server-side bot or tooling
-    const shown = [...texts].filter(([p]) => /\.(m?js|html?)$/i.test(p) && !/(^|\/)(server|tools?|scripts?|tests?|vendor|libs?|node_modules|three)[^/]*\//i.test(p) && !/\.min\.js$/i.test(p))
-      .map(([, t]) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/(^|[^:\\'"`])\/\/.*$/gm, '$1')).join('\n');
+    const shown = shownCode(texts);
     if (brand && new RegExp(`['"\`][^'"\`\\n]*\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(shown)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
     if (/achievement/i.test(code) && !/playerStats/.test(code)) add('no-achievements', 'note', 'The game has achievements but keeps them only on the device.', 'Keep them with GCP.playerStats so they follow the player and show on the game page.', { check: 'achievements' });
   }

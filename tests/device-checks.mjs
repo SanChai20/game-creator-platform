@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from 'acorn';
 import { deviceIssues, syntaxFindings, apiFindings } from '../src/device-checks.js';
-import { applyDeviceResults, deviceViewport, DEVICE_PROFILES } from '../src/verify-core.js';
+import { applyDeviceResults, deviceViewport, DEVICE_PROFILES, verifyDevices } from '../src/verify-core.js';
 
 const ast = (src) => parse(src, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
 const ids = (src) => syntaxFindings(ast(src)).map((f) => f.id).sort();
@@ -73,4 +73,23 @@ test('layout findings are notes, never failures', () => {
   const r = applyDeviceResults({ ok: true, checks: [], notes: [], summary: 'Playable' }, [result('iphone', [], ['Only 60% of the game\'s canvas is on the screen.'])]);
   assert.equal(r.ok, true);
   assert.match(r.notes[0], /^On iPhone: Only 60%/);
+});
+
+test('a game that plays both ways gets an upright phone pass, and its zones and turn reach the report', async () => {
+  const opened = [];
+  // a page that never starts is enough to see which passes run and at what size
+  const openDevicePage = async (profile, vp) => { opened.push(`${profile.label} ${vp.width}x${vp.height}`); return { on() {}, goto: async () => {}, evaluate: async () => null, close: async () => {} }; };
+  const both = await verifyDevices(openDevicePage, 'https://x.test/', { profiles: ['iphone', 'ipad'], orientation: 'any', readyTimeoutS: 0 });
+  assert.deepEqual(opened, ['iPhone 844x390', 'iPhone upright 390x844', 'iPad 1180x820']);
+  assert.deepEqual(both.map((r) => [r.id, r.orientation]), [['iphone', 'landscape'], ['iphone-upright', 'portrait'], ['ipad', 'landscape']]);
+  opened.length = 0;
+  await verifyDevices(openDevicePage, 'https://x.test/', { profiles: ['iphone', 'ipad'], orientation: 'landscape', readyTimeoutS: 0 });
+  assert.deepEqual(opened, ['iPhone 844x390', 'iPad 1180x820'], 'a one-orientation game is played only its own way');
+  const z = (zone) => ({ checked: true, corner: 'top-left', zones: zone ? [{ zone, coverage: 0.4, box: [0, 0, 10, 10] }] : [] });
+  const r = applyDeviceResults({ ok: true, checks: [], notes: [], summary: 'Playable' }, [
+    { ...result('iphone'), orientation: 'landscape', zones: z() },
+    { ...result('iphone'), id: 'iphone-upright', label: 'iPhone upright', orientation: 'portrait', zones: z('notch-top'), turn: { ok: false, to: 'landscape', viewport: '844×390', problem: 'the page reloaded.' } },
+  ]);
+  assert.equal(r.zones.zones.length, 0); assert.equal(r.zonesUpright.zones[0].zone, 'notch-top'); assert.equal(r.turn.ok, false);
+  assert.ok(r.notes.some((n) => /turned sideways \(844×390\): the page reloaded/.test(n)));
 });

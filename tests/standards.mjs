@@ -72,6 +72,8 @@ test('every standard is complete, and every check it names is one the validator 
   for (const f of checkStandards({ listing: { title: 'Ok', tagline: 'Fine.', description: '', has_cover: false }, texts: { 'a.js': 'onkeydown = keydown;' } })) raised.add(f.check);
   for (const f of checkStandards({ report: { metrics: { progressBeforeReady: 0 }, zones: { checked: true, corner: 'top-left', zones: [{ zone: 'menu-button', coverage: 0.5, box: [47, 0, 56, 56] }, { zone: 'home-bar', coverage: 0.3, box: [0, 369, 844, 21] }] } } })) raised.add(f.check);
   for (const f of checkStandards({ report: { zones: { checked: false, reason: 'one-layer', zones: [] } } })) raised.add(f.check);
+  for (const f of checkStandards({ report: { turn: { ok: false, to: 'landscape', viewport: '844×390', problem: 'it stopped drawing frames.' } } })) raised.add(f.check);
+  for (const f of checkStandards({ texts: { 'a.js': 'GCP.setDisplay({ orientation: "portrait" }); x = "Rotate your phone";' }, gcp: { requirements: { orientation: 'landscape' } } })) raised.add(f.check);
   for (const f of checkStandards({ texts: { 'a.js': 'const c = new AudioContext(); addEventListener("pointerdown", unlock);' } })) raised.add(f.check);
   for (const s of STANDARDS) for (const c of s.checks) assert.ok(raised.has(c), `${s.id} names check ${c}, which the validator never raised`);
 });
@@ -105,8 +107,19 @@ test('the code checks', () => {
   assert.ok(!run('GCP.progress(0.5); const s = GCP.display.safe;', phone).includes('safe-area'));
   assert.ok(!run('GCP.progress(0.5); GCP.setDisplay({ edgeToEdge: false })', phone).includes('safe-area'));
   assert.ok(!run('GCP.progress(0.5)', { requirements: { devices: ['desktop'] } }).includes('safe-area'));
+  // orientation: every game declares it, the code agrees with it, and the game draws no rotate prompt of its own
   assert.ok(run('GCP.progress(1)', { requirements: { devices: ['mobile'] } }).includes('orientation'));
-  assert.ok(!run('GCP.progress(1); GCP.setDisplay({ orientation: "portrait" })', { requirements: { devices: ['mobile'] } }).includes('orientation'));
+  assert.ok(run('GCP.progress(1)', { requirements: { devices: ['desktop'] } }).includes('orientation'), 'desktop games declare too');
+  for (const o of ['landscape', 'portrait', 'both', 'any']) assert.ok(!run('GCP.progress(1)', { requirements: { orientation: o } }).some((c) => c.startsWith('orientation')), o);
+  assert.ok(!run('GCP.progress(1)', { orientation: 'landscape' }).includes('orientation'), 'the older top-level gcp.json field counts');
+  assert.ok(run('GCP.progress(1); GCP.setDisplay({ orientation: "portrait" })', { requirements: { orientation: 'landscape' } }).includes('orientation-conflict'));
+  assert.ok(!run('GCP.progress(1); GCP.setDisplay({ orientation: "landscape", exitButton: "none" })', { requirements: { orientation: 'landscape' } }).includes('orientation-conflict'));
+  assert.ok(!run("GCP.progress(1); GCP.setDisplay({ orientation: 'any' })", { requirements: { orientation: 'both' } }).includes('orientation-conflict'));
+  const land = { requirements: { orientation: 'landscape' } };
+  assert.ok(run('ctx.fillText("Please rotate your device", 0, 0)', land).includes('orientation-own-prompt'));
+  assert.ok(run("el.textContent = '请横屏游玩';", land).includes('orientation-own-prompt'));
+  assert.ok(run("const m = { ja: '画面を横にしてください' };", land).includes('orientation-own-prompt'));
+  assert.ok(!run('// rotate your device: the platform does it\nctx.rotate(a); turn(1);', land).includes('orientation-own-prompt'));
   assert.ok(run('GCP.ready()').includes('menu-corner'));
   assert.ok(!run("GCP.setDisplay({ exitButton: 'top-right' })").includes('menu-corner'));
   assert.ok(!run('const m = GCP.display.menuButton; const x = m ? m.x + m.w : 0;').includes('menu-corner'));
@@ -123,7 +136,7 @@ test('the code checks', () => {
   // libraries are not the game's own code
   assert.ok(checkStandards({ texts: { 'index.html': 'GCP.progress(1)', 'vendor/lib.js': 'const n = "HearthCade";' } }).every((x) => x.check !== 'platform-logo'));
   // warnings reach deploy_preview; notes stay in game_standards check
-  for (const x of checkStandards({ texts: { 'index.html': 'GCP.ready()' } })) assert.equal(x.level, 'note');
+  for (const x of checkStandards({ texts: { 'index.html': 'GCP.ready()' }, gcp: { requirements: { orientation: 'both' } } })) assert.equal(x.level, 'note');
 });
 
 test('what verification measured', () => {
@@ -133,5 +146,10 @@ test('what verification measured', () => {
   assert.deepEqual(run({ metrics: {} }), [], 'an older report without the count says nothing');
   assert.deepEqual(run({ zones: { checked: true, corner: 'top-left', zones: [{ zone: 'notch-left', coverage: 0.2, box: [0, 0, 47, 300] }] } }), ['warning:zone-safe-area']);
   assert.deepEqual(run({ zones: { checked: false, reason: 'one-layer', zones: [] } }), ['note:zones-one-layer']);
+  // the upright pass of a game that plays both ways
+  const up = checkStandards({ report: { zones: { checked: true, corner: 'top-left', zones: [] }, zonesUpright: { checked: true, corner: 'top-left', zones: [{ zone: 'notch-top', coverage: 0.4, box: [0, 0, 390, 47] }] } } });
+  assert.deepEqual(up.map((x) => x.check), ['zone-safe-area']); assert.match(up[0].message, /held upright/);
+  assert.deepEqual(run({ turn: { ok: true, to: 'landscape', viewport: '844×390' } }), []);
+  assert.deepEqual(run({ turn: { ok: false, to: 'landscape', viewport: '844×390', problem: 'the page reloaded.' } }), ['warning:orientation-turn']);
   assert.deepEqual(checkStandards({ listing: { title: 'A', tagline: 'Fine.', description: 'x', has_cover: false } }).map((x) => x.check), ['cover-missing']);
 });

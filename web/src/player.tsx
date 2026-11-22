@@ -440,8 +440,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held || asking, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, asking, JSON.stringify(padCfg), padPref, uiSize]); // eslint-disable-line react-hooks/exhaustive-deps
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held || asking || sideways, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, asking, sideways, JSON.stringify(padCfg), padPref, uiSize]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
   useEffect(() => { if (!url) { setPadState({ available: false, shown: false }); setHeld(false); } }, [url]);
   const uiSizeRef = useRef(uiSize), seedRef = useRef(seed); uiSizeRef.current = uiSize; seedRef.current = seed;
@@ -662,8 +662,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
         {sideways && (
           <div className="stage-turn" role="dialog" aria-label={t('Turn your device', '旋转设备')}>
             <div className={'turn-ico ' + want} aria-hidden="true"><i /></div>
-            <b>{want === 'landscape' ? t('Turn your phone sideways', '请横屏游玩') : t('Turn your phone upright', '请竖屏游玩')}</b>
-            <span>{want === 'landscape' ? t('This game is made for landscape.', '这款游戏为横屏设计。') : t('This game is made for portrait.', '这款游戏为竖屏设计。')}</span>
+            <b>{want === 'landscape' ? t('Rotate your device sideways', '请将设备横过来') : t('Rotate your device upright', '请将设备竖过来')}</b>
+            <span>{want === 'landscape' ? t('This game is made for landscape. It is paused until you turn the device.', '这款游戏为横屏设计。转过来之前游戏会暂停。') : t('This game is made for portrait. It is paused until you turn the device.', '这款游戏为竖屏设计。转过来之前游戏会暂停。')}</span>
             <Button size="sm" variant="ghost" onClick={() => setTurned(true)}>{t('Play this way', '就这样玩')}</Button>
           </div>
         )}
