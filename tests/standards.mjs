@@ -72,6 +72,7 @@ test('every standard is complete, and every check it names is one the validator 
   for (const f of checkStandards({ listing: { title: 'Ok', tagline: 'Fine.', description: '', has_cover: false }, texts: { 'a.js': 'onkeydown = keydown;' } })) raised.add(f.check);
   for (const f of checkStandards({ report: { metrics: { progressBeforeReady: 0 }, zones: { checked: true, corner: 'top-left', zones: [{ zone: 'menu-button', coverage: 0.5, box: [47, 0, 56, 56] }, { zone: 'home-bar', coverage: 0.3, box: [0, 369, 844, 21] }] } } })) raised.add(f.check);
   for (const f of checkStandards({ report: { zones: { checked: false, reason: 'one-layer', zones: [] } } })) raised.add(f.check);
+  for (const f of checkStandards({ texts: { 'a.js': 'const c = new AudioContext(); addEventListener("pointerdown", unlock);' } })) raised.add(f.check);
   for (const s of STANDARDS) for (const c of s.checks) assert.ok(raised.has(c), `${s.id} names check ${c}, which the validator never raised`);
 });
 
@@ -93,6 +94,15 @@ test('the listing checks', () => {
 
 test('the code checks', () => {
   const run = (code, gcp = {}, paths) => checkStandards({ texts: { 'index.html': code }, gcp, paths }).map((x) => x.check);
+  // sound: an unlock in the bubble phase never hears a tap on a canvas menu button (Bloomguard and Noctelle before the fix)
+  assert.ok(run('const A = window.AudioContext; addEventListener(\'pointerdown\', unlock); addEventListener(\'keydown\', unlock);').includes('sound-unlock-bubble'));
+  assert.ok(run('ctx = new AudioContext(); addEventListener(\'pointerdown\', wake, { passive: true });').includes('sound-unlock-bubble'));
+  assert.ok(!run('ctx = new AudioContext(); addEventListener(\'pointerdown\', wake, { capture: true, passive: true });').includes('sound-unlock-bubble'));
+  assert.ok(!run('ctx = new AudioContext(); addEventListener(\'pointerdown\', unlock, true);').includes('sound-unlock-bubble'));
+  assert.ok(!run('ctx = new AudioContext(); for (const ev of EVENTS) addEventListener(ev, wake, true); addEventListener(\'pointerdown\', onDown);').includes('sound-unlock-bubble'));
+  assert.ok(run('let x = 1;').includes('sound-missing'));
+  assert.ok(!run('const s = new Audio(\'a.mp3\');').includes('sound-missing'));
+  assert.ok(!run('const c = new (window.AudioContext || window.webkitAudioContext)();').includes('sound-missing'));
   const phone = { requirements: { devices: ['desktop', 'mobile'], orientation: 'landscape' } };
   assert.ok(run('GCP.progress(0.5)', phone).includes('safe-area'));
   assert.ok(!run('GCP.progress(0.5); const s = GCP.display.safe;', phone).includes('safe-area'));
