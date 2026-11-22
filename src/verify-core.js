@@ -311,6 +311,8 @@ export async function verifyPage(page, url, opts = {}) {
     if (soft) report.notes.push('The capture check is enforced only for live games; it will fail a version once this game is live: ' + problems.join('; ') + '.');
     add('capture', !problems.length || soft, 'Hands over its exact frame', problems.length ? (soft ? 'Not enforced until the game is live: ' : '') + problems.join('; ') + '.' : `The picture from GCP.test.onCapture matches the screen (${Math.round(match.same * 100)}% alike)`,
       problems.length ? 'Every game draws everything the player sees (world, HUD, menus, text) in its canvases, and registers GCP.test.onCapture(() => canvas or [canvases]) and GCP.test.onState(fn). Move menus and HUD made of page elements into the canvas (draw text with fillText, buttons as shapes, and hit-test pointer events yourself). A WebGL game that does not redraw every frame keeps preserveDrawingBuffer: true or draws a frame inside onCapture. See get_started {topic: "contract"}, "Hand over the frame".' : '');
+    // the release gate (src/release-gate.ts) refuses to publish a version whose capture check only warned
+    if (soft) checks[checks.length - 1].soft = true;
   };
   // Frames for the content review (src/content-check.js): small JPEGs taken while the game starts, plays itself through and
   // takes input, so the review judges what a player actually sees, not only the first screen.

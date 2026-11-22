@@ -218,9 +218,50 @@ function Reviews({ onChange }: { onChange: () => void }) {
   );
 }
 
+// The release gate for one game (src/release-gate.ts): every platform requirement for a version, the waivers on it, and
+// an admin's way to let one version through a rule a verifier got wrong. Every rule is checked again before it goes live.
+function ReleasePanel({ game, onClose }: { game: any; onClose: () => void }) {
+  const [version, setVersion] = useState<number | null>(null);
+  const { busy, act } = useAct(), { data, error, loading, reload } = useData<any>(`/admin/games/${game.id}/release${version ? `?version=${version}` : ''}`);
+  const tone = (st: string) => (st === 'pass' ? 'good' : st === 'fail' ? 'bad' : st === 'waived' ? 'accent' : 'neutral');
+  const label = (st: string) => (st === 'pass' ? t('Met', '满足') : st === 'fail' ? t('Not met', '未满足') : st === 'waived' ? t('Waived', '已豁免') : t('Not checked', '未检查'));
+  const n = data?.version;
+  const waiveRule = (r: any) => {
+    const reason = prompt(t('Why may version {n} go live although "{rule}" is not met? This stays on record with the release.', '为什么允许版本 {n} 在未满足“{rule}”的情况下上线？此原因会随发布记录保存。', { n, rule: r.title }));
+    if (reason === null) return;
+    const days = prompt(t('For how many days (1 to 30)?', '有效天数（1 至 30）？'), '7');
+    if (days === null) return;
+    void act(r.id, async () => { await api(`/admin/games/${game.id}/release/${n}/waivers`, { body: { rule: r.id, reason, days: Number(days) } }); await reload(); }, t('Waived for this version.', '已为该版本豁免。'));
+  };
+  const unwaive = (rule: string) => act(rule, async () => { await api(`/admin/games/${game.id}/release/${n}/waivers/${rule}`, { method: 'DELETE' }); await reload(); }, t('Waiver removed.', '已撤销豁免。'));
+  const publish = () => act('publish', async () => { await api(`/admin/games/${game.id}/release/${n}/publish`, { body: {} }); await reload(); }, t('Publishing. Every requirement is checked again before it goes live.', '正在发布。上线前会再次检查所有要求。'));
+  return (
+    <Card title={t('Release requirements: {title}', '发布要求：{title}', { title: game.title })} aside={data ? t('ruleset {r}', '规则集 {r}', { r: data.ruleset }) : undefined}
+      actions={<>
+        {data?.versions?.length > 0 && <select value={n ?? ''} onChange={(e) => setVersion(Number(e.target.value))} aria-label={t('Version', '版本')}>{data.versions.map((v: any) => <option key={v.n} value={v.n}>v{v.n} · {v.status}{v.published_at ? ` · ${t('was live', '曾上线')}` : ''}</option>)}</select>}
+        {data?.requirements?.ok && <Button size="sm" variant="primary" disabled={busy === 'publish'} onClick={() => void publish()}>{t('Publish v{n}', '发布 v{n}', { n })}</Button>}
+        <Button size="sm" onClick={onClose}>{t('Close', '关闭')}</Button>
+      </>}>
+      {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <div className="pad mute">{t('Checking…', '检查中…')}</div> : !data?.requirements ? <div className="pad mute">{t('This game has no versions yet.', '该游戏还没有版本。')}</div> : (<>
+        <div className="pad">{data.requirements.ok ? <Badge tone="good">{t('Version {n} meets every requirement', '版本 {n} 满足全部要求', { n })}</Badge> : <Badge tone="bad">{t('Version {n} cannot go live', '版本 {n} 无法上线', { n })}</Badge>}</div>
+        <Table dense><thead><tr><th>{t('Requirement', '要求')}</th><th>{t('Status', '状态')}</th><th>{t('Why and what to do', '原因与处理')}</th><th /></tr></thead>
+          <tbody>{data.requirements.rules.map((r: any) => <tr key={r.id}>
+            <td><b>{r.title}</b><div className="dim mono fs-xs">{r.id}</div></td>
+            <td><Badge tone={tone(r.status) as any}>{label(r.status)}</Badge></td>
+            <td className="fs-sm">{r.reason}{r.fix && <div className="mute">{r.fix}</div>}{r.waiver_reason && <div className="mute">{t('Waived until {d}: {why}', '豁免至 {d}：{why}', { d: dateTime(Date.parse(r.waived_until)), why: r.waiver_reason })}</div>}</td>
+            <td>{r.status === 'fail' && data.waivable.includes(r.id) && <Button size="sm" disabled={busy === r.id} onClick={() => waiveRule(r)}>{t('Waive', '豁免')}</Button>}
+              {r.status === 'waived' && <Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => void unwaive(r.id)}>{t('Remove waiver', '撤销豁免')}</Button>}</td>
+          </tr>)}</tbody></Table>
+        {data.waivers?.length > 0 && <div className="pad fs-sm mute">{t('Waivers on record', '豁免记录')}: {data.waivers.map((w: any) => `v${w.version} ${w.rule} (${w.admin_email || w.created_by}, ${w.revoked_at ? t('removed', '已撤销') : w.expires_at < Date.now() ? t('ended', '已到期') : t('until {d}', '至 {d}', { d: date(w.expires_at) })}): ${w.reason}`).join(' · ')}</div>}
+      </>)}
+    </Card>
+  );
+}
+
 function Games() {
   const { config } = useApp(), defaultStorage = config.settings.bundle_max_bytes as number;
   const { busy, act } = useAct(), { q, setQ, pager, data, error, loading, reload } = useSearch('/admin/games');
+  const [release, setRelease] = useState<any>(null);
   const storage = (g: any) => {
     const raw = prompt(t('Storage for "{title}" in MB. Leave empty for the platform default ({mb} MB).', '《{title}》的存储空间（MB）。留空则使用平台默认值（{mb} MB）。', { title: g.title, mb: Math.round(defaultStorage / MB) }), g.storage_bytes != null ? String(Math.round(g.storage_bytes / MB)) : '');
     if (raw === null) return;
@@ -233,6 +274,7 @@ function Games() {
     <div className="stack l">
       <Reviews onChange={reload} />
       <StorageRequests onChange={reload} />
+      {release && <ReleasePanel key={release.id} game={release} onClose={() => { setRelease(null); void reload(); }} />}
       <div className="admin-tools"><SearchInput placeholder={t('Search by title, address or creator email', '按标题、地址或创作者邮箱搜索')} value={q} onChange={(e) => setQ(e.target.value)} /></div>
       {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : (
         <Card><Table dense stickyEnd>
@@ -246,6 +288,7 @@ function Games() {
               <td className="n">{g.sales}</td><td className="n">{usd(g.fees)}</td><td className={'n' + (g.errors > 0 ? ' bad' : '')}>{num(g.errors)}</td>
               <td className={'n' + (g.used_bytes > (g.storage_bytes ?? defaultStorage) ? ' bad' : '')}>{bytes(g.used_bytes)}<div className="dim fs-xs">{t('of {size}', '共 {size}', { size: bytes(g.storage_bytes ?? defaultStorage) })}{g.storage_bytes != null && ` · ${t('set for this game', '单独设置')}`}</div></td>
               <td><RowMenu label={t('Actions for {name}', '{name} 的操作', { name: g.title })} disabled={busy === g.id} actions={[
+                { label: t('Release requirements', '发布要求'), onClick: () => setRelease(g) },
                 { label: t('Storage', '存储空间'), onClick: () => storage(g) },
                 g.status === 'live' && { label: g.featured ? t('Unfeature', '取消精选') : t('Feature', '设为精选'), onClick: () => patch(g.id, { featured: !g.featured }, t('Updated.', '已更新。')) },
                 g.status === 'live' && { label: t('Take offline', '下线'), onClick: () => patch(g.id, { action: 'offline' }, t('Game taken offline.', '游戏已下线。')) },

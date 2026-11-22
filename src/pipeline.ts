@@ -8,14 +8,17 @@ import { getProject, getVersion, logEvent } from './projects';
 import { browserVerify } from './verify';
 import { afterPublish } from './implementations';
 import { syncMature } from './mature';
-import { originalityCheck, publishGate } from './originality-check';
+import { originalityCheck } from './originality-check';
+import { gateText, noteWaivers, recordGate, releaseGate, type GateMode } from './release-gate';
 import { now, parseJson, rid } from './util';
 // @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
 // @ts-ignore plain JS module
 import { verifierId } from './player-data.js';
 
-export interface Job { kind: 'preview' | 'publish'; pid: string; n: number; origin: string; actor: string }
+/** mode (publish jobs): what kind of release this is, which decides the rules it meets (src/release-gate.ts). A job
+    without one is a new release and meets every rule. */
+export interface Job { kind: 'preview' | 'publish'; pid: string; n: number; origin: string; actor: string; mode?: GateMode }
 
 export class Pipeline extends DurableObject<Env> {
   async start(job: Job): Promise<void> {
@@ -102,12 +105,16 @@ async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<v
 }
 
 async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<void> {
-  const copy = await publishGate(env, p, v);
-  if (copy) { await logEvent(env, p.id, 'publish_failed', copy, v.n, job.actor); return; }
+  // The authoritative check: every platform requirement, right before the version goes live, whoever asked for it.
+  const mode: GateMode = job.mode === 'rollback' || job.mode === 'restore' ? job.mode : 'publish';
+  const gate = await releaseGate(env, p, v, { mode });
+  await recordGate(env, gate);
+  if (!gate.ok) { await logEvent(env, p.id, 'publish_failed', gateText(gate), v.n, job.actor); return; }
   const url = await deployGame(env, job.origin, p, v, 'live');
   // the store labels the game from the version going live (an adults-only game is blurred and asks players to confirm); before it is live
   const health = await switchLive(env, p, v, url, await onSharedHost(env, p.id, 'live'), waitHealthy, () => syncMature(env, p.id, v));
   if (!health.ok) { await logEvent(env, p.id, 'publish_failed', health.detail, v.n, job.actor); return; }
+  await noteWaivers(env, gate, job.actor);
   await logEvent(env, p.id, 'published', `Version ${v.n} is live`, v.n, job.actor);
   await afterPublish(env, p.id);
 }

@@ -15,6 +15,7 @@ import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
 import { missingToPublish, normalizeStoredTags, tagGroup } from '../../web/src/tags';
 import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
+import { currentChecks, gateView, storedGate } from '../release-gate';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -1019,7 +1020,7 @@ api.get('/console/projects/:id', async (c) => {
   return c.json({
     metadata,
     project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
-    versions: versions.results.map((v) => ({ ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required) })),
+    versions: versions.results.map((v) => { const g = storedGate(v); return { ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required), current: currentChecks(v, s), release: g ? gateView(g) : null }; }),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s, freeSkillShared(p)) : null,
@@ -1104,7 +1105,7 @@ api.post('/console/projects/:id/online', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id')), s = await getSettings(c.env);
   if (p.status !== 'offline' || !p.live_version) throw bad('Only a game that was taken offline can be put back online.');
   if (s.creator_fee_required && !u.creator) throw forbidden('A creator license is required to publish.');
-  await enqueue(c.env, { kind: 'publish', pid: p.id, n: p.live_version, origin: c.get('origin'), actor: 'console' });
+  await enqueue(c.env, { kind: 'publish', pid: p.id, n: p.live_version, origin: c.get('origin'), actor: 'console', mode: 'restore' });
   return c.json({ ok: true });
 });
 

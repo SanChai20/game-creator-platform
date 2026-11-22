@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { bad, notFound, type Env, type User } from '../env';
 import { requireAdmin } from '../auth';
 import { balanceOf, freeSkillShared, recordPurchase, refundPurchase } from '../earnings';
-import { getProject, logEvent } from '../projects';
+import { getProject, getVersion, logEvent } from '../projects';
 import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
 import { rolloutRuntime, undeployGame } from '../deploy';
@@ -17,6 +17,7 @@ import { addDays, dayOf, now, rid } from '../util';
 import { currentPicks, JOBS } from '../rankings';
 import { reverseWithdrawal, takeOffline } from './api';
 import { grantLicense, isPlan, revokeLicense } from '../license';
+import { RULES, RULESET, gateView, recordGate, releaseGate, unwaive, waive } from '../release-gate';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
@@ -145,6 +146,53 @@ admin.patch('/games/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// The release gate (src/release-gate.ts): every platform requirement for one version, with the waivers on it. An admin
+// can waive a waivable rule for that version (with a reason, for a few days) and publish it; every rule is checked again
+// right before it goes live, and the waiver is logged with the release.
+admin.get('/release-rules', (c) => c.json({ ruleset: RULESET, rules: RULES }));
+
+admin.get('/games/:id/release', async (c) => {
+  const p = await getProject(c.env, c.req.param('id'));
+  if (!p) throw notFound();
+  const want = Number(c.req.query('version') || 0);
+  const vrow = want > 0 ? await getVersion(c.env, p.id, want) : await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 1').bind(p.id).first<any>();
+  if (!vrow) return c.json({ ruleset: RULESET, version: null, requirements: null, waivers: [], versions: [] });
+  const g = await releaseGate(c.env, p, vrow, { mode: 'publish' });
+  await recordGate(c.env, g);
+  const [waivers, versions] = await Promise.all([
+    c.env.DB.prepare('SELECT w.*, u.email AS admin_email FROM release_waivers w LEFT JOIN users u ON u.id = w.created_by WHERE w.project_id = ? ORDER BY w.created_at DESC LIMIT 50').bind(p.id).all(),
+    c.env.DB.prepare('SELECT n, status, published_at, created_at FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all(),
+  ]);
+  return c.json({ ruleset: RULESET, game: { id: p.id, title: p.title, status: p.status, live_version: p.live_version }, version: vrow.n, requirements: gateView(g), waivable: RULES.filter((r) => r.waivable).map((r) => r.id), waivers: waivers.results, versions: versions.results });
+});
+
+admin.post('/games/:id/release/:n/waivers', async (c) => {
+  const me = requireAdmin(c as any), p = await getProject(c.env, c.req.param('id')), b = await c.req.json<{ rule?: string; reason?: string; days?: number }>().catch(() => ({} as any));
+  if (!p) throw notFound();
+  return c.json({ ok: true, waiver: await waive(c.env, me, p, Number(c.req.param('n')), String(b.rule || ''), b.reason, b.days) });
+});
+
+admin.delete('/games/:id/release/:n/waivers/:rule', async (c) => {
+  const me = requireAdmin(c as any), p = await getProject(c.env, c.req.param('id'));
+  if (!p) throw notFound();
+  if (!(await unwaive(c.env, me, p, Number(c.req.param('n')), c.req.param('rule')))) throw notFound('No active waiver for that rule.');
+  return c.json({ ok: true });
+});
+
+// Publishes a version for its creator. The pipeline still checks every requirement (waivers included) before it goes live.
+admin.post('/games/:id/release/:n/publish', async (c) => {
+  const me = requireAdmin(c as any), p = await getProject(c.env, c.req.param('id')), n = Number(c.req.param('n'));
+  if (!p) throw notFound();
+  const v = await getVersion(c.env, p.id, n);
+  if (!v) throw notFound(`Version ${n} does not exist.`);
+  const g = await releaseGate(c.env, p, v, { mode: 'publish' });
+  await recordGate(c.env, g);
+  if (!g.ok) return c.json({ ok: false, requirements: gateView(g) }, 409);
+  await logEvent(c.env, p.id, 'publish_requested', 'Published by an admin', n, 'admin:' + me.id);
+  await enqueue(c.env, { kind: 'publish', pid: p.id, n, origin: c.get('origin'), actor: 'admin:' + me.id, mode: 'publish' });
+  return c.json({ ok: true, requirements: gateView(g) });
+});
+
 // Creators' requests for more storage: pending first, then the latest decisions.
 admin.get('/storage-requests', async (c) => {
   const rows = await c.env.DB.prepare(
@@ -185,7 +233,7 @@ admin.post('/reviews/:pid/:n', async (c) => {
   if (!r.meta.changes) throw notFound('No pending review for that version.');
   await logEvent(c.env, pid, b.action === 'approve' ? 'review_approved' : 'review_denied', note || '', n, 'admin:' + me.id);
   // approved: it goes live now, as the creator asked when they called publish
-  if (b.action === 'approve') await enqueue(c.env, { kind: 'publish', pid, n, origin: c.get('origin'), actor: 'admin:' + me.id });
+  if (b.action === 'approve') await enqueue(c.env, { kind: 'publish', pid, n, origin: c.get('origin'), actor: 'admin:' + me.id, mode: 'publish' });
   return c.json({ ok: true });
 });
 

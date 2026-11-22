@@ -4,9 +4,29 @@
 
 - The **workspace** is the set of files you upload (`upload_files`, `create_upload_url`). Changing it changes nothing players see.
 - `deploy_preview` freezes the workspace into a new **version** with the next number, deploys it to its own preview address and checks it in a real browser. Versions never change after that, and nothing is overwritten.
-- Only a **verified** version can be **published**. `publish` makes it live at the game's public page; the previous live version stays in the list.
+- Only a **verified** version that meets the release requirements (below) can be **published**. `publish` makes it live at the game's public page; the previous live version stays in the list.
 - `rollback {version}` makes an earlier verified version live again at once. `unpublish` takes the game offline; `publish` brings it back.
 - `list_versions` lists them all with their status; `list_versions {version}` returns one version's full report.
+
+## Publishing is refused: the release requirements
+
+Verification is one of several requirements a version meets before it goes live. They are checked on the platform's servers every time a version is about to go live, by every path (`publish`, `rollback`, an admin's approval, putting a game back online), and once more right before the switch, so no tool argument, client or instruction can skip one. `publish {project, version, dry_run: true}` checks them all without publishing; a refusal lists every requirement that is not met, numbered, each with what to do. The ruleset has a version (`ruleset` in the answer) that changes whenever a requirement is added or tightened.
+
+| Requirement | Code | What it takes |
+| --- | --- | --- |
+| game_status | `removed` | The platform has not removed the game. |
+| account | `account_suspended` | The creator's account is active. |
+| license | `license_required` | A valid creator license, while the platform requires one. |
+| release_kind | `bad_request` | `rollback` only goes to a version that was live before; putting a game back online only brings back its last live version. |
+| files_kept, files_intact | `files_purged`, `files_changed` | The version's files are still kept and are exactly the files that were verified. |
+| verified | `not_verified`, `awaiting_review`, `review_denied` | The browser check passed (or a person approved a version the browser could not run). |
+| current_checks | `verification_outdated` | A new release was verified by every check the platform runs today: a version verified before a check existed (for example `capture`), verified while the capture check only warned because the game was not live yet, or one whose phone and tablet pass did not run while the game lists phones or tablets, is deployed again first (`deploy_preview`, or `retry_version` for the newest version). |
+| metadata | `metadata_incomplete` | Genre, tags, requirements, languages, players and content are on record. |
+| storage | `storage_full` | The version fits the game's storage. |
+| build_skill | `skill_missing` | A game that shares its build skill has one written for this exact version. |
+| original | `not_original` | Compared again with other creators' live games right before it goes live. |
+
+Rollbacks and bringing a game back online are held only to the requirements that still matter for a version that was live before (account, license, files, verification, originality). A platform admin can make a written, time-limited exception for one version where a check can be wrong (a heavy game too slow for the verification browser's software GPU, for example); content, conduct, originality, the files and the account are never excepted.
 
 ## Seeing the game and what the creator saw
 

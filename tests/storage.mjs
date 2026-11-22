@@ -72,7 +72,7 @@ test('every way in goes through the storage check', () => {
   assert.match(projects, /overBudget\(s, p, bytes, files\.length\)/, 'deploy_preview static checks');
   assert.match(tools, /assertFits\(s, p, before,/, 'upload_files checks the whole call');
   assert.match(tools, /assertFits\(s, p, existing,/, 'zip import checks before unpacking');
-  assert.match(tools, /overBudget\(s, p, v\.bytes, v\.file_count\)/, 'publish');
+  assert.match(read('src/release-gate.ts'), /overBudget\(s, p, v\.bytes, v\.file_count\)/, 'publish (the release gate)');
   for (const m of tools.matchAll(/putFile\([^)]*\)/g)) if (!/'gcp\.json'/.test(m[0])) assert.match(m[0], /, true\)$/, `${m[0]} skips the check only after checking`);
   assert.match(upload, /putFile\(c\.env, project, path, buf\)/);
 });
