@@ -102,6 +102,7 @@ test('the code checks', () => {
   assert.ok(!run('GCP.progress(1); GCP.setDisplay({ orientation: "portrait" })', { requirements: { devices: ['mobile'] } }).includes('orientation'));
   assert.ok(run('GCP.ready()').includes('menu-corner'));
   assert.ok(!run("GCP.setDisplay({ exitButton: 'top-right' })").includes('menu-corner'));
+  assert.ok(!run('const m = GCP.display.menuButton; const x = m ? m.x + m.w : 0;').includes('menu-corner'));
   assert.ok(run('GCP.ready()').includes('no-progress'));
   assert.ok(run('ctx.fillText("Powered by HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(!run('// works on HearthCade\nGCP.ready()').includes('platform-logo'));
