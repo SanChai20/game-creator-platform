@@ -939,11 +939,11 @@
   // display.menuButton: the square the platform's menu button sits in while it shows (fullscreen and phones), in the
   // game's CSS pixels, inside display.safe: { corner, x, y, w, h }, or null. A HUD that shares that corner moves aside by it.
   var menuSquare = function () {
-    var c = (S.displayPrefs && S.displayPrefs.exitButton) || 'top-left', sq = 56, sf = display.safe, W = innerWidth, H = innerHeight;
+    var c = (S.displayPrefs && S.displayPrefs.exitButton) || 'top-left', sq = 56, sf = display.safe, W = window.innerWidth || 0, H = window.innerHeight || 0;
     if (!display.fullscreen || c === 'none' || !/^(top|bottom)-(left|right)$/.test(c)) { display.menuButton = null; return; }
     display.menuButton = { corner: c, x: /right/.test(c) ? W - sf.right - sq : sf.left, y: /bottom/.test(c) ? H - sf.bottom - sq : sf.top, w: sq, h: sq };
   };
-  addEventListener('resize', function () { if (display.menuButton) menuSquare(); });
+  try { window.addEventListener('resize', function () { if (display.menuButton) menuSquare(); }); } catch (e) { /* no window events */ }
   function markDisplay() {
     var h = document.documentElement, c = h && h.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch);
     ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
