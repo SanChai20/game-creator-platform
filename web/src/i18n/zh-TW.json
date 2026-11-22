@@ -2129,5 +2129,6 @@
  "Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)": "特價結束或原價調漲後，需等待多少天才能開始下一次特價（0：無需等待）",
  "The language the title, tagline, description and cover are written in (worked out from the text when not set)": "標題、簡介、描述與封面所用的語言（未設定時根據文字判斷）",
  "The title, tagline, description and controls in every other platform language the game is played in. Players see the listing in their platform language when the game supports it, else in English, else in the game's own language. Required for each platform language the game declares.": "遊戲支援的每種平台語言下的標題、簡介、描述與操作說明。玩家的平台語言若受遊戲支援，就以該語言顯示，否則顯示英文，再否則顯示遊戲自身的語言。遊戲宣告的每種平台語言都必須提供。",
- "A cover per language (update_project), for covers that show the game's name or other text": "每種語言各自的封面（update_project），適用於帶有遊戲名稱或其他文字的封面"
+ "A cover per language (update_project), for covers that show the game's name or other text": "每種語言各自的封面（update_project），適用於帶有遊戲名稱或其他文字的封面",
+ "More": "更多"
 }
