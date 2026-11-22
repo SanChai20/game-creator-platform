@@ -23,7 +23,7 @@ export class BotClient {
     this.stats = new NetStats();
     this.phase = 'idle'; this.detail = null; this.target = null;
     this.mm = null; this.ws = null; this.ticket = null; this.match = null; this.me = null; this.players = [];
-    this.view = undefined; this.tick = 0; this.n = 0; this.acked = 0; this.events = []; this.memory = {}; this.calls = 0;
+    this.view = undefined; this.tick = 0; this.n = 0; this.acked = 0; this.events = []; this.memory = {}; this.calls = 0; this.roomSent = 0;
     this.joinedAt = 0; this.pingN = 0; this.pings = new Map(); this.timers = new Set(); this.thinking = false; this.lastThink = 0;
     this.tries = 0; this.stopped = false; this.results = 0; this.room = null; this.inbox = []; this.roomState = null; this.peers = []; this.host = null;
     this.brain = { last: null, errors: 0, ms: 0 };
@@ -209,7 +209,7 @@ export class BotClient {
       const r = await this.io.think({ kind: 'room', bot: this.id, me: this.me, room: this.target && this.target.room, joined, messages, state: this.roomState, peers: this.peers, host: this.host, elapsed: this.io.now() - this.joinedAt, memory: this.memory, skill: this.skill, name: this.name, seed: this.seed, calls: this.calls++ });
       if (r.memory) this.memory = r.memory;
       if (r.error) { this.brain.errors++; this.brain.last = r.error; this.stats.error(`bot.js: ${r.error}`); }
-      for (const m of r.send || []) if (this.room) this.out(this.room, JSON.stringify({ t: 'msg', d: m.d, ...(m.to ? { to: m.to } : {}), at: this.io.now() }));
+      for (const m of r.send || []) if (this.room) { this.roomSent++; this.out(this.room, JSON.stringify({ t: 'msg', d: m.d, ...(m.to ? { to: m.to } : {}), at: this.io.now() })); }
     } catch (e) { this.brain.errors++; this.brain.last = String(e.message || e); }
     finally { this.thinking = false; }
   }
@@ -263,7 +263,7 @@ export class BotClient {
   /** What the creator's panel shows for this bot. */
   status(now) {
     const s = this.up.shape;
-    return { id: this.id, name: this.name, player_id: this.me || this.id, phase: this.phase, detail: this.detail, match: this.match, tick: this.tick, inputs_sent: this.n,
+    return { id: this.id, name: this.name, player_id: this.me || this.id, phase: this.phase, detail: this.detail, match: this.match, tick: this.tick, inputs_sent: this.n + this.roomSent, room_messages_sent: this.roomSent,
       net: { profile: s.profile, latency_ms: s.latency, jitter_ms: s.jitter, loss_percent: s.loss, spike: now < this.up.spikeUntil, down: now < this.up.downUntil },
       stats: this.stats.view(now), brain: { errors: this.brain.errors, last_error: this.brain.last, think_ms: Math.round(this.brain.ms) }, matches_finished: this.results };
   }
