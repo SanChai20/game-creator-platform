@@ -293,16 +293,17 @@ More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/gui
 
 ### The platform menu button
 
-**Where:** Over the game in fullscreen and on phones.
+**Where:** Over the game whenever it plays: in its window on the page and in fullscreen, in the browser and the installed app.
 
 - A 40 px round button sits 8 px in from the safe edge, in the top-left corner unless the game asks for another.
 - It fades to 16% after 5 s; the player can drag it anywhere. A trial clock may sit beside it.
 - For the first 3 plays on a device a short tip (up to 440 px wide) shows at top centre for 5 s; taps go through it.
-- Move it with GCP.setDisplay({ exitButton: 'top-right' | 'bottom-left' | 'bottom-right' }), or hide it with exitButton: 'none' when the game's own pause menu has a Quit button that calls GCP.quit() and Esc / Back reach that menu (GCP.pauseMenu).
+- It is always there and always on top: the game is a frame under it and cannot paint over it, take fullscreen for itself or hide it. exitButton: 'none' is taken as the top-left corner.
+- Move it with GCP.setDisplay({ exitButton: 'top-right' | 'bottom-left' | 'bottom-right' }).
 
 **Do:** Keep a 56 px square free in the chosen corner, inside the safe area. Choose the corner where your HUD has nothing. When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.
 
-**Don't:** Put a pause, score or health widget under the button. Hide it without a Quit of your own.
+**Don't:** Put a pause, score or health widget under the button. Count on hiding it: exitButton 'none' no longer does.
 
 **Checked:** Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button's square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.
 

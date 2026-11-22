@@ -23,10 +23,11 @@ test('the numbers match the code that draws each surface', () => {
   has('web/src/store.css', `.game-b h3 { font: 700 ${N.card.title_px}px/`, 'card title');
   has('web/src/lib.tsx', 'return s && norm(s) !== norm(g.title) ? s : \'\';', 'a tagline that repeats the title is hidden');
   // the menu button and the tip
-  has('web/src/player.tsx', `const corner = prefs.exit ?? '${N.menu_button.corner}';`, 'default corner');
+  has('web/src/player.tsx', `prefs.exit && prefs.exit !== 'none' ? prefs.exit : '${N.menu_button.corner}';`, 'default corner, never hidden');
   has('web/src/player.tsx', `const BTN = ${N.menu_button.size},`, 'button size used for dragging');
   has('web/src/player.css', `width: ${N.menu_button.size}px; height: ${N.menu_button.size}px; padding: 0; border: 1px solid rgb(255 255 255 / .28); border-radius: 50%;`, 'button size');
-  has('web/src/player.css', `.stage-exit.top-left { top: calc(${N.menu_button.inset}px + env(safe-area-inset-top, 0px)); left: calc(${N.menu_button.inset}px + env(safe-area-inset-left, 0px)); }`, 'button inset');
+  has('web/src/player.css', `.stage-exit.top-left { top: calc(${N.menu_button.inset}px + var(--sa-t)); left: calc(${N.menu_button.inset}px + var(--sa-l)); }`, 'button inset');
+  has('web/src/player.css', '.stage.filled, .stage:fullscreen { --sa-t: env(safe-area-inset-top, 0px);', 'button inset follows the safe area while the stage fills the screen');
   has('web/src/player.css', `.stage-exit button { animation: stage-exit-dim ${N.menu_button.fade_after_s}s ease forwards; }`, 'fade time');
   has('web/src/player.css', `100% { opacity: ${String(N.menu_button.fade_to).replace(/^0/, '')}; }`, 'fade level');
   has('web/src/player.tsx', `TIP_TIMES = ${N.menu_button.tip_plays};`, 'tip plays');
@@ -149,6 +150,8 @@ test('the code checks', () => {
   assert.ok(run('GCP.ready()').includes('menu-corner'));
   assert.ok(!run("GCP.setDisplay({ exitButton: 'top-right' })").includes('menu-corner'));
   assert.ok(!run('const m = GCP.display.menuButton; const x = m ? m.x + m.w : 0;').includes('menu-corner'));
+  assert.ok(run("GCP.setDisplay({ exitButton: 'none' })").includes('menu-corner'), "'none' no longer hides the button");
+  assert.ok(!run("GCP.setDisplay({ exitButton: 'none' }); const m = GCP.display.menuButton;").includes('menu-corner'));
   assert.ok(run('GCP.ready()').includes('no-progress'));
   assert.ok(run('ctx.fillText("Powered by HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(!run('// works on HearthCade\nGCP.ready()').includes('platform-logo'));

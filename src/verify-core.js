@@ -603,7 +603,7 @@ export async function zonesOf(page, orientation) {
     const G = window.__GCP; if (!G || !G.captureLayers) return null;
     const prefs = G.displayPrefs || {}, edge = prefs.edgeToEdge !== false;
     window.postMessage({ gcp: 'display', fullscreen: true, mode: 'fullscreen', orientation: a.orientation, touch: true, edgeToEdge: edge, safe: edge ? a.safe : { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false }, '*');
-    return { edge, corner: prefs.exitButton || 'top-left' };
+    return { edge, corner: /^(top|bottom)-(left|right)$/.test(prefs.exitButton || '') ? prefs.exitButton : 'top-left' };   // 'none' no longer hides it
   }, { safe, orientation: orientation === 'portrait' ? 'portrait' : 'landscape' }).catch(() => null);
   if (!told) return null;
   await sleep(900);
@@ -618,7 +618,7 @@ export async function zonesOf(page, orientation) {
     if (sf.right) rects.push({ zone: 'notch-right', x: vw - sf.right, y: sf.top, w: sf.right, h: vh - sf.top - sf.bottom });
     if (sf.top) rects.push({ zone: 'notch-top', x: 0, y: 0, w: vw, h: sf.top });
     if (sf.bottom) rects.push({ zone: 'home-bar', x: 0, y: vh - sf.bottom, w: vw, h: sf.bottom });
-    if (a.corner !== 'none') {
+    {
       const right = /right/.test(a.corner), bottom = /bottom/.test(a.corner);
       rects.push({ zone: 'menu-button', x: right ? vw - sf.right - sq : sf.left, y: bottom ? vh - sf.bottom - sq : sf.top, w: sq, h: sq });
     }

@@ -184,15 +184,16 @@ export const STANDARDS = [
   },
   {
     id: 'menu-button', area: 'game', title: 'The platform menu button',
-    where: 'Over the game in fullscreen and on phones.',
+    where: 'Over the game whenever it plays: in its window on the page and in fullscreen, in the browser and the installed app.',
     spec: [
       `A ${N.menu_button.size} px round button sits ${N.menu_button.inset} px in from the safe edge, in the ${N.menu_button.corner} corner unless the game asks for another.`,
       `It fades to ${Math.round(N.menu_button.fade_to * 100)}% after ${N.menu_button.fade_after_s} s; the player can drag it anywhere. A trial clock may sit beside it.`,
       `For the first ${N.menu_button.tip_plays} plays on a device a short tip (up to ${N.menu_button.tip_width} px wide) shows at top centre for 5 s; taps go through it.`,
-      'Move it with GCP.setDisplay({ exitButton: \'top-right\' | \'bottom-left\' | \'bottom-right\' }), or hide it with exitButton: \'none\' when the game\'s own pause menu has a Quit button that calls GCP.quit() and Esc / Back reach that menu (GCP.pauseMenu).',
+      'It is always there and always on top: the game is a frame under it and cannot paint over it, take fullscreen for itself or hide it. exitButton: \'none\' is taken as the top-left corner.',
+      'Move it with GCP.setDisplay({ exitButton: \'top-right\' | \'bottom-left\' | \'bottom-right\' }).',
     ],
     do: [`Keep a ${N.menu_button.size + 2 * N.menu_button.inset} px square free in the chosen corner, inside the safe area.`, 'Choose the corner where your HUD has nothing.', 'When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.'],
-    dont: ['Put a pause, score or health widget under the button.', 'Hide it without a Quit of your own.'],
+    dont: ['Put a pause, score or health widget under the button.', 'Count on hiding it: exitButton \'none\' no longer does.'],
     enforced: 'Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button\'s square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.', checks: ['menu-corner', 'zone-menu-button', 'zones-one-layer'], guide: '/guides/standards.md#menu-button',
   },
   {
@@ -468,7 +469,8 @@ export function checkStandards(input = {}) {
     const phones = devices.includes('mobile') || devices.includes('tablet');
     const usesKeys = /\b(keydown|keyup)\b/.test(code);
     if (L && usesKeys && !String(L.controls || '').trim()) add('controls-text', 'note', 'The game reads the keyboard but its listing has no controls text.', 'Add the controls (game_metadata declare controls), one per line.', { check: 'controls-missing' });
-    if (!/\bexitButton\b|\bmenuButton\b/.test(code)) add('menu-button', 'note', `The platform menu button (${N.menu_button.size} px) sits in the ${N.menu_button.corner} corner in fullscreen and on phones.`, `Keep that corner free, or move the button with GCP.setDisplay({ exitButton: 'top-right' }) to a corner your HUD leaves empty.`, { check: 'menu-corner' });
+    if (/\bexitButton\s*:\s*['"]none['"]/.test(code) && !/\bmenuButton\b/.test(code)) add('menu-button', 'warning', `The game asks for exitButton: 'none', but the platform menu button always shows: it sits in the ${N.menu_button.corner} corner (${N.menu_button.size + 2 * N.menu_button.inset} px square).`, `Keep that corner free, move the button to a free corner with GCP.setDisplay({ exitButton }), or move the HUD aside by GCP.display.menuButton.`, { check: 'menu-corner' });
+    if (!/\bexitButton\b|\bmenuButton\b/.test(code)) add('menu-button', 'note', `The platform menu button (${N.menu_button.size} px) sits in the ${N.menu_button.corner} corner whenever the game plays (in its window and in fullscreen) and cannot be hidden.`, `Keep that corner free, or move the button with GCP.setDisplay({ exitButton: 'top-right' }) to a corner your HUD leaves empty.`, { check: 'menu-corner' });
     if (phones && !/GCP\.display\.safe|display\.safe|--gcp-safe|ui\.rect\s*\(|ui\.safe|edgeToEdge\s*:\s*false|createUi\s*\(|createInput\s*\(/.test(code)) add('safe-area', 'warning', 'The game lists phones or tablets but never reads the safe-area insets; in fullscreen its HUD can sit under the notch or the home bar.', "Keep HUD and buttons inside GCP.display.safe (or --gcp-safe-* in CSS, or GCP.ui.rect), or call GCP.setDisplay({ edgeToEdge: false }).", { check: 'safe-area' });
     // ui-layout: the game reads the screen size, and names the boxes it places so verification can measure them
     if (/<canvas|getContext\s*\(|\bcanvas\b/i.test(code) && !/innerWidth|innerHeight|clientWidth|clientHeight|getBoundingClientRect|ResizeObserver|visualViewport|GCP\.ui\b|\bui\.(rect|view|state|onChange)\b|['"]resize['"]|onresize/.test(code)) add('ui-layout', 'warning', 'The game never reads the size of the screen, so its interface is laid out for one size and is cut off or misplaced on others and in fullscreen.', 'Lay the interface out with GCP.ui.rect anchors and redo it on every GCP.ui.onChange (or every frame).', { check: 'layout-fixed-size' });
