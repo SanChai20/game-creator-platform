@@ -1,0 +1,32 @@
+# Keys that scroll (Space, the arrows, Page Down, End) never move the player's page around a game: the runtime's
+# scroll-keys fix, checked in Chromium, Firefox and WebKit (Safari's engine). Runs when the SDK changes.
+name: scroll-keys
+on:
+  pull_request:
+    paths: ['web/public/sdk/**', 'tests/scroll-keys-browser.mjs', '.github/workflows/scroll-keys.yml']
+  push:
+    branches: [main]
+    paths: ['web/public/sdk/**', 'tests/scroll-keys-browser.mjs', '.github/workflows/scroll-keys.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scroll-keys:
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save playwright@1.63.0
+      - run: timeout 360 npx playwright install --with-deps ${{ matrix.browser }} || timeout 480 npx playwright install --with-deps ${{ matrix.browser }}
+      - run: xvfb-run -a npm run test:scroll-keys
+        env:
+          BROWSER: ${{ matrix.browser }}

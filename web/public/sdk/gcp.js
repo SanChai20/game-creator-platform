@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.7.0', fixes: {} };
+  var RT = S.runtime = { version: '2.8.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -2196,6 +2196,52 @@
     if (!display.fullscreen && !PZ.own) return;
     escFallback(e);
   });
+  // ---- Keys that would scroll the platform's page. In the player the game is a frame on a page that scrolls. A key the
+  // browser scrolls with (Space, Shift+Space, the arrows, Page Up/Down, Home, End) that nothing in the game's own page can
+  // scroll is handed on to the page around it by Firefox and Safari: the store page under the game moves while the
+  // player jumps or steers. Chrome keeps it in the frame. A game usually stops this itself with preventDefault(), but
+  // often only when the key reached <body>, and a canvas with a tabindex has the focus once it is clicked. So once the key
+  // has reached every listener of the game, wherever it registered, its scroll is cancelled unless something in the
+  // game's page would take it: a text field, a list or page of the game that can still scroll that way, or Space on a
+  // button or link (which presses it). A game listener still sees the key as it came (defaultPrevented only if the game
+  // set it), and a key the game cancelled itself is left alone.
+  (function () {
+    if (standalone || window.parent === window) return;
+    var AX = { Space: 'y', PageUp: 'y', PageDown: 'y', Home: 'y', End: 'y', ArrowUp: 'y', ArrowDown: 'y', ArrowLeft: 'x', ArrowRight: 'x' };
+    var BACK = { PageUp: 1, Home: 1, ArrowUp: 1, ArrowLeft: 1 };
+    // whether el can still scroll along axis in direction dir (1 = down or right)
+    var room = function (el, axis, dir, root) {
+      var y = axis === 'y', size = y ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
+      if (size <= 1) return false;
+      var cs = getComputedStyle(el), ov = y ? cs.overflowY : cs.overflowX;
+      if (root) { var b = document.body, bs = b && getComputedStyle(b), bov = bs ? (y ? bs.overflowY : bs.overflowX) : ''; if (/hidden|clip/.test(ov) || /hidden|clip/.test(bov)) return false; }
+      else if (!/auto|scroll|overlay/.test(ov)) return false;
+      var at = y ? el.scrollTop : el.scrollLeft;
+      return dir > 0 ? at < size - 1 : at > 0;
+    };
+    var takes = function (e) {
+      var t = e.target, el = t && (t.nodeType === 1 ? t : t.parentElement);
+      if (!el || editable(el)) return true;
+      if (e.code === 'Space' && el.closest && el.closest('button,a[href],summary,audio[controls],video[controls],[contenteditable]')) return true;
+      var axis = AX[e.code], dir = (BACK[e.code] || (e.code === 'Space' && e.shiftKey)) ? -1 : 1;
+      var root = document.scrollingElement || document.documentElement;
+      for (var n = el; n && n.nodeType === 1; n = n.parentElement) if (room(n, axis, dir, n === root)) return true;
+      return false;
+    };
+    var pending = null;
+    var last = function (e) {
+      window.removeEventListener('keydown', last); if (pending !== e) return; pending = null;
+      if (e.defaultPrevented || !e.cancelable) return;
+      try { if (!takes(e)) e.preventDefault(); } catch (x) { /* left to the browser */ }
+    };
+    // Added while the key is on its way down, so it runs after every keydown listener the game put on window.
+    window.addEventListener('keydown', function (e) {
+      if (pending) { window.removeEventListener('keydown', last); pending = null; }
+      if (!AX[e.code] || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      pending = e; window.addEventListener('keydown', last);
+    }, true);
+    fix('scroll-keys', true);
+  })();
   // ---- creator feedback: the console asks for a picture of the game while its creator plays the preview. Only on the
   // preview, only for the game's owner, only when the platform's own page asks. The picture is what the creator sees:
   //   - every canvas is copied right after the game drew a frame (a WebGL canvas still holds that frame then, whatever
