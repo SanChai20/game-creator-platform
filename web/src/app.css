@@ -334,3 +334,24 @@
 .skill-md blockquote { padding-left: 12px; border-left: 3px solid var(--line); color: var(--text-2); }
 .skill-md a { color: var(--accent); }
 @media (max-width: 640px) { .skill-grid { padding: 14px; grid-template-columns: 1fr; } }
+
+/* The one-time Add to Home Screen tip (install-tip.tsx): a card in the game page's flow, under the stage and the buy
+   card (a full row of .gp-top, after both), so it never covers the game or the Play button. */
+.install-tip { position: relative; grid-column: 1 / -1; order: 1; display: flex; gap: 12px; align-items: flex-start; max-width: 620px; padding: 14px 40px 14px 14px; border-radius: 14px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
+.install-tip-ico { flex: none; width: 44px; height: 44px; border-radius: 11px; }
+.install-tip-body { display: grid; gap: 4px; justify-items: start; min-width: 0; }
+.install-tip-body b { font-size: 15px; }
+.install-tip-body span { color: var(--text-2); font-size: 13.5px; line-height: 1.45; }
+.install-tip-ok { margin-top: 6px; }
+.install-tip-x { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text-2); font-size: 22px; line-height: 1; cursor: pointer; }
+.install-tip-x:hover { background: var(--sunk); }
+
+/* Opened from the Home Screen (html.app, set in index.html): the page runs under a translucent status bar, so a strip
+   behind the clock and battery keeps them readable in either theme and the header starts below it. Like a native app,
+   the page does not rubber-band past its ends or pinch-zoom (index.html also pins the viewport's scale). A game in the
+   player covers the strip: it fills the whole screen and is told the safe-area insets. */
+html.app, html.app body { overscroll-behavior: none; }
+html.app { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
+html.app body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; z-index: calc(var(--z-nav) + 1); height: env(safe-area-inset-top, 0px); background: #111015; pointer-events: none; }
+html.app .nav { padding-top: env(safe-area-inset-top, 0px); }
+html.app .nav, html.app .tabbar { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }

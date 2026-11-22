@@ -4,11 +4,13 @@
 //   - Desktop Chrome and Edge: the Escape key is locked to the game (Keyboard Lock API), so a tap of Esc goes to the game
 //     and opens the platform menu (Resume, Exit fullscreen, Quit game) when the game does not use it. Holding Esc leaves,
 //     which the browser enforces. Firefox and Safari always leave fullscreen on Esc.
-//   - Android and iPad Safari: real fullscreen on the stage element, orientation locked to the game's. Swipes inside the
-//     game cannot pinch, zoom or scroll the page (the SDK guards the game's document too).
-//   - iPhone Safari has no element fullscreen, and a home-screen install is already full screen: there the stage fills
-//     the visible viewport ("immersive"), page scroll and pinch zoom off; the back gesture leaves it. Safari's own bars
-//     only leave when the page scrolls, so while they show the player asks for one swipe up (see tuck.ts).
+//   - Android: real fullscreen on the stage element, orientation locked to the game's. Swipes inside the game cannot
+//     pinch, zoom or scroll the page (the SDK guards the game's document too).
+//   - iPhone and iPad never get element fullscreen (install.ts): iPhone has none for a page, iPad's shows Safari's own
+//     "swipe down to exit" hint every time, and a Home Screen install is already full screen. There the stage fills the
+//     visible viewport ("immersive"), page scroll and pinch zoom off; the back gesture leaves it. Safari's own bars only
+//     leave when the page scrolls, so while they show the player asks for one swipe up (see tuck.ts). The way to have no
+//     bars at all is the Home Screen app, which the game page suggests once (install-tip.tsx).
 // Leaving fullscreen, however it happens, puts the game back in its window on the page; it keeps running.
 // The game is told what is going on through the SDK (GCP.display, GCP.onDisplay), can toggle fullscreen (GCP.fullscreen),
 // open the platform menu (GCP.menu) or quit (GCP.quit), and can keep Esc for itself (GCP.onEscape). Switching the
@@ -18,6 +20,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSS
 import { artStyle, getLang, t, useApp, useLang } from './lib';
 import { Button } from './ui';
 import { sanitizeControls, type TouchControls } from './touch-controls';
+import { elementFullscreen, isIOSDevice, thisDevice } from './install';
 import { barsShowing, tuckLook, tuckStart, type TuckState, type ViewportSizes } from './tuck';
 import './player.css';
 
@@ -59,7 +62,7 @@ export const isHandheld = () => mq('(pointer: coarse)') && mq('(hover: none)');
 /** Opened from the home screen (an installed web app): the page already has the whole screen and no browser bar. */
 const isInstalled = () => mq('(display-mode: fullscreen)') || mq('(display-mode: standalone)') || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 /** iPhone, iPad (which reports itself as a Mac with a touch screen) and iPod. */
-const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const isIOS = () => isIOSDevice(thisDevice());
 
 
 type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitFullscreenEnabled?: boolean; webkitExitFullscreen?: () => void };
@@ -311,12 +314,13 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
     if (unlock.current) return;
     unlock.current = lockPage(); setImmersive(true); pushPlay();
   }, [pushPlay]);
-  // Call it from a click or key press: browsers refuse fullscreen otherwise. On iPhone, and in an installed web app on
-  // iOS (already full screen, where a swipe would only drop an element fullscreen), the stage fills the viewport instead.
+  // Call it from a click or key press: browsers refuse fullscreen otherwise. On iPhone and iPad, in Safari and in the
+  // installed app alike, the stage fills the viewport instead (install.ts): iPad's element fullscreen shows Safari's
+  // "swipe down to exit" hint and closes on a swipe, iPhone has none, and the installed app already has the whole screen.
   const enter = useCallback(() => {
     const el = box.current as FsEl | null; if (!el || fsElement() === el || unlock.current) return;
     setTurned(false); setMenu(false); setHeld(false);
-    if (fsAvailable(el) && !(isIOS() && isInstalled())) requestFs(el).then(() => { lockOrientation(want); pushPlay(); }, goImmersive);
+    if (elementFullscreen(thisDevice(), fsAvailable(el))) requestFs(el).then(() => { lockOrientation(want); pushPlay(); }, goImmersive);
     else goImmersive();
   }, [want, goImmersive, pushPlay]);
   const exit = useCallback(() => {
