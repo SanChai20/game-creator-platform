@@ -10,7 +10,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 
 | Standard | Where | Checked |
 |---|---|---|
-| [Cover image](#cover) | The store | platform |
+| [Cover image](#cover) | The store | game_standards check |
 | [A cover per language](#cover-languages) | The store | platform |
 | [What the store draws over the cover](#card-overlays) | The store | by looking |
 | [Game title](#title) | The store | game_standards check |
@@ -51,7 +51,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 
 **Don't:** Close-up faces cut by the crops. Text near any edge.
 
-**Checked:** update_project answers with cover_check (size and shape); publish reminds about the safe area. The composition is yours to check by looking.
+**Checked:** update_project answers with cover_check (size and shape); game_standards check and publish warn when there is no cover (the store then crops the verification screenshot). The composition inside the safe area is yours to check by looking at the template.
 
 ![Cover image template](/guides/cover-template.png)
 
@@ -235,8 +235,9 @@ More: [standards.md#no-trailer](/guides/standards.md#no-trailer)
 
 ### Icons, logos and title art
 
-**Where:** Nowhere: there is no icon, favicon or logo slot. The title is set in text by the store; the Home Screen icon is the platform's.
+**Where:** Nowhere: there is no icon, favicon or logo slot. Where a store shows an icon, this one shows the cover, cropped to 16:10, as small as 64 px wide (search suggestions, "since you were away"). The title is set in text by the store; the Home Screen icon is the platform's.
 
+- The cover is the game's icon: its main subject must still read at 64 px wide, so keep it large and simple inside the cover's safe area.
 - Put the game's logo or title art on the cover and the game's own title screen only.
 - Do not draw the platform's logo (HearthCade) anywhere: the platform shows its own splash.
 
@@ -279,7 +280,7 @@ More: [services.md#what-the-platform-does-not-provide](/guides/services.md#what-
 
 **Don't:** Draw a platform logo or a second splash. Show a blank page, a stand-in font or text still being filled in.
 
-**Checked:** boots check (GCP.ready() in time). game_standards check notes a game that never reports progress.
+**Checked:** boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).
 
 More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/guides/platform-contract.md#the-platform-splash-before-your-loading-screen)
 
@@ -298,7 +299,7 @@ More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/gui
 
 **Don't:** Put a pause, score or health widget under the button. Hide it without a Quit of your own.
 
-**Checked:** game_standards check notes a game that never chooses a corner.
+**Checked:** Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button's square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.
 
 More: [standards.md#menu-button](/guides/standards.md#menu-button)
 
@@ -317,7 +318,7 @@ More: [standards.md#menu-button](/guides/standards.md#menu-button)
 
 **Don't:** Assume the frame is already inside the notch.
 
-**Checked:** device_iphone and device_ipad report UI drawn off screen. game_standards check warns when a game for phones never reads the insets.
+**Checked:** Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.
 
 ![Safe areas: notch, rounded corners, home bar template](/guides/safe-area-template.png)
 
