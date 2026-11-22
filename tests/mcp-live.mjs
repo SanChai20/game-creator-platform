@@ -9,6 +9,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { signUp } from './live-auth.mjs';
 
 const BASE = process.env.BASE; if (!BASE) throw new Error('Set BASE to the site origin.');
 const WS = BASE.replace(/^http/, 'ws');
@@ -33,8 +34,8 @@ const must = (r, code = 200) => { assert.equal(r.status, code, `expected ${code}
 const form = { raw: true, headers: { 'content-type': 'application/x-www-form-urlencoded' } };
 
 // ---- accounts: a creator who connects over OAuth like an agent, and a player with a normal sign-in
-const creator = client(), password = randomBytes(12).toString('base64url');
-must(await creator.post('/api/auth/signup', { email: `mcp-live-${run}@example.com`, name: 'MCP live ' + run, password }));
+const creator = client();
+await signUp(BASE, (p, b, h) => creator.post(p, b, { headers: h }), `mcp-live-${run}@example.com`, 'MCP live ' + run);
 const reg = must(await creator.post('/oauth/register', { client_name: 'MCP live test', redirect_uris: ['http://127.0.0.1:9999/cb'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] }), 201);
 const verifier = randomBytes(32).toString('base64url'), challenge = createHash('sha256').update(verifier).digest('base64url');
 const q = new URLSearchParams({ response_type: 'code', client_id: reg.client_id, redirect_uri: 'http://127.0.0.1:9999/cb', scope: 'games', state: 's', code_challenge: challenge, code_challenge_method: 'S256', resource: `${BASE}/mcp` });
@@ -44,7 +45,7 @@ const approve = await creator.post('/authorize?' + q, new URLSearchParams({ hand
 const tok = must(await creator.post('/oauth/token', new URLSearchParams({ grant_type: 'authorization_code', code: new URL(approve.headers.get('location')).searchParams.get('code'), redirect_uri: 'http://127.0.0.1:9999/cb', client_id: reg.client_id, code_verifier: verifier, resource: `${BASE}/mcp` }).toString(), form));
 
 const player = client();
-must(await player.post('/api/auth/signup', { email: `mcp-live-player-${run}@example.com`, name: 'Player ' + run, password }));
+await signUp(BASE, (p, b, h) => player.post(p, b, { headers: h }), `mcp-live-player-${run}@example.com`, 'Player ' + run);
 
 // ---- MCP helpers. mcp() never throws on a tool error: tests check both outcomes.
 let rpcId = 0;
@@ -98,7 +99,7 @@ await check('get_started: overview and a named guide', async () => {
   const g = await ok('get_started', { topic: 'multiplayer' });
   assert.ok(String(g.markdown || '').length > 100, 'multiplayer guide is empty');
 });
-await check('get_started: unknown topic is refused with the topic list', () => fails('get_started', { topic: 'nope' }, /No guide|Topics/));
+await check('get_started: unknown topic is refused with the topic list', () => fails('get_started', { topic: 'nope' }, /No guide|Topics|topic must be one of: contract/));
 
 // ---- 2. create_project
 await check('create_project: missing title is refused', () => fails('create_project', { tagline: 'no title' }));
@@ -145,7 +146,7 @@ await check('upload_files: the blank template uploads', async () => {
   assert.equal(d.written.length, blankFiles.length, JSON.stringify(d.written));
 });
 await check('upload_files: empty call is refused', () => fails('upload_files', { project: GAME.project }, /Nothing to do/));
-await check('upload_files: files given as a map instead of an array is refused', () => fails('upload_files', { project: GAME.project, files: { 'x.txt': 'hi' } }, /Nothing to do/));
+await check('upload_files: files given as a map instead of an array is refused', () => fails('upload_files', { project: GAME.project, files: { 'x.txt': 'hi' } }, /Nothing to do|files must be array/));
 await check('upload_files: a path that escapes the bundle is refused', () => fails('upload_files', { project: GAME.project, files: [{ path: '../evil.js', content: 'x' }] }, /not a valid path/));
 await check('upload_files: bad base64 is refused', () => fails('upload_files', { project: GAME.project, files: [{ path: 'art/bad.png', content: '!!!not base64@@', encoding: 'base64' }] }, /base64/));
 await check('upload_files: an executable is refused whatever its name', () => fails('upload_files', { project: GAME.project, files: [{ path: 'tool.exe', content: 'MZ' }] }));
@@ -225,8 +226,8 @@ await check('list_versions: unknown project is refused', () => fails('list_versi
 let liveOK = false;
 await check('publish: version that does not exist says so', () => fails('publish', { project: GAME.project, version: 999 }, /Version 999 does not exist/));
 await check('publish: a version that is not a whole number is refused', async () => {
-  await fails('publish', { project: GAME.project, version: 0 }, /whole number/);
-  await fails('publish', { project: GAME.project, version: 'abc' }, /whole number/);
+  await fails('publish', { project: GAME.project, version: 0 }, /whole number|version must be integer/);
+  await fails('publish', { project: GAME.project, version: 'abc' }, /whole number|version must be integer/);
 });
 await check('publish: with no versions yet, says there is nothing to publish', () => fails('publish', { project: EMPTY.project }, /no version to publish/));
 await check('publish: the verified version goes live', async () => {
@@ -314,7 +315,7 @@ await check('game_data: a value of 200 KB is accepted, then deleted', async () =
   await ok('game_data', { project: GAME.project, action: 'set', key: 'big', value: 'x'.repeat(200 * 1024) });
   await ok('game_data', { project: GAME.project, action: 'delete', key: 'big' });
 });
-await check('game_data: an unknown env is refused, not sent to live', () => fails('game_data', { project: GAME.project, action: 'summary', env: 'staging' }, /env must be "preview" or "live"/));
+await check('game_data: an unknown env is refused, not sent to live', () => fails('game_data', { project: GAME.project, action: 'summary', env: 'staging' }, /env must be "preview" or "live"|env must be one of: preview, live/));
 await check('game_data: preview data is kept apart from live data', async () => {
   await ok('game_data', { project: GAME.project, action: 'set', env: 'preview', key: 'preview-only', value: 1 });
   const live = await ok('game_data', { project: GAME.project, action: 'get', key: 'preview-only' });
@@ -422,8 +423,8 @@ await check('game_room: a default room is inspected when none is named', async (
   const d = await ok('game_room', { project: GAME.project });
   assert.equal(d.room, 'lobby');
 });
-await check('game_room: an unknown action is refused, not treated as inspect', () => fails('game_room', { project: GAME.project, action: 'nope' }, /inspect" or "reset/));
-await check('game_room: an unknown env is refused', () => fails('game_room', { project: GAME.project, env: 'staging' }, /env must be "preview" or "live"/));
+await check('game_room: an unknown action is refused, not treated as inspect', () => fails('game_room', { project: GAME.project, action: 'nope' }, /inspect"? or "?reset|one of: inspect, reset/));
+await check('game_room: an unknown env is refused', () => fails('game_room', { project: GAME.project, env: 'staging' }, /env must be "preview" or "live"|env must be one of: preview, live/));
 await check('game_room: unknown project is refused', () => fails('game_room', { project: 'does-not-exist-' + run }));
 await check('game_room: reset without kick clears the state and keeps players connected', async () => {
   if (!playToken) return SKIP;

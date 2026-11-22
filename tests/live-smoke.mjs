@@ -5,6 +5,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { signUp } from './live-auth.mjs';
 
 const BASE = process.env.BASE; if (!BASE) throw new Error('Set BASE to the site origin.');
 const run = randomBytes(3).toString('hex'), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -22,8 +23,8 @@ function client() {
 const must = (r, code = 200) => { assert.equal(r.status, code, `expected ${code}, got ${r.status}: ${r.text.slice(0, 300)}`); return r.json; };
 const form = { raw: true, headers: { 'content-type': 'application/x-www-form-urlencoded' } };
 
-const A = client(), email = `smoke-${run}@example.com`, password = randomBytes(12).toString('base64url');
-must(await A.post('/api/auth/signup', { email, name: 'Smoke ' + run, password }));
+const A = client(), email = `smoke-${run}@example.com`;
+await signUp(BASE, (p, b, h) => A.post(p, b, { headers: h }), email, 'Smoke ' + run);
 const reg = must(await A.post('/oauth/register', { client_name: 'Smoke test agent', redirect_uris: ['http://127.0.0.1:9999/cb'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] }), 201);
 const verifier = randomBytes(32).toString('base64url'), challenge = createHash('sha256').update(verifier).digest('base64url');
 const q = new URLSearchParams({ response_type: 'code', client_id: reg.client_id, redirect_uri: 'http://127.0.0.1:9999/cb', scope: 'games', state: 's', code_challenge: challenge, code_challenge_method: 'S256', resource: `${BASE}/mcp` });
@@ -40,7 +41,7 @@ const tool = async (name, args = {}) => {
   const text = j.result.content[0].text; if (j.result.isError) throw new Error(`${name}: ${text.slice(0, 600)}`);
   try { return JSON.parse(text); } catch { return text; }
 };
-const state = { base: BASE, email, password, token: tok.access_token, projects: {} };
+const state = { base: BASE, email, token: tok.access_token, projects: {} };
 const save = () => writeFileSync(process.env.SMOKE_STATE || 'smoke-state.json', JSON.stringify(state, null, 1));
 let failed = 0;
 const tplDir = new URL('../web/public/templates/', import.meta.url), tplIndex = JSON.parse(readFileSync(new URL('index.json', tplDir), 'utf8'));

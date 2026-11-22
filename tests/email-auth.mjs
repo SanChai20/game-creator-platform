@@ -117,3 +117,15 @@ test('nothing reads or writes a password any more', () => {
   assert.doesNotMatch(api + auth, /checkPassword|hashPassword|pw_hash = \?/);
   for (const f of ['Auth.tsx', 'Account.tsx']) assert.doesNotMatch(readFileSync(new URL(`../web/src/pages/${f}`, import.meta.url), 'utf8'), /type="password"/, f);
 });
+
+test('the live-test mailbox answers only @example.com, only with the exact secret', async () => {
+  const { testMailbox } = await import('../src/mail.ts');
+  const secret = 'x'.repeat(40), req = (h) => new Request('https://h/', { headers: h ? { 'x-test-mail': h } : {} });
+  assert.equal(testMailbox({ TEST_MAIL_TOKEN: secret }, req(secret), 'smoke-1@example.com'), true);
+  assert.equal(testMailbox({ TEST_MAIL_TOKEN: secret }, req(secret), 'someone@gmail.com'), false);
+  assert.equal(testMailbox({ TEST_MAIL_TOKEN: secret }, req(secret), 'a@example.com.evil.io'), false);
+  assert.equal(testMailbox({ TEST_MAIL_TOKEN: secret }, req('x'.repeat(39) + 'y'), 'a@example.com'), false);
+  assert.equal(testMailbox({ TEST_MAIL_TOKEN: secret }, req(), 'a@example.com'), false);
+  assert.equal(testMailbox({ TEST_MAIL_TOKEN: 'short' }, req('short'), 'a@example.com'), false);
+  assert.equal(testMailbox({}, req(''), 'a@example.com'), false);
+});

@@ -5,6 +5,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
+import { signUp } from './live-auth.mjs';
 
 const BASE = process.env.BASE; if (!BASE) throw new Error('Set BASE to the site origin.');
 const run = randomBytes(3).toString('hex'), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -26,8 +27,8 @@ const must = (r, code = 200) => { assert.equal(r.status, code, `expected ${code}
 const form = { raw: true, headers: { 'content-type': 'application/x-www-form-urlencoded' } };
 
 // ---- a creator who connects over OAuth like an agent
-const creator = client(), password = randomBytes(12).toString('base64url');
-must(await creator.post('/api/auth/signup', { email: `mcp-live-${run}@example.com`, name: 'MCP live ' + run, password }));
+const creator = client();
+await signUp(BASE, (p, b, h) => creator.post(p, b, { headers: h }), `mcp-live-${run}@example.com`, 'MCP live ' + run);
 const reg = must(await creator.post('/oauth/register', { client_name: 'MCP live test', redirect_uris: ['http://127.0.0.1:9999/cb'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] }), 201);
 const verifier = randomBytes(32).toString('base64url'), challenge = createHash('sha256').update(verifier).digest('base64url');
 const q = new URLSearchParams({ response_type: 'code', client_id: reg.client_id, redirect_uri: 'http://127.0.0.1:9999/cb', scope: 'games', state: 's', code_challenge: challenge, code_challenge_method: 'S256', resource: `${BASE}/mcp` });
@@ -86,7 +87,7 @@ step('bad steps refused before the browser; screenshot');
 
 // another account cannot debug or read this game
 const other = client();
-must(await other.post('/api/auth/signup', { email: `debug-other-${run}@example.com`, name: 'Other ' + run, password }));
+await signUp(BASE, (p, b, h) => other.post(p, b, { headers: h }), `debug-other-${run}@example.com`, 'Other ' + run);
 const reg2 = must(await other.post('/oauth/register', { client_name: 'Other agent', redirect_uris: ['http://127.0.0.1:9999/cb'], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'] }), 201);
 const v2 = randomBytes(32).toString('base64url'), q2 = new URLSearchParams({ response_type: 'code', client_id: reg2.client_id, redirect_uri: 'http://127.0.0.1:9999/cb', scope: 'games', state: 's', code_challenge: createHash('sha256').update(v2).digest('base64url'), code_challenge_method: 'S256', resource: `${BASE}/mcp` });
 const c2 = await other.get('/authorize?' + q2), h2 = c2.text.match(/name="handle" value="([^"]+)"/)[1].replace(/&#(\d+);/g, (_, n) => String.fromCharCode(n));
