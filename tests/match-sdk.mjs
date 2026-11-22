@@ -245,3 +245,36 @@ test('leaving a match on purpose tells the match, and rejoin() does not lead bac
   found(sdk4, sdk4.GCP.match.find({}));
   assert.equal(q.store.size, 0);
 });
+
+test('a page that comes back after a reload numbers its inputs on from the match, so they count at once', async () => {
+  // a real match core that has already taken 400 inputs from this player's first page
+  const got = []; let ws = null, clock = 0;
+  const core = new MatchCore({ tickRate: 10, rejoinMs: 600000, init: (c) => ({ players: Object.fromEntries(c.players.map((p) => [p.id, { x: 0 }])) }), input: (s, p, inp) => { s.players[p.id].x += Number(inp.mx) || 0; }, tick() {} },
+    { id: 'abc', roster: [{ id: 'me' }, { id: 'op' }], seed: 1 }, { now: () => clock, send: (id, t) => { if (id === 'me') { got.push(JSON.parse(t)); if (ws) ws.recv(JSON.parse(t)); } }, close() {}, report() {}, log() {} });
+  core.connect('me'); core.connect('op');
+  for (let i = 1; i <= 400; i++) { clock += 100; core.message('me', JSON.stringify({ t: 'i', n: i, d: { mx: 1 } })); core.step(); }
+  assert.equal(core.state.players.me.x, 400);
+  core.disconnect('me');
+  // the page is reloaded: a new SDK, which knows nothing of the old page's count
+  const p = platform(RUNNING), sdk = loadSdk(undefined, p.over), m = sdk.GCP.match.rejoin({});
+  await settle(); ws = sdk.sockets[0]; ws.open(); got.length = 0; core.connect('me');
+  assert.equal(got[0].t, 'hello'); assert.equal(got[0].n, 400, 'the match says where its count is');
+  m.input({ mx: 1 }); let read = 0;
+  for (let i = 0; i < 10; i++) { sdk.advance(100); clock += 100; for (const x of ws.sent.slice(read)) if (x.t === 'i') core.message('me', JSON.stringify(x)); read = ws.sent.length; core.step(); }
+  const sent = ws.sent.filter((x) => x.t === 'i');
+  assert.ok(sent[0].n === 401, 'the first input after the reload is number ' + sent[0].n);
+  assert.ok(core.state.players.me.x >= 408, 'the inputs of the new page are applied within the second: x is ' + core.state.players.me.x);
+});
+
+test('against a match built before it said its count, a page that comes back steps past what the match applied', async () => {
+  const p = platform(RUNNING), sdk = loadSdk(undefined, p.over), m = sdk.GCP.match.rejoin({});
+  await settle(); const ws = sdk.sockets[0]; ws.open();
+  ws.recv({ t: 'hello', you: 'me', match: 'abc', tickRate: 10, maxRewindMs: 0, phase: 'running', k: 3000, players: RUNNING.players, ack: 2990 });
+  m.input({ mx: 1 }); sdk.advance(300);
+  const sent = ws.sent.filter((x) => x.t === 'i');
+  assert.ok(sent.length >= 2 && sent[0].n > 2990 + 100, 'numbered past the old page: ' + sent[0].n);
+  // a connection that merely dropped and came back keeps counting upward (never back)
+  ws.recv({ t: 'hello', you: 'me', match: 'abc', tickRate: 10, maxRewindMs: 0, phase: 'running', k: 3010, players: RUNNING.players, ack: 2995 });
+  sdk.advance(300); const all = ws.sent.filter((x) => x.t === 'i').map((x) => x.n);
+  assert.ok(all.every((n, i) => i === 0 || n > all[i - 1]), 'numbers only go up');
+});

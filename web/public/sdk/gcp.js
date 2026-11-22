@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.6.0', fixes: {} };
+  var RT = S.runtime = { version: '2.6.1', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -806,6 +806,13 @@
           tries = 0; self.id = m.match; self.you = m.you; self.tickRate = m.tickRate; tickMs = 1000 / m.tickRate; self.players = m.players; self.maxRewindMs = m.maxRewindMs;
           if (m.ack > self.ack) self.ack = m.ack;
           pending = pending.filter(function (p) { return p.n > self.ack; });
+          // The match takes only inputs numbered above the last it saw from this player. A page that comes back to a
+          // running match (a reload: rejoin()) would start counting at zero again, and everything it sent would be
+          // ignored until its count had passed the old page's: carry on from where the match is (hello.n). A match
+          // built before it said so tells only what it applied (ack); what it merely received is a burst beyond that
+          // at most, so a step past it is enough. Numbers need only go up, never be consecutive.
+          var from = m.n != null ? Number(m.n) : (rejoin || m.ack > 0) ? (Number(m.ack) || 0) + 256 : 0;
+          if (from > n) n = from;
           if (m.phase === 'running') start();
           clearInterval(pingTimer); pingTimer = setInterval(function () { if (ws && ws.readyState === 1) { var k = Math.random(); pings[k] = performance.now(); ws.send(JSON.stringify({ t: 'p', n: k })); } }, 2000);
         }

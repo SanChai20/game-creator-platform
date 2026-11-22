@@ -172,7 +172,7 @@ export class MatchCore {
     if (!p || p.final || this.phase === 'ended') return false;
     const back = p.left && p.joined;   // away past the grace time, and back within the game's rejoinMs
     p.connected = true; p.goneAt = 0; p.left = false; p.leftAt = 0; p.prev = null; p.queue = [];   // a fresh connection gets a full snapshot
-    this.sendTo(p, { t: 'hello', you: p.id, match: this.id, tickRate: this.def.tickRate, snapshotRate: this.def.tickRate / this.def.snapEvery, maxRewindMs: this.def.maxRewindMs, phase: this.phase, k: this.tick, players: this.roster(), ack: p.ack });
+    this.sendTo(p, { t: 'hello', you: p.id, match: this.id, tickRate: this.def.tickRate, snapshotRate: this.def.tickRate / this.def.snapEvery, maxRewindMs: this.def.maxRewindMs, phase: this.phase, k: this.tick, players: this.roster(), ack: p.ack, n: p.lastN });   // n: the page numbers its inputs on from here (a reloaded page would start at zero and be ignored)
     if (this.phase === 'waiting') { this.broadcast({ t: 'wait', players: this.roster() }); this.maybeStart(); }
     else if (this.phase === 'running') {
       this.broadcast({ t: 'players', players: this.roster() });
