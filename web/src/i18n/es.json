@@ -2119,5 +2119,8 @@
  "Here your test players stand in for them: invite one as a player invites a friend, and it answers and joins through the real invite path.": "Aquí tus jugadores de prueba los sustituyen: invita a uno como un jugador invita a un amigo, y responde y se une por el camino real de invitación.",
  "No test players are running": "No hay jugadores de prueba en marcha",
  "Start a few and they show here as your online friends.": "Inicia algunos y aparecerán aquí como tus amigos en línea.",
- "Start 3 test players": "Iniciar 3 jugadores de prueba"
+ "Start 3 test players": "Iniciar 3 jugadores de prueba",
+ "Your game has to teach the bots a few things": "Tu juego tiene que enseñar algunas cosas a los bots",
+ "The platform connects the bots, finds their matches and rooms, and handles invites and the network. What needs your game's rules (saying hello, marking ready, picking, moving) only your game's server/bot.js can do. Ask your agent to add what is missing:": "La plataforma conecta a los bots, les busca partidas y salas, y se ocupa de las invitaciones y la red. Lo que necesita las reglas de tu juego (saludar, marcarse listo, elegir, moverse) solo puede hacerlo el server/bot.js de tu juego. Pide a tu agente que añada lo que falta:",
+ "The bots are stuck: your game has not told them what to do": "Los bots están atascados: tu juego no les ha dicho qué hacer"
 }

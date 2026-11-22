@@ -174,6 +174,17 @@ so a single play-through can prove two players agree.
 
 ## Testing
 
+### Test bots: ship `server/bot.js`
+
+Every room game ships `server/bot.js` with a `room(ctx)` hook, so creators can fill the preview with the platform's test
+bots. The platform connects them, puts them in the room (they follow the creator, or come when invited as friends) and
+simulates their network. What your page sends in the room (a hello on `open`, ready, picks, moves) only your game knows,
+so `room(ctx)` returns those messages. Without it, bots sit in the room in silence and a lobby that waits for their ready
+never starts. If your invites carry `{ data: { room } }` and your page builds the room code from it, add `invite(join)`
+returning `{ room: <that code> }`. The contract and an example are in the bots guide (`get_started {topic: "bots"}`).
+
+### Two browsers
+
 Open the preview in two browser windows signed in as different players. The verifier first runs the game alone, so a multiplayer game must still boot, render and call `GCP.ready()` with nobody else in the room.
 
 ### The two-player check

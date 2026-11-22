@@ -5,11 +5,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, t, useAct } from './lib';
-import { Badge, Button, Input, RowMenu, Select, Table } from './ui';
+import { Badge, Button, Input, Notice, RowMenu, Select, Table } from './ui';
 import './social.css';
 
 type Opts = {
-  enabled: boolean; game: { matches: boolean; bot_logic: boolean; players: { min?: number; max?: number } };
+  enabled: boolean; game: { matches: boolean; bot_logic: boolean; players: { min?: number; max?: number }; needs?: { message: string; hint: string }[] };
   limits: { bots: number; minutes: number; daily_bot_minutes: number; used_today: number };
   profiles: Record<string, { label: string; latency_ms: number; jitter_ms: number; loss_percent: number }>; regions: Record<string, string>;
 };
@@ -21,7 +21,7 @@ type Bot = {
   friend?: 'online' | 'busy';
 };
 type Answer = { id: string; bot: string; name: string; accepted: boolean; at: string; why?: string };
-type Status = { invites?: Answer[]; running: boolean; region?: string; region_name?: string; target?: string; following?: string | null; seconds_left?: number; brain?: { note: string; kind: string }; bots?: Bot[]; log?: string[]; last?: any; ended?: any };
+type Status = { invites?: Answer[]; needs?: { hook: string; message: string }[]; running: boolean; region?: string; region_name?: string; target?: string; following?: string | null; seconds_left?: number; brain?: { note: string; kind: string }; bots?: Bot[]; log?: string[]; last?: any; ended?: any };
 
 const PHASE: Record<string, 'good' | 'info' | 'bad' | 'neutral' | 'accent'> = { idle: 'neutral', searching: 'info', connecting: 'info', waiting: 'info', playing: 'good', 'in room': 'good', reconnecting: 'accent', away: 'accent', ended: 'neutral', out: 'bad', left: 'neutral', stopped: 'neutral' };
 const phaseName = (p: string) => ({
@@ -118,7 +118,8 @@ export function TestPlayers({ projectId, players }: { projectId: string; players
 
       {!running && opts && <div className="stack" style={{ gap: 8 }}>
         {!opts.game.matches && <span className="mute fs-sm">{t('This preview has no server/match.js: bots can still join rooms (GCP.room).', '这个预览没有 server/match.js：机器人仍然可以加入房间（GCP.room）。')}</span>}
-        <span className="mute fs-sm">{opts.game.bot_logic ? t('Bots play with the game\'s own server/bot.js.', '机器人使用游戏自己的 server/bot.js 进行游戏。') : t('This preview has no server/bot.js, so bots join and stay connected but send no inputs. Ask your agent to add one (get_started topic "bots").', '这个预览没有 server/bot.js，所以机器人会加入并保持连接，但不会发送操作。让你的智能体添加一个（get_started 主题 "bots"）。')}</span>
+        {opts.game.needs?.length ? <Notice tone="accent" title={t('Your game has to teach the bots a few things', '你的游戏需要教会机器人一些事')}><span className="fs-sm">{t('The platform connects the bots, finds their matches and rooms, and handles invites and the network. What needs your game\'s rules (saying hello, marking ready, picking, moving) only your game\'s server/bot.js can do. Ask your agent to add what is missing:', '平台负责连接机器人、为它们找对局和房间，并处理邀请和网络。需要游戏规则的部分（打招呼、准备、选择、行动）只有游戏自己的 server/bot.js 能做。请让你的智能体补上缺少的部分：')}</span><ul className="fs-sm" style={{ margin: '6px 0 0', paddingLeft: 18 }}>{opts.game.needs.map((n, i) => <li key={i}>{n.message}</li>)}</ul></Notice>
+          : <span className="mute fs-sm">{opts.game.bot_logic ? t('Bots play with the game\'s own server/bot.js.', '机器人使用游戏自己的 server/bot.js 进行游戏。') : t('This preview has no server/bot.js, so bots join and stay connected but send no inputs. Ask your agent to add one (get_started topic "bots").', '这个预览没有 server/bot.js，所以机器人会加入并保持连接，但不会发送操作。让你的智能体添加一个（get_started 主题 "bots"）。')}</span>}
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
           <label className="stack" style={{ gap: 2 }}><span className="dim fs-sm">{t('Bots', '机器人数量')}</span><Input type="number" min={1} max={opts.limits.bots} value={form.bots || ''} onChange={(e) => setForm({ ...form, bots: Math.max(1, Math.min(opts.limits.bots, Number(e.target.value) || 1)) })} style={{ width: 80 }} /></label>
           <label className="stack" style={{ gap: 2 }}><span className="dim fs-sm">{t('Where they go', '加入方式')}</span>
@@ -146,7 +147,8 @@ export function TestPlayers({ projectId, players }: { projectId: string; players
       </div>}
 
       {running && <>
-        {st?.brain?.kind !== 'game' && st?.brain?.note && <span className="mute fs-sm">{st.brain.note}</span>}
+        {st?.needs?.length ? <Notice tone="bad" title={t('The bots are stuck: your game has not told them what to do', '机器人卡住了：你的游戏还没告诉它们该做什么')}><ul className="fs-sm" style={{ margin: 0, paddingLeft: 18 }}>{st.needs.map((n) => <li key={n.hook}>{n.message}</li>)}</ul></Notice>
+          : st?.brain?.kind !== 'game' && st?.brain?.note && <span className="mute fs-sm">{st.brain.note}</span>}
         {st?.target === 'follow' && !st.following && <span className="mute fs-sm">{t('Start a match or open a room in your game above: the bots join you through the real matchmaker.', '在上方的游戏中开始匹配或打开房间：机器人会通过真实的匹配系统加入你。')}</span>}
         <span className="mute fs-sm">{t('In this preview the bots are your online friends: invite them from your game\'s own Invite Friends, and they answer and join like friends do.', '在这个预览中，机器人就是你的在线好友：用游戏自己的“邀请好友”邀请它们，它们会像好友一样回复并加入。')}</span>
         <Table dense stickyEnd>

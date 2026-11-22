@@ -2120,5 +2120,8 @@
  "Here your test players stand in for them: invite one as a player invites a friend, and it answers and joins through the real invite path.": "ここではテストプレイヤーがフレンドの代わりです。フレンドを招待するように招待すると、本物の招待の流れで返事をして参加します。",
  "No test players are running": "動いているテストプレイヤーはいません",
  "Start a few and they show here as your online friends.": "いくつか開始すると、オンラインのフレンドとしてここに表示されます。",
- "Start 3 test players": "テストプレイヤーを 3 体開始"
+ "Start 3 test players": "テストプレイヤーを 3 体開始",
+ "Your game has to teach the bots a few things": "ゲームがボットに教える必要があることがあります",
+ "The platform connects the bots, finds their matches and rooms, and handles invites and the network. What needs your game's rules (saying hello, marking ready, picking, moving) only your game's server/bot.js can do. Ask your agent to add what is missing:": "プラットフォームはボットの接続、対戦やルームの検索、招待とネットワークを担当します。ゲームのルールが必要なこと（あいさつ、準備完了、選択、行動）は、ゲーム自身の server/bot.js だけができます。足りない部分をエージェントに追加してもらってください：",
+ "The bots are stuck: your game has not told them what to do": "ボットが止まっています：ゲームがボットにすべきことを伝えていません"
 }

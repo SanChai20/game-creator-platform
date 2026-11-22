@@ -9,6 +9,8 @@ import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf 
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
 import { regionBlockedRefs, regionWarning } from './region-hosts.js';
+// @ts-ignore plain JS module
+import { botContract, botIssues } from './bot-contract.js';
 // @ts-ignore plain JS module shared with the tests
 import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
@@ -208,6 +210,7 @@ export interface Manifest {
   minSafari?: number;            // the oldest Safari (iPhone, iPad) that can load all of the code, when newer than the baseline (src/device-checks.js)
   hasServer?: boolean;
   hasMatch?: boolean;            // server/match.js: server-run matches
+  bots?: { online: boolean; match: boolean; room: boolean; invites: boolean; file: boolean; hooks: { think: boolean; actions: boolean; room: boolean; invite: boolean } };   // the test-bot contract (bot-contract.js)
   /** What this version needs from the player's browser: declared in gcp.json "requirements", merged with what the code shows. */
   compat?: Compat;
   /** The build layer of the game metadata: languages, players, session, progress, accessibility, content and the age rating. */
@@ -440,6 +443,9 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
       if (paths.has('server/match.js')) manifest.hasMatch = true;
     }
   }
+  // Online games: what their test bots need from server/bot.js (the platform does the rest; see bot-contract.js)
+  const bc = botContract(texts, paths);
+  if (bc.online) { manifest.bots = bc; for (const i of botIssues(bc)) warn(i); }
   // iPhone and iPad: what in the code the game runtime cannot fill in for Safari (newer syntax, missing features, Ogg-only sound).
   const dev = deviceIssues(deviceFiles, [...paths]);
   for (const i of dev.issues) warn(i);

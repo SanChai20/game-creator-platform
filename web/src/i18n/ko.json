@@ -2120,5 +2120,8 @@
  "Here your test players stand in for them: invite one as a player invites a friend, and it answers and joins through the real invite path.": "여기서는 테스트 플레이어가 친구를 대신합니다. 친구를 초대하듯 초대하면 실제 초대 경로로 답하고 참가합니다.",
  "No test players are running": "실행 중인 테스트 플레이어가 없습니다",
  "Start a few and they show here as your online friends.": "몇 개를 시작하면 여기에 온라인 친구로 표시됩니다.",
- "Start 3 test players": "테스트 플레이어 3개 시작"
+ "Start 3 test players": "테스트 플레이어 3개 시작",
+ "Your game has to teach the bots a few things": "게임이 봇에게 알려 줘야 할 것이 있습니다",
+ "The platform connects the bots, finds their matches and rooms, and handles invites and the network. What needs your game's rules (saying hello, marking ready, picking, moving) only your game's server/bot.js can do. Ask your agent to add what is missing:": "플랫폼은 봇 연결, 대전과 방 찾기, 초대와 네트워크를 맡습니다. 게임 규칙이 필요한 일(인사, 준비, 선택, 행동)은 게임 자체의 server/bot.js만 할 수 있습니다. 빠진 부분을 에이전트에게 추가해 달라고 하세요:",
+ "The bots are stuck: your game has not told them what to do": "봇이 멈췄습니다: 게임이 봇에게 할 일을 알려 주지 않았습니다"
 }

@@ -4,22 +4,31 @@
 // connections, the network conditions and the stats stay in the platform's BotFleet Durable Object: this module only
 // answers "here is what each bot sees, what does it do?".
 //
-// server/bot.js (all optional; without the file, bots join and stay connected but send nothing):
+// The bot contract. The platform does everything that is the same in every game: the bot's session, finding a match
+// (or entering a room), invites, the connection and its network, reconnects. Everything that needs the game's own rules
+// is server/bot.js's job, written with the game: saying hello, marking ready, picking a hero, every move in a match.
+// Without the file, bots join and stay connected but never send anything, so a lobby that waits for them waits forever.
 //
 //   export default {
-//     thinkMs: 500,                          // how often think() runs for each bot, 50 to 10000 ms (default 250)
-//     think(view, me, ctx) { return input }, // a match: view is what match.state is in the page (the bot's own view
-//                                            // from server/match.js), me the bot's player id. Return one input (what
-//                                            // the page would pass to match.input), or null/undefined to send nothing.
+//     thinkMs: 500,                          // how often think() / room() run for each bot, 50 to 10000 ms (default 250)
+//     think(view, me, ctx) { return input }, // a match (server/match.js): view is what match.state is in the page (the
+//                                            // bot's own view), me its player id. Return one input (what the page would
+//                                            // pass to match.input), or null/undefined to send nothing now.
 //     actions(view, me, ctx) { return [] },  // instead of think: the inputs that are valid now; the bot sends one of
 //                                            // them, picked at random (the generic bot)
-//     room(ctx) { return [{ d, to }] },      // a room (GCP.room): messages to send now; ctx.messages are the ones
-//                                            // received since the last call, ctx.state the room's snapshot
+//     room(ctx) { return [{ d, to }] },      // a room (GCP.room): the messages to send now ({ d } to everyone, { d, to }
+//                                            // to one peer). ctx.me, ctx.room, ctx.host, ctx.peers, ctx.state (the
+//                                            // room's state), ctx.messages (arrived since the last call, { from, d }),
+//                                            // ctx.joined (true on the first call after entering or re-entering).
+//     invite(join, ctx) { return where },    // an invite the bot accepted (join is GCP.launch.join's value). Return
+//                                            // { room: code } for the GCP.room code the game would open, { match: true }
+//                                            // to enter the invited match (GCP.match.join), or null to stay. Without it:
+//                                            // a match invite enters the match, data.room enters that room as named.
 //   };
 //
 // ctx: { tick, phase, players, events (match events since the last call), elapsed (ms since the bot joined), random()
 // (seeded per bot), memory (an object kept for this bot between calls, at most 8 KB as JSON), skill (0 to 1, set by the
-// creator for each bot), name }.
+// creator for each bot), name }, plus the room fields above in a room.
 import bot from './server/bot.js';
 
 const MEM_MAX = 8 * 1024;
@@ -29,7 +38,7 @@ const rngOf = (seed) => { let a = (Number(seed) >>> 0) || 0x9e3779b9; return () 
 export function describe(def) {
   const d = def && typeof def === 'object' ? def : null;
   return {
-    think: !!d && typeof d.think === 'function', actions: !!d && typeof d.actions === 'function', room: !!d && typeof d.room === 'function',
+    think: !!d && typeof d.think === 'function', actions: !!d && typeof d.actions === 'function', room: !!d && typeof d.room === 'function', invite: !!d && typeof d.invite === 'function',
     thinkMs: d && Number.isFinite(Number(d.thinkMs)) ? Math.max(50, Math.min(10_000, Math.round(Number(d.thinkMs)))) : 250,
   };
 }
@@ -41,9 +50,16 @@ export function runOne(def, c) {
   const random = rngOf((Number(c.seed) >>> 0) + (Number(c.calls) || 0) * 7919);
   const ctx = { tick: c.tick ?? null, phase: c.phase || null, players: Array.isArray(c.players) ? c.players : [], events: Array.isArray(c.events) ? c.events : [],
     elapsed: Number(c.elapsed) || 0, random, memory: mem, skill: Number.isFinite(Number(c.skill)) ? Number(c.skill) : 1, name: String(c.name || ''),
-    messages: Array.isArray(c.messages) ? c.messages : [], state: c.state === undefined ? null : c.state, peers: Array.isArray(c.peers) ? c.peers : [], host: c.host ?? null };
+    messages: Array.isArray(c.messages) ? c.messages : [], state: c.state === undefined ? null : c.state, peers: Array.isArray(c.peers) ? c.peers : [], host: c.host ?? null,
+    me: c.me ?? null, room: c.room ?? null, joined: !!c.joined, isHost: c.me != null && c.me === c.host };
   const keep = () => { try { const s = JSON.stringify(ctx.memory ?? {}); return s.length <= MEM_MAX ? JSON.parse(s) : { _dropped: 'memory over 8 KB' }; } catch { return {}; } };
   try {
+    if (c.kind === 'invite') {
+      if (!d.invite) return { go: null, memory: keep() };
+      const w = def.invite(c.join || null, ctx);
+      const go = w == null ? null : w === 'match' || (w && w.match === true) ? { match: true } : w && typeof w.room === 'string' && w.room ? { room: w.room.slice(0, 80) } : null;
+      return { go, stay: w == null, memory: keep() };
+    }
     if (c.kind === 'room') {
       if (!d.room) return { send: [] };
       const out = def.room(ctx);
