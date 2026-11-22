@@ -2160,6 +2160,7 @@
  "Friends: your friend code, your friends and friend requests, who you blocked, your status and privacy choices, your chat messages with friends, game invites, and reports you send.": "好友資訊：你的好友代碼、好友與好友請求、你封鎖的人、你的狀態與隱私設定、你與好友的聊天訊息、遊戲邀請，以及你提交的檢舉。",
  "Friends: your friends see your status and, unless you hide it in your privacy settings, which game you are playing and for how long. A game you play can list your friends and their status so you can invite them. People can find you by your friend code, and by your name if you allow it.": "好友：你的好友可以看到你的狀態，以及（除非你在隱私設定中隱藏）你正在玩的遊戲和時長。你遊玩的遊戲可以列出你的好友及其狀態，方便你邀請他們。別人可以透過好友代碼找到你，在你允許時也可以透過名稱找到你。",
  "Chat messages are deleted {days} days after they are sent, and at once when you or the friend you chatted with deletes their account. Your friends, friend requests, blocks and invites are deleted with your account. Reports about abuse are kept so we can act on them.": "聊天訊息在傳送 {days} 天後刪除；你或與你聊天的好友刪除帳號時會立即刪除。你的好友、好友請求、封鎖記錄和邀請會隨你的帳號一併刪除。關於濫用的檢舉會被保留，以便我們處理。",
+ "Read the cover image spec": "閱讀封面圖規範",
  "Wait for my invites (as friends)": "等我邀請（作為好友）",
  "waiting for your invites": "等待你的邀請",
  "In this preview the bots are your online friends: invite them from your game's own Invite Friends, and they answer and join like friends do.": "在這個預覽中，機器人就是你的線上好友：用遊戲自己的「邀請好友」邀請它們，它們會像好友一樣回覆並加入。",

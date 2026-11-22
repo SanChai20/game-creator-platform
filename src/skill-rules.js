@@ -16,7 +16,7 @@ export const SKILL_OUTLINE = [
   { heading: 'Content and progression', ask: 'Levels, waves, unlocks, balance, difficulty curve, saves and what the player keeps between sessions.' },
   { heading: 'Platform services', ask: 'Which platform services the game uses (saves, leaderboards, rooms, matches, server code) and how, by name, not by code.' },
   { heading: 'Performance', ask: 'Budgets and the techniques that kept frame time inside them on phones.' },
-  { heading: 'Testing and release', ask: 'The play-through hook, what verification checks, how a release is prepared, and what to check by hand.' },
+  { heading: 'Testing and release', ask: 'The play-through hook, what verification checks, how a release is prepared, and what to check by hand; and the store cover: how it was made (1920x1080, title and main subject inside the safe area x 30%-80%, y 12%-86%, a cover per language when it shows the title) and how it was checked in the banner, card and thumbnail crops.' },
   { heading: 'Pitfalls', ask: 'What went wrong while building it and how it was solved, so another agent avoids it.' },
 ];
 

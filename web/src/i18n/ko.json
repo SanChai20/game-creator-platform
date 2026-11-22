@@ -2139,6 +2139,7 @@
  "Friends: your friend code, your friends and friend requests, who you blocked, your status and privacy choices, your chat messages with friends, game invites, and reports you send.": "친구: 친구 코드, 친구와 친구 요청, 차단한 사람, 상태와 개인정보 설정, 친구와의 채팅 메시지, 게임 초대, 내가 보낸 신고.",
  "Friends: your friends see your status and, unless you hide it in your privacy settings, which game you are playing and for how long. A game you play can list your friends and their status so you can invite them. People can find you by your friend code, and by your name if you allow it.": "친구: 친구는 내 상태를 볼 수 있으며, 개인정보 설정에서 숨기지 않는 한 내가 플레이 중인 게임과 플레이 시간도 볼 수 있습니다. 내가 플레이하는 게임은 초대할 수 있도록 내 친구와 그 상태를 표시할 수 있습니다. 다른 사람은 친구 코드로, 내가 허용하면 이름으로도 나를 찾을 수 있습니다.",
  "Chat messages are deleted {days} days after they are sent, and at once when you or the friend you chatted with deletes their account. Your friends, friend requests, blocks and invites are deleted with your account. Reports about abuse are kept so we can act on them.": "채팅 메시지는 보낸 지 {days}일 후에 삭제되며, 나 또는 채팅한 친구가 계정을 삭제하면 즉시 삭제됩니다. 친구, 친구 요청, 차단, 초대는 계정과 함께 삭제됩니다. 악용 신고는 조치를 위해 보관됩니다.",
+ "Read the cover image spec": "커버 이미지 사양 읽기",
  "Wait for my invites (as friends)": "내 초대를 기다리기 (친구로)",
  "waiting for your invites": "초대를 기다리는 중",
  "In this preview the bots are your online friends: invite them from your game's own Invite Friends, and they answer and join like friends do.": "이 미리보기에서는 봇이 내 온라인 친구입니다. 게임 자체의 친구 초대로 초대하면 친구처럼 답하고 참가합니다.",

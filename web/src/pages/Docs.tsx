@@ -121,7 +121,7 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
               t('Publishing is refused until the required fields are on record. Rolling back is never blocked.', '在必填字段齐全之前，发布会被拒绝。回滚永远不受影响。'),
               t('The platform scans the code at every deploy. Anything the declaration leaves out is shown as detected, and anything that disagrees with the code is reported to your agent.', '平台在每次部署时都会扫描代码。声明中缺少的内容会以“检测得出”的形式显示，与代码不符的地方会报告给你的智能体。'),
             ]} />
-            <p><a className="sig" href="/guides/game-metadata.md" target="_blank" rel="noreferrer">{t('Read the full metadata specification', '阅读完整的元数据规范')} →</a></p>
+            <p><a className="sig" href="/guides/game-metadata.md" target="_blank" rel="noreferrer">{t('Read the full metadata specification', '阅读完整的元数据规范')} →</a> · <a className="sig" href="/guides/game-metadata.md#cover-image" target="_blank" rel="noreferrer">{t('Read the cover image spec', '阅读封面图规范')} →</a></p>
           </section>
 
           <section id="services">

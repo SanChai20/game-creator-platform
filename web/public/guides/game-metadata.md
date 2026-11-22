@@ -187,10 +187,39 @@ The cover is the one image the store shows for a game (the game page also shows 
 update_project { "project": "…", "cover": "cover-en.jpg", "covers": { "zh": "cover-zh.jpg", "zh-TW": "cover-zh.jpg", "ja": "cover-ja.jpg" } }
 ```
 
-- `cover` is the cover of the listing's own language, and of every language without a cover of its own; `covers` sets one per platform language (workspace paths, png, jpg or webp under 2 MB, 16:9). `null` removes one.
+- `cover` is the cover of the listing's own language, and of every language without a cover of its own; `covers` sets one per platform language (workspace paths, png, jpg or webp under 2 MB, 16:9; see [Cover image](#cover-image)). `null` removes one.
 - A language without its own cover shows the main cover, so a game without per-language covers should keep text off the cover or keep it language-neutral.
 
 The game page's Languages table shows, for each language, whether the store page is in it.
+
+### Cover image
+
+The cover is the game's poster: the home page banner, store cards, shelves, search, the library and the game page all show it, and each one crops it differently. Without a cover the store uses the verification screenshot, which is a frame of the game with its interface and almost never survives those crops, so design one.
+
+![Cover template: the safe area and every crop](/guides/cover-template.png)
+
+[Download the template](/guides/cover-template.png) and lay the cover out on it.
+
+| | |
+|---|---|
+| Size | 1920×1080 (16:9), at least 1280×720. png, jpg or webp, under 2 MB. |
+| Safe area | The title and the main subject stay inside **x 30%–80%, y 12%–86%** (576–1536 px across, 130–930 px down). This is what every crop keeps. |
+| Left 30% | Hidden behind the home page banner's info panel (the slanted panel with the name, price and Play button). Background only: no title, no faces. |
+| Right edge | The narrowest banner cuts from about 81%. |
+| Cards | 16:10: the sides lose 5.6% each. |
+| Shelves | 16:7: the top and bottom lose 11% each. |
+| Phone banner | 16:10 with the bottom-right corner cut off. |
+| Thumbnails | Down to 96 px wide; the title must still read at 240 px wide. |
+
+How to lay it out:
+
+- Centre the composition on the safe area (about 55% across), not on the image, and keep the left 30% for scenery that continues the background.
+- Make the title large: cap height of at least 90 px at 1080 high. Put it in the lower third of the safe area, over a darkened band, or centred over the scene.
+- Show whole characters in a wide scene. A close-up that fills the frame turns into a crop of a face once the banner cuts the left 30%.
+- No frame, border or text near the edges: every crop cuts through it.
+- When the title is text, make one cover per listing language with the title in that language (`covers`, below). A cover with two languages on it crowds both.
+
+Before setting the cover, look at it the way the store will show it: crop it to the safe area, to 16:10 and to 16:7, and scale it to 240 px wide. The title and the main subject must be whole and readable in each. `update_project` answers with `cover_check`, the image's size and anything wrong with it, and `publish` reminds you while the store still uses the screenshot.
 
 ## Players
 
