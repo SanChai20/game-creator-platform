@@ -184,13 +184,14 @@ export function kinship(a, b) {
   let verdict = 'different';
   if (sameTitle) why.push(`the same title "${b.title}"`);
   if (sameTagline) why.push('the same tagline');
-  if (shared.length >= 8 && nameShare >= 0.4) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')}…)`);
+  // many shared names are a copy; a handful (a rebuild that only changed its title) is a closer look
+  if ((shared.length >= 8 && nameShare >= 0.4) || shared.length >= 15) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')}…)`);
   if (why.length) verdict = 'copy';
-  else if (titleSim >= 0.75 || taglineSim >= 0.8 || (shared.length >= 4 && nameShare >= 0.2) || (sameGenre && tags >= 0.5 && traits >= 0.7)) {
+  else if (titleSim >= 0.75 || taglineSim >= 0.8 || (shared.length >= 6 || (shared.length >= 4 && nameShare >= 0.2)) || (sameGenre && tags >= 0.5 && traits >= 0.7)) {
     verdict = 'similar';
     if (titleSim >= 0.75) why.push(`a title close to "${b.title}"`);
     if (taglineSim >= 0.8) why.push('a tagline close to its tagline');
-    if (shared.length >= 4 && nameShare >= 0.2) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')})`);
+    if (shared.length >= 6 || (shared.length >= 4 && nameShare >= 0.2)) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')})`);
     if (sameGenre && tags >= 0.5 && traits >= 0.7) why.push('the same genre and tags, built the same way');
   }
   return { verdict, why, same_title: sameTitle, title_sim: Math.round(titleSim * 100), same_tagline: sameTagline, tagline_sim: Math.round(taglineSim * 100), same_genre: sameGenre, tags_overlap: Math.round(tags * 100), shared_names: shared.length, names_share: Math.round(nameShare * 100), name_examples: shared.slice(0, 12), traits_overlap: Math.round(traits * 100) };
