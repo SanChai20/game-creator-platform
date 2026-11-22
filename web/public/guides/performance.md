@@ -26,6 +26,8 @@ The browser's Performance panel shows whether time goes to script, to rendering,
 
 ## Quality levels
 
+The platform has no quality setting of its own: the game's settings carry it. The [quality standard](./standards.md#quality) is the short version.
+
 Offer low, medium and high, pick a sensible default, remember the choice, and let the player change it.
 
 ```js
