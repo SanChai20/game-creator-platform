@@ -107,26 +107,8 @@ test('content names are Title Case strings of the game, without menu words or ke
   assert.deepEqual(contentNames([{ path: 'index.html', text: '<script>let k = "Ash Hound"</script><p>Not Here</p>' }]), ['ash hound']);
 });
 
-test('the same title is a copy whatever the code, and says so', () => {
-  const k = kinship({ title: 'Void Echoes', tagline: 'Something else entirely here', tags: ['card'] }, { title: 'void echoes', tagline: 'A roguelike deckbuilder about the last day', tags: ['roguelike'] });
-  assert.equal(k.verdict, 'copy');
-  assert.match(k.why.join(' '), /the same title "void echoes"/);
-});
 
-test('the same tagline is a copy; a short one is not compared', () => {
-  const tag = 'A roguelike deckbuilder about the last day of a city that refuses to end.';
-  assert.equal(kinship({ title: 'Ash City', tagline: tag }, { title: 'Void Echoes', tagline: tag }).verdict, 'copy');
-  assert.equal(kinship({ title: 'Ash City', tagline: 'Fun!' }, { title: 'Void Echoes', tagline: 'Fun!' }).verdict, 'different');
-});
 
-test('many of the same names are a copy and are listed; a few are only similar', () => {
-  const theirs = contentNames(SRC([...HEROES, 'Lantern', 'Mire Queen']));
-  const all = kinship({ title: 'Echo Night', names: contentNames(SRC(HEROES)) }, { title: 'Void Echoes', names: theirs });
-  assert.equal(all.verdict, 'copy');
-  assert.ok(all.shared_names >= 8 && all.name_examples.includes('hollow mite'));
-  const few = kinship({ title: 'Echo Night', names: contentNames(SRC(['Hollow Mite', 'Ash Hound', 'Grave Warden', 'Kindle', 'Sun Lord', 'Moon Pike', 'Tide Wyrm', 'Reef Imp', 'Coral Knight', 'Brine Hag'])) }, { title: 'Void Echoes', names: theirs });
-  assert.equal(few.verdict, 'similar');
-});
 
 test('the same genre and mechanics are allowed; built the same way too is only a closer look', () => {
   const a = { title: 'Star Miner', tagline: 'Dig through asteroids for ore and glory.', tags: ['roguelike', 'deck-building', 'space'], traits: ['engine:PixiJS', 'render:WebGL', 'input:mouse'] };

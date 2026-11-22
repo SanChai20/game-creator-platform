@@ -10,7 +10,7 @@ import { b64, dayOf, now, parseJson, sha256 } from './util';
 // @ts-ignore plain JS modules
 import { READABLE, analyzeBundle, isVendor } from './implementation.js';
 // @ts-ignore plain JS modules
-import { GAMENESS_QUESTIONS, JUDGE_QUESTIONS, PRINTS_VERSION, bundlePrints, compare, contentNames, distinctFile, facts4ai, gameness, identityKeys, IDENTITY_TITLE_WEIGHT, kinship, lookOf, sketchOf, traitsOf, visibleText } from './originality.js';
+import { GAMENESS_QUESTIONS, JUDGE_QUESTIONS, PRINTS_VERSION, bundlePrints, compare, CLEF_COPY, FLASH_SURE, contentNames, distinctFile, facts4ai, gameness, identityKeys, IDENTITY_TITLE_WEIGHT, judgeState, kinship, lookOf, sketchOf, traitsOf, visibleText } from './originality.js';
 // @ts-ignore plain JS module
 import { decodePng } from './craft-review.js';
 // @ts-ignore plain JS module
@@ -181,28 +181,31 @@ async function aiBudget(env: Env, purpose: string): Promise<boolean> {
 }
 /** How long an AI answer about one pair of games is reused. */
 const JUDGE_CACHE_MS = 30 * 86400000;
-/** The small model's answer stands only when it is at least this sure, and never when that answer is "copy". */
-export const FLASH_SURE = 0.85;
 /**
  * The copy judge, three stages with no person in the loop: the rules (kinship, compare) have already sent only a close
- * pair here. Stage 2 is the cheap decision model, clef-flash ($0.038 per M input tokens): a confident "derivative" or
- * "independent" is final. Anything else (unsure, or "copy", since the cheap model never blocks a publish on its own) goes
- * to stage 3, clef ($0.24 per M), whose most likely answer is the final decision. An answer for the same pair and
+ * pair here. Stage 2 is the cheap decision model, clef-flash ($0.038 per M input tokens): a "derivative" or "independent"
+ * at FLASH_SURE or more is final. Anything else (unsure, or "copy", since the cheap model never blocks a publish on its
+ * own) goes to stage 3, clef ($0.24 per M), which refuses from CLEF_COPY chance of "copy". Both read judgeState(state). An answer for the same pair and
  * measurements is reused for 30 days. Each model call counts against the daily cap. Null when no model could answer.
  */
 async function judgeCopy(env: Env, state: Record<string, unknown>): Promise<{ verdict: string; p: number; probabilities: Record<string, number>; model: string; final: boolean } | null> {
-  const key = await sha256(JSON.stringify(state));
+  // the key names the question's version, so answers to an older wording are never reused
+  const key = await sha256(JSON.stringify({ q: 2, state }));
   const hit = await env.DB.prepare('SELECT answer, created_at FROM dup_judgments WHERE key = ?').bind(key).first<{ answer: string; created_at: number }>().catch(() => null);
   if (hit && now() - hit.created_at < JUDGE_CACHE_MS) { const a = parseJson<any>(hit.answer, null); if (a?.final) return a; }
   const ask = async (model: 'clef' | 'clef-flash') => {
     if (!(await aiBudget(env, model === 'clef' ? 'dup_judge' : 'dup_judge_flash'))) return null;
-    const a = (await aiDecide(env, model, state, JUDGE_QUESTIONS as Record<string, Question>))?.verdict;
+    const a = (await aiDecide(env, model, judgeState(state), JUDGE_QUESTIONS as Record<string, Question>))?.verdict;
     return a?.type === 'choice' ? { verdict: a.choice, p: a.probabilities[a.choice] ?? a.confidence, probabilities: a.probabilities, model } : null;
   };
   const flash = await ask('clef-flash');
   let answer: { verdict: string; p: number; probabilities: Record<string, number>; model: string; final: boolean } | null =
     flash && flash.verdict !== 'copy' && flash.p >= FLASH_SURE ? { ...flash, final: true } : null;
-  if (!answer) { const big = await ask('clef'); answer = big ? { ...big, final: true } : flash ? { ...flash, final: false } : null; }
+  if (!answer) {
+    const big = await ask('clef');
+    // clef's chance of "copy" decides, not its top answer: copies sit at 38% and up, everything else at 15% or less
+    answer = big ? { ...big, verdict: Number(big.probabilities.copy || 0) >= CLEF_COPY ? 'copy' : big.verdict === 'copy' ? 'derivative' : big.verdict, p: Number(big.probabilities.copy || 0) >= CLEF_COPY ? Number(big.probabilities.copy) : big.p, final: true } : flash ? { ...flash, final: false } : null;
+  }
   // only final answers are kept: a stage-2 answer that could not be escalated is asked again next time
   if (answer?.final) await env.DB.prepare('INSERT OR REPLACE INTO dup_judgments (key, answer, created_at) VALUES (?, ?, ?)').bind(key, JSON.stringify(answer), now()).run().catch(() => {});
   return answer;
@@ -231,7 +234,7 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
     const other = await env.DB.prepare('SELECT * FROM versions WHERE project_id = ? AND n = ?').bind(top.project_id, top.version).first<Version>();
     const otherFacts = other ? analyzeBundle(await readTexts(env, other.project_id, other.n, parseJson<any[]>(other.files, [])), parseJson(other.report, {})) : null;
     const { listing: theirs, project_id: _p, version: _v, slug: _s, title: _t, verdict: _x, why: _w, identity: _i, kin, ...code } = top as any;
-    const measures = { ...code, title_sim: kin.title_sim, tagline_sim: kin.tagline_sim, same_genre: kin.same_genre, tags_overlap: kin.tags_overlap, shared_names: kin.shared_names, name_examples: kin.name_examples, traits_overlap: kin.traits_overlap };
+    const measures = { ...code, title_sim: kin.title_sim, tagline_sim: kin.tagline_sim, same_genre: kin.same_genre, tags_overlap: kin.tags_overlap, shared_names: kin.shared_names, names_share: kin.names_share, name_examples: kin.name_examples, traits_overlap: kin.traits_overlap };
     judged = await judgeCopy(env, { new_game: { listing, facts: facts4ai(me.facts) }, existing_game: { listing: theirs, facts: otherFacts && facts4ai(otherFacts) }, measurements: measures });
     // the final model's "copy" refuses; anything else, or no final answer (AI down, cap reached), lets the rules stand
     if (judged?.final && judged.verdict === 'copy') top = { ...top, verdict: 'copy' };
