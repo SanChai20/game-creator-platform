@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
 import { CompatGate, CompatPill, CompatSection, useCompat } from '../compat-ui';
-import { Stage, type StageCtl } from '../player';
+import { Stage, withPlayLang, type StageCtl } from '../player';
 import { encodeJoin, onLaunch, setActivity } from '../social';
 import { InstallTip } from '../install-tip';
 import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
@@ -66,7 +66,7 @@ function MatureGate({ cats, onConfirm, onCancel }: { cats: string[]; onConfirm: 
 
 /** The play URL with the viewer's platform language, read by the SDK as GCP.lang. */
 const withJoin = (u: string, j: string | null) => { if (!j) return u; try { const x = new URL(u, location.href); x.searchParams.set('gcp_join', j); return x.toString(); } catch { return u; } };
-const withLang = (u: string, cont = false) => { try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); if (cont) x.searchParams.set('gcp_continue', '1'); return x.toString(); } catch { return u; } };
+const withLang = (u: string, cont = false) => { const l = withPlayLang(u); if (!cont) return l; try { const x = new URL(l, location.href); x.searchParams.set('gcp_continue', '1'); return x.toString(); } catch { return l; } };
 
 /** Where the player left off, from the game's GCP.resume or else from the platform's own record: one line under Continue. */
 export function resumeLine(c: { last_played: number; saved_at: number | null; resume: { label: string; detail?: string } | null }) {

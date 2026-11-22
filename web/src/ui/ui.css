@@ -350,11 +350,10 @@ a.gtag:hover { color: var(--text); --pl: rgb(var(--text-rgb) / calc(var(--plate-
 .modal > div { width: min(540px, 100%); max-height: calc(100dvh - 40px); overflow: auto; background: var(--surface); border-radius: 0 0 var(--r-lg) var(--r-lg); padding: clamp(20px, 3vw, 30px); box-shadow: var(--shadow-3); border-top: 7px solid var(--accent); border-image: repeating-linear-gradient(-60deg, var(--accent) 0 12px, var(--accent-lo) 12px 18px) 7 0 0 0; }
 .modal > div.wide { width: min(1120px, 100%); scrollbar-gutter: stable; }
 .modal > div:focus { outline: none; }
-/* the preview fills the dialog but never pushes its own bottom edge off the screen. Its width is a whole multiple of 16
-   pixels where the browser can round, so a 16:9 game gets a whole number of pixels both ways. On a short screen (a phone
-   on its side) it stays at least 320 pixels wide and the dialog scrolls instead. Filling the screen overrides it (player.css). */
-.modal > div.wide .stage { width: min(100%, max(320px, calc((100dvh - 230px) * 16 / 9))); margin-inline: auto; }
-@supports (width: round(down, 100px, 16px)) { .modal > div.wide .stage { width: round(down, min(100%, max(320px, calc((100dvh - 230px) * 16 / 9))), 16px); } }
+/* the preview's size is the play window (player.tsx, playWindow), the same frame the game page plays in: it fills the
+   dialog but never pushes its own bottom edge off the screen. On a short screen (a phone on its side) it stays at least
+   320 pixels wide and the dialog scrolls instead. Filling the screen overrides it (player.css). */
+.modal > div.wide .stage { margin-inline: auto; }
 /* a dialog holding a running game (see Modal). The game's frame is put on screen the way the game page does it: no blur,
    fade or movement above it, nothing of the page drawn behind it, and only the frame's own rounded edge clipping it. The
    backdrop is opaque and the page under it is not painted at all, the dialog itself neither scrolls nor clips (the
