@@ -26,6 +26,7 @@ import { api, autoPayouts, retryTransfers } from './routes/api';
 import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './routes/device';
 import { rt } from './routes/rt';
 import { social } from './routes/social';
+import { push } from './routes/push';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now } from './util';
@@ -104,6 +105,7 @@ app.use('/api/*', async (c, next) => {
 app.route('/api/admin', admin);
 app.route('/api/device', deviceApi);
 app.route('/api/social', social);
+app.route('/api/push', push);
 app.route('/api', api);
 app.all('/api/*', (c) => c.json({ error: 'Not found', code: 'not_found' }, 404));
 
