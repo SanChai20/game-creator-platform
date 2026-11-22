@@ -23,6 +23,7 @@ import { attachFrame, fromGame } from './social';
 import { sanitizeControls, type TouchControls } from './touch-controls';
 import { elementFullscreen, isIOSDevice, thisDevice } from './install';
 import { barsShowing, tuckLook, tuckStart, type TuckState, type ViewportSizes } from './tuck';
+import { playWindow } from './play-window';
 import './player.css';
 
 // What a game may do inside the player. Never allow-top-navigation: a game must not be able to replace the platform's page
@@ -64,6 +65,28 @@ export const isHandheld = () => mq('(pointer: coarse)') && mq('(hover: none)');
 const isInstalled = () => mq('(display-mode: fullscreen)') || mq('(display-mode: standalone)') || (navigator as Navigator & { standalone?: boolean }).standalone === true;
 /** iPhone, iPad (which reports itself as a Mac with a touch screen) and iPod. */
 const isIOS = () => isIOSDevice(thisDevice());
+
+/** The play URL with the platform language on it (GCP.lang from the first frame), the same on the store page and in the preview. */
+export function withPlayLang(u: string): string {
+  try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); return x.toString(); } catch { return u; }
+}
+
+// The play window (play-window.ts): one frame size for a game in its window, on every page.
+function usePlayWindow(box: { current: HTMLDivElement | null }) {
+  const [win, setWin] = useState(() => playWindow(innerWidth, innerHeight)), [shown, setShown] = useState(0);
+  useEffect(() => {
+    const f = () => setWin((o) => { const n = playWindow(innerWidth, innerHeight); return n.w === o.w ? o : n; });
+    const el = box.current;
+    // the stage's layout width, never its drawn one: a dialog that zooms in as it opens must not count
+    const ro = typeof ResizeObserver === 'function' && el ? new ResizeObserver((es) => setShown(es[0]?.borderBoxSize?.[0]?.inlineSize ?? el.offsetWidth)) : null;
+    if (el) { ro?.observe(el); setShown(el.offsetWidth); }
+    addEventListener('resize', f); addEventListener('orientationchange', f);
+    return () => { ro?.disconnect(); removeEventListener('resize', f); removeEventListener('orientationchange', f); };
+  }, [box]);
+  // How much the page shows of it: 1 where the page gives the whole window (the stage is never wider than the window).
+  const scale = shown > 0 ? Math.min(1, shown / win.w) : 1;
+  return { ...win, scale };
+}
 
 
 type FsDoc = Document & { webkitFullscreenElement?: Element | null; webkitFullscreenEnabled?: boolean; webkitExitFullscreen?: () => void };
@@ -265,6 +288,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const [uiSize, setUiSize] = useState<number | null>(() => readUiSize(seed)), [uiScalable, setUiScalable] = useState(false);
   // The watchdog: the game is asked every second whether it is alive (the SDK answers from the game's main thread).
   const splash = useSplash(starting, url, frame);
+  const playWin = usePlayWindow(box);
   const [hung, setHung] = useState(false), waitBtn = useRef<HTMLButtonElement>(null), waitRef = useRef<() => void>(() => {});
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
   const sideways = active && handheld && !turned && want !== 'any' && (want === 'landscape' ? portrait : !portrait);
@@ -568,8 +592,9 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   }, [active, !!url]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div>
-      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (asking ? ' tuck' : '')} ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung || held || asking} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
+      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (asking ? ' tuck' : '')} ref={box}
+        style={active ? undefined : { maxWidth: playWin.w, marginInline: 'auto' }}>
+        {url ? <iframe ref={frame} src={url} title="Game" style={active ? undefined : { inset: 'auto', top: 0, left: 0, width: playWin.w, height: playWin.h, maxWidth: 'none', maxHeight: 'none', transform: playWin.scale < 1 ? `scale(${playWin.scale})` : undefined, transformOrigin: '0 0' }} onLoad={() => { post(); postLang(); }} inert={menu || hung || held || asking} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
         {splash.phase !== 'off' && <Splash out={splash.phase === 'out'} />}
