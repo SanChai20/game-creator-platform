@@ -1824,5 +1824,10 @@
  "This version does not hand over its own frame (GCP.test.onCapture), so it cannot be captured. Ask the game's agent to add it.": "此版本沒有交出自己的畫面（GCP.test.onCapture），因此無法截圖。請讓遊戲的智能體加上它。",
  "The game could not hand over its frame: {why}. Try again, or ask the game's agent to check GCP.test.onCapture.": "遊戲未能交出畫面：{why}。請重試，或讓遊戲的智能體檢查 GCP.test.onCapture。",
  "no picture": "沒有畫面",
- "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "不可用：此版本沒有交出自己的畫面（GCP.test.onCapture）。請讓遊戲的智能體加上它。"
+ "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "不可用：此版本沒有交出自己的畫面（GCP.test.onCapture）。請讓遊戲的智能體加上它。",
+ "Add HearthCade to your Home Screen": "將 HearthCade 加入主畫面",
+ "Play full screen, with no Safari bars": "全螢幕遊玩，沒有 Safari 網址列",
+ "Tap Share in Safari (in the ··· menu on newer iPadOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen, with no swipe-down hint.": "在 Safari 中點「分享」（較新的 iPadOS 在「···」選單裡），再點「加入主畫面」，然後從主畫面開啟 HearthCade。遊戲就能佔滿整個螢幕，也不會再出現下滑提示。",
+ "Tap Share in Safari (in the ··· menu on newer iOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen.": "在 Safari 中點「分享」（較新的 iOS 在「···」選單裡），再點「加入主畫面」，然後從主畫面開啟 HearthCade。遊戲就能佔滿整個螢幕。",
+ "Got it": "知道了"
 }

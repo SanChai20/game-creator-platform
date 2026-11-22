@@ -1803,5 +1803,10 @@
  "This version does not hand over its own frame (GCP.test.onCapture), so it cannot be captured. Ask the game's agent to add it.": "이 버전은 자기 프레임을 넘기지 않아(GCP.test.onCapture) 캡처할 수 없습니다. 게임의 에이전트에게 추가를 요청하세요.",
  "The game could not hand over its frame: {why}. Try again, or ask the game's agent to check GCP.test.onCapture.": "게임이 프레임을 넘기지 못했습니다: {why}. 다시 시도하거나 게임의 에이전트에게 GCP.test.onCapture 확인을 요청하세요.",
  "no picture": "이미지 없음",
- "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "사용할 수 없음: 이 버전은 자기 프레임을 넘기지 않습니다(GCP.test.onCapture). 게임의 에이전트에게 추가를 요청하세요."
+ "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "사용할 수 없음: 이 버전은 자기 프레임을 넘기지 않습니다(GCP.test.onCapture). 게임의 에이전트에게 추가를 요청하세요.",
+ "Add HearthCade to your Home Screen": "HearthCade를 홈 화면에 추가",
+ "Play full screen, with no Safari bars": "Safari 막대 없이 전체 화면으로 플레이",
+ "Tap Share in Safari (in the ··· menu on newer iPadOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen, with no swipe-down hint.": "Safari에서 '공유'(최신 iPadOS에서는 '···' 메뉴 안)를 누르고 '홈 화면에 추가'를 선택한 뒤, 홈 화면에서 HearthCade를 여세요. 게임이 화면 전체를 쓰고, 아래로 쓸어내리라는 안내도 나오지 않습니다.",
+ "Tap Share in Safari (in the ··· menu on newer iOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen.": "Safari에서 '공유'(최신 iOS에서는 '···' 메뉴 안)를 누르고 '홈 화면에 추가'를 선택한 뒤, 홈 화면에서 HearthCade를 여세요. 게임이 화면 전체를 쓰게 됩니다.",
+ "Got it": "확인"
 }

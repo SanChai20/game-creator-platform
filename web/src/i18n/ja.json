@@ -1803,5 +1803,10 @@
  "This version does not hand over its own frame (GCP.test.onCapture), so it cannot be captured. Ask the game's agent to add it.": "このバージョンは自分のフレームを渡さない（GCP.test.onCapture）ため、撮影できません。ゲームのエージェントに追加を頼んでください。",
  "The game could not hand over its frame: {why}. Try again, or ask the game's agent to check GCP.test.onCapture.": "ゲームがフレームを渡せませんでした：{why}。もう一度試すか、ゲームのエージェントに GCP.test.onCapture の確認を頼んでください。",
  "no picture": "画像なし",
- "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "利用できません：このバージョンは自分のフレームを渡しません（GCP.test.onCapture）。ゲームのエージェントに追加を頼んでください。"
+ "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "利用できません：このバージョンは自分のフレームを渡しません（GCP.test.onCapture）。ゲームのエージェントに追加を頼んでください。",
+ "Add HearthCade to your Home Screen": "HearthCade をホーム画面に追加",
+ "Play full screen, with no Safari bars": "Safari のバーなしで全画面プレイ",
+ "Tap Share in Safari (in the ··· menu on newer iPadOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen, with no swipe-down hint.": "Safari で「共有」（新しい iPadOS では「···」メニュー内）をタップし、「ホーム画面に追加」を選んで、そこから HearthCade を開いてください。ゲームが画面全体を使えるようになり、下にスワイプするヒントも表示されません。",
+ "Tap Share in Safari (in the ··· menu on newer iOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen.": "Safari で「共有」（新しい iOS では「···」メニュー内）をタップし、「ホーム画面に追加」を選んで、そこから HearthCade を開いてください。ゲームが画面全体を使えるようになります。",
+ "Got it": "OK"
 }

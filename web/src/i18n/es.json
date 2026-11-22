@@ -1802,5 +1802,10 @@
  "This version does not hand over its own frame (GCP.test.onCapture), so it cannot be captured. Ask the game's agent to add it.": "Esta versión no entrega su propio fotograma (GCP.test.onCapture), así que no se puede capturar. Pide al agente del juego que lo añada.",
  "The game could not hand over its frame: {why}. Try again, or ask the game's agent to check GCP.test.onCapture.": "El juego no pudo entregar su fotograma: {why}. Inténtalo de nuevo o pide al agente del juego que revise GCP.test.onCapture.",
  "no picture": "sin imagen",
- "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "No disponible: esta versión no entrega su propio fotograma (GCP.test.onCapture). Pide al agente del juego que lo añada."
+ "Not available: this version does not hand over its own frame (GCP.test.onCapture). Ask the game's agent to add it.": "No disponible: esta versión no entrega su propio fotograma (GCP.test.onCapture). Pide al agente del juego que lo añada.",
+ "Add HearthCade to your Home Screen": "Añade HearthCade a tu pantalla de inicio",
+ "Play full screen, with no Safari bars": "Juega a pantalla completa, sin las barras de Safari",
+ "Tap Share in Safari (in the ··· menu on newer iPadOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen, with no swipe-down hint.": "Toca Compartir en Safari (en el menú ··· en iPadOS reciente), luego Añadir a pantalla de inicio, y abre HearthCade desde allí. Los juegos ocuparán toda la pantalla, sin el aviso de deslizar hacia abajo.",
+ "Tap Share in Safari (in the ··· menu on newer iOS), then Add to Home Screen, and open HearthCade from there. Games then get the whole screen.": "Toca Compartir en Safari (en el menú ··· en iOS reciente), luego Añadir a pantalla de inicio, y abre HearthCade desde allí. Los juegos ocuparán toda la pantalla.",
+ "Got it": "Entendido"
 }
