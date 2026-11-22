@@ -310,3 +310,27 @@
 /* "use the game's own drawing" under an exact picture: a link-looking button */
 .fb-exact .linkish { display: inline; background: none; border: 0; cursor: pointer; color: var(--text-2); }
 .fb-exact .linkish:disabled { opacity: .6; cursor: progress; }
+
+/* ---- Creator Store: build skills under their games (pages/CreatorStore.tsx) ---- */
+.skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 18px 22px 22px; }
+.skill-card { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; color: inherit; text-decoration: none; background: var(--surface); transition: border-color .15s, transform .15s; min-width: 0; }
+.skill-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.skill-card .thumb { border-radius: 0; aspect-ratio: 16 / 7; }
+.skill-card-body { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; min-width: 0; }
+.skill-card-body .row { min-width: 0; }
+.skill-desc { margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.skill-outline { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+.skill-game { display: flex; gap: 12px; align-items: center; color: inherit; text-decoration: none; margin-bottom: 12px; }
+.skill-game .thumb { width: 96px; }
+.skill-doc { min-width: 0; }
+.skill-md { line-height: 1.65; overflow-wrap: anywhere; }
+.skill-md > :first-child { margin-top: 0; }
+.skill-md h2 { font-size: 20px; margin: 28px 0 8px; }
+.skill-md h3 { font-size: 16px; margin: 20px 0 6px; }
+.skill-md p, .skill-md ul, .skill-md ol, .skill-md blockquote { margin: 0 0 12px; }
+.skill-md ul, .skill-md ol { padding-left: 22px; }
+.skill-md li { margin: 3px 0; }
+.skill-md code { font-family: var(--font-mono); font-size: .9em; padding: 1px 5px; border-radius: 4px; background: var(--sunk); }
+.skill-md blockquote { padding-left: 12px; border-left: 3px solid var(--line); color: var(--text-2); }
+.skill-md a { color: var(--accent); }
+@media (max-width: 640px) { .skill-grid { padding: 14px; grid-template-columns: 1fr; } }

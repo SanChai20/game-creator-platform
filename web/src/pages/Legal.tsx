@@ -14,7 +14,7 @@ export const legalTitle = (d: LegalDoc) => ({
 }[d]);
 
 /** The date each text takes effect. Change it whenever that text changes in a meaningful way. */
-const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-19', privacy: '2026-11-19', cookies: '2026-11-19', refunds: '2026-11-19' };
+const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-22', privacy: '2026-11-19', cookies: '2026-11-19', refunds: '2026-11-22' };
 
 const S = ({ h, children }: { h: string; children: ReactNode }) => <section><h2>{h}</h2>{children}</section>;
 
@@ -28,7 +28,7 @@ const P = ({ children }: { children: string }) => <p>{linked(children)}</p>;
 
 export function Legal({ doc }: { doc: LegalDoc }) {
   const { config } = useApp(), s = config.settings, brand = String(s.brand_name || DEFAULT_BRAND);
-  const hours = Number(s.refund_window_hours ?? 24), minutes = Number(s.refund_max_play_minutes ?? 30), cut = Number(s.platform_fee_percent ?? 10), openCut = Number(s.platform_fee_open_percent ?? cut);
+  const hours = Number(s.refund_window_hours ?? 24), minutes = Number(s.refund_max_play_minutes ?? 30), cut = Number(s.platform_fee_percent ?? 10), openCut = Number(s.platform_fee_open_percent ?? cut), skillPct = Number(s.skill_fee_percent ?? 5);
   const days = Math.max(Number(s.earnings_hold_days ?? 3), Math.ceil(hours / 24));
   const newDays = Number(s.new_creator_days ?? 90), newHold = Math.max(days, Number(s.new_creator_hold_days ?? 30));
   const op = OPERATOR.name, legal = OPERATOR.legalEmail, support = String(s.support_email || OPERATOR.supportEmail), state = OPERATOR.jurisdiction;
@@ -48,7 +48,8 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         <P>{t('You keep the rights to what you make or upload: games, their files, listings, screenshots, reviews and your display name (“your content”).', '你保留对自己制作或上传的内容的权利，包括游戏及其文件、商店信息、截图、评价和显示名称（“你的内容”）。')}</P>
         <P>{t('You give {op} a worldwide, non-exclusive, royalty-free licence to host, store, copy, run, verify, scan, display, distribute and promote your content, as needed to operate, improve and promote the Service. The licence lasts while your content is on the Service, and afterwards for backups and for players who already bought a game.', '你授予 {op} 一项全球范围、非独占、免版税的许可，可在运营、改进和推广本服务所需的范围内托管、存储、复制、运行、验证、扫描、展示、分发和推广你的内容。该许可在你的内容留存于本服务期间有效，之后在备份范围内及对已购买游戏的玩家继续有效。', { op })}</P>
         <P>{t('Creators who sell games receive each sale’s price minus the platform’s share ({cut}%). The money becomes available {days} days after the buyer paid, and is paid out through Stripe once the creator has set up a payout account. If a sale is later refunded or disputed with the buyer’s bank, the creator’s share is taken back, from future earnings if it was already paid out.', '出售游戏的创作者可获得每笔销售额扣除平台分成（{cut}%）后的部分。该款项在买家付款 {days} 天后可提取，并在创作者设置收款账户后通过 Stripe 支付。如果某笔销售之后被退款或买家向银行发起争议，创作者的分成将被收回；若已支付，则从其之后的收益中扣回。', { cut, days })}</P>
-        {openCut < cut && <P>{t('For a game that shares its Open Implementation, the platform’s share is {open}% instead, on sales made while sharing is turned on.', '对开放实现的游戏，在开放期间产生的销售中，平台分成改为 {open}%。', { open: openCut })}</P>}
+        {openCut < cut && <P>{t('For a game that shares its build skill for free (Open Implementation), the platform’s share is {open}% instead, on sales made while it is shared for free.', '对免费分享构建技能（开放实现）的游戏，在免费分享期间产生的销售中，平台分成改为 {open}%。', { open: openCut })}</P>}
+        <P>{t('Creators can also sell their game’s build skill in the Creator Store. A build skill is written guidance, never source code. Creators receive each skill sale’s price minus the platform’s skill commission ({pct}%), on the same terms as game sales; the game’s own sales then keep the standard share.', '创作者也可以在创作者商店出售游戏的构建技能。构建技能是文字指导，从不包含源代码。创作者可获得每笔技能销售额扣除平台技能佣金（{pct}%）后的部分，条款与游戏销售相同；此时游戏自身的销售按标准分成。', { pct: skillPct })}</P>
         {newDays > 0 && newHold > days && <P>{t('During a creator’s first {new_days} days on the Service, the money from each sale becomes available {new_hold} days after the buyer paid instead.', '创作者在本服务的前 {new_days} 天内，每笔销售的款项改为在买家付款 {new_hold} 天后可提取。', { new_days: newDays, new_hold: newHold })}</P>}
         <P>{t('Creators confirm they own or have permission for everything in a game, and that it follows these Terms. Only web games are accepted. Games for adults must declare that content. A game may be refused, hidden or taken offline if it breaks these Terms or the law.', '创作者确认自己拥有或已获授权使用游戏中的全部内容，且游戏符合本条款。平台仅接受网页游戏。面向成人的游戏必须声明相关内容。违反本条款或法律的游戏可能会被拒绝、隐藏或下线。')}</P>
       </S>
@@ -152,6 +153,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
       <S h={t('When purchases are final', '不予退款的情形')}>
         <P>{t('Once {hours} hours have passed or you have played for {minutes} minutes, the purchase is final and is not refunded, except where the law requires a refund, for example if a game you bought does not work and cannot be fixed. If that happens, write to {email} and tell us which game and what went wrong.', '购买超过 {hours} 小时，或游玩已达 {minutes} 分钟后，购买即为最终交易，不予退款，法律要求退款的情形除外（例如你购买的游戏无法运行且无法修复）。如遇此情况，请发送邮件至 {email}，说明是哪款游戏以及出现了什么问题。', { hours, minutes, email: support })}</P>
         <P>{t('Virtual items, in-game currency and progress are not refunded on their own, unless the law requires it.', '除非法律另有规定，虚拟物品、游戏内货币和进度不单独退款。')}</P>
+        <P>{t('A build skill bought in the Creator Store shows in full as soon as you pay, so it is not refunded by yourself; write to {email} if it does not match its description.', '在创作者商店购买的构建技能在付款后立即完整显示，因此不支持自助退款；如果内容与描述不符，请写信至 {email}。', { email: support })}</P>
       </S>
       <S h={t('The right to cancel (EU and UK)', '撤销权（欧盟和英国）')}>
         <P>{t('EU and UK law usually gives 14 days to cancel an online purchase. A game is digital content you get as soon as you pay, so at checkout you ask for immediate access and confirm that you lose that 14-day right. The refund described above still applies.', '欧盟和英国法律通常给予网购 14 天的撤销期。游戏属于付款后即可获得的数字内容，因此你在结账时要求立即获得访问权限，并确认放弃这 14 天的撤销权。上述退款规则仍然适用。')}</P>

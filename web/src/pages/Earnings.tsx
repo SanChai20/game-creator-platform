@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, dateTime, Fail, Link, navigate, query, t, usd, useAct, useApp, useData } from '../lib';
+import { api, dateTime, Fail, Link, navigate, num, query, t, usd, useAct, useApp, useData } from '../lib';
 import { Badge, Button, Card, Field, ListRow, Modal, Notice, PageHeader, Select, Stat, StatGrid, StatusBadge, Table, Textarea } from '../ui';
 import { EarningsSkeleton } from '../skeletons';
 import { ConsoleTabs } from './Console';
@@ -27,7 +27,7 @@ export function Earnings() {
   const setup = () => act('acct', async () => { const r = await api<{ url: string }>('/billing/payout-account', { body: { country } }); location.href = r.url; });
   const withdraw = (method: 'stripe' | 'manual') => act('wd', async () => { await api('/billing/withdraw', { body: { method, details } }); setManual(false); setDetails(''); await reload(); },
     method === 'stripe' ? t('Withdrawal sent to your payout account.', '提现已发送至你的收款账户。') : t('Withdrawal requested. An administrator will send it.', '已提交提现申请，管理员将为你打款。'));
-  const kinds: Record<string, string> = { sale: t('Sale', '销售'), refund: t('Refund', '退款'), withdrawal: t('Withdrawal', '提现'), withdrawal_reversal: t('Withdrawal returned', '提现退回'), adjustment: t('Adjustment', '调整') };
+  const kinds: Record<string, string> = { sale: t('Game sale', '游戏销售'), skill_sale: t('Skill sale', '技能销售'), partial_refund: t('Partial refund', '部分退款'), dispute: t('Chargeback', '拒付'), dispute_won: t('Chargeback won', '拒付胜诉'), refund: t('Refund', '退款'), withdrawal: t('Withdrawal', '提现'), withdrawal_reversal: t('Withdrawal returned', '提现退回'), adjustment: t('Adjustment', '调整') };
 
   return (
     <div className="wrap page">
@@ -38,8 +38,12 @@ export function Earnings() {
           <Stat tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
           <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={(data.hold_days === 1 ? t('Sales clear after 1 day', '销售收入在 1 天后可提现') : t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days }))} />
           <Stat label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={data.fee_open_percent != null && data.fee_open_percent < data.fee_percent
-            ? t('The platform keeps {cut}% of each sale, {open}% on games that share their Open Implementation', '平台从每笔销售中收取 {cut}%，开放实现的游戏仅收取 {open}%', { cut: data.fee_percent, open: data.fee_open_percent })
+            ? t('The platform keeps {cut}% of each game sale, {open}% on games that share their build skill for free', '平台从每笔游戏销售中收取 {cut}%，免费分享构建技能的游戏仅收取 {open}%', { cut: data.fee_percent, open: data.fee_open_percent })
             : t('The platform keeps {cut}% of each sale', '平台从每笔销售中收取 {cut}%', { cut: data.fee_percent })} />
+        </StatGrid>
+        <StatGrid>
+          <Stat label={t('Game sales', '游戏销量')} value={num(data.game_sales?.n || 0)} sub={`${usd(data.game_sales?.net || 0)} ${t('to you', '归你所得')} · ${usd(data.game_sales?.gross || 0)} ${t('gross', '总额')}`} />
+          <Stat label={t('Skill sales', '技能销量')} value={num(data.skill_sales?.n || 0)} sub={`${usd(data.skill_sales?.net || 0)} ${t('to you', '归你所得')} · ${t('the platform keeps {pct}% of each', '平台每笔收取 {pct}%', { pct: data.skill_fee_percent })}`} />
         </StatGrid>
 
         <div className="cols">
@@ -80,10 +84,15 @@ export function Earnings() {
           </div>
 
           <div className="stack l">
-            <Card title={t('By game', '按游戏统计')}>
+            <Card title={t('Game sales by game', '按游戏统计游戏销售')}>
               {data.by_game.length ? <Table><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('You earned', '你的收益')}</th></tr></thead>
                 <tbody>{data.by_game.map((g: any) => <tr key={g.slug}><td><Link to={`/g/${g.slug}`}>{g.title}</Link></td><td className="n">{g.n}</td><td className="n">{usd(g.net)}</td></tr>)}</tbody></Table>
                 : <div className="pad mute">{t('No sales yet. Set a price on a game from its project page.', '还没有销售。可以在项目页面为游戏设置价格。')}</div>}
+            </Card>
+            <Card title={t('Skill sales by game', '按游戏统计技能销售')} aside={<Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link>}>
+              {data.by_skill?.length ? <Table><thead><tr><th>{t('Skill of', '技能所属游戏')}</th><th className="n">{t('Copies', '复制次数')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('You earned', '你的收益')}</th></tr></thead>
+                <tbody>{data.by_skill.map((g: any) => <tr key={g.slug}><td><Link to={`/creator-store/${g.slug}`}>{g.title}</Link></td><td className="n">{num(g.copies)}</td><td className="n">{g.n}</td><td className="n">{usd(g.net)}</td></tr>)}</tbody></Table>
+                : <div className="pad mute">{t('No shared skills yet. Turn on Open Implementation on a game to put its build skill in the Creator Store.', '还没有分享的技能。为游戏开启开放实现，即可将其构建技能上架创作者商店。')}</div>}
             </Card>
             <Card title={t('Withdrawals', '提现记录')}>
               {data.withdrawals.length ? data.withdrawals.map((w: any) => (

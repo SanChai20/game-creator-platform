@@ -58,7 +58,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Marketplace listing, ratings and reviews | available | none | `update_project`, `game_metadata` | metadata |
 | Paid games, free trials and payouts | available unless switched off | none (handled by the platform) | `update_project`, `get_stats` | none |
 | Analytics and runtime errors | automatic | none (heartbeats are automatic) | `get_stats` | none |
-| Open implementations | available | none | `find_implementations`, `get_implementation` | none |
+| Open implementations | available | none | `find_implementations`, `get_implementation`, `build_skill` | none |
 | Agent access (MCP and OAuth) | available | none | every tool | versions |
 
 "Automatic" means the platform does it for every game with no code.
@@ -361,7 +361,7 @@ Before a verified version goes live it is compared with other creators' live gam
 ## Marketplace, payments and payouts
 
 - `update_project` sets the title, tagline, description, tags, controls text and cover (png, jpg or webp under 2 MB). `game_metadata` detects, suggests and declares the standardized store metadata (genre, tags from the platform list, languages, players, content and age rating, session length, progress, accessibility); publishing is refused until the required fields are on record (`get_started {topic: "metadata"}`). Players rate and review from the game page after a counted play (30 seconds of active play by default).
-- `update_project {price_cents}` sells the game for a one-time price (default range $1.99 to $99.99); the platform keeps its cut (default 10%, or 5% while the game shares its Open Implementation) and credits the rest after a holding period (default 7 days). `trial_minutes` offers a free trial kept per account on the server; when it ends the SDK pauses the game and asks the player to buy, and the data services answer 402.
+- `update_project {price_cents}` sells the game for a one-time price (default range $1.99 to $99.99); the platform keeps its cut (default 10%, or 5% while the game shares its build skill for free) and credits the rest after a holding period (default 7 days). `trial_minutes` offers a free trial kept per account on the server; when it ends the SDK pauses the game and asks the player to buy, and the data services answer 402.
 - Horylo LLC, the company that operates the platform, is the seller of every paid game; Stripe Checkout shows it as the seller and links the Terms and Refund policy. Payments run on Stripe Checkout and payouts on Stripe Connect; the creator withdraws from the console once the balance reaches the minimum (default $50). Publishing needs a one-time creator license; building and previewing are free.
 - The game never takes payments itself and never needs to check ownership: the platform only opens a paid game for owners and trial players.
 
@@ -373,7 +373,11 @@ Ask the user before setting or changing a price.
 
 ## Open implementations
 
-`find_implementations` and `get_implementation` show how other creators' live games were built, when they opted in, never their code. Ask the user before sharing theirs (`update_project {open_implementation: true}`).
+`find_implementations` and `get_implementation` show how other creators' live games were built, when they opted in, never their code. `get_implementation` includes the game's build skill in full when it is free.
+
+A game that shares lists a **build skill** in the Creator Store (`/creator-store`): an agent skill (a SKILL.md) that the game's own development agent writes with `build_skill {action: "write"}`, in prose and never code (code blocks, HTML and code-like lines are refused). A skill is written for one version, and the store always shows the one for the live version. **Before each release** of a game that shares, call `build_skill {action: "get"}`, revise the skill for what changed, and write it for the version you are about to publish: `publish` refuses a version without one while sharing is on.
+
+The creator chooses free or a price (`update_project {skill_price_cents}`). A free skill lowers the game's own cut (5% instead of 10% by default). A sold skill keeps the game at the standard cut, and the platform keeps its skill commission (5% by default, an admin setting) of each skill sale; skill sales are counted apart from game sales. Ask the user before sharing (`update_project {open_implementation: true}`) and before setting a price.
 
 ## Agent access
 

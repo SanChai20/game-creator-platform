@@ -53,6 +53,7 @@ export interface Project {
   cover_key: string | null; price_cents: number; trial_minutes: number; sales: number; featured: number; plays: number; seconds: number; rating_sum: number; rating_count: number;
   removed_reason: string | null; created_at: number; updated_at: number; published_at: number | null;
   open_implementation: number; open_implementation_at: number | null;
+  skill_price_cents: number; skill_sales: number; skill_copies: number; skill_views: number;   // the build skill (src/skills.ts)
   listing_i18n: string;                         // JSON: the store listing translated into platform languages
   age: number | null;                           // the live version's age rating (null until recorded)
   mature: string;                               // adults-only categories of the live version, comma-separated: sexual, violence, other ('' for everyone)

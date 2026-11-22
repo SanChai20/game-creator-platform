@@ -6,9 +6,11 @@ import { now } from './util';
 
 type FeeSettings = Pick<Settings, 'platform_fee_percent' | 'platform_fee_open_percent'>;
 
-/** The platform's cut of a sale, in percent. A paid game that shares its Open Implementation pays the lower rate; the
- *  rate is the one in force when the sale is recorded, and the purchase keeps the fee it was charged, so turning sharing
- *  on or off later never changes past sales, their refunds or the creator's ledger. */
+/** The platform's cut of a game sale, in percent. A paid game that shares its build skill for free (Open Implementation
+ *  with no skill price) pays the lower rate; a game whose skill is sold pays the standard rate, and the platform takes its
+ *  skill commission on the skill's own sales instead (splitSkillSale). The rate is the one in force when the sale is
+ *  recorded, and the purchase keeps the fee it was charged, so changing sharing later never changes past sales, their
+ *  refunds or the creator's ledger. */
 export function cutPercent(s: FeeSettings, open: boolean): number {
   return open ? s.platform_fee_open_percent : s.platform_fee_percent;
 }
@@ -19,6 +21,25 @@ export function splitSale(priceCents: number, s: Settings, open = false): { fee:
   const fee = Math.min(priceCents, cut + processing);
   return { fee, net: priceCents - fee, cut, processing, cut_percent: pct };
 }
+
+/** Whether a game's sales get the lower cut: its build skill is shared, and shared for free. */
+export const freeSkillShared = (p: { open_implementation?: number | boolean | null; skill_price_cents?: number | null }) => !!p.open_implementation && !(Number(p.skill_price_cents) > 0);
+
+/** A build skill sale: the platform keeps its skill commission (admin setting skill_fee_percent, 5% by default), apart
+ *  from the game's own cut, plus the same processing cost a game sale passes on. */
+export function splitSkillSale(priceCents: number, s: Pick<Settings, 'skill_fee_percent' | 'sale_processing_percent' | 'sale_processing_fixed_cents'>): { fee: number; net: number; cut: number; processing: number; cut_percent: number } {
+  const pct = s.skill_fee_percent, cut = Math.round(priceCents * pct / 100);
+  const processing = Math.round(priceCents * s.sale_processing_percent / 100) + s.sale_processing_fixed_cents;
+  const fee = Math.min(priceCents, cut + processing);
+  return { fee, net: priceCents - fee, cut, processing, cut_percent: pct };
+}
+
+/** What was sold: a game, or a game's build skill. Each has its own table and sales counter, so the two are counted apart. */
+export type Item = 'game' | 'skill';
+const ITEM = {
+  game: { table: 'purchases', counter: 'sales', kind: 'sale', note: 'Sale of' },
+  skill: { table: 'skill_purchases', counter: 'skill_sales', kind: 'skill_sale', note: 'Skill sale of' },
+} as const;
 
 /** How long a sale's credit waits before the creator can withdraw it: the hold period, and never less than the window in
  *  which the buyer can still refund it themselves, so a self-serve refund never has to claw back money already paid out. */
@@ -76,18 +97,19 @@ export async function balanceOf(env: Env, userId: string): Promise<Balance> {
 }
 
 /** Records a paid purchase and credits the creator. Idempotent on providerRef. Returns false if it already existed. */
-export async function recordPurchase(env: Env, s: Settings, a: { userId: string; projectId: string; ownerId: string; title: string; priceCents: number; provider: 'stripe' | 'admin'; providerRef: string; paymentIntent?: string | null; openImplementation?: boolean }): Promise<boolean> {
-  if (await env.DB.prepare('SELECT 1 FROM purchases WHERE provider_ref = ?').bind(a.providerRef).first()) return false;
-  const { fee, net } = splitSale(a.priceCents, s, !!a.openImplementation);
-  const t = now(), id = 'pur_' + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+export async function recordPurchase(env: Env, s: Settings, a: { userId: string; projectId: string; ownerId: string; title: string; priceCents: number; provider: 'stripe' | 'admin'; providerRef: string; paymentIntent?: string | null; openImplementation?: boolean; item?: Item }): Promise<boolean> {
+  const it = ITEM[a.item || 'game'];
+  if (await env.DB.prepare(`SELECT 1 FROM ${it.table} WHERE provider_ref = ?`).bind(a.providerRef).first()) return false;
+  const { fee, net } = a.item === 'skill' ? splitSkillSale(a.priceCents, s) : splitSale(a.priceCents, s, !!a.openImplementation);
+  const t = now(), id = (a.item === 'skill' ? 'spur_' : 'pur_') + crypto.randomUUID().replace(/-/g, '').slice(0, 20);
   const owner = await env.DB.prepare('SELECT created_at FROM users WHERE id = ?').bind(a.ownerId).first<{ created_at: number }>();
   const hold = holdMs(s, owner ? t - owner.created_at : Infinity);
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)")
+    env.DB.prepare(`INSERT INTO ${it.table} (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)`)
       .bind(id, a.userId, a.projectId, a.ownerId, a.priceCents, fee, net, a.provider, a.providerRef, a.paymentIntent || null, t),
-    env.DB.prepare("INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) VALUES (?, 'sale', ?, ?, ?, ?, ?)")
-      .bind(a.ownerId, net, id, `Sale of ${a.title}`, t + hold, t),
-    env.DB.prepare('UPDATE projects SET sales = sales + 1 WHERE id = ?').bind(a.projectId),
+    env.DB.prepare('INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(a.ownerId, it.kind, net, id, `${it.note} ${a.title}`, t + hold, t),
+    env.DB.prepare(`UPDATE projects SET ${it.counter} = ${it.counter} + 1 WHERE id = ?`).bind(a.projectId),
   ]);
   return true;
 }
@@ -95,26 +117,28 @@ export async function recordPurchase(env: Env, s: Settings, a: { userId: string;
 /** Sum of the partial-refund debits already taken for a purchase (zero or negative). */
 const PARTIAL = "COALESCE((SELECT SUM(amount_cents) FROM ledger WHERE ref = ?3 AND kind = 'partial_refund'), 0)";
 
-/** Reverses a purchase after a full refund: access is revoked and what is left of the creator's credit is taken back. */
+/** Reverses a purchase (a game or a build skill) after a full refund: access is revoked and what is left of the creator's
+ *  credit is taken back. */
 export async function refundPurchase(env: Env, where: { paymentIntent?: string; id?: string }): Promise<boolean> {
-  return reversePurchase(env, where, 'refunded', 'refund', 'Refunded sale');
+  return await reversePurchase(env, 'game', where, 'refunded', 'refund', 'Refunded sale') || reversePurchase(env, 'skill', where, 'refunded', 'refund', 'Refunded skill sale');
 }
 
 /** A buyer disputed the charge: access is revoked and the creator's credit is held back until the dispute is decided. */
 export async function disputePurchase(env: Env, paymentIntent: string): Promise<boolean> {
-  return reversePurchase(env, { paymentIntent }, 'disputed', 'dispute', 'Disputed sale (chargeback)');
+  return await reversePurchase(env, 'game', { paymentIntent }, 'disputed', 'dispute', 'Disputed sale (chargeback)') || reversePurchase(env, 'skill', { paymentIntent }, 'disputed', 'dispute', 'Disputed skill sale (chargeback)');
 }
 
-async function reversePurchase(env: Env, where: { paymentIntent?: string; id?: string }, status: 'refunded' | 'disputed', kind: 'refund' | 'dispute', note: string): Promise<boolean> {
-  const p = await env.DB.prepare(`SELECT * FROM purchases WHERE ${where.id ? 'id = ?' : 'payment_intent = ?'} AND status = 'paid'`).bind(where.id || where.paymentIntent).first<{ id: string; owner_id: string; project_id: string; net_cents: number }>();
+async function reversePurchase(env: Env, item: Item, where: { paymentIntent?: string; id?: string }, status: 'refunded' | 'disputed', kind: 'refund' | 'dispute', note: string): Promise<boolean> {
+  const it = ITEM[item];
+  const p = await env.DB.prepare(`SELECT * FROM ${it.table} WHERE ${where.id ? 'id = ?' : 'payment_intent = ?'} AND status = 'paid'`).bind(where.id || where.paymentIntent).first<{ id: string; owner_id: string; project_id: string; net_cents: number }>();
   if (!p) return false;
   const t = now();
   // One transaction, guarded on the purchase still being paid: a webhook and an admin refunding at once take the
   // creator's credit back once. Partial refunds already taken back are not taken twice.
   const [upd] = await env.DB.batch([
-    env.DB.prepare("UPDATE purchases SET status = ?, refunded_at = ? WHERE id = ? AND status = 'paid'").bind(status, t, p.id),
-    env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, ?5, -?2 - ${PARTIAL}, ?3, ?6, ?4, ?4 WHERE EXISTS (SELECT 1 FROM purchases WHERE id = ?3 AND refunded_at = ?4) AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = ?5)`).bind(p.owner_id, p.net_cents, p.id, t, kind, note),
-    env.DB.prepare('UPDATE projects SET sales = MAX(0, sales - 1) WHERE id = ? AND EXISTS (SELECT 1 FROM purchases WHERE id = ? AND refunded_at = ?)').bind(p.project_id, p.id, t),
+    env.DB.prepare(`UPDATE ${it.table} SET status = ?, refunded_at = ? WHERE id = ? AND status = 'paid'`).bind(status, t, p.id),
+    env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, ?5, -?2 - ${PARTIAL}, ?3, ?6, ?4, ?4 WHERE EXISTS (SELECT 1 FROM ${it.table} WHERE id = ?3 AND refunded_at = ?4) AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = ?5)`).bind(p.owner_id, p.net_cents, p.id, t, kind, note),
+    env.DB.prepare(`UPDATE projects SET ${it.counter} = MAX(0, ${it.counter} - 1) WHERE id = ? AND EXISTS (SELECT 1 FROM ${it.table} WHERE id = ? AND refunded_at = ?)`).bind(p.project_id, p.id, t),
   ]);
   return !!upd.meta.changes;
 }
@@ -124,13 +148,17 @@ async function reversePurchase(env: Env, where: { paymentIntent?: string; id?: s
  * they bought the game again meanwhile. Idempotent: the credit is returned once.
  */
 export async function disputeWon(env: Env, paymentIntent: string): Promise<boolean> {
-  const p = await env.DB.prepare("SELECT * FROM purchases WHERE payment_intent = ? AND status = 'disputed'").bind(paymentIntent).first<{ id: string; user_id: string; owner_id: string; project_id: string }>();
+  return await disputeWonOf(env, 'game', paymentIntent) || disputeWonOf(env, 'skill', paymentIntent);
+}
+async function disputeWonOf(env: Env, item: Item, paymentIntent: string): Promise<boolean> {
+  const it = ITEM[item];
+  const p = await env.DB.prepare(`SELECT * FROM ${it.table} WHERE payment_intent = ? AND status = 'disputed'`).bind(paymentIntent).first<{ id: string; user_id: string; owner_id: string; project_id: string }>();
   if (!p) return false;
   const t = now();
   const [credit] = await env.DB.batch([
     env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, 'dispute_won', -amount_cents, ?2, 'Dispute won, sale restored', ?3, ?3 FROM ledger WHERE ref = ?2 AND kind = 'dispute' AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?2 AND kind = 'dispute_won') LIMIT 1`).bind(p.owner_id, p.id, t),
-    env.DB.prepare("UPDATE purchases SET status = CASE WHEN EXISTS (SELECT 1 FROM purchases o WHERE o.user_id = ?1 AND o.project_id = ?2 AND o.status = 'paid') THEN 'dispute_won' ELSE 'paid' END, refunded_at = NULL WHERE id = ?3 AND status = 'disputed'").bind(p.user_id, p.project_id, p.id),
-    env.DB.prepare("UPDATE projects SET sales = sales + 1 WHERE id = ? AND EXISTS (SELECT 1 FROM purchases WHERE id = ? AND status = 'paid')").bind(p.project_id, p.id),
+    env.DB.prepare(`UPDATE ${it.table} SET status = CASE WHEN EXISTS (SELECT 1 FROM ${it.table} o WHERE o.user_id = ?1 AND o.project_id = ?2 AND o.status = 'paid') THEN 'dispute_won' ELSE 'paid' END, refunded_at = NULL WHERE id = ?3 AND status = 'disputed'`).bind(p.user_id, p.project_id, p.id),
+    env.DB.prepare(`UPDATE projects SET ${it.counter} = ${it.counter} + 1 WHERE id = ? AND EXISTS (SELECT 1 FROM ${it.table} WHERE id = ? AND status = 'paid')`).bind(p.project_id, p.id),
   ]);
   return !!credit.meta.changes;
 }
@@ -141,7 +169,8 @@ export async function disputeWon(env: Env, paymentIntent: string): Promise<boole
  * difference.
  */
 export async function partialRefund(env: Env, paymentIntent: string, refundedCents: number): Promise<boolean> {
-  const p = await env.DB.prepare("SELECT * FROM purchases WHERE payment_intent = ? AND status = 'paid'").bind(paymentIntent).first<{ id: string; owner_id: string; price_cents: number; net_cents: number }>();
+  const p = await env.DB.prepare("SELECT * FROM purchases WHERE payment_intent = ? AND status = 'paid'").bind(paymentIntent).first<{ id: string; owner_id: string; price_cents: number; net_cents: number }>()
+    ?? await env.DB.prepare("SELECT * FROM skill_purchases WHERE payment_intent = ? AND status = 'paid'").bind(paymentIntent).first<{ id: string; owner_id: string; price_cents: number; net_cents: number }>();
   if (!p || p.price_cents <= 0) return false;
   const target = -Math.min(p.net_cents, Math.round(p.net_cents * Math.min(refundedCents, p.price_cents) / p.price_cents));
   const t = now();
@@ -152,4 +181,9 @@ export async function partialRefund(env: Env, paymentIntent: string, refundedCen
 
 export async function owns(env: Env, userId: string, projectId: string): Promise<boolean> {
   return !!(await env.DB.prepare("SELECT 1 FROM purchases WHERE user_id = ? AND project_id = ? AND status = 'paid'").bind(userId, projectId).first());
+}
+
+/** Whether this player bought this game's build skill (and still has it: not refunded or disputed). */
+export async function ownsSkill(env: Env, userId: string, projectId: string): Promise<boolean> {
+  return !!(await env.DB.prepare("SELECT 1 FROM skill_purchases WHERE user_id = ? AND project_id = ? AND status = 'paid'").bind(userId, projectId).first());
 }

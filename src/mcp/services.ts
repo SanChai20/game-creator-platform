@@ -14,7 +14,7 @@ export function offersText(s: Pick<Settings, 'license_term_cents' | 'license_ter
 /** What a creator gets for sharing, in words agents can pass on to the user when they ask whether to share. */
 export function openPerks(s: Pick<Settings, 'paid_games_enabled' | 'platform_fee_percent' | 'platform_fee_open_percent' | 'open_impl_free_boost_percent'>): string {
   const out: string[] = [];
-  if (s.paid_games_enabled && s.platform_fee_open_percent < s.platform_fee_percent) out.push(`a paid game pays a ${s.platform_fee_open_percent}% platform cut on each sale made while it is shared, instead of ${s.platform_fee_percent}%`);
+  if (s.paid_games_enabled && s.platform_fee_open_percent < s.platform_fee_percent) out.push(`a paid game whose build skill is shared for free pays a ${s.platform_fee_open_percent}% platform cut on each sale made while it is shared, instead of ${s.platform_fee_percent}% (a game whose skill is sold keeps the ${s.platform_fee_percent}% cut, and each skill sale pays the skill commission)`);
   if (s.open_impl_free_boost_percent > 0) out.push('a free game is ranked higher among free games (unless players rate it poorly)');
   return out.length ? `Sharing has benefits: ${out.join('; ')}.` : '';
 }
@@ -355,9 +355,9 @@ export function platformServices(s: Settings, origin: string): Service[] {
       what: 'Cards that tell agents how other creators\' live games were built, when those creators opted in. Never code.',
       how_it_works: `find_implementations searches shared games by kind, engine or technique and shows the common patterns; get_implementation returns one card (engine, rendering, input, audio, assets, platform services, loop, structure, play-through, summary). ${openPerks(s)}`,
       use_for: ['Learning how games of a kind are built here before starting one'],
-      sdk: [], mcp_tools: ['find_implementations', 'get_implementation', 'update_project', 'publish'],
+      sdk: [], mcp_tools: ['find_implementations', 'get_implementation', 'build_skill', 'update_project', 'publish'],
       limits: {},
-      guidelines: ['Ask the user before sharing their game\'s card (update_project {open_implementation: true}).'],
+      guidelines: ['Ask the user before sharing their game\'s card and build skill (update_project {open_implementation: true}), and before setting a skill price.', 'Before each release of a game that shares, revise its build skill for what changed and write it for the new version (build_skill {action: "write", version}); publish refuses a version without one.', 'A build skill holds practices in prose, never code.'],
       guide: null,
     },
     {

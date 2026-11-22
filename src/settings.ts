@@ -22,7 +22,7 @@ export const SETTING_DEFS = {
   stripe_platform_country: { v: 'US', type: 'text', group: 'Withdrawals', label: 'Country of the platform Stripe account (2 letters)' },
 
   platform_fee_percent: { v: 10, type: 'number', group: 'Paid games', label: 'Platform cut of each game sale (percent)', public: true },
-  platform_fee_open_percent: { v: 5, type: 'number', group: 'Paid games', label: 'Platform cut of each sale of a game that shares its Open Implementation (percent)', public: true },
+  platform_fee_open_percent: { v: 5, type: 'number', group: 'Paid games', label: 'Platform cut of each sale of a game that shares its build skill for free (percent; a game whose skill is sold pays the standard cut)', public: true },
   sale_processing_percent: { v: 0, type: 'number', group: 'Paid games', label: 'Payment processing cost passed on to the creator (percent of price, on top of the cut)', public: true },
   sale_processing_fixed_cents: { v: 0, type: 'cents', group: 'Paid games', label: 'Payment processing cost passed on to the creator (fixed, per sale)', public: true },
   game_price_min_cents: { v: 199, type: 'cents', group: 'Paid games', label: 'Lowest price a paid game can have', public: true },
@@ -76,6 +76,13 @@ export const SETTING_DEFS = {
   content_block: { v: true, type: 'bool', group: 'Content and conduct', label: 'Block publishing a version the content check refuses (off: report it as a warning only)' },
   content_ai_daily: { v: 1000, type: 'int', group: 'Content and conduct', label: 'Most Workers AI content reviews per day (Clef with up to 4 frames of the game in play, about $0.001 each; past the cap a small rule set decides)' },
   content_ai_threshold: { v: 50, type: 'int', group: 'Content and conduct', label: 'How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it' },
+
+  // The Creator Store (src/skills.ts): each game's build skill, free or sold. Skill sales are counted apart from game sales.
+  skill_fee_percent: { v: 5, type: 'number', group: 'Creator Store', label: 'Platform commission on each build skill sale (percent; separate from the game\'s own cut)', public: true },
+  paid_skills_enabled: { v: true, type: 'bool', group: 'Creator Store', label: 'Allow creators to sell their game\'s build skill', public: true },
+  skill_price_min_cents: { v: 199, type: 'cents', group: 'Creator Store', label: 'Lowest price a paid build skill can have', public: true },
+  skill_price_max_cents: { v: 9999, type: 'cents', group: 'Creator Store', label: 'Highest price a paid build skill can have', public: true },
+  skill_required_to_publish: { v: true, type: 'bool', group: 'Creator Store', label: 'Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)', public: true },
 
   open_impl_ai: { v: true, type: 'bool', group: 'Open implementation', label: 'Write a plain-language summary of each open game with Workers AI (once per published version, about $0.001 each)' },
   open_impl_free_boost_percent: { v: 50, type: 'int', group: 'Open implementation', label: 'Ranking boost for free games that share their Open Implementation, among free games (percent more weight on their recent play; 0 turns it off, at most 100; poorly rated games get none)', public: true },

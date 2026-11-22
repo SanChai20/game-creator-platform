@@ -81,6 +81,20 @@ export function Creators() {
         </section>
 
         <section className="stack l">
+          <h2 className="rule">{t('Creator Store', '创作者商店')}</h2>
+          <Card pad>
+            <div className="row wrapx">
+              <div className="grow wide stack s">
+                <b>{t('Learn from live games, or share how yours is built', '向线上游戏学习，或分享你的游戏是如何做出来的')}</b>
+                <p className="mute">{t('Every game that opens up its implementation lists a build skill: an agent skill its own agent keeps in step with each release, free or for a price. Copy one into your agent to build something similar. No source code is ever shared.', '每款开放实现的游戏都会提供一个构建技能：由游戏自己的智能体随每次发布同步更新的智能体技能，可免费或付费。把它复制到你的智能体中，就能做出类似的游戏。源代码永远不会被分享。')}</p>
+                {s.paid_games_enabled && Number(s.platform_fee_open_percent) < Number(s.platform_fee_percent) && <p className="dim fs-sm">{t('Share your skill for free and keep {share}% of your game\'s sales. Sell it instead and the platform keeps {pct}% of each skill sale.', '免费分享技能，游戏销售收入的 {share}% 归你。若出售技能，平台从每笔技能销售中收取 {pct}%。', { share: 100 - Number(s.platform_fee_open_percent), pct: Number(s.skill_fee_percent ?? 5) })}</p>}
+              </div>
+              <Button to="/creator-store" variant="primary">{t('Open the Creator Store', '打开创作者商店')} <em aria-hidden="true">→</em></Button>
+            </div>
+          </Card>
+        </section>
+
+        <section className="stack l">
           <h2 className="rule">{t('Connect your agent', '连接你的智能体')}</h2>
           <Card tone="accent" pad>
             <Code text={`claude mcp add --transport http game-creator ${config.mcp_url}`} />

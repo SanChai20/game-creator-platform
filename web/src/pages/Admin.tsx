@@ -34,8 +34,9 @@ function Overview() {
         <Stat label={t('Users', '用户')} value={num(data.users.n)} sub={<>+{num(data.users.new30 || 0)} {t('in 30 days', '近 30 天')} · {num(data.users.creators || 0)} {t('creators', '位创作者')}</>} />
         <Stat label={t('Games live', '在线游戏')} value={num(data.games.live || 0)} sub={<>{num(data.games.paid || 0)} {t('paid', '款付费')} · {num(data.games.draft || 0)} {t('drafts', '款草稿')} · {num(data.games.offline || 0)} {t('offline', '款下线')}</>} />
         <Stat label={t('Plays, 30 days', '近 30 天游玩')} value={num(data.plays.plays)} sub={<>{playTime(data.plays.seconds)} · {count(data.plays.sessions, 'session', 'sessions', '次会话')}</>} />
-        <Stat tone="accent" label={t('Platform revenue', '平台收入')} value={usd(data.sales.fees + data.creator_fees.total)} sub={<>{usd(data.sales.fees)} {t('from sales', '来自销售分成')} · {usd(data.creator_fees.total)} {t('creator fees', '创作者费用')}</>} />
+        <Stat tone="accent" label={t('Platform revenue', '平台收入')} value={usd(data.sales.fees + (data.skill_sales?.fees || 0) + data.creator_fees.total)} sub={<>{usd(data.sales.fees)} {t('from sales', '来自销售分成')} · {usd(data.skill_sales?.fees || 0)} {t('from skills', '来自技能')} · {usd(data.creator_fees.total)} {t('creator fees', '创作者费用')}</>} />
         <Stat label={t('Game sales', '游戏销售额')} value={usd(data.sales.gross)} sub={<>{count(data.sales.n, 'sale', 'sales', '笔')} · {usd(data.sales.gross30)} {t('in 30 days', '近 30 天')}</>} />
+        <Stat label={t('Skill sales', '技能销售额')} value={usd(data.skill_sales?.gross || 0)} sub={<>{count(data.skill_sales?.n || 0, 'sale', 'sales', '笔')} · {t('{n} skills shared, {paid} paid', '已分享 {n} 个技能，{paid} 个付费', { n: data.skill_sales?.shared || 0, paid: data.skill_sales?.paid || 0 })}</>} />
         <Stat label={t('Owed to creators', '应付创作者')} value={usd(data.owed_cents)} sub={<>{data.pending_withdrawals.n} {t('withdrawals waiting', '笔提现待处理')} · {usd(data.pending_withdrawals.c)}</>} />
       </StatGrid>
       <div className="cols">
@@ -282,7 +283,7 @@ function Money() {
       </Card>
       <Card title={t('Game sales', '游戏销售')}>
         {data.purchases.length ? <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th>{t('Creator', '创作者')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Platform', '平台')}</th><th className="n">{t('Creator', '创作者')}</th><th>{t('Status', '状态')}</th><th>{t('When', '时间')}</th><th /></tr></thead>
-          <tbody>{data.purchases.map((x: any) => <tr key={x.id}><td><Link to={`/g/${x.slug}`}>{x.title}</Link></td><td className="mute">{x.buyer}</td><td className="mute">{x.creator}</td><td className="n">{usd(x.price_cents)}</td><td className="n">{usd(x.fee_cents)}</td><td className="n">{usd(x.net_cents)}</td><td><StatusBadge status={x.status} />{x.provider === 'admin' && <Badge dot={false}>{t('granted', '赠送')}</Badge>}</td><td className="mute">{dateTime(x.created_at)}</td>
+          <tbody>{data.purchases.map((x: any) => <tr key={x.id}><td>{x.item === 'skill' ? <><Link to={`/creator-store/${x.slug}`}>{x.title}</Link> <Badge dot={false} tone="accent">{t('skill', '技能')}</Badge></> : <Link to={`/g/${x.slug}`}>{x.title}</Link>}</td><td className="mute">{x.buyer}</td><td className="mute">{x.creator}</td><td className="n">{usd(x.price_cents)}</td><td className="n">{usd(x.fee_cents)}</td><td className="n">{usd(x.net_cents)}</td><td><StatusBadge status={x.status} />{x.provider === 'admin' && <Badge dot={false}>{t('granted', '赠送')}</Badge>}</td><td className="mute">{dateTime(x.created_at)}</td>
             <td style={{ textAlign: 'right' }}>{x.status === 'paid' && <Button size="sm" variant="danger" disabled={busy === x.id} onClick={() => refund(x)}>{x.provider === 'admin' ? t('Revoke', '撤销') : t('Refund', '退款')}</Button>}</td></tr>)}</tbody></Table> : <div className="pad mute">{t('No sales yet.', '暂无销售。')}</div>}
       </Card>
       <div className="cols">
