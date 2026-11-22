@@ -15,6 +15,7 @@ import { trialMinutes } from '../trials';
 import type { GameRoom } from '../room';
 import { actBots, botOptions, botStatus, startBots, stopBots } from '../bots';
 import { getSettings } from '../settings';
+import { applySale, saleView } from '../sales';
 import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
 import { gameAnalytics, onlineNow } from '../analytics';
@@ -85,6 +86,14 @@ const trialText = (p: { price_cents: number; trial_minutes: number }, s: Awaited
   const m = trialMinutes(p, s);
   return m ? `${m} min: players who have not bought it can play ${m} minutes in total (per account, across devices), then are asked to buy` : p.price_cents > 0 ? 'none: players must buy before playing' : 'not applicable: the game is free';
 };
+// the limited-time sale, in words (src/sales.ts)
+const saleText = (p: Parameters<typeof saleView>[0], s: Awaited<ReturnType<typeof getSettings>>) => {
+  const v = saleView(p, s);
+  if (v.running) return `on sale: ${usd(v.running.price_cents)} (${v.running.percent_off}% off ${usd(v.running.regular_cents)}) until ${new Date(v.running.ends_at).toISOString().slice(0, 16).replace('T', ' ')} UTC; creator receives ${usd(splitSale(v.running.price_cents, s, freeSkillShared(p as any)).net)} per sale meanwhile`;
+  if (!(p.price_cents > 0)) return 'not applicable: the game is free';
+  if (!v.enabled) return 'disabled on this platform';
+  return v.next_sale_at ? `none; the next sale can start on ${new Date(v.next_sale_at).toISOString().slice(0, 10)}` : 'none (update_project sale {price_cents, days} starts one)';
+};
 const sharing = (p: { open_implementation: number; skill_price_cents?: number }) => (p.open_implementation
   ? `on: the game's build skill is in the Creator Store, ${Number(p.skill_price_cents) > 0 ? `sold for ${usd(Number(p.skill_price_cents))}` : 'free'} (never its code). Write the skill for every version before publishing it: build_skill {action: "write"}`
   : 'off: nothing about how this game is built is shared');
@@ -98,7 +107,7 @@ async function account(c: ToolCtx) {
     console_url: `${c.origin}/console`,
     earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
     build_skills: { free_skill: `a game that shares its build skill for free pays a ${s.platform_fee_open_percent}% cut on its own sales instead of ${s.platform_fee_percent}%`, paid_skill: s.paid_skills_enabled ? `a skill can be sold for ${usd(s.skill_price_min_cents)} to ${usd(s.skill_price_max_cents)}; the platform keeps ${s.skill_fee_percent}% of each skill sale and the game keeps the standard ${s.platform_fee_percent}% cut; skill sales are final, build skills are non-refundable` : 'disabled', store: `${c.origin}/creator-store` },
-    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_free_build_skill: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled' } : 'disabled',
+    paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_free_build_skill: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled', sales: s.sales_enabled ? { max_days: s.sale_max_days, min_percent_off: s.sale_min_percent_off, min_sale_price_cents: s.sale_price_min_cents, days_between_sales: s.sale_gap_days, how: 'update_project sale {price_cents, days}; null ends it' } : 'disabled' } : 'disabled',
     limits: { storage_per_game: mb(s.bundle_max_bytes), storage_per_game_bytes: s.bundle_max_bytes, largest_file: mb(s.file_max_bytes), files_per_game: s.bundle_max_files, more_storage: s.storage_requests_open ? `ask with game_storage, up to ${mb(s.storage_max_bytes)} per game` : 'closed', server_code: s.allow_server_code },
   };
 }
@@ -533,7 +542,7 @@ export const TOOLS: Tool[] = [
       return {
         project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, tags: JSON.parse(p.tags || '[]'),
         cover: p.cover_key ? `${c.origin}/api/media/${p.cover_key}` : null,
-        status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', free_trial: trialText(p, await getSettings(c.env)), live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
+        status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', sale: saleText(p, await getSettings(c.env)), free_trial: trialText(p, await getSettings(c.env)), live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
         workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) }, storage: await storageLine(c.env, p, files),
         latest_version: latest ? await versionReport(c, p, latest.n, latest) : null,
         game_page: p.status === 'live' ? `${c.origin}/g/${p.slug}` : null, console_page: `${c.origin}/console/projects/${p.id}`,
@@ -563,8 +572,8 @@ export const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'update_project', title: 'Update listing, price, cover or sharing',
-    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share. Sharing puts the game\'s build skill (written with build_skill) in the Creator Store; skill_price_cents 0 shares it for free, a price sells it (the user\'s choice).',
+    name: 'update_project', title: 'Update listing, price, sale, cover or sharing',
+    description: 'Updates the marketplace listing: title, tagline, description, genre and secondary genres, tags (both from the platform lists; see game_metadata), controls text, the listing translated into platform languages, price, free trial and cover image. price_cents 0 means free; a positive value makes it a paid game (one-time purchase in US cents), and the platform keeps its cut of each sale. trial_minutes lets players who have not bought a paid game play it for that many minutes in total (counted per account on the server, across reloads and devices) before they are asked to buy; 0 turns the trial off. Only set a price or a trial when the user has chosen them. sale puts a paid game on a limited-time sale: {price_cents, days}; the store shows the sale price with the regular price struck through and when it ends, and buyers pay the sale price until it ends (then the regular price is back by itself). Sending sale again while one runs changes it; null ends it early. The regular price cannot change during a sale. Only start a sale when the user has chosen one. cover is the workspace path of a png, jpg or webp under 2 MB (ideally 16:9); without one, the verification screenshot is used. open_implementation true lets other developers\' agents learn how the live game is built through get_implementation (engine, rendering, input, techniques, a summary; never code or files); false stops sharing at once. Only set it when the user has chosen to share. Sharing puts the game\'s build skill (written with build_skill) in the Creator Store; skill_price_cents 0 shares it for free, a price sells it (the user\'s choice).',
     inputSchema: obj({
       project: PROJECT, title: { type: 'string' }, tagline: { type: 'string' }, description: { type: 'string' }, tags: TAGS_SCHEMA,
       controls: { type: 'string', description: 'How to play, shown on the game page (keys, touch).' },
@@ -574,6 +583,7 @@ export const TOOLS: Tool[] = [
       covers: { type: 'object', description: 'A cover per platform language, for covers that show text such as the game\'s name: {"zh": "cover-zh.jpg", "ja": "cover-ja.jpg"}, workspace paths; null removes one. The listing\'s own language uses cover. Players see the cover of the language the listing is shown in.' },
       listing_language: LISTING_LANGUAGE_SCHEMA,
       open_implementation: { type: 'boolean', description: 'Share how the live game is built with other agents (no code), and its build skill in the Creator Store. Default off.' },
+      sale: { type: ['object', 'null'], properties: { price_cents: { type: 'integer', description: 'The sale price in US cents, below the regular price (get_started shows the smallest discount and lowest sale price allowed).' }, days: { type: 'integer', description: 'How many days the sale lasts, from now (or from when the running sale started).' } }, description: 'A limited-time sale of a paid game: {price_cents, days}; null ends the running sale. Only when the user has chosen.' },
       skill_price_cents: { type: 'integer', description: 'The build skill\'s price in US cents, or 0 to share it for free. A free skill lowers the game\'s own platform cut; a sold one keeps the standard cut and pays the skill commission on skill sales. Only when the user has chosen.' },
       genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
       listing_translations: TRANSLATIONS_SCHEMA,
@@ -601,8 +611,9 @@ export const TOOLS: Tool[] = [
           perLang.push([l, v]);
         }
       }
-      const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, ...meta } = a;
+      const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, sale: saleIn, ...meta } = a;
       await updateProjectMeta(c.env, p, meta);
+      if (saleIn !== undefined) await applySale(c.env, await ownedProject(c.env, c.user, p.id), saleIn, c.client);
       const fresh = await ownedProject(c.env, c.user, p.id), own = baseListingLang(fresh), langCovers: Record<string, string | null> = {};
       // the cover of the listing's own language is the main cover
       const mainPath = a.cover || perLang.find(([l, v]) => l === own && v)?.[1];
@@ -625,7 +636,7 @@ export const TOOLS: Tool[] = [
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
       const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
+      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
   },
   {

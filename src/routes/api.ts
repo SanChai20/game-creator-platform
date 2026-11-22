@@ -19,6 +19,7 @@ import { missingToPublish, normalizeStoredTags, tagGroup } from '../../web/src/t
 import { listingLangs } from '../listing';
 import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { currentChecks, gateError, gateView, recordGate, releaseGate, storedGate } from '../release-gate';
+import { PRICE_NOW_SQL, applySale, checkoutExpiry, saleOf, saleView } from '../sales';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -56,9 +57,13 @@ const media = (origin: string, key: string | null) => (key ? `${origin}/api/medi
 const pubUser = (u: User) => ({ id: u.id, email: u.email, name: u.name, role: u.role, creator: !!u.creator, creator_since: u.creator_since,
   license: licenseOf({ ...u, creator: u.creator_licensed ?? u.creator }), payouts_enabled: !!u.stripe_payouts_enabled, has_payout_account: !!u.stripe_account, payout_country: u.payout_country, two_factor: !!u.totp_enabled_at });
 
-function card(origin: string, r: Record<string, any>) {
+function card(origin: string, r: Record<string, any>, at = now()) {
+  // price_cents is what a buyer pays now; during a limited-time sale (src/sales.ts) that is the sale price, and `sale`
+  // carries the regular price (struck through in the store), the percent off and when the sale ends
+  const sale = saleOf(r as Project, at);
   return {
-    id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: normalizeStoredTags(parseJson<string[]>(r.tags, [])), /* only genres and tags on the platform list */ cover: media(origin, r.cover_key), price_cents: r.price_cents,
+    id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, tags: normalizeStoredTags(parseJson<string[]>(r.tags, [])), /* only genres and tags on the platform list */ cover: media(origin, r.cover_key), price_cents: sale ? sale.price_cents : r.price_cents,
+    sale: sale && { regular_cents: sale.regular_cents, percent_off: sale.percent_off, ends_at: sale.ends_at },
     trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
     author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, skill_price_cents: Number(r.skill_price_cents) || 0, playing: Number(r.playing) || 0,
@@ -340,7 +345,7 @@ async function listGames(c: Ctx, o: ListOpts) {
   if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\' OR (p.listing_i18n != '{}' AND EXISTS (SELECT 1 FROM json_each(p.listing_i18n) j WHERE json_extract(j.value, '$.title') LIKE ? ESCAPE '\\' OR json_extract(j.value, '$.tagline') LIKE ? ESCAPE '\\')))"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase(), like, like); }
   // tag can name several genres, comma separated: a game must carry all of them
   for (const one of tag.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 5)) { where.push("p.tags LIKE ? ESCAPE '\\'"); args.push('%"' + one.replace(/[\\%_]/g, '\\$&') + '"%'); }
-  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') where.push('p.price_cents > 0 AND p.price_cents < 500'); else if (o.price === 'trial') where.push('p.price_cents > 0 AND p.trial_minutes > 0');
+  if (o.price === 'free') where.push('p.price_cents = 0'); else if (o.price === 'paid') where.push('p.price_cents > 0'); else if (o.price === 'under5') { where.push(`p.price_cents > 0 AND ${PRICE_NOW_SQL} < 500`); args.push(now()); } else if (o.price === 'sale') { where.push('p.sale_price_cents > 0 AND p.sale_ends_at > ? AND p.sale_starts_at <= ? AND p.sale_price_cents < p.price_cents'); const t = now(); args.push(t, t); } else if (o.price === 'trial') where.push('p.price_cents > 0 AND p.trial_minutes > 0');
   if (o.minRating) { where.push('p.rating_count > 0 AND p.rating_sum >= ? * p.rating_count'); args.push(Math.max(1, Math.min(5, o.minRating))); }
   if (o.newSince) { where.push('p.published_at > ?'); args.push(o.newSince); }
   if (o.by) { where.push('p.owner_id = ?'); args.push(String(o.by).slice(0, 64)); }   // one creator's games
@@ -431,13 +436,14 @@ async function edgeCached(c: Ctx, seconds: number, make: () => Promise<Response>
 api.get('/home', (c) => edgeCached(c, 20, () => homeData(c)));
 async function homeData(c: Ctx): Promise<Response> {
   const t = now(), weekAgo = t - 7 * 86400000;
-  const [picks, trending, playing, fresh, top, free, genres, stats] = await Promise.all([
+  const [picks, trending, playing, fresh, top, free, sale, genres, stats] = await Promise.all([
     currentPicks(c.env.DB, t),
     listGames(c, { sort: 'trending', limit: 16 }),
     listGames(c, { sort: 'playing', limit: 12 }),
     listGames(c, { sort: 'new', limit: 12 }),
     listGames(c, { sort: 'top', limit: 12 }),
     listGames(c, { sort: 'trending', price: 'free', limit: 12 }),
+    listGames(c, { sort: 'trending', price: 'sale', limit: 12 }),
     genreCounts(c, 18),
     c.env.DB.prepare(`SELECT
         (SELECT COUNT(*) FROM projects WHERE status = 'live') AS games,
@@ -452,6 +458,8 @@ async function homeData(c: Ctx): Promise<Response> {
       // today's picks lead the page (chosen each day by the schedule, src/rankings.ts)
       picks: picks.map((r) => card(c.get('origin'), r)),
       trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
+      // games on a limited-time sale right now (src/sales.ts)
+      sale: sale.games,
     },
     genres,
   });
@@ -703,7 +711,7 @@ api.get('/media/*', async (c) => {
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------
-async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false) {
+async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false, closeBy?: number) {
   // A build skill is final once bought: it shows in full the moment the payment succeeds and is never refunded.
   const skill = metadata.kind === 'skill';
   const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
@@ -724,6 +732,7 @@ async function checkout(c: Ctx, u: User, name: string, amount: number, metadata:
     },
     ...(digitalGoods ? { consent_collection: { terms_of_service: 'required' } } : {}),
     success_url: `${origin}${back}${back.includes('?') ? '&' : '?'}paid={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}${back}`,
+    ...(closeBy ? { expires_at: checkoutExpiry(closeBy) } : {}),
   });
   return c.json({ url: session.url });
 }
@@ -776,7 +785,11 @@ api.post('/games/:slug/buy', async (c) => {
   if (p.price_cents <= 0) throw bad('This game is free.');
   if (u.id === p.owner_id) throw bad('This is your own game.');
   if (await owns(c.env, u.id, p.id)) throw new AppError(409, 'You already own this game.', 'already');
-  return checkout(c, u, p.title, p.price_cents, { kind: 'game', user_id: u.id, project_id: p.id }, `/g/${p.slug}`, true);
+  // During a sale the buyer pays the sale price. The checkout closes when the sale ends (Stripe keeps a session open at
+  // least 30 minutes), so a sale price is never charged long after the sale. Stripe's amount_total is what gets recorded,
+  // and what a refund gives back.
+  const sale = saleOf(p), amount = sale ? sale.price_cents : p.price_cents;
+  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
 });
 
 // The page showing a game (the store page, or the console's preview) checks in every 30 seconds while the game is open,
@@ -1051,11 +1064,14 @@ api.get('/console/projects/:id', async (c) => {
   const metadata = newest ? { version: newest.n, required: s.metadata_required, missing: missingToPublish(vm?.meta, !!vm?.compat?.declared, JSON.parse(p.tags || '[]')).map((m) => m.split(' ')[0]), age: vm?.meta?.rating?.age ?? null, declared: vm?.meta?.declared ?? [] } : null;
   return c.json({
     metadata,
-    project: { ...card(origin, { ...p, author: u.name }), open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
+    project: { ...card(origin, { ...p, author: u.name }), regular_price_cents: p.price_cents, open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => { const g = storedGate(v); return { ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required), current: currentChecks(v, s), release: g ? gateView(g) : null }; }),
     events: events.results, daily: daily.results, errors: errors.results, sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s, freeSkillShared(p)) : null,
+    // the limited-time sale: the one running (with what the creator receives per sale at that price), the last one, and
+    // when the next can start (src/sales.ts)
+    sale: (() => { const v = saleView(p, s); return { ...v, split: v.running ? splitSale(v.running.price_cents, s, freeSkillShared(p)) : null }; })(),
     skill: {
       shared: !!p.open_implementation, price_cents: p.skill_price_cents || 0, sales: skillSales, copies: p.skill_copies, views: p.skill_views,
       split: p.skill_price_cents > 0 ? splitSkillSale(p.skill_price_cents, s) : null, versions: skillRows.results,
@@ -1173,6 +1189,7 @@ api.patch('/console/projects/:id', async (c) => {
   if (b.price_cents !== undefined || b.trial_minutes !== undefined) await updateProjectMeta(c.env, p, { price_cents: b.price_cents, trial_minutes: b.trial_minutes });
   if (b.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(b.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(b.trial_minutes))} min` : 'Free trial turned off', null, 'console');
   if (b.skill_price_cents !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, b.skill_price_cents, 'console');
+  if (b.sale !== undefined) await applySale(c.env, p, b.sale, 'console');
   if (typeof b.open_implementation === 'boolean') await setOpenImplementation(c.env, p, b.open_implementation, 'console');
   return c.json({ ok: true });
 });

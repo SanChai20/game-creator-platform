@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { CountUp } from './ui/count';
 import { SkHits, SkShelf } from './skeletons';
-import { ago, api, artStyle, blurb, shown, count, CoverImg, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, price, RARITY, rarity, rarityHint, recentPlays, seenGames, t, trialLabel, trialOf, MatureTag, useLocation, Verdict, type GameCard } from './lib';
+import { ago, api, artStyle, blurb, shown, count, CoverImg, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, PriceTag, RARITY, rarity, rarityHint, recentPlays, SaleTag, seenGames, t, trialLabel, trialOf, MatureTag, useLocation, Verdict, type GameCard } from './lib';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[]; group?: string | null }
@@ -83,7 +83,7 @@ export function SearchBox({ initial = '', autoFocus, big, hotkey, onSubmit }: { 
             <Link key={g.id} to={`/g/${g.slug}`} className={'sbox-row' + (i === sel ? ' on' : '')} onClick={() => setOpen(false)}>
               <span className="thumb" id={`${id}-${i}`} role="option" aria-selected={i === sel} style={g.cover ? undefined : artStyle(g.slug)}>{g.cover && <CoverImg g={g} src={g.cover} />}</span>
               <span className="grow"><b className="clip">{g.title}</b><small className="clip">{g.author} · {g.tags.slice(0, 2).map(genreName).join(' · ')}</small></span>
-              <span className="sbox-p">{price(g.price_cents)}</span>
+              <PriceTag g={g} className="sbox-p" />
             </Link>
           ))}
           {!hits.length && wait && <SkHits />}
@@ -127,7 +127,7 @@ export function StoreBar() {
                 {!genres.length && <span className="dim fs-sm">{t('Loading…', '加载中…')}</span>}
               </div>
               <div className="mega-f">
-                <Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/browse?price=under5">{t('Under $5', '5 美元以下')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link>
+                <Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/browse?price=under5">{t('Under $5', '5 美元以下')}</Link><Link to="/browse?price=sale">{t('On sale', '限时特价')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link>
               </div>
             </div>
           )}
@@ -188,7 +188,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
         </dl>
         <div className="hero-buy">
           <Link to={to} className="btn btn-primary btn-lg">{g.price_cents > 0 ? t('View game', '查看游戏') : <><i className="play-tri" aria-hidden="true" />{t('Play free', '免费游玩')}</>}</Link>
-          <span className="hero-price">{price(g.price_cents)}</span>
+          <PriceTag g={g} className="hero-price" /><SaleTag g={g} />
           {!!trial && <span className="trial-tag">{trialLabel(trial)}</span>}
         </div>
       </div>
@@ -242,7 +242,7 @@ export function GameRow({ g: raw, onFocus, active, rank }: { g: GameCard; onFocu
         <span className="gr-tags">{g.tags.slice(0, 3).map((x) => <i key={x} style={hue(x)}>{genreName(x)}</i>)}</span>
       </span>
       <span className="gr-meta"><Verdict g={g} />{!!g.playing && <small className="live">{num(g.playing)} {t('playing', '人在玩')}</small>}{!g.playing && g.published_at && <small>{ago(g.published_at)}</small>}</span>
-      <span className="gr-buy">{!!trialOf(g) && <small className="gr-trial">{trialLabel(trialOf(g), true)}</small>}<span className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')}>{price(g.price_cents)}</span></span>
+      <span className="gr-buy">{!!trialOf(g) && <small className="gr-trial">{trialLabel(trialOf(g), true)}</small>}<SaleTag g={g} /><PriceTag g={g} className={'gr-price' + (g.price_cents > 0 ? ' paid' : '')} /></span>
     </Link>
   );
 }

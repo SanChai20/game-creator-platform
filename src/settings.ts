@@ -38,6 +38,12 @@ export const SETTING_DEFS = {
   refund_auto: { v: true, type: 'bool', group: 'Paid games', label: 'Refund eligible games automatically when the buyer asks (off: every refund waits for an admin)', public: true },
   refund_fee_bearer: { v: 'platform', type: 'select', options: ['platform', 'creator'], group: 'Paid games', label: 'Who bears the payment processing fee Stripe keeps when a game is refunded (platform or creator)', public: true },
   refund_limit_count: { v: 3, type: 'int', group: 'Paid games', label: 'Refunds within the period after which an account loses self-service refunds and its refunds wait for an admin (0: no limit)', public: true },
+  // Limited-time sales (src/sales.ts)
+  sales_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to put a paid game on sale for a limited time', public: true },
+  sale_max_days: { v: 30, type: 'int', group: 'Paid games', label: 'Longest sale a creator can run (days)', public: true },
+  sale_min_percent_off: { v: 10, type: 'int', group: 'Paid games', label: 'Smallest discount a sale can offer (percent off the regular price)', public: true },
+  sale_price_min_cents: { v: 99, type: 'cents', group: 'Paid games', label: 'Lowest price a game can have on sale', public: true },
+  sale_gap_days: { v: 30, type: 'int', group: 'Paid games', label: 'Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)', public: true },
   refund_limit_days: { v: 30, type: 'int', group: 'Paid games', label: 'Period for the refund limit (days)', public: true },
 
   play_min_seconds: { v: 30, type: 'int', group: 'Play counting', label: 'Seconds before a session counts as a play', public: true },
