@@ -162,7 +162,7 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
                 t('Publish free, or set a price.', '可以免费发布，也可以自行定价。'),
                 t('On paid games you keep {share}% of each sale.', '付费游戏每笔销售你可获得 {share}%。', { share: 100 - s.platform_fee_percent }),
                 ...(s.platform_fee_open_percent < s.platform_fee_percent ? [t('Share your game\'s build skill for free in the Creator Store and you keep {share}% instead.', '在创作者商店免费分享游戏的构建技能，你可获得 {share}%。', { share: 100 - s.platform_fee_open_percent })] : []),
-                ...(s.paid_skills_enabled !== false ? [t('Or sell the build skill: the game keeps the standard cut, and the platform keeps {pct}% of each skill sale.', '也可以出售构建技能：游戏按标准比例分成，平台从每笔技能销售中收取 {pct}%。', { pct: Number(s.skill_fee_percent ?? 5) })] : []),
+                ...(s.paid_skills_enabled !== false ? [t('Or sell the build skill: the game keeps the standard cut, and the platform keeps {pct}% of each skill sale. Skill sales are final: build skills are non-refundable.', '也可以出售构建技能：游戏按标准比例分成，平台从每笔技能销售中收取 {pct}%。技能销售为最终交易：构建技能不可退款。', { pct: Number(s.skill_fee_percent ?? 5) })] : []),
                 t('Withdraw once your balance reaches {amount}.', '余额达到 {amount} 即可提现。', { amount: usd(s.withdraw_min_cents) }),
               ] : []),
             ]} />
