@@ -4,25 +4,28 @@
 import type { Env, Project, Version } from './env';
 import { ensureVersionMeta, getVersion } from './projects';
 import { matureOf } from '../web/src/gamemeta';
+import { platformLangsOf } from '../web/src/languages';
 
 /** The age rating and the adults-only categories of one version. */
-export async function matureOfVersion(env: Env, v: Version): Promise<{ age: number | null; mature: string }> {
+export async function matureOfVersion(env: Env, v: Version): Promise<{ age: number | null; mature: string; langs: string }> {
   const { meta } = await ensureVersionMeta(env, v);
   const m = matureOf(meta.meta.content);
-  return { age: meta.rating?.age ?? null, mature: m.categories.join(',') };
+  // the platform languages it is declared to be played in ('' when not declared: then every translation shows): the store shows its listing in those (web/src/languages.ts pickListing)
+  const langs = meta.languages?.declared ? platformLangsOf(meta.languages?.languages).join(',') : '';
+  return { age: meta.rating?.age ?? null, mature: m.categories.join(','), langs };
 }
 
-/** Records the live version's rating on the project. Called when a version goes live (publish and rollback). */
+/** Records the live version's rating and languages on the project. Called when a version goes live (publish and rollback). */
 export async function syncMature(env: Env, pid: string, v: Version): Promise<void> {
   const r = await matureOfVersion(env, v);
-  await env.DB.prepare('UPDATE projects SET age = ?, mature = ? WHERE id = ?').bind(r.age ?? 0, r.mature, pid).run();
+  await env.DB.prepare('UPDATE projects SET age = ?, mature = ?, langs = ? WHERE id = ?').bind(r.age ?? 0, r.mature, r.langs, pid).run();
 }
 
-/** Live games published before ratings were recorded on the project, a few at a time. Returns how many it filled in. */
+/** Live games published before ratings (or languages) were recorded on the project, a few at a time. Returns how many it filled in. */
 export async function backfillMature(env: Env, max = 20): Promise<number> {
-  const rows = (await env.DB.prepare("SELECT id, live_version FROM projects WHERE status = 'live' AND live_version IS NOT NULL AND age IS NULL LIMIT ?").bind(max).all<Pick<Project, 'id' | 'live_version'>>()).results;
+  const rows = (await env.DB.prepare("SELECT id, live_version FROM projects WHERE status = 'live' AND live_version IS NOT NULL AND (age IS NULL OR langs IS NULL) LIMIT ?").bind(max).all<Pick<Project, 'id' | 'live_version'>>()).results;
   for (const r of rows) {
-    try { const v = await getVersion(env, r.id, r.live_version!); if (v) await syncMature(env, r.id, v); else await env.DB.prepare('UPDATE projects SET age = 0 WHERE id = ?').bind(r.id).run(); }
+    try { const v = await getVersion(env, r.id, r.live_version!); if (v) await syncMature(env, r.id, v); else await env.DB.prepare("UPDATE projects SET age = COALESCE(age, 0), langs = COALESCE(langs, '') WHERE id = ?").bind(r.id).run(); }
     catch (e) { console.error('mature backfill failed', r.id, e); }
   }
   return rows.length;
@@ -35,7 +38,7 @@ export const matureList = (p: { mature?: string | null }): string[] => String(p.
 export async function liveMature(env: Env, p: Project): Promise<string[]> {
   if (p.age == null && p.live_version) {
     const v = await getVersion(env, p.id, p.live_version);
-    if (v) { const r = await matureOfVersion(env, v); await env.DB.prepare('UPDATE projects SET age = ?, mature = ? WHERE id = ?').bind(r.age ?? 0, r.mature, p.id).run(); return r.mature.split(',').filter(Boolean); }
+    if (v) { const r = await matureOfVersion(env, v); await env.DB.prepare('UPDATE projects SET age = ?, mature = ?, langs = ? WHERE id = ?').bind(r.age ?? 0, r.mature, r.langs, p.id).run(); return r.mature.split(',').filter(Boolean); }
   }
   return matureList(p);
 }

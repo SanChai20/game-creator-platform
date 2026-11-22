@@ -13,10 +13,12 @@ import { readLobby } from './lobby';
 // @ts-ignore plain JS module
 import { OFFLINE_GRACE_MS, nextChange, presenceOf, samePresence } from './presence.js';
 // @ts-ignore plain JS module
-import { friendIds, getProfile } from './social-rules.js';
+import { friendIds, gameRef, getProfile } from './social-rules.js';
+/** A game as friends see it: its name, and its name in each listing language (src/social-rules.js gameRef). */
+type GameRef = { id: string; slug: string; title: string; lang?: string; i18n?: Record<string, { title: string }> };
 
-export interface Presence { s: 'online' | 'away' | 'busy' | 'offline' | 'invisible'; chosen?: string; game?: { id: string; slug: string; title: string }; since?: number; detail?: string; joinable?: boolean }
-interface Act { g: { id: string; slug: string; title: string }; since: number; detail?: string; lobby?: string; label?: string }
+export interface Presence { s: 'online' | 'away' | 'busy' | 'offline' | 'invisible'; chosen?: string; game?: GameRef; since?: number; detail?: string; joinable?: boolean }
+interface Act { g: GameRef; since: number; detail?: string; lobby?: string; label?: string }
 interface Page { uid: string; login: string; vis: boolean; hidAt: number | null; at: number; act: Act | null; actAt: number }
 interface Prof { status: string; show_game: number; joinable: number; invites_from: string }
 
@@ -104,9 +106,9 @@ export class SocialHub extends DurableObject<Env> {
       const slug = String(m.slug).slice(0, 80);
       let g = page.act?.g.slug === slug ? page.act.g : null;
       if (!g) {
-        const r = await this.env.DB.prepare("SELECT id, slug, title FROM projects WHERE slug = ? AND status = 'live'").bind(slug).first<{ id: string; slug: string; title: string }>().catch(() => null);
+        const r = await this.env.DB.prepare("SELECT id, slug, title, listing_i18n, listing_lang, langs FROM projects WHERE slug = ? AND status = 'live'").bind(slug).first<{ id: string; slug: string; title: string }>().catch(() => null);
         if (!r) return;
-        g = { id: r.id, slug: r.slug, title: r.title };
+        g = gameRef(r) as GameRef;   // with its name in each listing language, so every friend sees it in theirs
       }
       const detail = typeof m.detail === 'string' ? m.detail.replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, DETAIL_MAX) : '';
       // a place to join, only for a genuine lobby of this game (the token is signed by the platform for this game)

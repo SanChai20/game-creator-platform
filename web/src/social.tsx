@@ -5,7 +5,7 @@
 // seen over the game too. A Busy player gets no pop-ups (only the badge), and nothing is ever sent for a guest.
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ago, api, ApiError, navigate, t, useApp } from './lib';
+import { ago, api, ApiError, local, navigate, t, useApp } from './lib';
 import { Button, Field, Input, RowMenu, Select, Switch, Textarea } from './ui';
 import './social.css';
 
@@ -117,7 +117,7 @@ function onMessage(m: any) {
       soonSummary();
       const inv = ev.invite as Invite;
       if (S.chat && S.chat.peer === inv.from.id) void loadChat(inv.from.id);
-      if (!ev.quiet) toast({ kind: 'invite', ttl: 25000, title: t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name: inv.from.name, game: inv.game.title }), body: inv.label || undefined, actions: [
+      if (!ev.quiet) toast({ kind: 'invite', ttl: 25000, title: t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name: inv.from.name, game: local(inv.game, 'title') }), body: inv.label || undefined, actions: [
         { label: t('Join', '加入'), primary: true, run: () => void answerInvite(inv.id, true) },
         { label: t('Decline', '拒绝'), run: () => void answerInvite(inv.id, false) }] });
       break;
@@ -125,9 +125,9 @@ function onMessage(m: any) {
     case 'invite_answer':
       try { S.frame?.postMessage({ gcp: 'friends_answer', id: ev.id, accepted: ev.accepted, by: ev.by }, '*'); } catch { /* gone */ }
       if (S.chat && S.chat.peer === ev.by.id) void loadChat(ev.by.id);
-      toast({ kind: 'answer', title: ev.accepted ? t('{name} accepted your invite to {game}', '{name} 接受了你的 {game} 邀请', { name: ev.by.name, game: ev.game?.title || '' }) : t('{name} declined your invite', '{name} 拒绝了你的邀请', { name: ev.by.name }) });
+      toast({ kind: 'answer', title: ev.accepted ? t('{name} accepted your invite to {game}', '{name} 接受了你的 {game} 邀请', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) : t('{name} declined your invite', '{name} 拒绝了你的邀请', { name: ev.by.name }) });
       break;
-    case 'joining': toast({ kind: 'answer', title: t('{name} is joining you in {game}', '{name} 正在加入你的 {game}', { name: ev.by.name, game: ev.game?.title || '' }) }); break;
+    case 'joining': toast({ kind: 'answer', title: t('{name} is joining you in {game}', '{name} 正在加入你的 {game}', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) }); break;
     case 'invite_cancelled': case 'counts': soonSummary(); if (S.chat) void loadChat(S.chat.peer); break;
   }
 }
@@ -209,7 +209,7 @@ async function invite(f: Friend, inv: { slug: string; lobby: string | null; labe
 export const statusName = (s: string) => ({ online: t('Online', '在线'), away: t('Away', '离开'), busy: t('Busy', '忙碌'), invisible: t('Invisible', '隐身'), offline: t('Offline', '离线') } as Record<string, string>)[s] || s;
 function minutes(since?: number) { if (!since) return ''; const m = Math.max(0, Math.floor((Date.now() - since) / 60000)); return m < 1 ? t('just started', '刚开始') : m < 60 ? t('{n} min', '{n} 分钟', { n: m }) : t('{h} h {m} min', '{h} 小时 {m} 分钟', { h: Math.floor(m / 60), m: m % 60 }); }
 export function presenceLine(p: Presence): string {
-  if (p.game) return [t('Playing {game}', '正在玩 {game}', { game: p.game.title }), p.detail, minutes(p.since)].filter(Boolean).join(' · ');
+  if (p.game) return [t('Playing {game}', '正在玩 {game}', { game: local(p.game, 'title') }), p.detail, minutes(p.since)].filter(Boolean).join(' · ');
   return statusName(p.s);
 }
 const invitable = (s: Status) => s === 'online' || s === 'away' || s === 'busy';
@@ -308,7 +308,7 @@ function Invites() {
     <section className="fr-invites" aria-label={t('Invites', '邀请')}>
       {list.map((i) => (
         <div key={i.id} className="fr-invite">
-          <div className="fr-invite-text"><b>{t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name: i.from.name, game: i.game.title })}</b>{i.label && <span>{i.label}</span>}<small>{ago(i.created_at)}</small></div>
+          <div className="fr-invite-text"><b>{t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name: i.from.name, game: local(i.game, 'title') })}</b>{i.label && <span>{i.label}</span>}<small>{ago(i.created_at)}</small></div>
           <div className="row" style={{ gap: 6 }}><Button size="sm" variant="primary" onClick={() => void answerInvite(i.id, true)}>{t('Join', '加入')}</Button><Button size="sm" variant="ghost" onClick={() => void answerInvite(i.id, false)}>{t('Decline', '拒绝')}</Button></div>
         </div>))}
     </section>
@@ -498,7 +498,7 @@ function Bubble({ m, mine, name }: { m: Msg; mine: boolean; name: string }) {
     const state = i.status === 'accepted' ? t('Accepted', '已接受') : i.status === 'declined' ? t('Declined', '已拒绝') : i.status === 'cancelled' ? t('Withdrawn', '已撤回') : !live ? t('Expired', '已过期') : mine ? t('Waiting for an answer', '等待对方回复') : '';
     return (
       <div className={'fr-bubble invite' + (mine ? ' mine' : '')}>
-        <b>{mine ? t('You invited {name} to play {game}', '你邀请 {name} 一起玩 {game}', { name, game: i.game?.title || '' }) : t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name, game: i.game?.title || '' })}</b>
+        <b>{mine ? t('You invited {name} to play {game}', '你邀请 {name} 一起玩 {game}', { name, game: i.game ? local(i.game, 'title') : '' }) : t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name, game: i.game ? local(i.game, 'title') : '' })}</b>
         {i.label && <span>{i.label}</span>}
         {!mine && live ? <div className="row" style={{ gap: 6 }}><Button size="sm" variant="primary" onClick={() => void answerInvite(i.id, true)}>{t('Join', '加入')}</Button><Button size="sm" variant="ghost" onClick={() => void answerInvite(i.id, false)}>{t('Decline', '拒绝')}</Button></div> : <small>{state}</small>}
       </div>);

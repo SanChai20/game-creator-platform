@@ -22,6 +22,7 @@ Verification is one of several requirements a version meets before it goes live.
 | verified | `not_verified`, `awaiting_review`, `review_denied` | The browser check passed (or a person approved a version the browser could not run). |
 | current_checks | `verification_outdated` | A new release was verified by every check the platform runs today: a version verified before a check existed (for example `capture`), verified while the capture check only warned because the game was not live yet, or one whose phone and tablet pass did not run while the game lists phones or tablets, is deployed again first (`deploy_preview`, or `retry_version` for the newest version). |
 | metadata | `metadata_incomplete` | Genre, tags, requirements, languages, players and content are on record. |
+| listing_languages | `listing_untranslated` | For every platform language (en, zh, zh-TW, ja, ko, es) the version declares in `languages`, the store listing has the title, and the tagline and description when the game's own listing has them, in that language. Add them with `game_metadata` `listing_translations` (no deploy needed). |
 | storage | `storage_full` | The version fits the game's storage. |
 | build_skill | `skill_missing` | A game that shares its build skill has one written for this exact version. |
 | original | `not_original` | Compared again with other creators' live games right before it goes live. |

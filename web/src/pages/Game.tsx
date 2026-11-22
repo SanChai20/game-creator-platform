@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, getLang, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, query, RARITY, rarity, rarityHint, rememberPlay, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -11,6 +11,7 @@ import { encodeJoin, onLaunch, setActivity } from '../social';
 import { InstallTip } from '../install-tip';
 import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
 import type { Lang } from '../lib';
+import { offeredListings } from '../languages';
 import { legalTitle } from './Legal';
 import { OPERATOR } from '../operator';
 import { RefundBox, type RefundState } from '../refund-ui';
@@ -131,7 +132,7 @@ export function Game({ slug }: { slug: string }) {
     return true;
   }), [slug, data, url]);
   // Friends see this game, and for how long, while it runs for a signed-in player.
-  const playTitle = data?.game?.title as string | undefined;
+  const playTitle = data?.game ? local(data.game, 'title') : undefined;
   useEffect(() => { setActivity(url && user && playingAs && !playingAs.guest && playTitle ? { slug, title: playTitle } : null); }, [url, user?.id, playingAs, slug, playTitle]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => setActivity(null), []);
   // Continue (the default once the player has progress here) opens the game with GCP.launch.continue, so it can load the
@@ -170,7 +171,7 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current; joinRef.current = null; setUrl(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j), j)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current; joinRef.current = null; setUrl(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j), j)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null, lang: g.lang, i18n: adult ? undefined : g.i18n }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -184,7 +185,7 @@ export function Game({ slug }: { slug: string }) {
   const total = data.rating_dist.reduce((a: number, b: number) => a + b, 0);
   const canReview = !!user && !data.is_owner && (data.played || !config.settings.review_requires_play);
 
-  const meta = data.meta as GameMeta | null | undefined, listings = Object.keys(g.listing_i18n || {}) as Lang[];
+  const meta = data.meta as GameMeta | null | undefined, listings = offeredListings(g.lang || 'en', Object.keys(g.listing_i18n || {}), null) as Lang[];
   const title = local(g, 'title'), tagline = blurb({ title, tagline: local(g, 'tagline') }), description = local(g, 'description'), controls = local(g, 'controls');
   const genre = g.tags?.[0] as string | undefined, R = RARITY[rarity(g)], h = genre ? genreHue(genre) : 350;
   const tryLabel = fresh || !user ? t('Try free · {minutes} min', '免费试玩 · {minutes} 分钟', { minutes: trial?.minutes ?? 0 }) : t('Continue trial · {left} min left', '继续试玩 · 剩 {left} 分钟', { left: leftMin });
@@ -231,7 +232,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage social={!!user} ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage social={!!user} ctl={stage} poster={shown(g).cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>

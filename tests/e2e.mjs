@@ -102,7 +102,7 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 21, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 25, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
@@ -308,11 +308,17 @@ GCP.ready();
   const gp = must(await B.get(`/api/games/${slug}`));
   assert.ok(gp.compat && gp.compat.declared === true && gp.compat.requirements.graphics === 'webgl2' && gp.compat.download_bytes > 0, JSON.stringify(gp.compat));
   assert.ok(gp.meta && gp.meta.rating.age === 3 && gp.meta.players.max === 1 && gp.meta.languages_declared && gp.meta.languages.supported.length >= 1 && gp.game.tags[0] === 'adventure', JSON.stringify(gp.meta));
-  // a translated listing is served with the game and its card
+  // the listing follows the platform language, but only in languages the game is played in: a Japanese listing of a
+  // game declared in English alone is kept and not served (Japanese players see English), and the card says what the
+  // listing itself is in
+  const played = gp.meta.languages.supported.map((l) => l.code);
   await tool('game_metadata', { project: pid, action: 'declare', listing_translations: { ja: { title: 'シャード島', tagline: '島のかけらを集めよう' } } });
-  const gpj = must(await B.get(`/api/games/${slug}`));
-  assert.equal(gpj.game.listing_i18n.ja.title, 'シャード島');
-  assert.equal(must(await B.get('/api/games')).games.find((g) => g.id === pid).i18n.ja.tagline, '島のかけらを集めよう');
+  const gpj = must(await B.get(`/api/games/${slug}`)), cardj = must(await B.get('/api/games')).games.find((g) => g.id === pid);
+  assert.equal(gpj.game.lang, 'en');
+  if (played.includes('ja')) { assert.equal(gpj.game.listing_i18n.ja.title, 'シャード島'); assert.equal(cardj.i18n.ja.tagline, '島のかけらを集めよう'); }
+  else { assert.equal(gpj.game.listing_i18n.ja, undefined, JSON.stringify(gpj.game.listing_i18n)); assert.equal(cardj.i18n?.ja, undefined); }
+  const mj = await tool('game_metadata', { project: pid });
+  assert.ok(mj.listing.translated_into.includes('ja') && /^en/.test(mj.listing.listing_language), JSON.stringify(mj.listing));
   assert.equal((await rpc('tools/call', { name: 'game_metadata', arguments: { project: pid, action: 'declare', listing_translations: { fr: { title: 'x' } } } })).isError, true);
   ok('published; visible in the marketplace with a cover, its declared requirements, metadata (age 3+, players, languages, genre) and a Japanese listing');
 

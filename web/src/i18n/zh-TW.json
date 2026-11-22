@@ -2090,5 +2090,8 @@
  "Test bots per fleet (one creator, one game)": "每組測試機器人的數量（一位創作者、一款遊戲）",
  "Longest a test-bot fleet runs before it stops by itself (minutes)": "一組測試機器人自動停止前可執行的最長時間（分鐘）",
  "Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)": "每位創作者每天可用的機器人分鐘數（機器人數 × 分鐘；7 個機器人 30 分鐘為 210）",
- "Test-bot fleets one creator can run at once": "一位創作者可同時執行的測試機器人組數"
+ "Test-bot fleets one creator can run at once": "一位創作者可同時執行的測試機器人組數",
+ "The language the title, tagline, description and cover are written in (worked out from the text when not set)": "標題、簡介、描述與封面所用的語言（未設定時根據文字判斷）",
+ "The title, tagline, description and controls in every other platform language the game is played in. Players see the listing in their platform language when the game supports it, else in English, else in the game's own language. Required for each platform language the game declares.": "遊戲支援的每種平台語言下的標題、簡介、描述與操作說明。玩家的平台語言若受遊戲支援，就以該語言顯示，否則顯示英文，再否則顯示遊戲自身的語言。遊戲宣告的每種平台語言都必須提供。",
+ "A cover per language (update_project), for covers that show the game's name or other text": "每種語言各自的封面（update_project），適用於帶有遊戲名稱或其他文字的封面"
 }

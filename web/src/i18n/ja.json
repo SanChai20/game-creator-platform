@@ -2069,5 +2069,8 @@
  "Test bots per fleet (one creator, one game)": "1 グループあたりのテストボット数（クリエイター 1 人、ゲーム 1 本）",
  "Longest a test-bot fleet runs before it stops by itself (minutes)": "テストボットのグループが自動停止するまでの最長時間（分）",
  "Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)": "クリエイター 1 人が 1 日に使えるボット分（ボット数 × 分。7 体で 30 分なら 210）",
- "Test-bot fleets one creator can run at once": "クリエイター 1 人が同時に動かせるテストボットのグループ数"
+ "Test-bot fleets one creator can run at once": "クリエイター 1 人が同時に動かせるテストボットのグループ数",
+ "The language the title, tagline, description and cover are written in (worked out from the text when not set)": "タイトル、キャッチコピー、説明、カバーの記述言語（未設定ならテキストから判定）",
+ "The title, tagline, description and controls in every other platform language the game is played in. Players see the listing in their platform language when the game supports it, else in English, else in the game's own language. Required for each platform language the game declares.": "ゲームが対応するほかのプラットフォーム言語それぞれでのタイトル、キャッチコピー、説明、操作説明。プレイヤーには、ゲームが対応していればプラットフォーム言語で、なければ英語で、それもなければゲーム自身の言語で表示されます。ゲームが宣言したプラットフォーム言語ごとに必須です。",
+ "A cover per language (update_project), for covers that show the game's name or other text": "言語ごとのカバー（update_project）。ゲーム名などの文字が入ったカバー向け"
 }
