@@ -2140,6 +2140,7 @@
  "Friends: your friends see your status and, unless you hide it in your privacy settings, which game you are playing and for how long. A game you play can list your friends and their status so you can invite them. People can find you by your friend code, and by your name if you allow it.": "フレンド：フレンドにはあなたのステータスが表示され、プライバシー設定で隠さない限り、遊んでいるゲームとその時間も表示されます。あなたが遊ぶゲームは、招待できるようにフレンドとそのステータスを一覧表示できます。フレンドコードで、また許可した場合は名前で、あなたを見つけることができます。",
  "Chat messages are deleted {days} days after they are sent, and at once when you or the friend you chatted with deletes their account. Your friends, friend requests, blocks and invites are deleted with your account. Reports about abuse are kept so we can act on them.": "チャットメッセージは送信から {days} 日後に削除され、あなたまたはチャット相手のフレンドがアカウントを削除したときは直ちに削除されます。フレンド、フレンド申請、ブロック、招待はアカウントとともに削除されます。不正行為の通報は対応のために保管されます。",
  "Read the cover image spec": "カバー画像の仕様を読む",
+ "Read the game standards": "ゲームの標準を読む",
  "Wait for my invites (as friends)": "招待を待つ（フレンドとして）",
  "waiting for your invites": "あなたの招待待ち",
  "In this preview the bots are your online friends: invite them from your game's own Invite Friends, and they answer and join like friends do.": "このプレビューでは、ボットがあなたのオンラインのフレンドです。ゲーム自身の「フレンドを招待」から招待すると、フレンドと同じように返事をして参加します。",

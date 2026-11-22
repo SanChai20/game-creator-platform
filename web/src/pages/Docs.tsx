@@ -147,7 +147,7 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
               ))}
             </div>
             <p>{t('Not provided: AI models for games, in-game purchases, achievements, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.', '不提供：供游戏使用的 AI 模型、游戏内购买、成就、游戏内聊天频道、推送通知，以及服务端代码的密钥。服务指南说明了替代做法。')}</p>
-            <p><a className="sig" href="/guides/services.md" target="_blank" rel="noreferrer">{t('Read the services guide', '阅读服务指南')} →</a></p>
+            <p><a className="sig" href="/guides/services.md" target="_blank" rel="noreferrer">{t('Read the services guide', '阅读服务指南')} →</a> · <a className="sig" href="/guides/standards.md" target="_blank" rel="noreferrer">{t('Read the game standards', '阅读游戏标准')} →</a></p>
           </section>
 
           <section id="storage">
