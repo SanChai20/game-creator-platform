@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { NUMBERS, STANDARDS, checkStandards, findingLine, renderStandards, safeAreaSvg, standardById, standardsIndex } from '../src/standards.js';
+import { NUMBERS, STANDARDS, checkStandards, findingLine, layoutFindings, renderStandards, safeAreaSvg, standardById, standardsIndex } from '../src/standards.js';
 import { LISTING_LIMITS } from '../web/src/languages.ts';
 import { PLAY_MAX_W } from '../web/src/play-window.ts';
 
@@ -52,6 +52,29 @@ test('the guide on disk is what the registry renders', () => {
   assert.match(safeAreaSvg(), /^<svg[\s\S]*<\/svg>$/);
 });
 
+// a phone upright with a notch: a status panel and a timer that collide, a toast off the bottom, a button under the home bar
+const LAYOUT_BAD = { where: 'iPhone upright (390×844, fullscreen)', view: { w: 390, h: 844 }, safe: { top: 47, right: 0, bottom: 34, left: 0 }, boxes: [
+  { id: 'status', layer: 'hud', x: 8, y: 55, w: 260, h: 60 }, { id: 'timer', layer: 'hud', x: 220, y: 55, w: 100, h: 40 },
+  { id: 'toast', layer: 'toast', x: 100, y: 820, w: 200, h: 40 }, { id: 'dash', layer: 'hud', x: 290, y: 760, w: 90, h: 70 },
+  { id: 'pause', layer: 'menu', x: 20, y: 200, w: 350, h: 400 }, { id: 'resume', layer: 'menu', x: 40, y: 300, w: 300, h: 60, inParent: true },
+] };
+
+test('the layout checks measure what the game placed', () => {
+  const f = layoutFindings(LAYOUT_BAD).map((x) => `${x.check}:${x.ids.join('+')}`);
+  assert.deepEqual(f.sort(), ['layout-off-screen:toast', 'layout-overlap:status+timer', 'layout-unsafe:dash'].sort());
+  const ok = { view: { w: 844, h: 390 }, safe: { top: 0, right: 47, bottom: 21, left: 47 }, boxes: [{ id: 'status', layer: 'hud', x: 47, y: 0, w: 260, h: 60 }, { id: 'timer', layer: 'hud', x: 372, y: 0, w: 100, h: 40 }, { id: 'pause', layer: 'menu', x: 200, y: 50, w: 400, h: 300 }] };
+  assert.deepEqual(layoutFindings(ok), [], 'a menu over the HUD is another layer; nothing else touches');
+  // the same overlap at two sizes is one finding that names both
+  const two = checkStandards({ report: { layout: [LAYOUT_BAD, { ...LAYOUT_BAD, where: 'iPad (1180×820)' }] } }).filter((x) => x.check === 'layout-overlap');
+  assert.equal(two.length, 1); assert.match(two[0].message, /"status" and "timer" overlap .* on iPhone upright \(390×844, fullscreen\), iPad \(1180×820\)\.$/);
+  assert.ok(two.every((x) => x.level === 'warning' && x.standard === 'ui-layout'));
+  const code = (t) => checkStandards({ texts: { 'a.js': t }, gcp: { requirements: { orientation: 'both' } } }).map((x) => x.check);
+  assert.ok(code('const c = document.querySelector("canvas"); c.width = 1280;').includes('layout-fixed-size'));
+  assert.ok(!code('const c = document.querySelector("canvas"); c.width = innerWidth;').includes('layout-fixed-size'));
+  assert.ok(code('GCP.ui.rect({ anchor: "top-left", w: 1 })').includes('layout-no-ids'));
+  assert.ok(!code('GCP.ui.rect({ anchor: "top-left", w: 1, id: "coins" })').includes('layout-no-ids'));
+});
+
 test('every standard is complete, and every check it names is one the validator raises', () => {
   const ids = new Set();
   for (const s of STANDARDS) {
@@ -72,6 +95,9 @@ test('every standard is complete, and every check it names is one the validator 
   for (const f of checkStandards({ listing: { title: 'Ok', tagline: 'Fine.', description: '', has_cover: false }, texts: { 'a.js': 'onkeydown = keydown;' } })) raised.add(f.check);
   for (const f of checkStandards({ report: { metrics: { progressBeforeReady: 0 }, zones: { checked: true, corner: 'top-left', zones: [{ zone: 'menu-button', coverage: 0.5, box: [47, 0, 56, 56] }, { zone: 'home-bar', coverage: 0.3, box: [0, 369, 844, 21] }] } } })) raised.add(f.check);
   for (const f of checkStandards({ report: { zones: { checked: false, reason: 'one-layer', zones: [] } } })) raised.add(f.check);
+  for (const f of checkStandards({ report: { layout: [LAYOUT_BAD] } })) raised.add(f.check);
+  for (const f of checkStandards({ texts: { 'a.js': 'const c = document.querySelector("canvas"); GCP.progress(1);' } })) raised.add(f.check);
+  for (const f of checkStandards({ texts: { 'a.js': 'const b = GCP.ui.rect({ anchor: "top-left", w: 10, h: 10 });' } })) raised.add(f.check);
   for (const f of checkStandards({ report: { turn: { ok: false, to: 'landscape', viewport: '844×390', problem: 'it stopped drawing frames.' } } })) raised.add(f.check);
   for (const f of checkStandards({ texts: { 'a.js': 'GCP.setDisplay({ orientation: "portrait" }); x = "Rotate your phone";' }, gcp: { requirements: { orientation: 'landscape' } } })) raised.add(f.check);
   for (const f of checkStandards({ texts: { 'a.js': 'const c = new AudioContext(); addEventListener("pointerdown", unlock);' } })) raised.add(f.check);

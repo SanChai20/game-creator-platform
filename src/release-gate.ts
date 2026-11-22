@@ -42,7 +42,7 @@ export const RULES: { id: string; title: string; modes: GateMode[]; waivable: bo
   { id: 'files_kept', title: 'The version\'s files are still kept', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Versions older than the platform keeps files for cannot go live.' },
   { id: 'files_intact', title: 'The files are the ones that were verified', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Every file of the version is present, the size it was frozen at, and unchanged since.' },
   { id: 'verified', title: 'It passed verification', modes: ['publish', 'rollback', 'restore'], waivable: true, what: 'The automated browser check passed (boots with GCP.ready(), keeps rendering, a real picture, survives input, serves every file, no uncaught errors, stays on the page, hands over its frame, plays on the devices it lists), or a person approved a version the browser could not run. An admin can waive only checks a verifier can get wrong; boot, conduct, originality and content failures stand.' },
-  { id: 'current_checks', title: 'It was verified against today\'s requirements', modes: ['publish'], waivable: true, what: 'A new release must have been checked by every verification check the platform runs today: the frame hand-over (capture), the phone and tablet pass for the devices it lists, and the rest. A version verified before a check existed, or while a check only warned, is deployed again first.' },
+  { id: 'current_checks', title: 'It was verified against today\'s requirements', modes: ['publish'], waivable: true, what: 'A new release must have been checked by every verification check the platform runs today: the frame hand-over (capture, advice only), the phone and tablet pass for the devices it lists, and the rest. A version verified before a check existed is deployed again first.' },
   { id: 'metadata', title: 'Its store metadata is complete', modes: ['publish'], waivable: true, what: 'Genre, 2 to 8 tags, requirements, languages, players and content descriptors are on record.' },
   { id: 'listing_languages', title: 'Its store listing is in every language it is played in', modes: ['publish'], waivable: true, what: 'Everything about the game outside the game follows the player\'s platform language. For every platform language (English, Simplified and Traditional Chinese, Japanese, Korean, Spanish) the version declares in languages, the store listing has the title, and the tagline and description when the game\'s own listing has them, in that language (game_metadata listing_translations; a cover per language is optional, update_project covers).' },
   { id: 'storage', title: 'It fits the game\'s storage', modes: ['publish'], waivable: false, what: 'All of its files fit the game\'s storage and file count. An admin can give the game more storage instead.' },
@@ -77,10 +77,8 @@ export function currentChecks(v: Version, s: Pick<Settings, 'verify_capture_requ
   const ids = new Set(checks.map((c) => c.id)), problems: string[] = [];
   const missing = REQUIRED_CHECKS.filter((id) => !ids.has(id));
   if (missing.length) problems.push(`its report has no ${missing.join(', ')} check${missing.length > 1 ? 's' : ''} (it was verified before ${missing.length > 1 ? 'they' : 'it'} existed)`);
-  const capture = checks.find((c) => c.id === 'capture');
-  if (capture && s.verify_capture_required !== false && (capture.soft || /^Not enforced until the game is live/.test(String(capture.detail || '')))) {
-    problems.push(`the capture check only warned when it ran, because the game was not live yet: ${String(capture.detail || '').replace(/^Not enforced until the game is live:\s*/, '')}`);
-  }
+  // the capture check is advice (the frame hand-over serves the creator's feedback screenshots; how the game draws its
+  // interface is the game's choice), so a capture finding never holds a release back: only a report without the check is old
   // the phone and tablet pass: required for the kinds of device the version lists, while the platform runs it
   const profiles = String(s.verify_devices || '').split(',').map((x) => x.trim()).filter(Boolean);
   const mf = parseJson<{ compat?: { requirements?: { devices?: string[] } } }>(v.manifest, {});

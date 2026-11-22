@@ -2,7 +2,9 @@
 
 <!-- Generated from src/standards.js by scripts/standards-guide.mjs. Edit the registry, not this file. -->
 
-Everything a game or its agent provides, as the platform shows it: where each thing appears, its exact sizes and limits, what to do and not do, and what the platform checks. The platform sets these standards; the agent carries them out.
+Everything a game or its agent provides, as the platform shows it: where each thing appears, its exact sizes and limits, what to do and not do, and what the platform checks.
+
+**These are recommendations and best practice, not rules.** The platform owns its own surfaces (the store, the player, the splash, the menu button, the safe area it reports) and tells you exactly how they behave; how the game itself looks, lays out its interface and plays is the game's design decision. Every finding below is advice: `deploy_preview`, `game_standards` check and `publish` report it, and none of them stops a version. What does stop one is listed in the release requirements (it boots, renders, takes input, plays on the devices it lists, its files and store metadata, originality and content).
 
 Read the entry before you make the thing. `game_standards {action: "get", id}` returns one entry; `game_standards {project, action: "check"}` checks the game and its listing against all of them and lists each finding with the fix. `deploy_preview` and `publish` report the same findings.
 
@@ -27,6 +29,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 | [The platform menu button](#menu-button) | While the game plays | game_standards check |
 | [Safe areas: notch, rounded corners, home bar](#safe-area) | While the game plays | game_standards check |
 | [The platform's on-screen controls](#touch-controls) | While the game plays | by looking |
+| [Interface layout: anchors, offsets and stretch](#ui-layout) | While the game plays | game_standards check |
 | [Window size](#window-orientation) | While the game plays | platform |
 | [Orientation: landscape, portrait or both](#orientation) | While the game plays | game_standards check |
 | [Interface scale and the player's UI size](#interface-scale) | While the game plays | platform |
@@ -315,7 +318,7 @@ More: [standards.md#menu-button](/guides/standards.md#menu-button)
 - The insets are GCP.display.safe ({ top, right, bottom, left } in CSS px) and the CSS variables --gcp-safe-top, -right, -bottom, -left; GCP.ui.rect anchors inside them by default.
 - Draw the world to the edges; keep buttons, text and HUD inside the insets. On a phone in landscape keep nothing important in the bottom 20 px.
 - GCP.setDisplay({ edgeToEdge: false }) keeps the game inside them with black bars instead.
-- Anchor interface to the edge it belongs to, at every size and in fullscreen: position from innerWidth and innerHeight (or GCP.ui.rect), never from a fixed design height. A bar on an edge (an experience bar, a toolbar, a top HUD strip) sits flush on the screen edge: its background runs through the inset to the edge, and only its text, icons and buttons stay inside the safe area. Never leave a strip of the world between an edge bar and the screen edge, and never move the whole bar up by the inset.
+- A bar on an edge (an experience bar, a toolbar, a top HUD strip) sits flush on the screen edge: its background runs through the inset to the edge (GCP.ui.rect(...).bleed), and only its text, icons and buttons stay inside the safe area. Never leave a strip of the world between an edge bar and the screen edge, and never move the whole bar up by the inset. The anchor rules are the ui-layout standard.
 
 **Do:** Use max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px)) in CSS, or GCP.ui.rect for canvas layouts.
 
@@ -347,6 +350,30 @@ More: [input.md#phones-and-tablets](/guides/input.md#phones-and-tablets)
 
 More: [input.md#phones-and-tablets](/guides/input.md#phones-and-tablets)
 
+<a id="ui-layout"></a>
+
+### Interface layout: anchors, offsets and stretch
+
+**Where:** Every interface element of the game (HUD, menus, dialogs, buttons, bars, toasts), at every screen size, aspect ratio and orientation, in a window and in fullscreen.
+
+- Recommended: lay out every interface element by anchors, as Unity's RectTransform and Godot's Control do: GCP.ui.rect({ anchor, w, h, margin, pivot, offset, minW, maxW, aspect, id }, parent?). Never by absolute pixel positions from a design size, and never by positions measured once at start.
+- Anchors: a corner (top-left, top-right, bottom-left, bottom-right), an edge middle (top, bottom, left, right) or the center places a fixed-size box against that point; a wide anchor (top-wide, bottom-wide, left-wide, right-wide, hcenter-wide, vcenter-wide, full) or [left, top, right, bottom] fractions of the parent stretches the box between two points. margin keeps room from the anchored edges, offset nudges, pivot is the point of the box that sits on the anchor, minW / maxW / minH / maxH and aspect bound a stretched box.
+- Choose the anchor from what the element belongs to: status and resources to a top corner, the timer or wave to the top edge, the primary action to a bottom corner within thumb reach, an experience or progress bar to the bottom or top edge, stretched across, dialogs and the pause menu to the center with maxW and maxH, toasts to an edge. Never anchor a corner element to the center or position it as a fraction of a design size.
+- Parents: lay a group out inside its panel with rect(spec, panelBox) and GCP.ui.split(box, "row" | "column", items, gap) (HBox and VBox), so the group moves and stretches with the panel. A child never pokes out of its parent.
+- The parent of a top-level element is the view inside the safe area (GCP.ui.view minus GCP.ui.safe). Edge bars sit flush on the screen edge: draw their background from box.bleed (carried through the inset to the edge) and their text, icons and buttons in the box itself. Nothing floats a fixed distance above the bottom because of an inset that is not there.
+- Size in interface units: GCP.ui.configure({ reference, match, minView }) once; GCP.ui.scale turns units into CSS pixels on this screen, times the player's Interface size. The view grows along the long side: a 21:9 phone has more width, a portrait phone more height, and the layout fills it from the anchors, never by stretching the art.
+- Lay out again on every GCP.ui.onChange (resize, turning the device, fullscreen, the browser bars, the player's size), or simply every frame, and draw from the boxes you just placed.
+- No two elements on the same layer overlap, at any size: when they would (a narrow portrait phone, a large Interface size), the layout switches (wrap a row into two, move secondary items to another edge, shorten labels, hide what is not needed) rather than letting them collide. Text fits its box at every size and language. Tap targets are at least 44 CSS px.
+- Give every element an id (and a layer for what draws over the HUD: menu, modal, toast): rect({ id: "coins", layer: "hud", ... }). The verifier reads the boxes (GCP.ui.layout()) at every size it plays the game at and reports elements off the screen, under the notch or the home bar, and overlapping on one layer.
+
+**Do:** Check with debug_preview at 390x844, 844x390, 1180x820, 960x540 and 1920x1080 (plus 2560x1080 for ultrawide), and with Interface size at 150%: call GCP.ui.layout() in a state step to see every box. Draw edge bars with box.bleed for the background and box for the content. Prefer stretch anchors with minW / maxW over fixed widths for bars, panels and rows of buttons.
+
+**Don't:** Place interface at absolute coordinates of the reference size (x = 1180) or at a fraction of it computed once. Add the safe inset to an element that already sits inside the safe area, or move a whole edge bar up by the inset (it leaves a strip of the world under it in fullscreen). Let a corner panel and a centered or edge element share the same space on narrow screens.
+
+**Checked:** game_standards check and deploy_preview warn when the game never reads the screen size, and note a game that places interface with GCP.ui.rect but gives no element an id. Verification reads the boxes placed with an id on the computer (960x540) and on every phone and tablet pass (sideways and, for a game that plays both ways, upright) and warns about each element off the screen, under the notch or the home bar, or overlapping another on the same layer, naming the elements and the screen size.
+
+More: [standards.md#ui-layout](/guides/standards.md#ui-layout)
+
 <a id="window-orientation"></a>
 
 ### Window size
@@ -371,12 +398,12 @@ More: [standards.md#window-orientation](/guides/standards.md#window-orientation)
 
 **Where:** Phones and tablets, fullscreen and the installed app; the store page's Compatibility section.
 
-- Every game declares which way up it is played, in gcp.json requirements.orientation (compatibility {action: "declare"}): "landscape", "portrait" or "both" ("any" means both). Declare the shapes the interface is designed for, not the ones it merely survives.
+- Declare which way up the game is played, in gcp.json requirements.orientation (compatibility {action: "declare"}): "landscape", "portrait" or "both" ("any" means both). Declare the shapes the interface is designed for, not the ones it merely survives. Without a declaration the platform assumes both.
 - landscape or portrait (one orientation): the platform locks the screen to it where the browser allows (Android in fullscreen). Where it cannot (iPhone, iPad, a locked rotation), the platform itself covers the game with a rotate-your-device prompt while the device is held the other way, pauses the game behind it, and lifts it as soon as the device is turned. The game does not draw a prompt of its own and needs no layout for the other orientation.
 - A one-orientation game still survives the other shape without breaking: the player can dismiss the prompt ("Play this way") and the computer window is always 16:9. Then fit the game to the window whole (letterbox or pillarbox the designed shape, never crop the interface) and keep running.
 - landscape: design for aspect ratios from 4:3 (iPad, 1.33) to about 21:9 (phones, 2.17). Keep HUD on the edges and corners, controls in the bottom corners, and nothing important in the bottom 20 px on a phone (the home bar).
 - portrait: design for 9:21 (phones) to 3:4 (iPad). On a computer the 16:9 window shows a centred column: fill the sides with the world or a backdrop, never stretch.
-- both: the interface has a real layout for each shape, chosen from innerWidth > innerHeight on every resize, never once at start. Turning the device mid-game keeps all state (no restart, no reload, no lost menu) and relays out within one frame. Portrait is not landscape shrunk: stack top-bar items into rows or move secondary ones to the bottom, make primary menu buttons full-width in one column, keep thumb controls in the bottom third, and size text and buttons from the short side (GCP.ui does this).
+- both: give the interface a real layout for each shape, chosen from innerWidth > innerHeight on every resize, never once at start. Turning the device mid-game keeps all state (no restart, no reload, no lost menu) and relays out within one frame. Portrait is not landscape shrunk: stack top-bar items into rows or move secondary ones to the bottom, make primary menu buttons full-width in one column, keep thumb controls in the bottom third, and size text and buttons from the short side (GCP.ui does this).
 - In every orientation: no two interface elements overlap, no text is cut off or runs outside its box, tap targets are at least 44 CSS px, and everything stays inside the safe area (GCP.display.safe) and clear of the platform menu button's corner (GCP.display.menuButton). GCP.display.orientation tells the game what was declared, or what GCP.setDisplay({ orientation }) chose at run time.
 
 **Do:** Check each declared orientation with debug_preview: phone-portrait (390x844) and phone-landscape (844x390), and an iPad shape, on every screen (title, menus, play, pause, results). For both: rotate mid-run in debug_preview and confirm the game carries on where it was. Re-anchor the HUD from GCP.ui.rect on every GCP.ui.onChange or resize.
@@ -454,7 +481,7 @@ More: [standards.md#intended-sound](/guides/standards.md#intended-sound)
 
 **Don't:** Paint page elements over the game.
 
-**Checked:** The capture check fails a version without the hooks or with page elements over the game.
+**Checked:** Advice only: verification reports a game without the hooks, or with page elements over the game, in its capture check and notes; it never stops the version.
 
 More: [platform-contract.md#hand-over-the-frame](/guides/platform-contract.md#hand-over-the-frame)
 

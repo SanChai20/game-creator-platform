@@ -77,12 +77,11 @@ test('an agent told to skip a check cannot: a report without the capture check i
   assert.equal(statusOf(g, 'original'), 'skipped', 'the expensive comparison waits until the rest holds');
 });
 
-test('a capture check that only warned (game not live yet) does not let the first release skip it', async () => {
-  const report = { ...FULL, checks: FULL.checks.map((c) => (c.id === 'capture' ? { ...c, detail: 'Not enforced until the game is live: it registers no GCP.test.onCapture.' } : c)) };
+test('capture findings are advice: they never hold a release back', async () => {
+  const report = { ...FULL, checks: FULL.checks.map((c) => (c.id === 'capture' ? { ...c, detail: 'Advice: it registers no GCP.test.onCapture.', soft: true } : c)) };
   const w = world({ report });
-  assert.equal(statusOf(await gate(w), 'current_checks'), 'fail');
-  assert.equal(currentChecks({ ...w.v, report: JSON.stringify({ ...report, checks: report.checks.map((c) => (c.id === 'capture' ? { ...c, detail: 'x', soft: true } : c)) }) }, S).ok, false, 'the flag the verifier now sets');
-  assert.equal(currentChecks(w.v, { ...S, verify_capture_required: false }).ok, true, 'an admin who turned the capture check off is respected');
+  assert.notEqual(statusOf(await gate(w), 'current_checks'), 'fail');
+  assert.equal(currentChecks(w.v, S).ok, true);
 });
 
 test('the phone and tablet pass must have run for a game that lists phones or tablets', async () => {

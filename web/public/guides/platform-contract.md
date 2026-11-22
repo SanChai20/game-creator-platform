@@ -56,7 +56,7 @@ GCP.test.onAutostart(fn)   // fn runs after ready() when the verifier opens the 
 GCP.test.onPlaythrough(fn) // fn(t) plays the game to its end; the verifier runs it and reports each step
 GCP.test.twoPlayers       // { role: 'host' | 'guest', code } when the verifier opened this page for the two-player check, else null
 GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages, two different players, that meet on twoPlayers.code (GCP.room or GCP.match.find); return { players, world } (see the multiplayer and matches guides)
-GCP.test.onCapture(fn)    // required: fn() returns the canvas, or canvases bottom to top, that hold everything the player sees (see "Hand over the frame")
+GCP.test.onCapture(fn)    // recommended: fn() returns the canvas, or canvases bottom to top, that hold everything the player sees (see "Hand over the frame")
 GCP.test.onState(fn)      // required: fn() returns where the game is (level, scene, player position, open menu); attached to the creator's feedback screenshots and returned by debug_preview, never called for players
 GCP.lang          // the player's platform language: 'en' | 'zh' | 'zh-TW' | 'ja' | 'ko' | 'es'
 GCP.onLang(fn)    // fn(lang, previous) when the player switches the platform language mid-game; the game is never restarted for it
@@ -144,7 +144,7 @@ The checks run on a CPU renderer, where a well-made game rightly draws less. Aft
 
 ## Hand over the frame
 
-When the game's creator plays a preview and presses **Capture feedback**, the picture they mark up and send to you must be exactly the frame they saw, on every device. A page can always read back what it draws into its canvases (2D, WebGL, WebGPU, in the page or in a Web Worker). It can never read the page's own elements as pixels, and iPhone and iPad Safari cannot capture the screen at all. The platform never falls back to sharing the browser tab: **a version without `GCP.test.onCapture` cannot be captured, and Capture feedback is greyed out for it**, so adding the hook is your job as the game's agent. The contract is:
+When the game's creator plays a preview and presses **Capture feedback**, the picture they mark up and send to you must be exactly the frame they saw, on every device. A page can always read back what it draws into its canvases (2D, WebGL, WebGPU, in the page or in a Web Worker). It can never read the page's own elements as pixels, and iPhone and iPad Safari cannot capture the screen at all. The platform never falls back to sharing the browser tab: **a version without `GCP.test.onCapture` cannot be captured, and Capture feedback is greyed out for it**, so adding the hook is recommended. How the game draws its interface stays the game's choice; for feedback pictures that match the screen exactly:
 
 1. **Everything the player sees is drawn in your canvases**: the world, the HUD, menus, dialogs, buttons, tooltips, text. Page elements (`div`, `button`, `img`, `svg`, text in the page) may exist for layout or accessibility but must not paint over the game: no text, background, border, shadow or picture of their own. A box that holds a canvas may have a plain background colour (a letterbox); it is drawn into the picture. **Text fields** (`<input>`, `<textarea>`, `<select>`, `contenteditable`) are the one exception: they are drawn into the picture from their boxes, colours and value, and the picture says so.
 2. **`GCP.test.onCapture(fn)`**: `fn()` returns the canvas that holds the frame, or the canvases bottom to top (`[world, ui]`). The platform copies them right after the game draws its next frame, wherever they are drawn, and places each where it is on the page. A canvas handed to a Web Worker with `transferControlToOffscreen()` works too: return the page's canvas element. `fn` may also return a picture made for the purpose (a canvas, `OffscreenCanvas`, `ImageBitmap` or `ImageData` of the whole frame), or a promise of one.
@@ -165,7 +165,7 @@ Drawing UI in a canvas, in short (or use the platform's toolkit: `@gcp/ui.js` gi
 - **Keyboard and screen readers**: you may keep invisible page elements (no paint, `opacity: 0` or clipped) as focus targets or labels; they do not count as painting.
 - **A WebGL or WebGPU canvas that does not redraw every frame** (a paused or turn-based game): set `preserveDrawingBuffer: true`, or draw a frame inside `onCapture` before returning the canvas.
 
-The `capture` check holds the game to this in every preview: it fails a version that registers no hooks, that paints page elements over the game, or whose handed-over picture does not match the screen. Its detail names the elements it found (`div.menu (text "Single Player")`).
+The `capture` check reports on this in every preview as advice: a version that registers no hooks, paints page elements over the game, or hands over a picture that does not match the screen is told so (its detail names the elements it found, `div.menu (text "Single Player")`), and still passes.
 
 ## Prove the game can be played: the play-through
 
