@@ -58,7 +58,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Marketplace listing, ratings and reviews | available | none | `update_project`, `game_metadata` | metadata |
 | Paid games, free trials and payouts | available unless switched off | none (handled by the platform) | `update_project`, `get_stats` | none |
 | Analytics and runtime errors | automatic | none (heartbeats are automatic) | `get_stats` | none |
-| Open implementations and build skills | available | none | `find_implementations`, `get_implementation`, `build_skill` | none |
+| Open implementations | available | none | `find_implementations`, `get_implementation`, `build_skill` | none |
 | Agent access (MCP and OAuth) | available | none | every tool | versions |
 
 "Automatic" means the platform does it for every game with no code.

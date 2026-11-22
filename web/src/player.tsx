@@ -7,7 +7,8 @@
 //   - Android and iPad Safari: real fullscreen on the stage element, orientation locked to the game's. Swipes inside the
 //     game cannot pinch, zoom or scroll the page (the SDK guards the game's document too).
 //   - iPhone Safari has no element fullscreen, and a home-screen install is already full screen: there the stage fills
-//     the visible viewport ("immersive"), page scroll and pinch zoom off; the back gesture leaves it.
+//     the visible viewport ("immersive"), page scroll and pinch zoom off; the back gesture leaves it. Safari's own bars
+//     only leave when the page scrolls, so while they show the player asks for one swipe up (see tuck.ts).
 // Leaving fullscreen, however it happens, puts the game back in its window on the page; it keeps running.
 // The game is told what is going on through the SDK (GCP.display, GCP.onDisplay), can toggle fullscreen (GCP.fullscreen),
 // open the platform menu (GCP.menu) or quit (GCP.quit), and can keep Esc for itself (GCP.onEscape). Switching the
@@ -17,6 +18,7 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSS
 import { artStyle, getLang, t, useApp, useLang } from './lib';
 import { Button } from './ui';
 import { sanitizeControls, type TouchControls } from './touch-controls';
+import { barsShowing, tuckLook, tuckStart, type TuckState, type ViewportSizes } from './tuck';
 import './player.css';
 
 // What a game may do inside the player. Never allow-top-navigation: a game must not be able to replace the platform's page
@@ -106,6 +108,23 @@ function lockPage(): () => void {
     scrollTo(0, y);
   };
 }
+// iPhone Safari's bars (tuck.ts). What the page has now against the most it can have: 100lvh, measured on a hidden probe.
+let lvhProbe: HTMLDivElement | null = null;
+function viewportSizes(): ViewportSizes {
+  let large: number | null = null;
+  try {
+    if (typeof CSS !== 'undefined' && CSS.supports('height', '100lvh')) {
+      if (!lvhProbe) { lvhProbe = document.createElement('div'); lvhProbe.setAttribute('aria-hidden', 'true'); lvhProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:100lvh;visibility:hidden;pointer-events:none'; }
+      if (!lvhProbe.isConnected) document.body.appendChild(lvhProbe);
+      large = lvhProbe.getBoundingClientRect().height || null;
+    }
+  } catch { /* no CSS.supports */ }
+  return { inner: innerHeight, large, screenShort: Math.min(screen.width, screen.height), landscape: innerWidth > innerHeight };
+}
+// "Not now", or a browser whose bars do not move: no more asking in this tab until the player asks from the menu.
+const TUCK_OFF_KEY = 'gcp.tuck.off';
+function readTuckOff(): boolean { try { return sessionStorage.getItem(TUCK_OFF_KEY) === '1'; } catch { return false; } }
+function saveTuckOff(off: boolean) { try { if (off) sessionStorage.setItem(TUCK_OFF_KEY, '1'); else sessionStorage.removeItem(TUCK_OFF_KEY); } catch { /* private mode */ } }
 /** The player's own choice about the on-screen controls for one game (null: the platform's default for it). */
 const controlsKey = (seed: string) => 'gcp.controls.' + seed;
 function readControlsPref(seed: string): boolean | null { try { const v = localStorage.getItem(controlsKey(seed)); return v === '1' ? true : v === '0' ? false : null; } catch { return null; } }
@@ -240,6 +259,40 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   const splash = useSplash(starting, url, frame);
   const [hung, setHung] = useState(false), waitBtn = useRef<HTMLButtonElement>(null), waitRef = useRef<() => void>(() => {});
   const handheld = isHandheld(), active = fs || immersive, want = prefs.orientation ?? orientation;
+  const sideways = active && handheld && !turned && want !== 'any' && (want === 'landscape' ? portrait : !portrait);
+  // iPhone Safari keeps its address and tab bars over an immersive game until the page scrolls (tuck.ts). While they show,
+  // a card over the game asks for one swipe up; for that swipe the page under the game may scroll, and is pinned again
+  // once the bars are away. The game waits behind the card, as it does behind the menu.
+  const tuckable = immersive && !!url && isIOS() && !isInstalled();
+  const [tuck, setTuck] = useState<TuckState | null>(null), [tuckOff, setTuckOff] = useState(readTuckOff);
+  useEffect(() => {
+    if (!tuckable || tuckOff) { setTuck(null); return; }
+    let s = tuckStart(scrollY), raf = 0, first = true;
+    const look = () => {
+      const n = tuckLook(s, barsShowing(viewportSizes()), scrollY, performance.now());
+      if (n.gaveUp) { saveTuckOff(true); setTuckOff(true); return; }
+      if (first || n.bars !== s.bars || n.keepLoose !== s.keepLoose) setTuck(n);
+      s = n; first = false;
+    };
+    const f = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(look); };
+    look(); const iv = setInterval(look, 400);
+    addEventListener('resize', f); addEventListener('orientationchange', f); addEventListener('scroll', f, { passive: true });
+    window.visualViewport?.addEventListener('resize', f);
+    return () => {
+      clearInterval(iv); cancelAnimationFrame(raf);
+      removeEventListener('resize', f); removeEventListener('orientationchange', f); removeEventListener('scroll', f);
+      window.visualViewport?.removeEventListener('resize', f);
+    };
+  }, [tuckable, tuckOff]);
+  const asking = tuckable && !tuckOff && !!tuck?.bars && !menu && !hung && !sideways;
+  const loose = tuckable && !tuckOff && (asking || !!tuck?.keepLoose);
+  useEffect(() => {
+    if (!loose) return;
+    document.documentElement.classList.add('gcp-loose');
+    return () => document.documentElement.classList.remove('gcp-loose');
+  }, [loose]);
+  const stopAsking = useCallback(() => { saveTuckOff(true); setTuckOff(true); }, []);
+  const askAgain = useCallback(() => { saveTuckOff(false); setTuckOff(false); setMenu(false); }, []);
   // In fullscreen every game gets the whole screen, notch, camera hole and rounded corners included, and is told the insets
   // (GCP.display.safe, --gcp-safe-*); the on-screen controls keep inside them. Black bars around the game read as a broken
   // fullscreen. A game can still ask to be kept inside them with setDisplay({ edgeToEdge: false }).
@@ -354,8 +407,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, JSON.stringify(padCfg), padPref, uiSize]); // eslint-disable-line react-hooks/exhaustive-deps
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held || asking, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, asking, JSON.stringify(padCfg), padPref, uiSize]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
   useEffect(() => { if (!url) { setPadState({ available: false, shown: false }); setHeld(false); } }, [url]);
   const uiSizeRef = useRef(uiSize), seedRef = useRef(seed); uiSizeRef.current = uiSize; seedRef.current = seed;
@@ -444,7 +497,6 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   }, [hung]);
   useWakeLock(!!url && handheld);
 
-  const sideways = active && handheld && !turned && want !== 'any' && (want === 'landscape' ? portrait : !portrait);
   // The menu button starts in the corner the game asks for (top-left unless GCP.setDisplay({ exitButton }) says otherwise)
   // and the player can drag it anywhere; the spot is kept per game and orientation. Back, a three-finger tap, Esc and the
   // game itself (GCP.menu) open the menu too.
@@ -500,8 +552,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   }, [active, !!url]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div>
-      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '')} ref={box}>
-        {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung || held} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
+      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (asking ? ' tuck' : '')} ref={box}>
+        {url ? <iframe ref={frame} src={url} title="Game" onLoad={() => { post(); postLang(); }} inert={menu || hung || held || asking} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
         {splash.phase !== 'off' && <Splash out={splash.phase === 'out'} />}
@@ -512,7 +564,15 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
             {badge && <span className="stage-badge">{badge}</span>}
           </div>
         )}
-        {tip && active && url && !menu && !hung && <div className="stage-tip" role="status">{tip}</div>}
+        {tip && active && url && !menu && !hung && !asking && <div className="stage-tip" role="status">{tip}</div>}
+        {asking && (
+          <div className="stage-tuck" role="dialog" aria-label={t('Swipe up for full screen', '向上滑动，进入全屏')}>
+            <i className="tuck-ico" aria-hidden="true" />
+            <b>{t('Swipe up for full screen', '向上滑动，进入全屏')}</b>
+            <span>{t('Safari puts its bars away when the page scrolls.', '页面滚动后，Safari 会收起地址栏和标签栏。')}</span>
+            <button type="button" className="stage-btn ghost" onClick={stopAsking}>{t('Not now', '暂不')}</button>
+          </div>
+        )}
         {!active && url && held && !hung && (
           <div className="stage-menu" role="dialog" aria-modal="true" aria-label={t('Paused', '已暂停')}>
             <div className="stage-card">
@@ -538,6 +598,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
                   <button type="button" className="stage-btn" aria-label={t('Larger', '放大')} disabled={(uiSize ?? 1) >= UI_SIZES[UI_SIZES.length - 1]} onClick={() => stepUi(1)}>+</button>
                 </div>
               )}
+              {tuckable && tuckOff && barsShowing(viewportSizes()) && <button type="button" className="stage-btn" onClick={askAgain}>{t('Hide Safari\'s bars', '隐藏 Safari 的地址栏')}</button>}
               <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
               {iosTip && <span className="stage-hint">{t('For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.', '想要不会被滑动打断的全屏，请点“分享”，再点“添加到主屏幕”，然后从主屏幕打开游玩。')}</span>}
