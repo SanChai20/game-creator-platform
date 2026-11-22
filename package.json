@@ -17,6 +17,7 @@
     "test:sdk-capture": "node tests/sdk-capture-browser.mjs",
     "test:capture-contract": "node tests/capture-contract-browser.mjs",
     "test:scroll-keys": "node tests/scroll-keys-browser.mjs",
+    "test:zones": "node tests/zones-browser.mjs",
     "test:attach": "node tests/feedback-attach-browser.mjs",
     "db:local": "wrangler d1 migrations apply gcp-db --local",
     "db:remote": "wrangler d1 migrations apply gcp-db --remote",

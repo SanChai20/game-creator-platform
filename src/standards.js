@@ -50,8 +50,8 @@ export const STANDARDS = [
     ],
     do: ['Design a cover; do not rely on the verification screenshot.', 'Check it on the template, cropped to the banner, 16:10 and 16:7, and at 240 px wide.'],
     dont: ['Close-up faces cut by the crops.', 'Text near any edge.'],
-    enforced: 'update_project answers with cover_check (size and shape); publish reminds about the safe area. The composition is yours to check by looking.',
-    checks: [], guide: '/guides/game-metadata.md#cover-image', template: COVER.template,
+    enforced: 'update_project answers with cover_check (size and shape); game_standards check and publish warn when there is no cover (the store then crops the verification screenshot). The composition inside the safe area is yours to check by looking at the template.',
+    checks: ['cover-missing'], guide: '/guides/game-metadata.md#cover-image', template: COVER.template,
   },
   {
     id: 'cover-languages', area: 'store', title: 'A cover per language',
@@ -158,8 +158,8 @@ export const STANDARDS = [
   },
   {
     id: 'no-icons', area: 'not-offered', title: 'Icons, logos and title art',
-    where: 'Nowhere: there is no icon, favicon or logo slot. The title is set in text by the store; the Home Screen icon is the platform\'s.',
-    spec: ['Put the game\'s logo or title art on the cover and the game\'s own title screen only.', 'Do not draw the platform\'s logo (HearthCade) anywhere: the platform shows its own splash.'],
+    where: 'Nowhere: there is no icon, favicon or logo slot. Where a store shows an icon, this one shows the cover, cropped to 16:10, as small as 64 px wide (search suggestions, "since you were away"). The title is set in text by the store; the Home Screen icon is the platform\'s.',
+    spec: ['The cover is the game\'s icon: its main subject must still read at 64 px wide, so keep it large and simple inside the cover\'s safe area.', 'Put the game\'s logo or title art on the cover and the game\'s own title screen only.', 'Do not draw the platform\'s logo (HearthCade) anywhere: the platform shows its own splash.'],
     do: ['Keep title art inside the cover\'s safe area.'], dont: ['Ship icon sets, favicons or manifest icons for the store.'],
     enforced: 'game_standards check warns when the game draws the platform\'s name, and notes icon files.', checks: ['platform-logo', 'unused-store-files'], guide: '/guides/standards.md#no-icons',
   },
@@ -179,8 +179,8 @@ export const STANDARDS = [
       'Draw the loading screen at once, set its text, language and font before the second GCP.progress() call, then only move the bar.',
     ],
     do: ['Call GCP.progress(f, label) while loading and GCP.ready() after the first playable frame.'], dont: ['Draw a platform logo or a second splash.', 'Show a blank page, a stand-in font or text still being filled in.'],
-    enforced: 'boots check (GCP.ready() in time). game_standards check notes a game that never reports progress.',
-    checks: ['no-progress', 'platform-logo'], guide: '/guides/platform-contract.md#the-platform-splash-before-your-loading-screen',
+    enforced: 'boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).',
+    checks: ['no-progress', 'progress-hand-off', 'platform-logo'], guide: '/guides/platform-contract.md#the-platform-splash-before-your-loading-screen',
   },
   {
     id: 'menu-button', area: 'game', title: 'The platform menu button',
@@ -191,9 +191,9 @@ export const STANDARDS = [
       `For the first ${N.menu_button.tip_plays} plays on a device a short tip (up to ${N.menu_button.tip_width} px wide) shows at top centre for 5 s; taps go through it.`,
       'Move it with GCP.setDisplay({ exitButton: \'top-right\' | \'bottom-left\' | \'bottom-right\' }), or hide it with exitButton: \'none\' when the game\'s own pause menu has a Quit button that calls GCP.quit() and Esc / Back reach that menu (GCP.pauseMenu).',
     ],
-    do: [`Keep a ${N.menu_button.size + 2 * N.menu_button.inset} px square free in the chosen corner, inside the safe area.`, 'Choose the corner where your HUD has nothing.'],
+    do: [`Keep a ${N.menu_button.size + 2 * N.menu_button.inset} px square free in the chosen corner, inside the safe area.`, 'Choose the corner where your HUD has nothing.', 'When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.'],
     dont: ['Put a pause, score or health widget under the button.', 'Hide it without a Quit of your own.'],
-    enforced: 'game_standards check notes a game that never chooses a corner.', checks: ['menu-corner'], guide: '/guides/standards.md#menu-button',
+    enforced: 'Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button\'s square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.', checks: ['menu-corner', 'zone-menu-button', 'zones-one-layer'], guide: '/guides/standards.md#menu-button',
   },
   {
     id: 'safe-area', area: 'game', title: 'Safe areas: notch, rounded corners, home bar',
@@ -205,8 +205,8 @@ export const STANDARDS = [
       'GCP.setDisplay({ edgeToEdge: false }) keeps the game inside them with black bars instead.',
     ],
     do: ['Use max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px)) in CSS, or GCP.ui.rect for canvas layouts.'], dont: ['Assume the frame is already inside the notch.'],
-    enforced: 'device_iphone and device_ipad report UI drawn off screen. game_standards check warns when a game for phones never reads the insets.',
-    checks: ['safe-area'], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
+    enforced: 'Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.',
+    checks: ['safe-area', 'zone-safe-area'], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
   },
   {
     id: 'touch-controls', area: 'game', title: 'The platform\'s on-screen controls',
@@ -244,6 +244,22 @@ export const STANDARDS = [
     spec: ['Offer low, medium and high, pick a default from the device (GCP.device), remember the choice with GCP.save or localStorage, and step down while the frame rate stays low.', 'The platform already caps devicePixelRatio at 2 on phones and tablets.'],
     do: ['Draw at full quality when GCP.portrait is true (the store screenshot).'], dont: ['Start phones on the highest setting.'],
     enforced: 'Not checked.', checks: [], guide: '/guides/performance.md#quality-levels',
+  },
+  {
+    id: 'sound', area: 'game', title: 'Sound on every screen',
+    where: 'The whole game: the title, menus, lobby and matchmaking, play, and the results screen.',
+    spec: [
+      'Music or ambience plays from the first screen the player sees, through every menu, lobby and results screen, not only during play. Menu music sits within about 10 dB of play (half as loud at most), so the title never seems silent next to combat.',
+      'Make the AudioContext (or start the sound library) while the game boots, not inside a gesture. The player started the game with a click on the platform page and the game frame has autoplay, so where the browser allows it the title music plays at once.',
+      'Where the browser still holds sound back (Safari, iPhone, iPad, and any browser before a gesture), resume on the first gesture with window listeners in the capture phase, added before the interface adds its own: pointerdown, pointerup, click and keydown. iPhone and iPad do not count pointerdown from a finger, and canvas interfaces stop presses on their buttons, so a bubble listener never hears a tap on a menu button. The runtime also resumes every context the game made on each pointerup, touchend, click, mousedown and keydown (fix "audio-unlock"), so a context made at boot always wakes on the first tap. Leave touchend listeners to the runtime: a "touchend" in the game\'s code tells the platform the game has touch controls of its own, which hides the on-screen controls.',
+      'Play nothing while the context is not running (no effects queued up to burst out on the first tap), and resume after an iPhone interruption ("interrupted": a call, the lock screen) on the next gesture.',
+      'The platform suspends every context while its menu or a card is over the game, and while the tab is hidden, then starts exactly those again (fix "pause-audio"). A game\'s own pause menu suspends its own sound, and a gesture on that menu must not resume it.',
+      'Give the player music and effects volumes in the game\'s settings and remember them. No sound shipped only as Ogg: older iPhones cannot play it (deploy_preview warns).',
+    ],
+    do: ['Give the title, menus and results their own calm music, and return to it when play ends.', 'Check every screen with the sound on, starting from a fresh load with no key pressed.'],
+    dont: ['Start sound only from a press on the game world or from the first key.', 'Create the AudioContext only when play starts, or only inside a gesture listener that the interface can stop.', 'Leave the play music (drums, battle pulse) running on the menus and results.'],
+    enforced: 'game_standards check and deploy_preview warn when the game starts its sound from a window gesture listener in the bubble phase (an interface that stops presses keeps it from ever running), and note a game with no sound at all. The verification browser counts the sound contexts made and the sounds played.',
+    checks: ['sound-unlock-bubble', 'sound-missing'], guide: '/guides/standards.md#sound',
   },
   {
     id: 'capture-hooks', area: 'game', title: 'Capture and state hooks',
@@ -306,7 +322,8 @@ const VIDEO = /\.(mp4|webm|mov|m4v|ogv)$/i, ICONS = /(^|\/)(favicon|apple-touch-
  * @param input {
  *   listing?: { title, tagline, description, controls, lang?, translations?: { [lang]: { title, tagline, description, controls } } },
  *   texts?: Map<path, text> | { [path]: text } (the workspace's text files; code checks are skipped without them),
- *   paths?: string[] (every workspace path), gcp?: gcp.json object, brand?: the platform's name }
+ *   paths?: string[] (every workspace path), gcp?: gcp.json object, brand?: the platform's name,
+ *   report?: a version's verification report (metrics.progressBeforeReady, zones) }
  */
 export function checkStandards(input = {}) {
   const out = [];
@@ -330,6 +347,18 @@ export function checkStandards(input = {}) {
       if (mc.length) add('controls-text', 'warning', `The controls text${where} uses Markdown (${mc.join(', ')}); the store shows it as typed.`, 'One control per line in plain text: "WASD or arrows · move".', { lang, check: 'controls-markdown' });
     }
   }
+  if (L && L.has_cover === false) add('cover', 'warning', 'The game has no cover, so the store crops the verification screenshot (a frame of play with its interface) into the home banner, cards and thumbnails.', `Design a ${COVER.width}x${COVER.height} cover on the template and set it with update_project cover.`, { check: 'cover-missing' });
+  const R = input.report;
+  if (R) {
+    const pb = R.metrics && R.metrics.progressBeforeReady;
+    if (typeof pb === 'number' && pb < 2) add('splash-loading', 'warning', `Verification saw ${pb} GCP.progress() call${pb === 1 ? '' : 's'} before GCP.ready(), so the platform splash waited 1.2 s and handed over to whatever was on screen.`, 'Draw the loading screen in its final look, then call GCP.progress(f, label) at least twice while loading.', { check: 'progress-hand-off' });
+    const z = R.zones;
+    if (z && z.checked) for (const x of z.zones) {
+      const menu = x.zone === 'menu-button';
+      add(menu ? 'menu-button' : 'safe-area', 'warning', `On a phone in fullscreen the interface covers ${Math.round(x.coverage * 100)}% of ${menu ? `the platform menu button's ${z.corner} square` : x.zone === 'home-bar' ? 'the home bar strip' : 'the notch strip'} (around x ${x.box[0]}, y ${x.box[1]}, ${x.box[2]}×${x.box[3]} px).`, menu ? `Move that part of the HUD out of the ${N.menu_button.size + 2 * N.menu_button.inset} px corner square, or put the button in a free corner with GCP.setDisplay({ exitButton }).` : 'Anchor the HUD inside GCP.display.safe (GCP.ui.rect does it by default).', { check: menu ? 'zone-menu-button' : 'zone-safe-area' });
+    }
+    if (z && !z.checked && z.reason === 'one-layer') add('menu-button', 'note', 'The reserved zones (notch, home bar, menu button corner) could not be checked: GCP.test.onCapture hands over a single canvas.', 'Return [world, ui] from GCP.test.onCapture, with the interface on its own canvas, so verification can check them.', { check: 'zones-one-layer' });
+  }
   const texts = input.texts instanceof Map ? input.texts : new Map(Object.entries(input.texts || {}));
   if (texts.size) {
     const code = [...texts].filter(([p]) => /\.(m?js|html?)$/i.test(p) && !/(^|\/)(vendor|libs?|node_modules|three)[^/]*\//i.test(p) && !/\.min\.js$/i.test(p)).map(([, t]) => t).join('\n');
@@ -337,12 +366,24 @@ export function checkStandards(input = {}) {
     const phones = devices.includes('mobile') || devices.includes('tablet');
     const usesKeys = /\b(keydown|keyup)\b/.test(code);
     if (L && usesKeys && !String(L.controls || '').trim()) add('controls-text', 'note', 'The game reads the keyboard but its listing has no controls text.', 'Add the controls (game_metadata declare controls), one per line.', { check: 'controls-missing' });
-    if (!/\bexitButton\b/.test(code)) add('menu-button', 'note', `The platform menu button (${N.menu_button.size} px) sits in the ${N.menu_button.corner} corner in fullscreen and on phones.`, `Keep that corner free, or move the button with GCP.setDisplay({ exitButton: 'top-right' }) to a corner your HUD leaves empty.`, { check: 'menu-corner' });
+    if (!/\bexitButton\b|\bmenuButton\b/.test(code)) add('menu-button', 'note', `The platform menu button (${N.menu_button.size} px) sits in the ${N.menu_button.corner} corner in fullscreen and on phones.`, `Keep that corner free, or move the button with GCP.setDisplay({ exitButton: 'top-right' }) to a corner your HUD leaves empty.`, { check: 'menu-corner' });
     if (phones && !/GCP\.display\.safe|display\.safe|--gcp-safe|ui\.rect\s*\(|ui\.safe|edgeToEdge\s*:\s*false|createUi\s*\(|createInput\s*\(/.test(code)) add('safe-area', 'warning', 'The game lists phones or tablets but never reads the safe-area insets; in fullscreen its HUD can sit under the notch or the home bar.', "Keep HUD and buttons inside GCP.display.safe (or --gcp-safe-* in CSS, or GCP.ui.rect), or call GCP.setDisplay({ edgeToEdge: false }).", { check: 'safe-area' });
     if (phones && !req.orientation && !/orientation\s*:\s*['"](landscape|portrait|any)/.test(code)) add('window-orientation', 'warning', 'The game lists phones or tablets but declares no orientation.', 'Declare requirements.orientation ("landscape", "portrait" or "any") with compatibility declare, or call GCP.setDisplay({ orientation }).', { check: 'orientation' });
     if (!/GCP\.progress\s*\(|\.progress\s*\(\s*[\d.]/.test(code)) add('splash-loading', 'note', 'The game never calls GCP.progress(), so the platform splash waits 1.2 s before handing over to the game.', 'Call GCP.progress(f, label) while loading (at least twice) and draw the loading screen in its final look before the second call.', { check: 'no-progress' });
+    // sound: the unlock must hear a tap on a menu button, which a canvas interface stops at the window in the capture phase
+    const hasSound = /\b(webkit)?AudioContext\b|new\s+Audio\s*\(|\bHowl\b|\bTone\.|createSound\s*\(|\.(mp3|ogg|m4a|wav|opus)['"`]/.test(code);
+    if (/\b(webkit)?AudioContext\b/.test(code)) {
+      const re = /addEventListener\(\s*['"](pointerdown|mousedown|touchstart|pointerup|touchend|click|keydown)['"]\s*,\s*([A-Za-z_$][\w$.]*)\s*(\)|,\s*(\{[^}]*\}|true|false))/g;
+      let m, bubble = null;
+      while ((m = re.exec(code))) { const opt = m[4] || ''; if (/unlock|wake|resume|audio|sound|music/i.test(m[2]) && !/capture\s*:\s*true|^true$/.test(opt.trim())) { bubble = m; break; } }
+      if (bubble) add('sound', 'warning', `The sound starts from a window ${bubble[1]} listener in the bubble phase (addEventListener('${bubble[1]}', ${bubble[2]})). Canvas interfaces stop presses on their buttons before they bubble, so taps on the menus never start the sound: the game stays silent until a key or a press on the game world.`, 'Make the AudioContext at boot, and resume it from window listeners added with { capture: true } before the interface adds its own, for pointerdown, pointerup, click and keydown.', { check: 'sound-unlock-bubble' });
+    }
+    if (!hasSound) add('sound', 'note', 'The game has no sound: no AudioContext, audio element or sound files were found.', 'Add music for the title, menus and results and effects for play; WebAudio needs no files.', { check: 'sound-missing' });
     const brand = String(input.brand || 'HearthCade');
-    if (brand && new RegExp(`['"\`][^'"\`\\n]*\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(code)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
+    // only what a player can see: page code without comments, not the server-side bot or tooling
+    const shown = [...texts].filter(([p]) => /\.(m?js|html?)$/i.test(p) && !/(^|\/)(server|tools?|scripts?|tests?|vendor|libs?|node_modules|three)[^/]*\//i.test(p) && !/\.min\.js$/i.test(p))
+      .map(([, t]) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/(^|[^:\\'"`])\/\/.*$/gm, '$1')).join('\n');
+    if (brand && new RegExp(`['"\`][^'"\`\\n]*\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(shown)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
     if (/achievement/i.test(code) && !/playerStats/.test(code)) add('no-achievements', 'note', 'The game has achievements but keeps them only on the device.', 'Keep them with GCP.playerStats so they follow the player and show on the game page.', { check: 'achievements' });
   }
   const paths = input.paths || [...texts.keys()];

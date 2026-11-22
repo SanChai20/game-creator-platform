@@ -35,6 +35,7 @@ test('the numbers match the code that draws each surface', () => {
   // on-screen controls
   has('web/public/sdk/gcp.js', `padL = ${N.touch.edge} + (sf.left || 0), padR = ${N.touch.edge} + (sf.right || 0), padB = ${N.touch.edge} + (sf.bottom || 0)`, 'controls distance from the edges');
   has('web/public/sdk/gcp.js', `var R = Math.round(${N.touch.stick_radius} * s)`, 'stick radius');
+  has('web/public/sdk/gcp.js', `sq = ${N.menu_button.size + 2 * N.menu_button.inset}, sf = display.safe`, 'display.menuButton square');
   has('web/public/sdk/gcp.js', `Math.min(vw * ${N.touch.stick_zone_w}, R * 3.4)), zh = Math.round(Math.min(vh * ${N.touch.stick_zone_h}, R * 3.4))`, 'stick zone');
   // the window and friend pop-ups
   assert.equal(PLAY_MAX_W, N.window.max_w); assert.equal(N.window.max_h, N.window.max_w * 9 / 16);
@@ -68,7 +69,10 @@ test('every standard is complete, and every check it names is one the validator 
     texts: { 'index.html': 'addEventListener("keydown", f); const a = "achievement"; const b = "HearthCade";' },
     paths: ['index.html', 'trailer.mp4'], gcp: { requirements: { devices: ['mobile'] } },
   }).map((f) => f.check));
-  for (const f of checkStandards({ listing: { title: 'Ok', tagline: 'Fine.', description: '' }, texts: { 'a.js': 'onkeydown = keydown;' } })) raised.add(f.check);
+  for (const f of checkStandards({ listing: { title: 'Ok', tagline: 'Fine.', description: '', has_cover: false }, texts: { 'a.js': 'onkeydown = keydown;' } })) raised.add(f.check);
+  for (const f of checkStandards({ report: { metrics: { progressBeforeReady: 0 }, zones: { checked: true, corner: 'top-left', zones: [{ zone: 'menu-button', coverage: 0.5, box: [47, 0, 56, 56] }, { zone: 'home-bar', coverage: 0.3, box: [0, 369, 844, 21] }] } } })) raised.add(f.check);
+  for (const f of checkStandards({ report: { zones: { checked: false, reason: 'one-layer', zones: [] } } })) raised.add(f.check);
+  for (const f of checkStandards({ texts: { 'a.js': 'const c = new AudioContext(); addEventListener("pointerdown", unlock);' } })) raised.add(f.check);
   for (const s of STANDARDS) for (const c of s.checks) assert.ok(raised.has(c), `${s.id} names check ${c}, which the validator never raised`);
 });
 
@@ -90,6 +94,15 @@ test('the listing checks', () => {
 
 test('the code checks', () => {
   const run = (code, gcp = {}, paths) => checkStandards({ texts: { 'index.html': code }, gcp, paths }).map((x) => x.check);
+  // sound: an unlock in the bubble phase never hears a tap on a canvas menu button (Bloomguard and Noctelle before the fix)
+  assert.ok(run('const A = window.AudioContext; addEventListener(\'pointerdown\', unlock); addEventListener(\'keydown\', unlock);').includes('sound-unlock-bubble'));
+  assert.ok(run('ctx = new AudioContext(); addEventListener(\'pointerdown\', wake, { passive: true });').includes('sound-unlock-bubble'));
+  assert.ok(!run('ctx = new AudioContext(); addEventListener(\'pointerdown\', wake, { capture: true, passive: true });').includes('sound-unlock-bubble'));
+  assert.ok(!run('ctx = new AudioContext(); addEventListener(\'pointerdown\', unlock, true);').includes('sound-unlock-bubble'));
+  assert.ok(!run('ctx = new AudioContext(); for (const ev of EVENTS) addEventListener(ev, wake, true); addEventListener(\'pointerdown\', onDown);').includes('sound-unlock-bubble'));
+  assert.ok(run('let x = 1;').includes('sound-missing'));
+  assert.ok(!run('const s = new Audio(\'a.mp3\');').includes('sound-missing'));
+  assert.ok(!run('const c = new (window.AudioContext || window.webkitAudioContext)();').includes('sound-missing'));
   const phone = { requirements: { devices: ['desktop', 'mobile'], orientation: 'landscape' } };
   assert.ok(run('GCP.progress(0.5)', phone).includes('safe-area'));
   assert.ok(!run('GCP.progress(0.5); const s = GCP.display.safe;', phone).includes('safe-area'));
@@ -99,13 +112,29 @@ test('the code checks', () => {
   assert.ok(!run('GCP.progress(1); GCP.setDisplay({ orientation: "portrait" })', { requirements: { devices: ['mobile'] } }).includes('orientation'));
   assert.ok(run('GCP.ready()').includes('menu-corner'));
   assert.ok(!run("GCP.setDisplay({ exitButton: 'top-right' })").includes('menu-corner'));
+  assert.ok(!run('const m = GCP.display.menuButton; const x = m ? m.x + m.w : 0;').includes('menu-corner'));
   assert.ok(run('GCP.ready()').includes('no-progress'));
   assert.ok(run('ctx.fillText("Powered by HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(!run('// works on HearthCade\nGCP.ready()').includes('platform-logo'));
+  // a comment with an apostrophe before the name (Noctelle's bot), and server-side code, are not drawn
+  assert.ok(!run("// the platform's preview bots (HearthCade: preview_bots)\nGCP.ready()").includes('platform-logo'));
+  assert.ok(!run("/* the player's HearthCade page */ GCP.ready()").includes('platform-logo'));
+  assert.ok(checkStandards({ texts: { 'index.html': 'GCP.progress(1)', 'server/bot.js': 'const n = "HearthCade";' } }).every((x) => x.check !== 'platform-logo'));
+  assert.ok(run('const url = "https://example.com"; ctx.fillText("HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(run('GCP.ready()', {}, ['index.html', 'icons/icon-512.png', 'promo/shot1.png']).includes('unused-store-files'));
   assert.ok(!run('GCP.ready()', {}, ['index.html', 'sprites/hero.png', 'music/theme.ogg']).includes('unused-store-files'));
   // libraries are not the game's own code
   assert.ok(checkStandards({ texts: { 'index.html': 'GCP.progress(1)', 'vendor/lib.js': 'const n = "HearthCade";' } }).every((x) => x.check !== 'platform-logo'));
   // warnings reach deploy_preview; notes stay in game_standards check
   for (const x of checkStandards({ texts: { 'index.html': 'GCP.ready()' } })) assert.equal(x.level, 'note');
+});
+
+test('what verification measured', () => {
+  const run = (report) => checkStandards({ report }).map((x) => `${x.level}:${x.check}`);
+  assert.deepEqual(run({ metrics: { progressBeforeReady: 3 }, zones: { checked: true, corner: 'top-right', zones: [] } }), []);
+  assert.deepEqual(run({ metrics: { progressBeforeReady: 1 } }), ['warning:progress-hand-off']);
+  assert.deepEqual(run({ metrics: {} }), [], 'an older report without the count says nothing');
+  assert.deepEqual(run({ zones: { checked: true, corner: 'top-left', zones: [{ zone: 'notch-left', coverage: 0.2, box: [0, 0, 47, 300] }] } }), ['warning:zone-safe-area']);
+  assert.deepEqual(run({ zones: { checked: false, reason: 'one-layer', zones: [] } }), ['note:zones-one-layer']);
+  assert.deepEqual(checkStandards({ listing: { title: 'A', tagline: 'Fine.', description: 'x', has_cover: false } }).map((x) => x.check), ['cover-missing']);
 });

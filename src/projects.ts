@@ -278,7 +278,7 @@ function resolveRel(from: string, spec: string): string {
 
 /** The project's store listing in the shape checkStandards reads: its own fields plus each translation. */
 export function listingForStandards(p: Project) {
-  return { title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, lang: p.listing_lang || undefined, translations: parseJson<Record<string, Record<string, string>>>(p.listing_i18n || '{}', {}) };
+  return { title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, has_cover: !!p.cover_key, lang: p.listing_lang || undefined, translations: parseJson<Record<string, Record<string, string>>>(p.listing_i18n || '{}', {}) };
 }
 export { findingLine };
 

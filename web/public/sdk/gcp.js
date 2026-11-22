@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.8.0', fixes: {} };
+  var RT = S.runtime = { version: '2.9.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -935,7 +935,15 @@
   // safe: the screen's notch, rounded corners and home indicator, in CSS px, as the platform page measures them. An iframe
   // never gets safe-area insets of its own (env(safe-area-inset-*) is always 0 in a frame), so they come from the page,
   // also as the CSS variables --gcp-safe-top/right/bottom/left on <html>.
-  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false }, displayFns = [];
+  var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false, menuButton: null }, displayFns = [];
+  // display.menuButton: the square the platform's menu button sits in while it shows (fullscreen and phones), in the
+  // game's CSS pixels, inside display.safe: { corner, x, y, w, h }, or null. A HUD that shares that corner moves aside by it.
+  var menuSquare = function () {
+    var c = (S.displayPrefs && S.displayPrefs.exitButton) || 'top-left', sq = 56, sf = display.safe, W = window.innerWidth || 0, H = window.innerHeight || 0;
+    if (!display.fullscreen || c === 'none' || !/^(top|bottom)-(left|right)$/.test(c)) { display.menuButton = null; return; }
+    display.menuButton = { corner: c, x: /right/.test(c) ? W - sf.right - sq : sf.left, y: /bottom/.test(c) ? H - sf.bottom - sq : sf.top, w: sq, h: sq };
+  };
+  try { window.addEventListener('resize', function () { if (display.menuButton) menuSquare(); }); } catch (e) { /* no window events */ }
   function markDisplay() {
     var h = document.documentElement, c = h && h.classList; if (!c) return; c.toggle('gcp-fullscreen', display.fullscreen); c.toggle('gcp-touch', display.touch);
     ['top', 'right', 'bottom', 'left'].forEach(function (k) { h.style.setProperty('--gcp-safe-' + k, (display.safe[k] || 0) + 'px'); });
@@ -1932,7 +1940,7 @@
     },
     /** Loading progress, 0..1, shown in verification reports. Called again after ready() (loading a world or a level), it
         tells the platform the game is on a loading screen until it reaches 1, so the version's picture waits for play. */
-    progress: function (f, label) { P.progress++; if (splash.spoke < 2) { splash.spoke++; splash.poke(); } S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); if (S.ready) S.busy = S.progress < 1; },
+    progress: function (f, label) { P.progress++; if (!S.ready) P.progressBeforeReady = (P.progressBeforeReady || 0) + 1; if (splash.spoke < 2) { splash.spoke++; splash.poke(); } S.progress = Math.max(0, Math.min(1, +f || 0)); if (label != null) S.label = String(label).slice(0, 120); if (S.ready) S.busy = S.progress < 1; },
     /** Call once when the first playable frame is on screen. Required. */
     ready: function (info) {
       fontHold.release(); splash.send('ready');
@@ -2136,8 +2144,9 @@
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
-        (a small platform menu button in that corner, for a game that keeps the corner free; left out, there is none and the
-        menu opens from Back, a three-finger tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
+        (the platform's 40 px menu button goes in that corner, which the game keeps free; left out, it is top-left; 'none'
+        hides it, for a game whose own pause menu quits with GCP.quit(); the menu also opens from Back, a three-finger
+        tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
         itself: they no longer open the platform menu), textSelect: true (the game's text can be selected and copied; left
         out, only fields can, so a long press or a drag never highlights the game's labels),
         edgeToEdge: false (in fullscreen the platform keeps the frame inside the notch, camera hole and rounded corners,
@@ -2152,6 +2161,8 @@
       if (typeof prefs.menuGesture === 'boolean') menuGesture = prefs.menuGesture;
       if (typeof prefs.pauseAudio === 'boolean') { PZ.audio = prefs.pauseAudio; audioHold(); }
       if (typeof prefs.textSelect === 'boolean') { noSelect = !prefs.textSelect; noSelectCss(); }
+      ['orientation', 'exitButton', 'edgeToEdge'].forEach(function (k) { if (prefs[k] !== undefined) S.displayPrefs[k] = prefs[k]; });   // what the verifier reads (the game standards' zone check)
+      if (prefs.exitButton !== undefined) menuSquare();
       try { parent.postMessage({ gcp: 'display_prefs', orientation: prefs.orientation, exitButton: prefs.exitButton, edgeToEdge: prefs.edgeToEdge }, '*'); } catch (e) { /* not framed */ }
     },
     /** The platform's on-screen controls for touch screens: a stick and buttons that press the game's keys. They show by
@@ -2778,6 +2789,9 @@
   // version that registers no hook, whose picture does not match the screen, or that paints its own elements over the game.
   var captureFn = null;
   S.capture = false;
+  S.displayPrefs = {};
+  // The verifier's zone check (game standards): the canvases GCP.test.onCapture hands over, bottom to top, or null.
+  S.captureLayers = function () { var v = null; try { v = captureFn ? captureFn() : null; } catch (e) { return Promise.resolve(null); } return Promise.resolve(v).then(function (x) { var l = Array.isArray(x) ? x : [x]; return l.filter(function (c) { return typeof HTMLCanvasElement === 'function' && c instanceof HTMLCanvasElement && c.isConnected; }); }, function () { return null; }); };
   /** Elements of the platform itself in the game's page (cards, touch controls): never the game's UI. */
   function platformEl(el) { for (var e = el; e && e.nodeType === 1; e = e.parentElement) { if (e.hasAttribute('data-gcp-ui') || e.tagName === 'GCP-TOUCH-CONTROLS') return true; } return false; }
   var FIELD = /^(INPUT|TEXTAREA|SELECT)$/;
@@ -3022,7 +3036,7 @@
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
-    display.paused = !!d.paused; display.menu = !!d.menu;
+    display.paused = !!d.paused; display.menu = !!d.menu; menuSquare();
     markDisplay(); guard(); controlsFromPage(d); uiFromPage(d); fsChanged(); pauseNotify('platform');
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });
@@ -3031,7 +3045,7 @@
   // What the verifier reads. The game runs in the same page, so the verifier's view is a read-only window onto the SDK's own
   // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
   var view = {};
-  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
+  ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook', 'displayPrefs', 'captureLayers'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
   Object.defineProperty(view, 'runtime', { get: runtimeInfo, enumerable: true });
   ['hold', 'pauseCheck', 'step', 'captureFrame', 'pageUi', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });

@@ -73,6 +73,8 @@ What no script can fix is caught before publishing:
 
 ## Versions
 
+- **2.9.0** — New `GCP.display.menuButton`: while the platform's menu button shows (fullscreen and phones), the square it sits in, in the game's CSS pixels and inside `display.safe` (`{ corner, x, y, w, h }`, 56 px); `null` when it does not show or the game hid it with `exitButton: 'none'`. A HUD that shares that corner moves aside by it instead of guessing. It follows `GCP.setDisplay({ exitButton })` and resizes.
+- **2.8.1** — For the verifier only, nothing changes for players: it can read the layers `GCP.test.onCapture` hands over, the display preferences the game set (`exitButton`, `edgeToEdge`, `orientation`) and how many `GCP.progress()` calls came before `GCP.ready()`, so verification can check the game standards' reserved zones and the loading hand-off.
 - **2.8.0** — New fix `scroll-keys`: in the player, keys that scroll (Space, the arrows, Page Up/Down, Home, End) no longer
   move the page around the game in Firefox and Safari (and the arrows, Page Down and End in Chrome), whatever element of the
   game has the focus. A game's own scrolling lists, text fields and buttons keep their keys. Checked in Chromium, Firefox

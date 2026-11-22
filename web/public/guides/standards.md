@@ -10,7 +10,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 
 | Standard | Where | Checked |
 |---|---|---|
-| [Cover image](#cover) | The store | platform |
+| [Cover image](#cover) | The store | game_standards check |
 | [A cover per language](#cover-languages) | The store | platform |
 | [What the store draws over the cover](#card-overlays) | The store | by looking |
 | [Game title](#title) | The store | game_standards check |
@@ -30,6 +30,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 | [Window size and orientation](#window-orientation) | While the game plays | game_standards check |
 | [Interface scale and the player's UI size](#interface-scale) | While the game plays | platform |
 | [Quality settings](#quality) | While the game plays | by looking |
+| [Sound on every screen](#sound) | While the game plays | game_standards check |
 | [Capture and state hooks](#capture-hooks) | While the game plays | platform |
 | [Bot hook for online games](#bot-hook) | While the game plays | platform |
 | [Friends picker and pop-ups](#friends-ui) | While the game plays | by looking |
@@ -51,7 +52,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 
 **Don't:** Close-up faces cut by the crops. Text near any edge.
 
-**Checked:** update_project answers with cover_check (size and shape); publish reminds about the safe area. The composition is yours to check by looking.
+**Checked:** update_project answers with cover_check (size and shape); game_standards check and publish warn when there is no cover (the store then crops the verification screenshot). The composition inside the safe area is yours to check by looking at the template.
 
 ![Cover image template](/guides/cover-template.png)
 
@@ -235,8 +236,9 @@ More: [standards.md#no-trailer](/guides/standards.md#no-trailer)
 
 ### Icons, logos and title art
 
-**Where:** Nowhere: there is no icon, favicon or logo slot. The title is set in text by the store; the Home Screen icon is the platform's.
+**Where:** Nowhere: there is no icon, favicon or logo slot. Where a store shows an icon, this one shows the cover, cropped to 16:10, as small as 64 px wide (search suggestions, "since you were away"). The title is set in text by the store; the Home Screen icon is the platform's.
 
+- The cover is the game's icon: its main subject must still read at 64 px wide, so keep it large and simple inside the cover's safe area.
 - Put the game's logo or title art on the cover and the game's own title screen only.
 - Do not draw the platform's logo (HearthCade) anywhere: the platform shows its own splash.
 
@@ -279,7 +281,7 @@ More: [services.md#what-the-platform-does-not-provide](/guides/services.md#what-
 
 **Don't:** Draw a platform logo or a second splash. Show a blank page, a stand-in font or text still being filled in.
 
-**Checked:** boots check (GCP.ready() in time). game_standards check notes a game that never reports progress.
+**Checked:** boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).
 
 More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/guides/platform-contract.md#the-platform-splash-before-your-loading-screen)
 
@@ -294,11 +296,11 @@ More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/gui
 - For the first 3 plays on a device a short tip (up to 440 px wide) shows at top centre for 5 s; taps go through it.
 - Move it with GCP.setDisplay({ exitButton: 'top-right' | 'bottom-left' | 'bottom-right' }), or hide it with exitButton: 'none' when the game's own pause menu has a Quit button that calls GCP.quit() and Esc / Back reach that menu (GCP.pauseMenu).
 
-**Do:** Keep a 56 px square free in the chosen corner, inside the safe area. Choose the corner where your HUD has nothing.
+**Do:** Keep a 56 px square free in the chosen corner, inside the safe area. Choose the corner where your HUD has nothing. When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.
 
 **Don't:** Put a pause, score or health widget under the button. Hide it without a Quit of your own.
 
-**Checked:** game_standards check notes a game that never chooses a corner.
+**Checked:** Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button's square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.
 
 More: [standards.md#menu-button](/guides/standards.md#menu-button)
 
@@ -317,7 +319,7 @@ More: [standards.md#menu-button](/guides/standards.md#menu-button)
 
 **Don't:** Assume the frame is already inside the notch.
 
-**Checked:** device_iphone and device_ipad report UI drawn off screen. game_standards check warns when a game for phones never reads the insets.
+**Checked:** Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.
 
 ![Safe areas: notch, rounded corners, home bar template](/guides/safe-area-template.png)
 
@@ -394,6 +396,27 @@ More: [services.md#interface-scale-and-the-players-ui-size](/guides/services.md#
 **Checked:** Not checked.
 
 More: [performance.md#quality-levels](/guides/performance.md#quality-levels)
+
+<a id="sound"></a>
+
+### Sound on every screen
+
+**Where:** The whole game: the title, menus, lobby and matchmaking, play, and the results screen.
+
+- Music or ambience plays from the first screen the player sees, through every menu, lobby and results screen, not only during play. Menu music sits within about 10 dB of play (half as loud at most), so the title never seems silent next to combat.
+- Make the AudioContext (or start the sound library) while the game boots, not inside a gesture. The player started the game with a click on the platform page and the game frame has autoplay, so where the browser allows it the title music plays at once.
+- Where the browser still holds sound back (Safari, iPhone, iPad, and any browser before a gesture), resume on the first gesture with window listeners in the capture phase, added before the interface adds its own: pointerdown, pointerup, click and keydown. iPhone and iPad do not count pointerdown from a finger, and canvas interfaces stop presses on their buttons, so a bubble listener never hears a tap on a menu button. The runtime also resumes every context the game made on each pointerup, touchend, click, mousedown and keydown (fix "audio-unlock"), so a context made at boot always wakes on the first tap. Leave touchend listeners to the runtime: a "touchend" in the game's code tells the platform the game has touch controls of its own, which hides the on-screen controls.
+- Play nothing while the context is not running (no effects queued up to burst out on the first tap), and resume after an iPhone interruption ("interrupted": a call, the lock screen) on the next gesture.
+- The platform suspends every context while its menu or a card is over the game, and while the tab is hidden, then starts exactly those again (fix "pause-audio"). A game's own pause menu suspends its own sound, and a gesture on that menu must not resume it.
+- Give the player music and effects volumes in the game's settings and remember them. No sound shipped only as Ogg: older iPhones cannot play it (deploy_preview warns).
+
+**Do:** Give the title, menus and results their own calm music, and return to it when play ends. Check every screen with the sound on, starting from a fresh load with no key pressed.
+
+**Don't:** Start sound only from a press on the game world or from the first key. Create the AudioContext only when play starts, or only inside a gesture listener that the interface can stop. Leave the play music (drums, battle pulse) running on the menus and results.
+
+**Checked:** game_standards check and deploy_preview warn when the game starts its sound from a window gesture listener in the bubble phase (an interface that stops presses keeps it from ever running), and note a game with no sound at all. The verification browser counts the sound contexts made and the sounds played.
+
+More: [standards.md#sound](/guides/standards.md#sound)
 
 <a id="capture-hooks"></a>
 
