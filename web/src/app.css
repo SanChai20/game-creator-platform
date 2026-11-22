@@ -351,16 +351,25 @@
 .skill-md a { color: var(--accent); }
 @media (max-width: 640px) { .skill-grid { padding: 14px; grid-template-columns: 1fr; } }
 
-/* The one-time Add to Home Screen tip (install-tip.tsx): a card in the game page's flow, under the stage and the buy
-   card (a full row of .gp-top, after both), so it never covers the game or the Play button. */
-.install-tip { position: relative; grid-column: 1 / -1; order: 1; display: flex; gap: 12px; align-items: flex-start; max-width: 620px; padding: 14px 40px 14px 14px; border-radius: 14px; background: var(--surface); color: var(--text); border: 1px solid var(--line); }
-.install-tip-ico { flex: none; width: 44px; height: 44px; border-radius: 11px; }
-.install-tip-body { display: grid; gap: 4px; justify-items: start; min-width: 0; }
-.install-tip-body b { font-size: 15px; }
-.install-tip-body span { color: var(--text-2); font-size: 13.5px; line-height: 1.45; }
-.install-tip-ok { margin-top: 6px; }
-.install-tip-x { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text-2); font-size: 22px; line-height: 1; cursor: pointer; }
-.install-tip-x:hover { background: var(--sunk); }
+/* The install popup (install-tip.tsx): a dialog in the middle of the screen asking phone and tablet players to add the
+   site to their Home Screen, with what it gives them and the steps for their browser. */
+.ip { display: grid; gap: 18px; }
+.ip-head { display: flex; gap: 16px; align-items: center; }
+.ip-head h2 { margin: 0 0 4px; font-size: clamp(20px, 5vw, 24px); line-height: 1.2; }
+.ip-head p { margin: 0; font-size: 14px; line-height: 1.5; }
+.ip-ico { flex: none; width: 64px; height: 64px; border-radius: 15px; box-shadow: var(--shadow-2); }
+.ip-perks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 14.5px; line-height: 1.45; }
+.ip-perks li { display: flex; gap: 10px; align-items: flex-start; }
+.ip-check { flex: none; margin-top: 2px; color: var(--good, #2fbf71); }
+.ip-steps { list-style: none; margin: 0; padding: 14px; display: grid; gap: 12px; border-radius: var(--r-md, 10px); background: var(--sunk); counter-reset: none; }
+.ip-steps li { display: flex; gap: 12px; align-items: flex-start; font-size: 14.5px; line-height: 1.5; }
+.ip-steps li > b { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; font: 700 13px/1 var(--font-display); }
+.ip-steps li > span { padding-top: 2px; }
+.ip-glyph { display: inline-grid; place-items: center; width: 28px; height: 26px; margin: -3px 2px 0; vertical-align: middle; border-radius: 7px; background: var(--surface); color: var(--accent); border: 1px solid var(--line); }
+.ip-aside { display: block; color: var(--text-2); font-size: 13px; }
+.ip-note { margin: -6px 0 0; font-size: 12.5px; line-height: 1.45; }
+.ip-act { display: flex; flex-wrap: wrap; gap: 10px; }
+.ip-act .btn-primary { flex: 1 1 160px; }
 
 /* Opened from the Home Screen (html.app, set in index.html): the page runs under a translucent status bar, so a strip
    behind the clock and battery keeps them readable in either theme and the header starts below it. Like a native app,
