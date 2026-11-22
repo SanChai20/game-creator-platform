@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePlayClock } from '../play-clock';
 import { ago, api, bytes, dateTime, Fail, genreName, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table, Ticks } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
 import type { StageCtl } from '../player';
@@ -46,12 +46,10 @@ function Report({ v }: { v: any }) {
   );
 }
 
-const listOr = (a: string[] | undefined) => (a && a.length ? a.join(', ') : '—');
-
 /** Open Implementation as a build skill: share the skill the game's agent writes (free or for a price) in the Creator
- *  Store, see whether it matches the live and the newest version, and look at the platform's own card. */
-function BuildSkill({ id, p, info, skill, reload }: { id: string; p: any; info: any; skill: any; reload: () => Promise<unknown> }) {
-  const { busy, act } = useAct(), [card, setCard] = useState<any>(undefined), [priceText, setPriceText] = useState<string | null>(null), s = useApp().config.settings;
+ *  Store, see whether it matches the live and the newest version */
+function BuildSkill({ id, p, skill, reload }: { id: string; p: any; skill: any; reload: () => Promise<unknown> }) {
+  const { busy, act } = useAct(), [priceText, setPriceText] = useState<string | null>(null), s = useApp().config.settings;
   const cut = Number(s.platform_fee_percent), openCut = Number(s.platform_fee_open_percent ?? cut), skillCut = Number(s.skill_fee_percent ?? 5);
   const on = !!p.open_implementation, paidSkill = skill.price_cents > 0;
   const newestHas = !!skill.versions?.some((v: any) => v.version === skill.newest_version);
@@ -65,8 +63,7 @@ function BuildSkill({ id, p, info, skill, reload }: { id: string; p: any; info: 
   const savePrice = (cents: number) => act('sprice', async () => { await api(`/console/projects/${id}`, { method: 'PATCH', body: { skill_price_cents: cents } }); setPriceText(null); await reload(); },
     cents ? t('Skill price set to {price}.', '技能价格已设为 {price}。', { price: usd(cents) }) : t('The skill is now free.', '技能现在免费。'));
   const submitPrice = () => { const c = Math.round(Number(String(priceText).replace(',', '.')) * 100); if (!Number.isFinite(c) || c < 0) return; void savePrice(c); };
-  const look = () => act('look', async () => { const r = await api<{ card: any }>(`/console/projects/${id}/implementation`); setCard(r.card); });
-  const f = card?.built_with, live = skill.live;
+  const live = skill.live;
   return (
     <Card title={t('Build skill', '构建技能')} aside={<span className="dim fs-sm">{t('Open implementation', '开放实现')}</span>} pad>
       <div className="stack">
@@ -82,7 +79,6 @@ function BuildSkill({ id, p, info, skill, reload }: { id: string; p: any; info: 
           skill.newest_version && [t('Newest version', '最新版本'), <span className={newestHas ? undefined : 'sig'}>v{skill.newest_version} · {newestHas ? t('skill written', '技能已编写') : t('no skill yet', '尚无技能')}</span>],
           on && [t('Copies', '复制次数'), num(skill.copies)],
           on && paidSkill && [t('Skill sales', '技能销量'), `${num(skill.sales?.n || 0)} · ${usd(skill.sales?.net || 0)}`],
-          on && info && [t('Card read by agents', '卡片被智能体读取'), num(info.reads)],
         ]} />
         {on && skill.required_to_publish && skill.newest_version && !newestHas && skill.newest_version !== p.live_version && <Notice tone="info">{t('Before version {n} can go live, ask your agent to update the build skill for it (build_skill). Publishing waits for it while the skill is shared.', '第 {n} 版上线前，请让你的智能体为它更新构建技能（build_skill）。技能分享期间，发布会等待技能就绪。', { n: skill.newest_version })}</Notice>}
         <div className="stack s">
@@ -97,21 +93,9 @@ function BuildSkill({ id, p, info, skill, reload }: { id: string; p: any; info: 
         </div>
         <div className="row wrapx">
           {on && p.status === 'live' && <Button size="sm" variant="primary" to={`/creator-store/${p.slug}`}>{t('Open in the Creator Store', '在创作者商店中查看')}</Button>}
-          {p.live_version ? <Button size="sm" onClick={look} disabled={busy === 'look'}>{t('Platform card', '平台卡片')}</Button>
-            : <span className="dim fs-sm">{t('Publish the game first. The skill describes the live version.', '请先发布游戏，技能描述的是线上版本。')}</span>}
+          {!p.live_version && <span className="dim fs-sm">{t('Publish the game first. The skill describes the live version.', '请先发布游戏，技能描述的是线上版本。')}</span>}
         </div>
       </div>
-      {card && <Modal wide onClose={() => setCard(undefined)}><div className="stack l">
-        <div className="row"><b>{t('What other agents see', '其他智能体看到的内容')}</b>{!card.shared && <Badge tone="info">{t('Preview, not shared', '预览，未分享')}</Badge>}<Button size="sm" className="right" onClick={() => setCard(undefined)}>{t('Close', '关闭')}</Button></div>
-        <p style={{ whiteSpace: 'pre-wrap' }}>{card.summary}</p>
-        <KeyValue items={[
-          [t('Engine', '引擎'), f.engine], [t('Libraries', '库'), listOr(f.libraries)], [t('Rendering', '渲染'), listOr(f.rendering)], [t('Graphics', '画面技术'), listOr(f.graphics)],
-          [t('Input', '输入'), listOr(f.input)], [t('Audio', '音频'), listOr(f.audio)], [t('Art', '美术'), f.assets.approach], [t('Platform services', '平台服务'), listOr(f.platform_services)],
-          [t('Loop and performance', '循环与性能'), listOr(f.loop_and_performance)], [t('Structure', '结构'), `${f.structure.files} ${t('files', '个文件')} · ${f.structure.own_code_lines} ${t('lines of own code', '行自有代码')} · ${f.structure.modules}`],
-          !!f.gameplay.playthrough_steps.length && [t('Play-through', '试玩流程'), f.gameplay.playthrough_steps.join(' → ')],
-        ]} />
-        <Ticks items={[card.never_shared]} />
-      </div></Modal>}
     </Card>
   );
 }
@@ -255,7 +239,7 @@ export function Project({ id }: { id: string }) {
                 : <p className="mute fs-sm">{s.paid_games_enabled ? t('Free to play. Set a price between {min} and {max} to sell it; the platform keeps {cut}% of each sale.', '目前免费。可在 {min} 至 {max} 之间定价销售，平台从每笔销售中收取 {cut}%。', { min: usd(s.game_price_min_cents), max: usd(s.game_price_max_cents), cut: s.platform_fee_percent }) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
             </Card>
             {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
-            <BuildSkill id={id} p={p} info={data.implementation} skill={data.skill} reload={reload} />
+            <BuildSkill id={id} p={p} skill={data.skill} reload={reload} />
             <Card title={t('Details', '详情')} pad>
               <KeyValue items={[
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],
