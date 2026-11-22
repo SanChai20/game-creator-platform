@@ -38,6 +38,7 @@ game at once, live ones included, with nothing for the creator to do and nothing
 | `pointer-lock-touch` | Phones and tablets | A pointer-lock stand-in: a finger dragging turns the view |
 | `touch-cleanup` | Touch screens | No long-press selection, callout or magnifier, no tap flash, no double-tap zoom |
 | `pause-audio` | Everywhere | While the platform pauses the game (its menu, a card) or the tab is hidden, every running audio context is suspended and every playing `<audio>`/`<video>` paused; exactly those start again afterwards. A context the game suspends or resumes itself meanwhile is the game's. `GCP.setDisplay({ pauseAudio: false })` turns it off |
+| `scroll-keys` | In the platform's player, every browser (Firefox and Safari most of all) | Space, Shift+Space, the arrows, Page Up/Down, Home and End never scroll the page around the game. Firefox and Safari hand such a key to the store page under the frame when nothing in the game's page scrolls with it, and a game that cancels its keys only when they reach `<body>` misses them once its canvas (with a `tabindex`) has the focus. After every listener of the game has seen the key, the runtime cancels its scroll unless the game's page takes it itself: a text field, a list or page that can still scroll that way, Space on a button or link. A key the game cancelled stays the game's, and the game's listeners see each key as it came |
 | `held-keys` | Everywhere | Keys held down when the game loses the keyboard (the platform menu opens, focus leaves the frame) get their `keyup`, so a character does not walk on after the menu closes. The mouse is released from pointer lock when the platform pauses, so it can reach the menu |
 | `near-miss-taps` | Touch screens | A tap just beside a button of the game's page counts as a tap on it |
 | `mouse-from-finger` | Touch screens, mouse-only games | Mouse events from the finger: drag, two-finger right click, pinch to wheel |
@@ -67,11 +68,15 @@ What no script can fix is caught before publishing:
 - Add a fix inside `gcp.js` with `fix('name', active)`, keep it to the rules above, and add it to the table.
 - Raise the version below (minor for a new fix, patch for a change to one, major for a change a game could notice in a
   browser that already behaved) and say what changed.
-- Test it in `tests/runtime.mjs`, and play Bloomguard and Void Echoes in it on phone, tablet and WebKit before it ships:
+- Test it in `tests/runtime.mjs` (and in a real browser where it is about browser behaviour, as `tests/scroll-keys-browser.mjs` is), and play Bloomguard and Void Echoes in it on phone, tablet and WebKit before it ships:
   every live game gets it the moment it is deployed.
 
 ## Versions
 
+- **2.8.0** — New fix `scroll-keys`: in the player, keys that scroll (Space, the arrows, Page Up/Down, Home, End) no longer
+  move the page around the game in Firefox and Safari (and the arrows, Page Down and End in Chrome), whatever element of the
+  game has the focus. A game's own scrolling lists, text fields and buttons keep their keys. Checked in Chromium, Firefox
+  and WebKit (`npm run test:scroll-keys`).
 - **2.7.0** — New: platform friends from inside the game. `GCP.friends` (`available`, `list()`, `invite(id, { match,
   label, data })`, `open({ match, label, data })`, `on('change' | 'join' | 'answer')`), `GCP.presence.set({ detail,
   joinable })` / `clear()`, `GCP.launch.join` and `GCP.match.join(join, opts)`. `GCP.match.find({ private: true })` opens
