@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.10.0', fixes: {} };
+  var RT = S.runtime = { version: '2.11.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -936,11 +936,17 @@
   // never gets safe-area insets of its own (env(safe-area-inset-*) is always 0 in a frame), so they come from the page,
   // also as the CSS variables --gcp-safe-top/right/bottom/left on <html>.
   var display = { fullscreen: false, mode: 'inline', orientation: 'any', touch: coarse, edgeToEdge: false, safe: { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false, menuButton: null }, displayFns = [];
-  // display.menuButton: the square the platform's menu button sits in while it shows (fullscreen and phones), in the
-  // game's CSS pixels, inside display.safe: { corner, x, y, w, h }, or null. A HUD that shares that corner moves aside by it.
+  // display.menuButton: the square the platform's menu button sits in, in the game's CSS pixels, inside display.safe:
+  // { corner, x, y, w, h }. The button shows whenever the game plays in the platform's player (in its window on the page
+  // and in fullscreen; a game cannot hide it, so exitButton 'none' is the top-left corner), so it is null only outside
+  // the player. In the window on a narrow page the frame is drawn scaled down, and the square grows to match.
+  // A HUD that shares that corner moves aside by it.
   var menuSquare = function () {
-    var c = (S.displayPrefs && S.displayPrefs.exitButton) || 'top-left', sq = 56, sf = display.safe, W = window.innerWidth || 0, H = window.innerHeight || 0;
-    if (!display.fullscreen || c === 'none' || !/^(top|bottom)-(left|right)$/.test(c)) { display.menuButton = null; return; }
+    var c = (S.displayPrefs && S.displayPrefs.exitButton) || 'top-left', k = S.frameScale > 0 && S.frameScale < 1 ? S.frameScale : 1;
+    var sq = 56, sf = display.safe, W = window.innerWidth || 0, H = window.innerHeight || 0;
+    if (!/^(top|bottom)-(left|right)$/.test(c)) c = 'top-left';
+    if (!S.inPlayer) { display.menuButton = null; return; }
+    sq = Math.round(sq / k);
     display.menuButton = { corner: c, x: /right/.test(c) ? W - sf.right - sq : sf.left, y: /bottom/.test(c) ? H - sf.bottom - sq : sf.top, w: sq, h: sq };
   };
   try { window.addEventListener('resize', function () { if (display.menuButton) menuSquare(); }); } catch (e) { /* no window events */ }
@@ -2122,7 +2128,7 @@
       onCapture: function (fn) { captureFn = typeof fn === 'function' ? fn : null; S.capture = !!captureFn; toParent({ gcp: 'capture_hook', on: S.capture }); },   // the preview's Capture feedback works only with it
     },
     /** Open (true), close (false) or toggle (no argument) the platform's menu in the player: Resume and Quit game. Give your
-        own pause screen a button for it when the game hides the platform's menu button (setDisplay({ exitButton: 'none' })). */
+        own pause screen a button for it too, if you like: the platform's menu button is always there as well. */
     menu: function (on) { var msg = { gcp: 'menu' }; if (on === true || on === false) msg.on = on; toParent(msg); },
     /** Quit: the player closes and the player is back on the game's page. Save first. */
     quit: function () { toParent({ gcp: 'quit' }); },
@@ -2177,9 +2183,9 @@
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
-        (the platform's 40 px menu button goes in that corner, which the game keeps free; left out, it is top-left; 'none'
-        hides it, for a game whose own pause menu quits with GCP.quit(); the menu also opens from Back, a three-finger
-        tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
+        (the platform's 40 px menu button goes in that corner, which the game keeps free; left out, it is top-left; the
+        button always shows while the game plays, so 'none' is taken as top-left; the menu also opens from Back, a
+        three-finger tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
         itself: they no longer open the platform menu), textSelect: true (the game's text can be selected and copied; left
         out, only fields can, so a long press or a drag never highlights the game's labels),
         edgeToEdge: false (in fullscreen the platform keeps the frame inside the notch, camera hole and rounded corners,
@@ -3069,7 +3075,8 @@
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };
     display.safe = { top: n(sf.top), right: n(sf.right), bottom: n(sf.bottom), left: n(sf.left) };
-    display.paused = !!d.paused; display.menu = !!d.menu; menuSquare();
+    display.paused = !!d.paused; display.menu = !!d.menu; S.inPlayer = true;
+    var fk = +d.scale; S.frameScale = isFinite(fk) && fk > 0 && fk <= 1 ? fk : 1; menuSquare();
     markDisplay(); guard(); controlsFromPage(d); uiFromPage(d); fsChanged(); pauseNotify('platform');
     displayFns.slice().forEach(function (fn) { try { fn(display); } catch (err) { console.error(err); } });
   });

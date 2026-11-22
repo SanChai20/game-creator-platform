@@ -33,16 +33,23 @@ html.gcp-loose .modal, html.gcp-loose .modal > div { overflow: hidden !important
 @keyframes tuck-up { 0% { transform: translateY(14px) rotate(45deg); opacity: 0; } 35% { opacity: 1; } 100% { transform: translateY(-10px) rotate(45deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .tuck-ico { animation: none; } .stage-tuck { animation: none; } }
 
-.stage-exit { position: absolute; z-index: 3; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+/* The platform's menu button. It is always there while a game plays: in the window on the page and in fullscreen, in the
+   browser and the installed app. It sits above every layer of the stage (the game frame, the splash, the swipe-up and
+   turn-your-phone cards, the tip) and only the platform's own menu and cards, which it opens, take its place. The game is
+   a frame under it and cannot paint over it. Its corner keeps clear of the notch, the rounded corners and the home
+   indicator while the stage fills the screen (--sa-*), and of nothing in the window on the page, where those are not. */
+.stage { --sa-t: 0px; --sa-r: 0px; --sa-b: 0px; --sa-l: 0px; }
+.stage.filled, .stage:fullscreen { --sa-t: env(safe-area-inset-top, 0px); --sa-r: env(safe-area-inset-right, 0px); --sa-b: env(safe-area-inset-bottom, 0px); --sa-l: env(safe-area-inset-left, 0px); }
+.stage-exit { position: absolute; z-index: 6; display: flex; align-items: center; gap: 8px; pointer-events: none; isolation: isolate; }
 /* The menu button is plain at first, then fades until it is barely there; touching or dragging it brings it back, and left
    alone it fades again. Only the button: the trial clock beside it stays readable. */
 .stage-exit button { animation: stage-exit-dim 5s ease forwards; }
 @media (hover: hover) { .stage-exit button:hover, .stage-exit button:focus-visible { animation: none; opacity: 1; } }
 .stage-exit.pressing button, .stage-exit.dragging button { animation: none; opacity: 1; }
-.stage-exit.top-left { top: calc(8px + env(safe-area-inset-top, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); }
-.stage-exit.top-right { top: calc(8px + env(safe-area-inset-top, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); flex-direction: row-reverse; }
-.stage-exit.bottom-left { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); left: calc(8px + env(safe-area-inset-left, 0px)); }
-.stage-exit.bottom-right { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); right: calc(8px + env(safe-area-inset-right, 0px)); flex-direction: row-reverse; }
+.stage-exit.top-left { top: calc(8px + var(--sa-t)); left: calc(8px + var(--sa-l)); }
+.stage-exit.top-right { top: calc(8px + var(--sa-t)); right: calc(8px + var(--sa-r)); flex-direction: row-reverse; }
+.stage-exit.bottom-left { bottom: calc(8px + var(--sa-b)); left: calc(8px + var(--sa-l)); }
+.stage-exit.bottom-right { bottom: calc(8px + var(--sa-b)); right: calc(8px + var(--sa-r)); flex-direction: row-reverse; }
 .stage-exit button { pointer-events: auto; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid rgb(255 255 255 / .28); border-radius: 50%; background: rgb(12 10 18 / .55); color: #fff; cursor: pointer; backdrop-filter: blur(6px); -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .stage-exit button { touch-action: none; }
 /* Dragged by the player (player.tsx): left and top come from the spot they chose. */

@@ -28,8 +28,8 @@ z = await run('u.fillRect(s.left + 8, s.top + 8, 140, 48);', "GCP.setDisplay({ e
 assert.equal(z.corner, 'top-right'); assert.deepEqual(zones(z), [], 'the button moved to a free corner');
 z = await run('u.fillRect(innerWidth - s.right - 60, s.top + 4, 56, 56);', "GCP.setDisplay({ exitButton: 'top-right' });");
 assert.deepEqual(zones(z), ['menu-button'], 'HUD in the corner the button moved to');
-z = await run('u.fillRect(0, 0, 140, 48);', "GCP.setDisplay({ edgeToEdge: false, exitButton: 'none' });");
-assert.deepEqual(zones(z), [], 'kept inside the insets, no button');
+z = await run('u.fillRect(60, 0, 140, 48);', "GCP.setDisplay({ edgeToEdge: false, exitButton: 'none' });");
+assert.deepEqual(zones(z), [], 'kept inside the insets, the button\'s corner left free');
 z = await run("u.fillStyle = '#312'; u.fillRect(0, innerHeight - 90, innerWidth, 90); u.fillStyle = '#fff'; u.fillRect(s.left + 10, innerHeight - 80, 100, 40);");
 assert.deepEqual(zones(z), [], 'a bottom panel whose plain background runs to the edges, its content inside the safe area');
 z = await run("u.fillStyle = '#312'; u.fillRect(0, innerHeight - 90, innerWidth, 90); u.fillStyle = '#fff'; u.fillRect(300, innerHeight - 30, 200, 30);");
@@ -41,12 +41,16 @@ assert.equal(z.checked, false); assert.equal(z.reason, 'one-layer');
 {
   const p = await b.newPage({ viewport: { width: 844, height: 390 } });
   await p.setContent('<html><body></body></html>'); await p.addScriptTag({ path: sdk });
-  assert.equal(await p.evaluate(() => GCP.display.menuButton), null, 'no button outside fullscreen');
+  assert.equal(await p.evaluate(() => GCP.display.menuButton), null, 'no button outside the player');
   const post = () => p.evaluate(() => { window.postMessage({ gcp: 'display', fullscreen: true, touch: true, edgeToEdge: true, safe: { top: 0, right: 47, bottom: 21, left: 47 } }, '*'); return new Promise((r) => setTimeout(r, 50)); });
   await post(); assert.deepEqual(await p.evaluate(() => GCP.display.menuButton), { corner: 'top-left', x: 47, y: 0, w: 56, h: 56 });
   await p.evaluate(() => GCP.setDisplay({ exitButton: 'bottom-right' }));
   assert.deepEqual(await p.evaluate(() => GCP.display.menuButton), { corner: 'bottom-right', x: 844 - 47 - 56, y: 390 - 21 - 56, w: 56, h: 56 });
-  await p.evaluate(() => GCP.setDisplay({ exitButton: 'none' })); assert.equal(await p.evaluate(() => GCP.display.menuButton), null);
+  await p.evaluate(() => GCP.setDisplay({ exitButton: 'none' }));
+  assert.deepEqual(await p.evaluate(() => GCP.display.menuButton), { corner: 'top-left', x: 47, y: 0, w: 56, h: 56 }, "'none' cannot hide the button");
+  // in the window on the page: shown too, and scaled to a frame drawn smaller
+  await p.evaluate(() => { window.postMessage({ gcp: 'display', fullscreen: false, mode: 'inline', safe: {}, scale: 0.5 }, '*'); return new Promise((r) => setTimeout(r, 50)); });
+  assert.deepEqual(await p.evaluate(() => GCP.display.menuButton), { corner: 'top-left', x: 0, y: 0, w: 112, h: 112 });
   await p.close();
 }
 await b.close();

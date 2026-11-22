@@ -440,8 +440,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // Messages from the game (through the SDK) and what it is told back.
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held || asking || sideways, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, asking, sideways, JSON.stringify(padCfg), padPref, uiSize]); // eslint-disable-line react-hooks/exhaustive-deps
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held || asking || sideways, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize, scale: active ? 1 : playWin.scale }, '*');
+  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, asking, sideways, JSON.stringify(padCfg), padPref, uiSize, playWin.scale]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
   useEffect(() => { if (!url) { setPadState({ available: false, shown: false }); setHeld(false); } }, [url]);
   const uiSizeRef = useRef(uiSize), seedRef = useRef(seed); uiSizeRef.current = uiSize; seedRef.current = seed;
@@ -473,7 +473,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       const d = e.data;
       // Leaving fullscreen from the game pauses it behind the card; the player can come straight back or quit there.
       if (d.gcp === 'fullscreen') { if (d.on === true) enter(); else if (d.on === false) exit(); else toggle(); }
-      if (d.gcp === 'menu') setMenu((m) => (d.on === true ? true : d.on === false ? false : !m) && active);
+      if (d.gcp === 'menu') setMenu((m) => d.on === true ? true : d.on === false ? false : !m);
       if (d.gcp === 'quit') quit();
       if (d.gcp === 'display_prefs') setPrefs((p) => ({
         orientation: ['any', 'landscape', 'portrait'].includes(d.orientation) ? d.orientation : p.orientation,
@@ -539,12 +539,19 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
 
   // The menu button starts in the corner the game asks for (top-left unless GCP.setDisplay({ exitButton }) says otherwise)
   // and the player can drag it anywhere; the spot is kept per game and orientation. Back, a three-finger tap, Esc and the
-  // game itself (GCP.menu) open the menu too.
-  const corner = prefs.exit ?? 'top-left';
+  // game itself (GCP.menu) open the menu too. It is the platform's, not the game's: it shows whenever a game is playing,
+  // in the window on the page and in fullscreen, in the browser and the installed app alike, above everything the game
+  // draws (the game is a frame under it and cannot take fullscreen for itself) and inside the safe area. A game cannot
+  // hide it: exitButton 'none' is taken as the top-left corner. Only the platform's own menu and cards replace it.
+  const corner: Exclude<Corner, 'none'> = prefs.exit && prefs.exit !== 'none' ? prefs.exit : 'top-left';
+  // The screen's insets only apply while the stage fills the screen; in the window on the page it sits inside the page.
+  const btnIns = active ? insets : NO_INSETS;
   const [pressing, setPressing] = useState(false), [pos, setPos] = useState<BtnPos | null>(null), [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const grab = useRef<{ id: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null), dragAt = useRef<{ x: number; y: number } | null>(null), noClick = useRef(0);
-  useEffect(() => { setPos(active ? readPos(seed, portrait) : null); }, [active, seed, portrait]);
-  const room = () => ({ w: Math.max(0, (box.current?.clientWidth ?? 0) - BTN - 2 * BTN_EDGE), h: Math.max(0, (box.current?.clientHeight ?? 0) - BTN - 2 * BTN_EDGE) });
+  useEffect(() => { setPos(readPos(seed, portrait)); }, [active, seed, portrait]);
+  // Where the button may go: the stage less its own size, the edge room and the safe-area insets, so a drag never takes
+  // it under the notch, the camera hole or the home indicator, or off the screen.
+  const room = () => ({ w: Math.max(0, (box.current?.clientWidth ?? 0) - BTN - 2 * BTN_EDGE - btnIns.left - btnIns.right), h: Math.max(0, (box.current?.clientHeight ?? 0) - BTN - 2 * BTN_EDGE - btnIns.top - btnIns.bottom) });
   const onBtnDown = (e: RPointerEvent<HTMLButtonElement>) => {
     if (e.button > 0) return;
     setPressing(true);
@@ -557,7 +564,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
     const dx = e.clientX - g.sx, dy = e.clientY - g.sy;
     if (!g.moved && Math.hypot(dx, dy) < 10) return;
     g.moved = true; setTip(null);
-    const { w, h } = room(), at = { x: Math.min(w, Math.max(0, g.ox - BTN_EDGE + dx)), y: Math.min(h, Math.max(0, g.oy - BTN_EDGE + dy)) };
+    const { w, h } = room(), at = { x: Math.min(w, Math.max(0, g.ox - BTN_EDGE - btnIns.left + dx)), y: Math.min(h, Math.max(0, g.oy - BTN_EDGE - btnIns.top + dy)) };
     dragAt.current = at; setDrag(at);
   };
   const onBtnUp = (e: RPointerEvent<HTMLButtonElement>) => {
@@ -570,18 +577,14 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
     dragAt.current = null; setDrag(null); frame.current?.focus();
   };
   const btnStyle = (): CSSProperties | undefined => {
-    if (drag) return { left: BTN_EDGE + drag.x, top: BTN_EDGE + drag.y, right: 'auto', bottom: 'auto' };
+    if (drag) return { left: BTN_EDGE + btnIns.left + drag.x, top: BTN_EDGE + btnIns.top + drag.y, right: 'auto', bottom: 'auto' };
     if (!pos) return undefined;
     const { w, h } = room();
-    return { left: BTN_EDGE + Math.round(pos.x * w), top: BTN_EDGE + Math.round(pos.y * h), right: 'auto', bottom: 'auto' };
+    return { left: BTN_EDGE + btnIns.left + Math.round(pos.x * w), top: BTN_EDGE + btnIns.top + Math.round(pos.y * h), right: 'auto', bottom: 'auto' };
   };
   const iosTip = active && handheld && isIOS() && !isInstalled();
   // How to open the menu here, said once at the start of the first few plays on this device (taps go through the note).
-  const howTo = corner !== 'none' ? (handheld ? t('Menu button in the way? Drag it anywhere.', '菜单按钮挡住了画面？可以把它拖到任意位置。') : t('Menu button in the way? Drag it anywhere. Esc opens the menu too.', '菜单按钮挡住了画面？可以把它拖到任意位置。按 Esc 也能打开菜单。'))
-    : !handheld ? t('Press Esc for the game menu.', '按 Esc 打开游戏菜单。')
-    : isIOS() && isInstalled() ? t('Tap with three fingers for the game menu.', '三指轻点打开游戏菜单。')
-    : isIOS() && immersive ? t('Swipe in from the left edge, or tap with three fingers, for the game menu.', '从屏幕左边缘向内滑，或三指轻点，打开游戏菜单。')
-    : t('Go back, or tap with three fingers, for the game menu.', '使用返回手势或返回键，或三指轻点，打开游戏菜单。');
+  const howTo = handheld ? t('Menu button in the way? Drag it anywhere.', '菜单按钮挡住了画面？可以把它拖到任意位置。') : t('Menu button in the way? Drag it anywhere. Esc opens the menu too.', '菜单按钮挡住了画面？可以把它拖到任意位置。按 Esc 也能打开菜单。');
   useEffect(() => {
     if (!active || !url) return;
     let n = 0; try { n = +(localStorage.getItem(TIP_KEY) || 0) || 0; } catch { /* private mode */ }
@@ -594,14 +597,14 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
     <div>
       <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (asking ? ' tuck' : '')} ref={box}
         style={active ? undefined : { maxWidth: playWin.w, marginInline: 'auto' }}>
-        {url ? <iframe ref={frame} src={url} title="Game" style={active ? undefined : { inset: 'auto', top: 0, left: 0, width: playWin.w, height: playWin.h, maxWidth: 'none', maxHeight: 'none', transform: playWin.scale < 1 ? `scale(${playWin.scale})` : undefined, transformOrigin: '0 0' }} onLoad={() => { post(); postLang(); }} inert={menu || hung || held || asking} sandbox={GAME_SANDBOX} allow="fullscreen; gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
+        {url ? <iframe ref={frame} src={url} title="Game" style={active ? undefined : { inset: 'auto', top: 0, left: 0, width: playWin.w, height: playWin.h, maxWidth: 'none', maxHeight: 'none', transform: playWin.scale < 1 ? `scale(${playWin.scale})` : undefined, transformOrigin: '0 0' }} onLoad={() => { post(); postLang(); }} inert={menu || hung || held || asking} sandbox={GAME_SANDBOX} allow="gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
           <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
         )}
         {splash.phase !== 'off' && <Splash out={splash.phase === 'out'} />}
-        {active && url && !menu && !hung && (corner !== 'none' || badge) && (
-          <div className={'stage-exit ' + (corner === 'none' ? 'top-left' : corner) + (pos || drag ? ' moved' : '') + (drag ? ' dragging' : '') + (pressing ? ' pressing' : '')} style={corner === 'none' ? undefined : btnStyle()}>
-            {corner !== 'none' && <button type="button" onClick={() => { if (performance.now() >= noClick.current) setMenu(true); }} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}
-              aria-label={t('Game menu', '游戏菜单')} title={t('Game menu (drag to move)', '游戏菜单（可拖动）')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>}
+        {url && !menu && !hung && !held && (
+          <div className={'stage-exit ' + corner + (pos || drag ? ' moved' : '') + (drag ? ' dragging' : '') + (pressing ? ' pressing' : '')} style={btnStyle()}>
+            <button type="button" onClick={() => { if (performance.now() >= noClick.current) setMenu(true); }} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}
+              aria-label={t('Game menu', '游戏菜单')} title={t('Game menu (drag to move)', '游戏菜单（可拖动）')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>
             {badge && <span className="stage-badge">{badge}</span>}
           </div>
         )}
@@ -624,7 +627,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
             </div>
           </div>
         )}
-        {active && url && menu && (
+        {url && menu && (
           <div className="stage-menu" role="dialog" aria-modal="true" aria-label={t('Game menu', '游戏菜单')} onClick={(e) => { if (e.target === e.currentTarget) setMenu(false); }}>
             <div className="stage-card">
               <b>{t('Paused', '已暂停')}</b>
@@ -640,10 +643,11 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
                 </div>
               )}
               {tuckable && tuckOff && barsShowing(viewportSizes()) && <button type="button" className="stage-btn" onClick={askAgain}>{t('Hide Safari\'s bars', '隐藏 Safari 的地址栏')}</button>}
-              <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
+              {active ? <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
+                : <button type="button" className="stage-btn" onClick={enter}>{t('Fullscreen', '全屏')}</button>}
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
               {iosTip && <span className="stage-hint">{t('For full screen that swipes cannot close, tap Share, then Add to Home Screen, and play from there.', '想要不会被滑动打断的全屏，请点“分享”，再点“添加到主屏幕”，然后从主屏幕打开游玩。')}</span>}
-              {corner !== 'none' && <span className="stage-hint">{t('Menu button in the way? Drag it anywhere.', '菜单按钮挡住了画面？可以把它拖到任意位置。')}</span>}
+              <span className="stage-hint">{t('Menu button in the way? Drag it anywhere.', '菜单按钮挡住了画面？可以把它拖到任意位置。')}</span>
               {handheld && <span className="stage-hint">{t('Back, or a three-finger tap, also opens this menu.', '返回手势或三指轻点也能打开此菜单。')}</span>}
               <span className="stage-hint">{handheld ? t('Tap outside this card to go back to the game.', '点击卡片外即可返回游戏。') : t('Press Esc to go back to the game.', '按 Esc 返回游戏。')}</span>
             </div>
