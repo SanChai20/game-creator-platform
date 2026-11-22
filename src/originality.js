@@ -186,17 +186,20 @@ export function kinship(a, b) {
   // many of the same names. Any one of them alone, or anything near, is a closer look for the AI review, never a refusal.
   const manyNames = (shared.length >= 8 && nameShare >= 0.4) || shared.length >= 15;
   const nearNames = shared.length >= 6 || (shared.length >= 4 && nameShare >= 0.2);
+  // another creator's exact tagline, or 3 or more of its named heroes, cards and the like, is never settled by the
+  // cheap model alone: the pair always goes to the AI review and that review always ends with clef
+  const fewNames = shared.length >= 3;
   const why = [];
   if (sameTitle) why.push(`the same title "${b.title}"`);
   else if (titleSim >= 0.75) why.push(`a title close to "${b.title}"`);
   if (sameTagline) why.push('the same tagline');
   else if (taglineSim >= 0.8) why.push('a tagline close to its tagline');
-  if (manyNames || nearNames) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')}${shared.length > 5 ? '…' : ''})`);
+  if (manyNames || nearNames || fewNames) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')}${shared.length > 5 ? '…' : ''})`);
   const strong = [sameTitle, sameTagline, manyNames].filter(Boolean).length;
   const built = sameGenre && tags >= 0.5 && traits >= 0.7;
   if (built && why.length === 0) why.push('the same genre and tags, built the same way');
   const verdict = strong >= 2 ? 'copy' : why.length ? 'similar' : 'different';
-  return { verdict, why, same_title: sameTitle, title_sim: Math.round(titleSim * 100), same_tagline: sameTagline, tagline_sim: Math.round(taglineSim * 100), same_genre: sameGenre, tags_overlap: Math.round(tags * 100), shared_names: shared.length, names_share: Math.round(nameShare * 100), name_examples: shared.slice(0, 12), traits_overlap: Math.round(traits * 100) };
+  return { verdict, why, clef_only: sameTagline || fewNames, same_title: sameTitle, title_sim: Math.round(titleSim * 100), same_tagline: sameTagline, tagline_sim: Math.round(taglineSim * 100), same_genre: sameGenre, tags_overlap: Math.round(tags * 100), shared_names: shared.length, names_share: Math.round(nameShare * 100), name_examples: shared.slice(0, 12), traits_overlap: Math.round(traits * 100) };
 }
 /** A title without its vowels and doubled letters, so "Void Echoes" and "Void Echos" or "Voyd Echoes" meet in the index. */
 export const titleSkeleton = (t) => normText(t).replace(/[aeiouy]/g, '').replace(/(.)\1+/g, '$1').replace(/\s+/g, '');
@@ -254,9 +257,9 @@ export const facts4ai = (f) => ({ engine: f.engine, libraries: f.libraries, plat
 export const JUDGE_QUESTIONS = {
   verdict: {
     type: 'choice',
-    instructions: 'You decide whether a new web game is a copy of an existing game by another creator, before it is published. You get both store listings, facts about how each is built (never code) and measurements. A copy is the same game passed off as new: a player who knows the existing game would recognise it as that game, because it keeps most of its named content (characters, cards, enemies, places, items) or its listing, or its code and assets, with surface changes such as a new title, colours or text. Building the same kind of game is allowed and common: the same genre, mechanics, structure, rules, art style or engine is not copying. A few shared names or common words are not copying. The same or a similar title on a game that is otherwise different is a name collision, not a copy. Measurements: code = share of the new game\'s own code found in the other (0-100); same_files and assets = shares of identical files; look_distance = screenshot difference (0 identical, 10 or less looks alike); title_sim and tagline_sim = how close the listings are (100 identical); shared_names = how many names of content are in both games, names_share = what share of the new game\'s names that is (0-100), name_examples = some of them; traits_overlap = how alike the build facts are.',
+    instructions: 'You decide whether a new web game is a copy of an existing game by another creator, before it is published. You get both store listings, facts about how each is built (never code) and measurements. A copy is the same game passed off as new: a player who knows the existing game would recognise it as that game, because it keeps most of its named content (characters, cards, enemies, places, items) or its listing, or its code and assets, with surface changes such as a new title, colours or text. Building the same kind of game is allowed and common: the same genre, mechanics, structure, rules, art style or engine is not copying. Taking its exact tagline together with three or more of its named characters, cards, enemies, places or items is taking its identity and is a copy, even under a new title. A few shared names alone, or common words, are not copying. The same or a similar title on a game that is otherwise different is a name collision, not a copy. Measurements: code = share of the new game\'s own code found in the other (0-100); same_files and assets = shares of identical files; look_distance = screenshot difference (0 identical, 10 or less looks alike); title_sim and tagline_sim = how close the listings are (100 identical); shared_names = how many names of content are in both games, names_share = what share of the new game\'s names that is (0-100), name_examples = some of them; traits_overlap = how alike the build facts are.',
     criteria: {
-      copy: 'The existing game with surface changes: most of its named content, its listing, or its code and assets are kept.',
+      copy: 'The existing game with surface changes: most of its named content, its listing, its exact tagline with several of its names, or its code and assets are kept.',
       derivative: 'The same kind of game (genre, mechanics, style) with its own content and identity.',
       independent: 'A different game; any likeness is only genre, a common word or the title.',
     },
@@ -264,7 +267,7 @@ export const JUDGE_QUESTIONS = {
 };
 /** clef-flash's "not a copy" is final from this probability (no copy in the labelled set got more than 0.69). */
 export const FLASH_SURE = 0.75;
-/** clef refuses from this chance of "copy" (labelled set: copies 0.38 and up, everything else 0.15 or less). */
+/** clef refuses from this chance of "copy" (labelled set of 160 pairs: copies 0.5 and up, everything else under 0.2). */
 export const CLEF_COPY = 0.3;
 
 /**
