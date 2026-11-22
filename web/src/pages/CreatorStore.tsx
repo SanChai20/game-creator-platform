@@ -120,6 +120,7 @@ export function SkillPage({ slug }: { slug: string }) {
               <div className="stack">
                 <p className="mute">{t('The full skill shows after purchase. It is written in {n} sections:', '购买后可查看完整技能。共 {n} 个章节：', { n: s.sections.length })}</p>
                 <ol className="skill-outline">{s.sections.map((h) => <li key={h}>{h}</li>)}</ol>
+                <p className="dim fs-sm">{t('Build skills are non-refundable: the full skill shows the moment you pay. Only games can be refunded.', '构建技能不可退款：付款后立即显示完整技能。只有游戏可以退款。')}</p>
                 <p className="dim fs-sm">{t('About {n} words. You keep access for good, and it updates with every release of the game.', '约 {n} 词。购买后永久可用，并随游戏每次发布更新。', { n: num(Math.round(s.characters / 6)) })}</p>
               </div>
             </Card>

@@ -1,6 +1,6 @@
 // Back office: every product parameter, every user, every game, sales, payments and withdrawals.
 import { Hono } from 'hono';
-import { bad, notFound, type Env, type User } from '../env';
+import { AppError, bad, notFound, type Env, type User } from '../env';
 import { requireAdmin } from '../auth';
 import { balanceOf, freeSkillShared, recordPurchase, refundPurchase } from '../earnings';
 import { getProject, getVersion, logEvent } from '../projects';
@@ -261,10 +261,13 @@ admin.post('/withdrawals/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// Refunds a game purchase. Build skills are non-refundable: the platform never starts a refund for one.
 admin.post('/purchases/:id/refund', async (c) => {
-  const x = await c.env.DB.prepare('SELECT * FROM purchases WHERE id = ?').bind(c.req.param('id')).first<{ id: string; status: string; provider: string; payment_intent: string | null }>()
-    ?? await c.env.DB.prepare('SELECT * FROM skill_purchases WHERE id = ?').bind(c.req.param('id')).first<{ id: string; status: string; provider: string; payment_intent: string | null }>();
-  if (!x) throw notFound();
+  const x = await c.env.DB.prepare('SELECT * FROM purchases WHERE id = ?').bind(c.req.param('id')).first<{ id: string; status: string; provider: string; payment_intent: string | null }>();
+  if (!x) {
+    if (await c.env.DB.prepare('SELECT 1 FROM skill_purchases WHERE id = ?').bind(c.req.param('id')).first()) throw new AppError(409, 'Build skills are non-refundable.', 'skill_non_refundable');
+    throw notFound();
+  }
   if (x.status !== 'paid') throw bad('Already refunded.');
   if (x.provider === 'stripe' && x.payment_intent) await stripe(c.env, 'POST', '/refunds', { payment_intent: x.payment_intent }, 'refund:' + x.id);
   await refundPurchase(c.env, { id: x.id });
