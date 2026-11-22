@@ -1785,5 +1785,8 @@
  "Allow creators to sell their game's build skill": "クリエイターがゲームのビルドスキルを販売できるようにする",
  "Lowest price a paid build skill can have": "有料ビルドスキルの最低価格",
  "Highest price a paid build skill can have": "有料ビルドスキルの最高価格",
- "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "ビルドスキルを共有するゲームは、エージェントがそのバージョンのスキルを書くまで新バージョンの公開を拒否する（すべてのスキルを公開中のゲームと一致させる）"
+ "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "ビルドスキルを共有するゲームは、エージェントがそのバージョンのスキルを書くまで新バージョンの公開を拒否する（すべてのスキルを公開中のゲームと一致させる）",
+ "Close to another game": "他のゲームに類似",
+ "likely a copy": "コピーの可能性",
+ "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "検証ブラウザで実行できなかったバージョン、または他のクリエイターのゲームに近いバージョン。公開前に担当者が確認します"
 }

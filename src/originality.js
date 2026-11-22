@@ -119,6 +119,104 @@ export function compare(a, b) {
   return { verdict, code: Math.round(code * 100), same_files: Math.round(sameFiles * 100), assets: Math.round(assets * 100), look_distance: dist, palette_overlap: Math.round(pal * 100), looks_alike: looksAlike };
 }
 
+// ---- listing and content: a game rebuilt from another's description (a build skill, a review, a video) shares no code,
+// files or look with it, but keeps its name, its tagline and the names of what is in it. Sharing mechanics, genre or style
+// is allowed (that is what build skills are for); taking the game's identity is not.
+
+/** A title or tagline reduced to letters and digits: case, accents, punctuation, spacing and a leading "the" do not count. */
+export const normText = (s) => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/^the /, '');
+const grams = (s) => { const t = ` ${s} `, g = new Map(); for (let i = 0; i + 3 <= t.length; i++) { const k = t.slice(i, i + 3); g.set(k, (g.get(k) || 0) + 1); } return g; };
+/** Character-trigram Dice similarity of two normalized strings, 0 to 1. */
+export function textSim(a, b) {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const A = grams(a), B = grams(b); let both = 0, n = 0;
+  for (const [k, c] of A) { n += c; both += Math.min(c, B.get(k) || 0); }
+  for (const c of B.values()) n += c;
+  return n ? (2 * both) / n : 0;
+}
+const jaccard = (a, b) => { const A = new Set(a), B = new Set(b); if (!A.size && !B.size) return 0; let n = 0; for (const x of A) if (B.has(x)) n++; return n / (A.size + B.size - n); };
+
+// Words that games show on buttons and menus, not names of what is in a particular game.
+const UI_WORDS = new Set('play start new game continue resume restart retry pause paused menu main options settings sound music volume back next ok cancel close quit exit yes no done loading score best high level stage wave round turn end victory defeat game over you win you lose try again select confirm save load delete reset help how to controls credits language full screen fullscreen on off easy normal hard tutorial skip shop store buy sell gold coins health hp energy mana xp attack defend block run map deck hand draw discard reward rewards rest boss elite enemy player hero heroes cards card records locked unlocked blocked enter escape space tab shift control alt meta backspace delete arrowup arrowdown arrowleft arrowright home page up page down insert'.split(' '));
+const NAME = /^[\p{Lu}][\p{Ll}'’-]+(?: (?:of|the|de|la|le|von|and|[\p{Lu}][\p{Ll}'’-]+)){0,3}$/u;
+/**
+ * Names of what is in a game (characters, cards, enemies, places, items): Title Case strings of one to four words in
+ * the game's own code. Menu and button words, and names in `baseline` (the templates' and kits'), are left out.
+ * Returns normalized names, sorted.
+ */
+export function contentNames(texts, baseline) {
+  const out = new Set();
+  const take = (v) => {
+    const s = String(v || '').trim();
+    if (s.length < 4 || s.length > 40 || !NAME.test(s)) return;
+    const n = normText(s);
+    if (n.length < 4 || n.split(' ').every((w) => UI_WORDS.has(w)) || (baseline && baseline.has(n))) return;
+    out.add(n);
+  };
+  for (const { path, text } of texts) {
+    for (const src of /\.html?$/i.test(path) ? inlineScripts(text) : [text]) {
+      try { for (const t of tokenizer(src, { ecmaVersion: 'latest', sourceType: 'module', allowHashBang: true, allowReturnOutsideFunction: true, allowImportExportEverywhere: true, allowAwaitOutsideFunction: true })) if (t.type.label === 'string' || t.type.label === 'template') take(t.value); }
+      catch { for (const m of src.matchAll(/(["'`])([^"'`\n\\]{4,40})\1/g)) take(m[2]); }
+    }
+  }
+  return [...out].sort().slice(0, 2000);
+}
+
+/** The build's traits (engine, rendering, graphics, input, audio, loop), for "built the same way". */
+export const traitsOf = (f) => !f ? [] : [`engine:${f.engine}`, ...(f.libraries || []).map((x) => 'lib:' + x), ...(f.rendering || []).map((x) => 'render:' + x), ...(f.graphics || []).map((x) => 'gfx:' + x), ...(f.input || []).map((x) => 'input:' + x), ...(f.audio || []).map((x) => 'audio:' + x), ...(f.loop_and_performance || []).map((x) => 'loop:' + x)];
+
+/**
+ * How much of game B's identity game A takes: its listing, the names in it and how it is built.
+ * @param {{ title: string, tagline?: string, tags?: string[], names?: string[], traits?: string[] }} a  the new game
+ * @param {{ title: string, tagline?: string, tags?: string[], names?: string[], traits?: string[] }} b  a live game by someone else
+ */
+export function kinship(a, b) {
+  const ta = normText(a.title), tb = normText(b.title), ga = normText(a.tagline), gb = normText(b.tagline);
+  const sameTitle = !!ta && ta === tb, titleSim = textSim(ta, tb);
+  const sameTagline = ga.length >= 20 && ga === gb, taglineSim = ga.length >= 20 ? textSim(ga, gb) : 0;
+  const tagsA = a.tags || [], tagsB = b.tags || [];
+  const sameGenre = !!tagsA[0] && tagsA[0] === tagsB[0], tags = jaccard(tagsA, tagsB);
+  const nb = new Set(b.names || []), shared = (a.names || []).filter((n) => nb.has(n));
+  const nameShare = (a.names || []).length ? shared.length / a.names.length : 0;
+  const traits = jaccard(a.traits || [], b.traits || []);
+  const why = [];
+  let verdict = 'different';
+  if (sameTitle) why.push(`the same title "${b.title}"`);
+  if (sameTagline) why.push('the same tagline');
+  if (shared.length >= 8 && nameShare >= 0.4) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')}…)`);
+  if (why.length) verdict = 'copy';
+  else if (titleSim >= 0.75 || taglineSim >= 0.8 || (shared.length >= 4 && nameShare >= 0.2) || (sameGenre && tags >= 0.5 && traits >= 0.7)) {
+    verdict = 'similar';
+    if (titleSim >= 0.75) why.push(`a title close to "${b.title}"`);
+    if (taglineSim >= 0.8) why.push('a tagline close to its tagline');
+    if (shared.length >= 4 && nameShare >= 0.2) why.push(`${shared.length} of the same names (${shared.slice(0, 5).join(', ')})`);
+    if (sameGenre && tags >= 0.5 && traits >= 0.7) why.push('the same genre and tags, built the same way');
+  }
+  return { verdict, why, same_title: sameTitle, title_sim: Math.round(titleSim * 100), same_tagline: sameTagline, tagline_sim: Math.round(taglineSim * 100), same_genre: sameGenre, tags_overlap: Math.round(tags * 100), shared_names: shared.length, names_share: Math.round(nameShare * 100), name_examples: shared.slice(0, 12), traits_overlap: Math.round(traits * 100) };
+}
+/** A title without its vowels and doubled letters, so "Void Echoes" and "Void Echos" or "Voyd Echoes" meet in the index. */
+export const titleSkeleton = (t) => normText(t).replace(/[aeiouy]/g, '').replace(/(.)\1+/g, '$1').replace(/\s+/g, '');
+export const ID_SKETCH = 48;                // name hashes per version kept in the identity index
+const TITLE_WEIGHT = 10;                    // a title or tagline hit counts as much as this many shared names
+/**
+ * Identity keys of a game for the hash index: its title, title skeleton and tagline (weight TITLE_WEIGHT each) and the
+ * ID_SKETCH smallest hashes of its names and the four bands of its screenshot hash (weight 1 each). Lookups by these keys find games with the same or a near name or the
+ * same named content without comparing against every live game.
+ * @returns {{ strong: number[], names: number[], look: number[] }}
+ */
+export function identityKeys({ title, tagline, names, look }) {
+  const strong = new Set(), t = normText(title), k = titleSkeleton(title), g = normText(tagline);
+  if (t) strong.add(fnv('t:' + t));
+  if (k.length >= 3) strong.add(fnv('k:' + k));
+  if (g.length >= 20) strong.add(fnv('g:' + g));
+  const nm = [...new Set((names || []).map((n) => fnv('n:' + n)))].sort((x, y) => x - y).slice(0, ID_SKETCH);
+  // the screenshot hash in four 16-bit bands: pictures that look alike share most bands (locality-sensitive hashing)
+  const bands = look && /^[0-9a-f]{16}$/.test(look.dhash || '') ? [0, 1, 2, 3].map((i) => fnv(`l${i}:` + look.dhash.slice(i * 4, i * 4 + 4))) : [];
+  return { strong: [...strong], names: nm, look: bands };
+}
+export const IDENTITY_TITLE_WEIGHT = TITLE_WEIGHT;
+
 const ENGINE_INPUT = /^(Unity|Godot|Construct|GameMaker|Defold|Cocos Creator|PlayCanvas|Phaser|Excalibur|KAPLAY \/ Kaboom|melonJS|LittleJS|Emscripten \/ WebAssembly)$/;
 /**
  * Is it a game? From the build facts (analyzeBundle), the verification report and index.html.
@@ -151,9 +249,9 @@ export const facts4ai = (f) => ({ engine: f.engine, libraries: f.libraries, plat
 export const JUDGE_QUESTIONS = {
   verdict: {
     type: 'choice',
-    instructions: 'You review web games before they are published on a marketplace. Is the new game a copy of the existing game by another creator? You get both listings, facts about how each is built (never code) and similarity measurements: code = share of the new game\'s own code fingerprints found in the other (after removing shared templates and libraries), same_files and assets = shares of identical files, look_distance = screenshot hash distance (0 identical, 10 or less looks alike).',
+    instructions: 'You review web games before they are published on a marketplace. Is the new game a copy of the existing game by another creator? You get both listings, facts about how each is built (never code) and similarity measurements: code = share of the new game\'s own code fingerprints found in the other (after removing shared templates and libraries), same_files and assets = shares of identical files, look_distance = screenshot hash distance (0 identical, 10 or less looks alike), title_sim and tagline_sim = how close the listings are (100 identical), shared_names and name_examples = names of characters, cards, enemies, places or items found in both games, traits_overlap = how alike the build facts are. Games may be rebuilt from a description of another game, so different code does not make them different games. Sharing mechanics, genre, structure or style is allowed: that is derivative. Taking the other game\'s identity (its name, its tagline, or its named characters, cards, enemies and places) is a copy, whatever the code.',
     criteria: {
-      copy: 'The same game with cosmetic changes (renamed, recoloured, re-titled).',
+      copy: 'The same game with cosmetic changes (renamed, recoloured, re-titled), or a rebuild that takes its name, listing or named content.',
       derivative: 'Clearly inspired, shares mechanics or style, but is its own work.',
       independent: 'Unrelated apart from genre.',
     },

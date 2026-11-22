@@ -203,14 +203,14 @@ function Reviews({ onChange }: { onChange: () => void }) {
     void act(key, async () => { await api(`/admin/reviews/${r.project_id}/${r.n}`, { body: { action: approve ? 'approve' : 'deny', note } }); await reload(); onChange(); }, approve ? t('Approved. The version is being published.', '已批准，该版本正在发布。') : t('Review denied.', '已拒绝审核。'));
   };
   const waiting = data.reviews.filter((r: any) => r.review === 'pending').length;
-  const why = (w: string) => (w === 'webgpu' ? t('Needs WebGPU', '需要 WebGPU') : w === 'no_browser' ? t('Browser unavailable', '浏览器不可用') : t('Other', '其他'));
+  const why = (w: string) => (w === 'copy_check' ? t('Close to another game', '与其他游戏相似') : w === 'webgpu' ? t('Needs WebGPU', '需要 WebGPU') : w === 'no_browser' ? t('Browser unavailable', '浏览器不可用') : t('Other', '其他'));
   return (
-    <Card title={t('Version reviews', '版本审核')} aside={t('versions the verification browser could not run, checked by a person before they go live', '验证浏览器无法运行的版本，上线前需人工检查')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
+    <Card title={t('Version reviews', '版本审核')} aside={t('versions the verification browser could not run, or that are close to another creator\'s game, checked by a person before they go live', '验证浏览器无法运行或与其他创作者游戏相似的版本，上线前需人工检查')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
       <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Version', '版本')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
         <tbody>{data.reviews.map((r: any) => { const key = `${r.project_id}:${r.n}`; return <tr key={key}>
           <td><b>{r.title}</b> <a className="fs-sm" href={`/console/p/${r.project_id}`} target="_blank" rel="noreferrer">{t('Open project', '打开项目')}</a><div className="mute fs-sm">{r.author} · {r.author_email}</div><div className="dim fs-xs">{ago(r.created_at)}</div></td>
           <td className="n">{r.n}</td>
-          <td className="fs-sm">{why(r.why)}{r.review_note && <div className="mute">{t('Answer', '答复')}: {r.review_note}</div>}</td>
+          <td className="fs-sm">{why(r.why)}{r.matched && <div className="mute"><a href={`/g/${r.matched.slug}`} target="_blank" rel="noreferrer">{r.matched.title}</a>: {r.matched.why}{r.matched.judge_p != null && ` (${Math.round(r.matched.judge_p * 100)}% ${t('likely a copy', '可能是复制')})`}</div>}{r.review_note && <div className="mute">{t('Answer', '答复')}: {r.review_note}</div>}</td>
           <td><StatusBadge status={r.review} /></td>
           <td>{r.review === 'pending' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === key} onClick={() => decide(r, true)}>{t('Approve', '批准')}</Button><Button size="sm" variant="danger" disabled={busy === key} onClick={() => decide(r, false)}>{t('Deny', '拒绝')}</Button></div>}</td>
         </tr>; })}</tbody></Table>

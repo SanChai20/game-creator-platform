@@ -1784,5 +1784,8 @@
  "Allow creators to sell their game's build skill": "Permitir que los creadores vendan la habilidad de su juego",
  "Lowest price a paid build skill can have": "Precio mínimo de una habilidad de pago",
  "Highest price a paid build skill can have": "Precio máximo de una habilidad de pago",
- "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "Rechazar la publicación de una nueva versión de un juego que comparte su habilidad hasta que su agente haya escrito la habilidad para esa versión (mantiene cada habilidad al día con el juego publicado)"
+ "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "Rechazar la publicación de una nueva versión de un juego que comparte su habilidad hasta que su agente haya escrito la habilidad para esa versión (mantiene cada habilidad al día con el juego publicado)",
+ "Close to another game": "Parecido a otro juego",
+ "likely a copy": "probablemente una copia",
+ "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "versiones que el navegador de verificación no pudo ejecutar o que se parecen al juego de otro creador, revisadas por una persona antes de publicarse"
 }

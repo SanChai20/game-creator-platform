@@ -10,6 +10,7 @@ src/generated/
 *.log
 smoke-state.json
 web/public/kits/baseline.bin
+web/public/kits/baseline-names.json
 mcp-live-state.json
 wrangler.loadtest.jsonc
 scripts/load/tokens.json
