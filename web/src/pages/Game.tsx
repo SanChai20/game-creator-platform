@@ -8,6 +8,7 @@ import { MoreFrom, MoreLike, SectionHead } from '../store';
 import { CompatGate, CompatPill, CompatSection, useCompat } from '../compat-ui';
 import { Stage, type StageCtl } from '../player';
 import { encodeJoin, onLaunch, setActivity } from '../social';
+import { InstallTip } from '../install-tip';
 import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
 import type { Lang } from '../lib';
 import { legalTitle } from './Legal';
@@ -245,6 +246,7 @@ export function Game({ slug }: { slug: string }) {
                 : <><PlayButton onClick={() => { wantCont.current = true; play(); }} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : cont ? t('Continue', '继续游戏') : t('Play', '开始游戏')}</PlayButton>{cont && <span className="mute fs-sm stage-resume">{resumeLine(cont)}</span>}{!user && <span className="mute fs-sm">{guestOk ? t('Playing as a guest. Sign in to keep your progress on every device.', '正在以访客身份游玩。登录后进度可在所有设备上保留。') : t('Sign in to play. It takes a few seconds.', '登录后即可游玩，只需几秒。')}</span>}</>}
             </div>
           </Stage>
+          <InstallTip hidden={!!url || busy === 'play'} />
           <aside className="gp-cap">
             {live ? (
               <div className="gp-buy">

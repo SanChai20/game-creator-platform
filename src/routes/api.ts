@@ -696,6 +696,8 @@ api.get('/media/*', async (c) => {
 
 // ----- purchases + billing ---------------------------------------------------------------------
 async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false) {
+  // A build skill is final once bought: it shows in full the moment the payment succeeds and is never refunded.
+  const skill = metadata.kind === 'skill';
   const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
   const session = await stripe<{ id: string; url: string }>(c.env, 'POST', '/checkout/sessions', {
     // HearthCade is the seller of record and pays creators through Connect, which Stripe's Managed Payments (Stripe as
@@ -705,10 +707,12 @@ async function checkout(c: Ctx, u: User, name: string, amount: number, metadata:
     line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name, description: `Sold by ${OPERATOR.name} on ${brand}` } } } },
     // The seller of record, next to the Pay button, with the terms the purchase falls under.
     custom_text: {
-      submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase. Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` },
+      submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase.${skill ? ' Build skills are non-refundable.' : ''} Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` },
       // A game is digital content delivered at once. EU and UK law gives buyers 14 days to cancel unless they ask for it
       // right away and accept losing that right, so the buyer ticks this before paying; Stripe records the consent.
-      ...(digitalGoods ? { terms_of_service_acceptance: { message: `I agree to the [Terms](${origin}/legal/terms) and want access to this game right away. I understand that I then lose my right to cancel within 14 days; ${brand}'s own [refund policy](${origin}/legal/refunds) still applies.` } } : {}),
+      ...(digitalGoods ? { terms_of_service_acceptance: { message: skill
+        ? `I agree to the [Terms](${origin}/legal/terms) and want this build skill shown to me right away. I understand that I then lose my right to cancel within 14 days, and that build skills are non-refundable ([refund policy](${origin}/legal/refunds)).`
+        : `I agree to the [Terms](${origin}/legal/terms) and want access to this game right away. I understand that I then lose my right to cancel within 14 days; ${brand}'s own [refund policy](${origin}/legal/refunds) still applies.` } } : {}),
     },
     ...(digitalGoods ? { consent_collection: { terms_of_service: 'required' } } : {}),
     success_url: `${origin}${back}${back.includes('?') ? '&' : '?'}paid={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}${back}`,
