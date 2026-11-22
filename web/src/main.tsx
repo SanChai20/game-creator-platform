@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { StrictMode, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TOKENS_CSS } from './ui/tokens';
 import './ui/ui.css';
@@ -68,27 +68,107 @@ function ThemeSwitch({ label }: { label?: boolean }) {
   return <button type="button" className={label ? 'tool-btn' : 'icon-btn'} onClick={() => setTheme(next)} aria-label={t('Switch theme', '切换主题')} title={t('Switch theme', '切换主题')}><Icon kind={cur === 'night' ? 'moon' : 'sun'} />{label && <span>{t('Theme', '主题')}: {name}</span>}</button>;
 }
 
+/** How the top bar fits its width: how many places stay in the row (the rest go under More), and whether the search
+ *  box folds to a button that opens it across the bar. It folds the search first, then moves places from the end.
+ *  Measured from a hidden copy of the row, so a language with longer words folds sooner and nothing ever runs off. */
+const SEARCH_MIN = 180, SEARCH_MIN_PHONE = 150;
+function useNavFit(count: number, deps: unknown[]) {
+  const row = useRef<HTMLDivElement>(null), measure = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState({ shown: count, compact: false });
+  useLayoutEffect(() => {
+    const el = row.current, m = measure.current; if (!el || !m) return;
+    const calc = () => {
+      const cs = getComputedStyle(el), gap = parseFloat(cs.columnGap) || 0;
+      const width = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const brandW = (el.querySelector('.brand') as HTMLElement | null)?.offsetWidth || 0, toolsW = (el.querySelector('.nav-tools') as HTMLElement | null)?.offsetWidth || 0;
+      let next: { shown: number; compact: boolean };
+      if (matchMedia('(max-width: 900px)').matches) {   // phones: the places are in the tab bar, only the search has to fit
+        next = { shown: count, compact: width - brandW - toolsW - 2 * gap - 4 < SEARCH_MIN_PHONE };
+      } else {
+        const items = [...m.children] as HTMLElement[], more = items.pop()!, inner = parseFloat(getComputedStyle(m).columnGap) || 0;
+        const ws = items.map((x) => x.getBoundingClientRect().width), lead = parseFloat(getComputedStyle(m).marginLeft) || 0;
+        const links = (n: number) => ws.slice(0, n).reduce((a, b) => a + b, 0) + inner * Math.max(0, n - 1) + (n < count ? (n ? inner : 0) + more.getBoundingClientRect().width : 0);
+        const base = brandW + toolsW + 3 * gap + lead;
+        if (base + links(count) + SEARCH_MIN <= width) next = { shown: count, compact: false };
+        else { let n = count; while (n > 0 && base + links(n) + 40 > width) n--; next = { shown: n, compact: true }; }
+      }
+      setFit((f) => (f.shown === next.shown && f.compact === next.compact ? f : next));
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(el); ro.observe(m); el.querySelectorAll('.brand, .nav-tools').forEach((x) => ro.observe(x));
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [count, ...deps]);
+  return { row, measure, ...fit };
+}
+
 function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogout: () => void }) {
-  const loc = useLocation(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { setOpen(false); }, [loc]);
-  useEffect(() => { const f = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); }; addEventListener('mousedown', f); return () => removeEventListener('mousedown', f); }, []);
+  const loc = useLocation(), lang = useLang(), [open, setOpen] = useState(false), ref = useRef<HTMLDivElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false), moreRef = useRef<HTMLDivElement>(null);
+  const [searchOpen, setSearchOpen] = useState(false), searchRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { setOpen(false); setMoreOpen(false); setSearchOpen(false); }, [loc]);
+  useEffect(() => {
+    const f = (e: MouseEvent) => {
+      const n = e.target as Node;
+      if (!ref.current?.contains(n)) setOpen(false);
+      if (!moreRef.current?.contains(n)) setMoreOpen(false);
+      if (!searchRef.current?.contains(n)) setSearchOpen(false);
+    };
+    addEventListener('mousedown', f); return () => removeEventListener('mousedown', f);
+  }, []);
   const path = loc.split('?')[0], onAuth = path === '/login' || path === '/signup', keep = onAuth && loc.includes('?') ? loc.slice(loc.indexOf('?')) : '';   // someone sent here to approve an agent keeps their place
-  const on = (p: string) => 'nl' + (path.startsWith(p) ? ' on' : '');
+  const places: { to: string; label: string; on: boolean }[] = [
+    { to: '/', label: t('Store', '商店'), on: isStore(path) },
+    ...(user ? [{ to: '/library', label: t('Library', '游戏库'), on: path.startsWith('/library') }] : []),
+    { to: '/create', label: t('For creators', '创作者'), on: path === '/create' },
+    { to: '/creator-store', label: t('Creator Store', '创作者商店'), on: path.startsWith('/creator-store') },
+    { to: '/docs', label: t('Docs', '文档'), on: path.startsWith('/docs') },
+    ...(user?.makes_games ? [{ to: '/console', label: t('Console', '控制台'), on: path.startsWith('/console') }] : []),
+    ...(user?.role === 'admin' ? [{ to: '/admin', label: t('Admin', '管理'), on: path.startsWith('/admin') }] : []),
+  ];
+  const fit = useNavFit(places.length, [lang, user?.id]);
+  const inRow = places.slice(0, fit.shown), folded = places.slice(fit.shown);
+  const compact = fit.compact, showSearch = !compact || searchOpen;
+  // the "/" key still finds the search when it is folded to a button
+  useEffect(() => {
+    if (!compact || searchOpen) return;
+    const f = (e: globalThis.KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)))) return;
+      e.preventDefault(); setSearchOpen(true);
+    };
+    addEventListener('keydown', f); return () => removeEventListener('keydown', f);
+  }, [compact, searchOpen]);
+  useEffect(() => { if (!compact) setSearchOpen(false); }, [compact]);
   return (
     <>
       <header className="nav">
-        <div className="wrap nav-in">
+        <div className="wrap nav-in" ref={fit.row}>
           <Link to="/" className="brand" aria-label={brand}><i className="logo" aria-hidden="true" /><span>{brand}</span></Link>
           <nav className="nav-links" aria-label={t('Main', '主导航')}>
-            <Link to="/" className={'nl' + (isStore(path) ? ' on' : '')}>{t('Store', '商店')}</Link>
-            {user && <Link to="/library" className={on('/library')}>{t('Library', '游戏库')}</Link>}
-            <Link to="/create" className={'nl' + (path === '/create' ? ' on' : '')}>{t('For creators', '创作者')}</Link>
-            <Link to="/creator-store" className={on('/creator-store')}>{t('Creator Store', '创作者商店')}</Link>
-            <Link to="/docs" className={on('/docs')}>{t('Docs', '文档')}</Link>
-            {user?.makes_games && <Link to="/console" className={on('/console')}>{t('Console', '控制台')}</Link>}
-            {user?.role === 'admin' && <Link to="/admin" className={on('/admin')}>{t('Admin', '管理')}</Link>}
+            {inRow.map((p) => <Link key={p.to} to={p.to} className={'nl' + (p.on ? ' on' : '')}>{p.label}</Link>)}
+            {folded.length > 0 && (
+              <div className="menu nav-more" ref={moreRef}>
+                <button type="button" className={'nl' + (folded.some((p) => p.on) ? ' on' : '')} onClick={() => setMoreOpen(!moreOpen)} aria-haspopup="menu" aria-expanded={moreOpen}>{t('More', '更多')}<i className="caret" aria-hidden="true" /></button>
+                {moreOpen && <div className="pop" role="menu">{folded.map((p) => <Link key={p.to} to={p.to} className={p.on ? 'on' : ''}>{p.label}</Link>)}</div>}
+              </div>
+            )}
           </nav>
-          <div className="nav-search"><SearchBox hotkey /></div>
+          {/* a hidden copy of the places at full size: what the row is fitted from */}
+          <div className="nav-measure" ref={fit.measure} aria-hidden="true">
+            {places.map((p) => <span key={p.to} className="nl">{p.label}</span>)}
+            <span className="nl">{t('More', '更多')}<i className="caret" /></span>
+          </div>
+          <div className={'nav-search' + (compact ? ' tight' : '') + (searchOpen ? ' open' : '')} ref={searchRef}
+            onKeyDown={(e) => { if (e.key === 'Escape' && searchOpen) setSearchOpen(false); }}>
+            {showSearch ? <SearchBox hotkey autoFocus={searchOpen} /> : (
+              <button type="button" className="icon-btn" onClick={() => setSearchOpen(true)} aria-label={t('Search games', '搜索游戏')} title={t('Search games', '搜索游戏')}>
+                <svg className="ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="M13 13l4.5 4.5" /></svg>
+              </button>
+            )}
+            {searchOpen && <button type="button" className="icon-btn nav-search-x" onClick={() => setSearchOpen(false)} aria-label={t('Close', '关闭')}>×</button>}
+          </div>
           <div className="nav-tools">
             {user && <FriendsButton />}
             <ThemeSwitch />
