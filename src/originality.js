@@ -198,11 +198,11 @@ export function kinship(a, b) {
 }
 /** A title without its vowels and doubled letters, so "Void Echoes" and "Void Echos" or "Voyd Echoes" meet in the index. */
 export const titleSkeleton = (t) => normText(t).replace(/[aeiouy]/g, '').replace(/(.)\1+/g, '$1').replace(/\s+/g, '');
-export const ID_SKETCH = 48;                // name hashes per version kept in the identity index
+export const ID_NAMES = 600;                // name hashes per game kept in the identity index (the smallest, consistently)
 const TITLE_WEIGHT = 10;                    // a title or tagline hit counts as much as this many shared names
 /**
  * Identity keys of a game for the hash index: its title, title skeleton and tagline (weight TITLE_WEIGHT each) and the
- * ID_SKETCH smallest hashes of its names and the four bands of its screenshot hash (weight 1 each). Lookups by these keys find games with the same or a near name or the
+ * ID_NAMES smallest hashes of its names and the four bands of its screenshot hash (weight 1 each). Lookups by these keys find games with the same or a near name or the
  * same named content without comparing against every live game.
  * @returns {{ strong: number[], names: number[], look: number[] }}
  */
@@ -211,7 +211,7 @@ export function identityKeys({ title, tagline, names, look }) {
   if (t) strong.add(fnv('t:' + t));
   if (k.length >= 3) strong.add(fnv('k:' + k));
   if (g.length >= 20) strong.add(fnv('g:' + g));
-  const nm = [...new Set((names || []).map((n) => fnv('n:' + n)))].sort((x, y) => x - y).slice(0, ID_SKETCH);
+  const nm = [...new Set((names || []).map((n) => fnv('n:' + n)))].sort((x, y) => x - y).slice(0, ID_NAMES);
   // the screenshot hash in four 16-bit bands: pictures that look alike share most bands (locality-sensitive hashing)
   const bands = look && /^[0-9a-f]{16}$/.test(look.dhash || '') ? [0, 1, 2, 3].map((i) => fnv(`l${i}:` + look.dhash.slice(i * 4, i * 4 + 4))) : [];
   return { strong: [...strong], names: nm, look: bands };

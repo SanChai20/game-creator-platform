@@ -77,17 +77,19 @@ export async function printVersion(env: Env, p: Project, v: Version): Promise<Bu
   for (const k of (parseJson<{ frames?: string[] }>(v.report, {}).frames || []).slice(0, 8)) { const o = await env.FILES.get(k); if (o) frames.push(new Uint8Array(await o.arrayBuffer())); }
   const facts = analyzeBundle(texts, parseJson(v.report, {}));
   const names = contentNames(own, await baseNamesOf(env));
-  await indexIdentity(env, p, v.n, names, look);
   return { prints, files, assets, look, facts, names, traits: traitsOf(facts), html: texts.find((t) => t.path === 'index.html')?.text || '', texts: readable, shot, frames };
 }
 
-/** Writes a version's identity keys (its project's title and tagline as they are now, and its names) to the hash index. */
+/**
+ * Writes the identity keys of the version going live (its project's title and tagline as they are now, its names and its
+ * look) to the hash index, replacing the game's earlier ones: only live versions are ever looked up, so the index holds one
+ * version per game and its lists stay as short as the catalogue allows.
+ */
 export async function indexIdentity(env: Env, p: Pick<Project, 'id' | 'title' | 'tagline'>, n: number, names: string[], look: Print['look'] = null) {
-  const k = identityKeys({ title: p.title, tagline: p.tagline, names, look });
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM id_index WHERE project_id = ? AND version = ?').bind(p.id, n),
-    ...[...new Set([...k.strong, ...k.names, ...k.look])].map((h) => env.DB.prepare('INSERT OR IGNORE INTO id_index (h, project_id, version) VALUES (?, ?, ?)').bind(h, p.id, n)),
-  ]).catch((e) => console.error('identity index failed', p.id, n, String(e)));
+  const k = identityKeys({ title: p.title, tagline: p.tagline, names, look }), hs = [...new Set([...k.strong, ...k.names, ...k.look])];
+  const rows: D1PreparedStatement[] = [];
+  for (let i = 0; i < hs.length; i += 30) { const part = hs.slice(i, i + 30); rows.push(env.DB.prepare(`INSERT OR IGNORE INTO id_index (h, project_id, version) VALUES ${part.map(() => '(?, ?, ?)').join(', ')}`).bind(...part.flatMap((h) => [h, p.id, n]))); }
+  await env.DB.batch([env.DB.prepare('DELETE FROM id_index WHERE project_id = ?').bind(p.id), ...rows]).catch((e) => console.error('identity index failed', p.id, n, String(e)));
 }
 
 /** Indexes the live versions of up to `max` live games that have no identity keys yet (run by the scheduled job, not by a publish). */
@@ -134,8 +136,19 @@ export async function matchesFor(env: Env, p: Project, v: Version, me: Print & P
   const mine = { title: p.title, tagline: p.tagline, tags: parseJson<string[]>(p.tags, []) };
   const idk = identityKeys({ ...mine, names: me.names || [], look: me.look }), all = [...new Set([...idk.strong, ...idk.names, ...idk.look])];
   if (all.length) {
-    const rows = (await env.DB.prepare(`SELECT i.project_id, i.version, SUM(CASE WHEN i.h IN (${idk.strong.map(() => '?').join(',') || 'NULL'}) THEN ${IDENTITY_TITLE_WEIGHT} ELSE 1 END) AS score FROM id_index i CROSS JOIN projects p ON p.id = i.project_id AND p.live_version = i.version AND p.status = 'live' AND p.owner_id != ? AND p.created_at < ? WHERE i.h IN (${all.map(() => '?').join(',')}) GROUP BY i.project_id, i.version HAVING score >= 3 ORDER BY score DESC LIMIT 3`).bind(...idk.strong, p.owner_id, p.created_at, ...all).all<{ project_id: string; version: number; score: number }>().catch(() => ({ results: [] as { project_id: string; version: number; score: number }[] }))).results;
-    for (const r of rows) if (!ids.has(r.project_id)) ids.set(r.project_id, r.version);
+    // D1 binds at most 100 values per query: the keys go in chunks, each reading a bounded number of index rows (a name
+    // that thousands of games use is cut off rather than read in full; rare names are the ones that tell), then scored here
+    const strong = new Set(idk.strong), score = new Map<string, number>(), at = new Map<string, number>();
+    for (let i = 0; i < Math.min(all.length, 360); i += 90) {
+      const part = all.slice(i, i + 90);
+      const rows = (await env.DB.prepare(`SELECT h, project_id, version FROM id_index WHERE h IN (${part.map(() => '?').join(',')}) LIMIT 4000`).bind(...part).all<{ h: number; project_id: string; version: number }>().catch(() => ({ results: [] as { h: number; project_id: string; version: number }[] }))).results;
+      for (const r of rows) { if (r.project_id === p.id) continue; score.set(r.project_id, (score.get(r.project_id) || 0) + (strong.has(r.h) ? IDENTITY_TITLE_WEIGHT : 1)); at.set(r.project_id, r.version); }
+    }
+    const top = [...score].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([id]) => id);
+    if (top.length) {
+      const ok = (await env.DB.prepare(`SELECT id, live_version FROM projects WHERE id IN (${top.map(() => '?').join(',')}) AND status = 'live' AND owner_id != ? AND created_at < ?`).bind(...top, p.owner_id, p.created_at).all<{ id: string; live_version: number }>()).results;
+      ok.filter((r) => r.live_version === at.get(r.id)).sort((a, b) => (score.get(b.id) || 0) - (score.get(a.id) || 0)).slice(0, 3).forEach((r) => { if (!ids.has(r.id)) ids.set(r.id, r.live_version); });
+    }
   }
   const out = [];
   for (const [pid, n] of [...ids].slice(0, 8)) {
@@ -303,8 +316,8 @@ export async function publishGate(env: Env, p: Project, v: Version): Promise<str
   if (!s.dup_check || !s.dup_block) return null;
   const row = await env.DB.prepare('SELECT * FROM fingerprints WHERE project_id = ? AND version = ? AND algo = ?').bind(p.id, v.n, PRINTS_VERSION).first<any>();
   const me: Print & Partial<Identity> = row ? { ...rowPrint(row), ...(await identityOf(env, p.id, v.n, v.files, v.report).catch(() => ({ names: [], traits: [] }))) } : await printVersion(env, p, v);
-  // the version going live is indexed under the title and tagline it goes live with
-  if (row) await indexIdentity(env, p, v.n, me.names || [], me.look);
   const top = (await matchesFor(env, p, v, me))[0];
+  // the version going live is indexed under the title and tagline it goes live with (a refused one is not)
+  if (!(top && top.verdict === 'copy')) await indexIdentity(env, p, v.n, me.names || [], me.look);
   return top && top.verdict === 'copy' ? `Version ${v.n} matches "${top.title}" (/g/${top.slug}) by another creator: ${matchedText(top)}.${namesText(top)} Publishing copies of other creators' games is not allowed: give it its own title, tagline and names, and your own code and look.` : null;
 }

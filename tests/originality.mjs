@@ -143,7 +143,7 @@ test('identity keys meet for the same or a near title, the same tagline and shar
   assert.ok(a.names.filter((h) => b.names.includes(h)).length >= 8, 'name sketches meet');
   const c = identityKeys({ title: 'Star Miner', tagline: 'Dig through asteroids for ore and glory.', names: contentNames(SRC(['Ore Golem', 'Drill Bot'])) });
   assert.equal(a.strong.filter((h) => c.strong.includes(h)).length + a.names.filter((h) => c.names.includes(h)).length, 0);
-  assert.ok(identityKeys({ title: 'X', names: contentNames(SRC(Array.from({ length: 200 }, (_, i) => 'Card Number ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i % 26] + 'abcdefghij'[i % 10] + 'x'.repeat(1 + (i % 7))))) }).names.length <= 48);
+  assert.ok(identityKeys({ title: 'X', names: contentNames(SRC(Array.from({ length: 200 }, (_, i) => 'Card Number ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i % 26] + 'abcdefghij'[i % 10] + 'x'.repeat(1 + (i % 7))))) }).names.length <= 600);
 });
 
 test('pictures that look alike share screenshot bands in the identity index', () => {
