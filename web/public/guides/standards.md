@@ -30,6 +30,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 | [Window size and orientation](#window-orientation) | While the game plays | game_standards check |
 | [Interface scale and the player's UI size](#interface-scale) | While the game plays | platform |
 | [Quality settings](#quality) | While the game plays | by looking |
+| [Sound on every screen](#sound) | While the game plays | game_standards check |
 | [Capture and state hooks](#capture-hooks) | While the game plays | platform |
 | [Bot hook for online games](#bot-hook) | While the game plays | platform |
 | [Friends picker and pop-ups](#friends-ui) | While the game plays | by looking |
@@ -395,6 +396,27 @@ More: [services.md#interface-scale-and-the-players-ui-size](/guides/services.md#
 **Checked:** Not checked.
 
 More: [performance.md#quality-levels](/guides/performance.md#quality-levels)
+
+<a id="sound"></a>
+
+### Sound on every screen
+
+**Where:** The whole game: the title, menus, lobby and matchmaking, play, and the results screen.
+
+- Music or ambience plays from the first screen the player sees, through every menu, lobby and results screen, not only during play. Menu music sits within about 10 dB of play (half as loud at most), so the title never seems silent next to combat.
+- Make the AudioContext (or start the sound library) while the game boots, not inside a gesture. The player started the game with a click on the platform page and the game frame has autoplay, so where the browser allows it the title music plays at once.
+- Where the browser still holds sound back (Safari, iPhone, iPad, and any browser before a gesture), resume on the first gesture with window listeners in the capture phase, added before the interface adds its own: pointerdown, pointerup, click and keydown. iPhone and iPad do not count pointerdown from a finger, and canvas interfaces stop presses on their buttons, so a bubble listener never hears a tap on a menu button. The runtime also resumes every context the game made on each pointerup, touchend, click, mousedown and keydown (fix "audio-unlock"), so a context made at boot always wakes on the first tap. Leave touchend listeners to the runtime: a "touchend" in the game's code tells the platform the game has touch controls of its own, which hides the on-screen controls.
+- Play nothing while the context is not running (no effects queued up to burst out on the first tap), and resume after an iPhone interruption ("interrupted": a call, the lock screen) on the next gesture.
+- The platform suspends every context while its menu or a card is over the game, and while the tab is hidden, then starts exactly those again (fix "pause-audio"). A game's own pause menu suspends its own sound, and a gesture on that menu must not resume it.
+- Give the player music and effects volumes in the game's settings and remember them. No sound shipped only as Ogg: older iPhones cannot play it (deploy_preview warns).
+
+**Do:** Give the title, menus and results their own calm music, and return to it when play ends. Check every screen with the sound on, starting from a fresh load with no key pressed.
+
+**Don't:** Start sound only from a press on the game world or from the first key. Create the AudioContext only when play starts, or only inside a gesture listener that the interface can stop. Leave the play music (drums, battle pulse) running on the menus and results.
+
+**Checked:** game_standards check and deploy_preview warn when the game starts its sound from a window gesture listener in the bubble phase (an interface that stops presses keeps it from ever running), and note a game with no sound at all. The verification browser counts the sound contexts made and the sounds played.
+
+More: [standards.md#sound](/guides/standards.md#sound)
 
 <a id="capture-hooks"></a>
 

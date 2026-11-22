@@ -246,6 +246,22 @@ export const STANDARDS = [
     enforced: 'Not checked.', checks: [], guide: '/guides/performance.md#quality-levels',
   },
   {
+    id: 'sound', area: 'game', title: 'Sound on every screen',
+    where: 'The whole game: the title, menus, lobby and matchmaking, play, and the results screen.',
+    spec: [
+      'Music or ambience plays from the first screen the player sees, through every menu, lobby and results screen, not only during play. Menu music sits within about 10 dB of play (half as loud at most), so the title never seems silent next to combat.',
+      'Make the AudioContext (or start the sound library) while the game boots, not inside a gesture. The player started the game with a click on the platform page and the game frame has autoplay, so where the browser allows it the title music plays at once.',
+      'Where the browser still holds sound back (Safari, iPhone, iPad, and any browser before a gesture), resume on the first gesture with window listeners in the capture phase, added before the interface adds its own: pointerdown, pointerup, click and keydown. iPhone and iPad do not count pointerdown from a finger, and canvas interfaces stop presses on their buttons, so a bubble listener never hears a tap on a menu button. The runtime also resumes every context the game made on each pointerup, touchend, click, mousedown and keydown (fix "audio-unlock"), so a context made at boot always wakes on the first tap. Leave touchend listeners to the runtime: a "touchend" in the game\'s code tells the platform the game has touch controls of its own, which hides the on-screen controls.',
+      'Play nothing while the context is not running (no effects queued up to burst out on the first tap), and resume after an iPhone interruption ("interrupted": a call, the lock screen) on the next gesture.',
+      'The platform suspends every context while its menu or a card is over the game, and while the tab is hidden, then starts exactly those again (fix "pause-audio"). A game\'s own pause menu suspends its own sound, and a gesture on that menu must not resume it.',
+      'Give the player music and effects volumes in the game\'s settings and remember them. No sound shipped only as Ogg: older iPhones cannot play it (deploy_preview warns).',
+    ],
+    do: ['Give the title, menus and results their own calm music, and return to it when play ends.', 'Check every screen with the sound on, starting from a fresh load with no key pressed.'],
+    dont: ['Start sound only from a press on the game world or from the first key.', 'Create the AudioContext only when play starts, or only inside a gesture listener that the interface can stop.', 'Leave the play music (drums, battle pulse) running on the menus and results.'],
+    enforced: 'game_standards check and deploy_preview warn when the game starts its sound from a window gesture listener in the bubble phase (an interface that stops presses keeps it from ever running), and note a game with no sound at all. The verification browser counts the sound contexts made and the sounds played.',
+    checks: ['sound-unlock-bubble', 'sound-missing'], guide: '/guides/standards.md#sound',
+  },
+  {
     id: 'capture-hooks', area: 'game', title: 'Capture and state hooks',
     where: 'The creator\'s feedback screenshots and debug_preview.',
     spec: ['Draw everything in canvases (text fields aside) and register GCP.test.onCapture(() => canvas or [canvases]) and GCP.test.onState(() => where the game is).'],
@@ -354,6 +370,15 @@ export function checkStandards(input = {}) {
     if (phones && !/GCP\.display\.safe|display\.safe|--gcp-safe|ui\.rect\s*\(|ui\.safe|edgeToEdge\s*:\s*false|createUi\s*\(|createInput\s*\(/.test(code)) add('safe-area', 'warning', 'The game lists phones or tablets but never reads the safe-area insets; in fullscreen its HUD can sit under the notch or the home bar.', "Keep HUD and buttons inside GCP.display.safe (or --gcp-safe-* in CSS, or GCP.ui.rect), or call GCP.setDisplay({ edgeToEdge: false }).", { check: 'safe-area' });
     if (phones && !req.orientation && !/orientation\s*:\s*['"](landscape|portrait|any)/.test(code)) add('window-orientation', 'warning', 'The game lists phones or tablets but declares no orientation.', 'Declare requirements.orientation ("landscape", "portrait" or "any") with compatibility declare, or call GCP.setDisplay({ orientation }).', { check: 'orientation' });
     if (!/GCP\.progress\s*\(|\.progress\s*\(\s*[\d.]/.test(code)) add('splash-loading', 'note', 'The game never calls GCP.progress(), so the platform splash waits 1.2 s before handing over to the game.', 'Call GCP.progress(f, label) while loading (at least twice) and draw the loading screen in its final look before the second call.', { check: 'no-progress' });
+    // sound: the unlock must hear a tap on a menu button, which a canvas interface stops at the window in the capture phase
+    const hasSound = /\b(webkit)?AudioContext\b|new\s+Audio\s*\(|\bHowl\b|\bTone\.|createSound\s*\(|\.(mp3|ogg|m4a|wav|opus)['"`]/.test(code);
+    if (/\b(webkit)?AudioContext\b/.test(code)) {
+      const re = /addEventListener\(\s*['"](pointerdown|mousedown|touchstart|pointerup|touchend|click|keydown)['"]\s*,\s*([A-Za-z_$][\w$.]*)\s*(\)|,\s*(\{[^}]*\}|true|false))/g;
+      let m, bubble = null;
+      while ((m = re.exec(code))) { const opt = m[4] || ''; if (/unlock|wake|resume|audio|sound|music/i.test(m[2]) && !/capture\s*:\s*true|^true$/.test(opt.trim())) { bubble = m; break; } }
+      if (bubble) add('sound', 'warning', `The sound starts from a window ${bubble[1]} listener in the bubble phase (addEventListener('${bubble[1]}', ${bubble[2]})). Canvas interfaces stop presses on their buttons before they bubble, so taps on the menus never start the sound: the game stays silent until a key or a press on the game world.`, 'Make the AudioContext at boot, and resume it from window listeners added with { capture: true } before the interface adds its own, for pointerdown, pointerup, click and keydown.', { check: 'sound-unlock-bubble' });
+    }
+    if (!hasSound) add('sound', 'note', 'The game has no sound: no AudioContext, audio element or sound files were found.', 'Add music for the title, menus and results and effects for play; WebAudio needs no files.', { check: 'sound-missing' });
     const brand = String(input.brand || 'HearthCade');
     if (brand && new RegExp(`['"\`][^'"\`\\n]*\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(code)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
     if (/achievement/i.test(code) && !/playerStats/.test(code)) add('no-achievements', 'note', 'The game has achievements but keeps them only on the device.', 'Keep them with GCP.playerStats so they follow the player and show on the game page.', { check: 'achievements' });
