@@ -61,7 +61,7 @@ test('ratings: the winner gains what the loser loses; an upset moves more; a big
 });
 
 test('match requests are checked', () => {
-  assert.deepEqual(matchRequest({}, 16), { ok: true, queue: 'default', size: 2, min: 2, teams: 1, code: null, mode: '' });
+  assert.deepEqual(matchRequest({}, 16), { ok: true, queue: 'default', size: 2, min: 2, teams: 1, code: null, mode: '', wait: 30, settle: 0 });
   assert.equal(matchRequest({ queue: 'Bad Queue' }, 16).ok, false);
   assert.equal(matchRequest({ size: '17' }, 16).ok, false);
   assert.equal(matchRequest({ size: '65' }, 999).ok, false, 'the hard cap is 64');
@@ -101,11 +101,34 @@ test('a game script gets the match class once: the migration only when the scrip
 });
 
 test('min 1: a lone player starts alone after the short-start wait; others still group first', () => {
-  assert.deepEqual(matchRequest({ size: '4', min: '1' }, 16), { ok: true, queue: 'default', size: 4, min: 1, teams: 1, code: null, mode: '' });
+  assert.deepEqual(matchRequest({ size: '4', min: '1' }, 16), { ok: true, queue: 'default', size: 4, min: 1, teams: 1, code: null, mode: '', wait: 30, settle: 0 });
   assert.equal(matchRequest({ size: '4', min: '0' }, 16).ok, false);
   assert.deepEqual(formGroups([w('solo', 'weur', 1000, 10)], T, 4, 1), [], 'not before 30 s');
   assert.deepEqual(formGroups([w('solo', 'weur', 1000, 31)], T, 4, 1).map((g) => g.map((x) => x.u)), [['solo']]);
   assert.deepEqual(formGroups([w('a', 'weur', 1000, 31), w('b', 'weur', 1000, 2)], T, 4, 1).map((g) => g.map((x) => x.u)), [['a', 'b']], 'whoever is waiting joins the short match');
   assert.equal(formGroups([w('a', 'weur', 1000, 1), w('b', 'weur', 1000, 1)], T, 2, 1)[0].length, 2, 'a full match still starts at once');
   assert.deepEqual(formGroups([w('solo', 'weur', 1000, 31)], T, 4, 2), [], 'min 2 never starts alone');
+});
+
+test('wait and settle: each player brings their own short-start wait and settling time', () => {
+  const r = matchRequest({ size: '8', min: '2', wait: '17.5', settle: '4' }, 16);
+  assert.equal(r.ok && r.wait, 17.5); assert.equal(r.ok && r.settle, 4);
+  for (const bad of [{ wait: '4' }, { wait: '121' }, { wait: 'soon' }, { settle: '-1' }, { settle: '21' }, { settle: 'x' }]) assert.equal(matchRequest(bad, 16).ok, false, JSON.stringify(bad));
+  const p = (u, waitedS, wait, settle) => ({ ...w(u, 'weur', 1000, waitedS), wait, settle });
+  const ids = (gs) => gs.map((g) => g.map((x) => x.u));
+  // the oldest player's own wait decides when a short match may start
+  assert.deepEqual(formGroups([p('a', 15, 18), p('b', 10, 18)], T, 8, 2), [], 'not before the oldest player has waited their 18 s');
+  assert.deepEqual(ids(formGroups([p('a', 19, 18), p('b', 10, 18)], T, 8, 2)), [['a', 'b']]);
+  assert.deepEqual(ids(formGroups([p('a', 19, 18), p('b', 10, 60)], T, 8, 2)), [['a', 'b']], 'the wait of the one who waited longest counts, not the newcomer\'s');
+  assert.deepEqual(formGroups([p('a', 19, 60), p('b', 10, 12)], T, 8, 2), [], 'and the other way round');
+  assert.deepEqual(ids(formGroups([w('a', 'weur', 1000, 31), p('b', 10, 60)], T, 8, 2)), [['a', 'b']], 'a player who gave no wait has the usual 30 s');
+  // a short match holds for a player who has only just arrived
+  assert.deepEqual(formGroups([p('a', 90, 18, 4), p('b', 1, 18, 4)], T, 8, 2), [], 'b has been here for 1 s of their 4');
+  assert.deepEqual(ids(formGroups([p('a', 90, 18, 4), p('b', 4, 18, 4)], T, 8, 2)), [['a', 'b']]);
+  assert.deepEqual(formGroups([p('a', 90, 18, 4), p('b', 6, 18, 4), p('c', 2, 18, 4)], T, 8, 2), [], 'held for c as well: the three start together');
+  assert.deepEqual(ids(formGroups([p('a', 90, 18, 4), p('b', 8, 18, 4), p('c', 4, 18, 4)], T, 8, 2)), [['a', 'b', 'c']]);
+  // a full match never waits for either
+  assert.equal(formGroups([p('a', 0, 18, 4), p('b', 0, 18, 4)], T, 2, 2)[0].length, 2);
+  // alone, nothing starts however long the wait has been over
+  assert.deepEqual(formGroups([p('a', 600, 18, 4)], T, 8, 2), []);
 });

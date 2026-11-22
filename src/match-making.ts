@@ -2,7 +2,8 @@
 // so tests/match-making.mjs runs them directly. The Durable Object around them is src/matchmaker.ts.
 import { regionDistance, type RegionHint } from './placement.ts';
 
-export interface Waiting { u: string; n: string; region: RegionHint | null; rating: number; at: number }
+/** One player in a queue. wait and settle are the player's own (see matchRequest); a queue mixes players with different ones. */
+export interface Waiting { u: string; n: string; region: RegionHint | null; rating: number; at: number; wait?: number; settle?: number }
 
 /** How far apart players may be while someone has waited `secs`: same region first, then neighbours, then anyone. */
 export function reach(secs: number): { dist: number; rating: number } {
@@ -11,10 +12,13 @@ export function reach(secs: number): { dist: number; rating: number } {
 
 /**
  * Forms as many matches as the queue allows right now. Oldest player first: they get the closest players by rating within
- * their reach. A full match is preferred; after `shortAfter` seconds a match of at least `min` players starts anyway
- * (with min 1, a player nobody else is in reach of starts alone).
+ * their reach. A full match is preferred; once the oldest player has waited their `wait` (`shortAfter` seconds when they
+ * gave none) a match of at least `min` players starts anyway (with min 1, a player nobody else is in reach of starts
+ * alone). A short match does not start while one of its players has been in the queue for less than their `settle`:
+ * it holds for them, so nobody is taken the instant they arrive and players who arrive together play together.
  */
-export function formGroups(waiting: Waiting[], now: number, size: number, min: number, shortAfter = 30): Waiting[][] {
+export const SHORT_AFTER_S = 30;
+export function formGroups(waiting: Waiting[], now: number, size: number, min: number, shortAfter = SHORT_AFTER_S): Waiting[][] {
   const queue = [...waiting].sort((a, b) => a.at - b.at), used = new Set<string>(), out: Waiting[][] = [];
   for (const anchor of queue) {
     if (used.has(anchor.u)) continue;
@@ -24,7 +28,7 @@ export function formGroups(waiting: Waiting[], now: number, size: number, min: n
       .sort((a, b) => Math.abs(a.rating - anchor.rating) - Math.abs(b.rating - anchor.rating) || a.at - b.at);
     let group: Waiting[] | null = null;
     if (cands.length + 1 >= size) group = [anchor, ...cands.slice(0, size - 1)];
-    else if (secs >= shortAfter && cands.length + 1 >= min) group = [anchor, ...cands];
+    else if (secs >= (anchor.wait ?? shortAfter) && cands.length + 1 >= min && [anchor, ...cands].every((g) => now - g.at >= (g.settle ?? 0) * 1000)) group = [anchor, ...cands];
     if (group) { for (const g of group) used.add(g.u); out.push(group); }
   }
   return out;
@@ -60,8 +64,8 @@ export function eloChanges(ranking: string[][], ratings: Map<string, number>, k 
 }
 
 /** The rules a matchmaking request must follow. Returns the cleaned request or an error message. */
-export function matchRequest(q: { queue?: string | null; size?: string | null; min?: string | null; teams?: string | null; code?: string | null; mode?: string | null }, maxPlayers: number):
-  { ok: true; queue: string; size: number; min: number; teams: number; code: string | null; mode: string } | { ok: false; error: string } {
+export function matchRequest(q: { queue?: string | null; size?: string | null; min?: string | null; teams?: string | null; code?: string | null; mode?: string | null; wait?: string | null; settle?: string | null }, maxPlayers: number):
+  { ok: true; queue: string; size: number; min: number; teams: number; code: string | null; mode: string; wait: number; settle: number } | { ok: false; error: string } {
   const queue = String(q.queue || 'default');
   if (!/^[a-z0-9_-]{1,32}$/.test(queue)) return { ok: false, error: 'queue must be 1 to 32 characters: a-z, 0-9, _ or -.' };
   const cap = Math.max(2, Math.min(64, Math.round(maxPlayers) || 16));
@@ -77,5 +81,12 @@ export function matchRequest(q: { queue?: string | null; size?: string | null; m
   if (code && !/^[A-Z0-9]{3,12}$/.test(code)) return { ok: false, error: 'code must be 3 to 12 letters or digits.' };
   const mode = String(q.mode || '');
   if (!/^[a-z0-9_-]{0,32}$/.test(mode)) return { ok: false, error: 'mode must be up to 32 characters: a-z, 0-9, _ or -.' };
-  return { ok: true, queue, size, min, teams, code, mode };
+  // wait: how long this player waits for a full match before one of at least `min` may start. settle: how long this
+  // player is in the queue, at least, before a short match takes them. Both belong to the player, not to the queue, so
+  // a game may give every search its own (a wait that is never the same twice, for example).
+  const wait = q.wait == null || q.wait === '' ? SHORT_AFTER_S : Number(q.wait);
+  if (!(wait >= 5 && wait <= 120)) return { ok: false, error: 'wait must be between 5 and 120 seconds.' };
+  const settle = q.settle == null || q.settle === '' ? 0 : Number(q.settle);
+  if (!(settle >= 0 && settle <= 20)) return { ok: false, error: 'settle must be between 0 and 20 seconds.' };
+  return { ok: true, queue, size, min, teams, code, mode, wait, settle };
 }
