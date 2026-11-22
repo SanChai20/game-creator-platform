@@ -61,9 +61,9 @@ export function breakdown(files: FileSize[], top = 8) {
 
 /** How to keep a game inside its storage, in the order worth trying. Shown with every refusal and by game_storage. */
 export const KEEP_SMALL = [
-  'Generate it: build meshes, terrain, textures, sound effects and music from code at boot, from a seed (get_started guides "procedural-generation", "meshes", "materials-textures", "audio"). A generated forest costs a few kilobytes of code instead of megabytes of models.',
+  'Generate it: build meshes, terrain, textures, sound effects and music from code at boot, from a seed. A generated forest costs a few kilobytes of code instead of megabytes of models.',
   'Load it at run time: keep large or optional content (extra levels, music, high-resolution textures, cutscenes, big models) on a host you control and fetch it while the game runs. The game page may fetch from any HTTPS host that sends CORS headers; there is no allow-list to ask for. game_storage {project} explains how.',
-  'Compress what ships: glTF with Draco or Meshopt geometry, KTX2 or WebP textures sized to how big they are drawn, Opus/OGG audio at 96 kbps or less, and no duplicate or unused files (list_files shows the largest).',
+  'Compress what ships: glTF with Draco or Meshopt geometry, KTX2 or WebP textures sized to how big they are drawn, AAC (.m4a) or MP3 audio at 96 kbps or less (Opus or Ogg only with an .m4a or .mp3 fallback: Safari on iPhone and iPad plays Ogg only from iOS 18.4), and no duplicate or unused files (list_files shows the largest).',
   'Use what the platform already hosts: Three.js and the @gcp/ modules come from the import map and do not count against the game\'s storage.',
 ];
 
