@@ -15,6 +15,13 @@ import { regionHint } from '../placement';
 import { eloChanges, matchRequest } from '../match-making';
 import { getProject, getVersion, verKey } from '../projects';
 import { TICKET_TTL_S, matchTicketKey, type Seat } from '../matchmaker';
+import { newLobbyCode, readLobby, signLobby, type Lobby } from '../lobby';
+import { socialHub } from '../social';
+import { lobbyData, sendInvite } from './social';
+// @ts-ignore plain JS module
+import { forGame } from '../presence.js';
+// @ts-ignore plain JS module
+import { acceptedInvite, listFriends } from '../social-rules.js';
 // @ts-ignore plain JS module
 import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
@@ -306,8 +313,21 @@ rt.get('/room', async (c) => {
 rt.get('/match', async (c) => {
   const tok = await authPlay(c.env, c.req.query('t')), s = await getSettings(c.env);
   if (!s.allow_matches) throw new AppError(403, 'Server-run matches are switched off on this platform.', 'matches_off');
-  const q = matchRequest({ queue: c.req.query('queue'), size: c.req.query('players'), min: c.req.query('min'), teams: c.req.query('teams'), code: c.req.query('code'), mode: c.req.query('mode'), wait: c.req.query('wait'), settle: c.req.query('settle') }, s.match_max_players);
+  // Three ways in: a public queue; a private lobby of one's own (private=1), which only invited friends can enter; or the
+  // lobby of an invite this player accepted (invite=<id>), whose shape comes from the lobby, not from the request.
+  // (code=<typed code> is the older private lobby, kept working for games that still use it.)
+  const inviteId = c.req.query('invite'), own = c.req.query('private') === '1' && !inviteId;
+  let lobby: Lobby | null = null;
+  if (inviteId) {
+    if (isGuestId(tok.u)) throw new AppError(403, 'Sign in to join friends.', 'guest');
+    const inv = await acceptedInvite(c.env.DB, tok.u, inviteId, tok.g, tok.e) as { lobby: string } | null;
+    lobby = inv ? await readLobby(c.env, inv.lobby, tok.g, tok.e) : null;
+    if (!lobby) throw new AppError(409, 'This invite cannot be used any more: the match has started or ended, or the invite is older than half an hour. Ask your friend for a new one.', 'lobby_gone');
+  }
+  const q = lobby ? matchRequest({ queue: lobby.q, size: String(lobby.n), min: String(lobby.m), teams: String(lobby.t), mode: lobby.o }, s.match_max_players)
+    : matchRequest({ queue: c.req.query('queue'), size: c.req.query('players'), min: c.req.query('min'), teams: c.req.query('teams'), code: own ? null : c.req.query('code'), mode: c.req.query('mode'), wait: c.req.query('wait'), settle: c.req.query('settle') }, s.match_max_players);
   if (!q.ok) throw bad(q.error);
+  if (own) lobby = { typ: 'lobby', g: tok.g, e: tok.e, c: newLobbyCode(), q: q.queue, n: q.size, m: q.min, t: q.teams, o: q.mode, x: 0 };
   // only a version that ships server/match.js can run the match the tickets lead to
   const p = await getProject(c.env, tok.g);
   const n = p && (tok.e === 'live' ? p.live_version : p.preview_version);
@@ -317,7 +337,11 @@ rt.get('/match', async (c) => {
   const row = await c.env.DB.prepare('SELECT rating FROM match_ratings WHERE project_id = ? AND env = ? AND queue = ? AND user_id = ?').bind(tok.g, tok.e, q.queue, tok.u).first<{ rating: number }>().catch(() => null);
   const seat: Seat = { u: tok.u, n: tok.n, s: tok.s, k: tok.k, px: tok.x, tr: !!tok.tr, g: tok.g, e: tok.e, q: q.queue, size: q.size, min: q.min, teams: q.teams, mode: q.mode, code: q.code,
     region: regionHint((c.req.raw as any).cf), rating: row?.rating ?? 1000, at: 0, wait: q.wait, settle: q.settle };
-  const name = q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
+  if (lobby) {
+    seat.code = lobby.c; seat.priv = true; seat.own = own;
+    seat.lk = await signLobby(c.env, { g: tok.g, e: tok.e, c: lobby.c, q: q.queue, n: q.size, m: q.min, t: q.teams, o: q.mode });
+  }
+  const name = lobby ? `${tok.g}:${tok.e}:pcode:${lobby.c}` : q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
   const u = new URL(c.req.url);
   u.search = `?seat=${encodeURIComponent(JSON.stringify(seat))}`;
   return c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(name)).fetch(new Request(u, c.req.raw));
@@ -376,4 +400,36 @@ rt.post('/match-result', async (c) => {
     .bind(g, e, m.queue, u, Math.round((delta.get(u) || 0) * 10) / 10, ranking[0].includes(u) ? 1 : 0, t));
   await c.env.DB.batch(stmts);
   return c.json({ ok: true, rated: ids.length });
+});
+
+// ----- friends (GCP.friends) -------------------------------------------------------------------------------------
+// The player's platform friends as the game sees them: name, an id (the same id match rosters use), status, and what
+// they play only as "this game" or its title. Invites from a game go to friends who are online, away or busy; a match
+// invite carries the private lobby the player is in (GCP.match.find({ private: true })), so only invitees can enter it.
+// Guests and the verifier have no friends: the list is empty and invites are refused with a code the game can show.
+rt.post('/friends', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t), s = await getSettings(c.env), env = c.env;
+  const none = (code: string, message: string) => c.json({ ok: false, friends: [], code, error: message });
+  if (!s.social_enabled) return none('social_off', 'Friends are switched off on this platform.');
+  if (isGuestId(tok.u)) return none('guest', 'Sign in to play with friends.');
+  if (tok.k === 'verify') return none('verify', 'The verification browser has no friends.');
+  if (b.op === 'list') {
+    const list = await listFriends(env.DB, tok.u, 500) as { id: string; name: string }[];
+    const pres = env.SOCIAL && list.length ? await socialHub(env, tok.u).snapshot(list.map((f) => f.id)).catch(() => ({} as Record<string, unknown>)) : {};
+    const rank: Record<string, number> = { online: 0, away: 1, busy: 2, offline: 3 };
+    const friends = list.map((f) => {
+      const p = forGame((pres as Record<string, unknown>)[f.id], tok.g) as { status: string; playing: unknown; since: number | null; joinable: boolean };
+      return { id: f.id, name: f.name, ...p, invitable: p.status !== 'offline' && tok.e === 'live' };
+    }).sort((a, b2) => (rank[a.status] ?? 3) - (rank[b2.status] ?? 3) || a.name.localeCompare(b2.name));
+    return c.json({ ok: true, friends });
+  }
+  if (b.op === 'invite') {
+    const to = String(b.to || '');
+    if (!/^[A-Za-z0-9_-]{2,64}$/.test(to)) throw bad('to must be a friend\'s id from GCP.friends.list().');
+    const data = b.lobby ? await lobbyData(env, b.lobby, tok.g, tok.e, b.label) : { ...(b.label != null ? { label: b.label } : {}) };
+    if (b.data !== undefined) (data as Record<string, unknown>).data = b.data;
+    const me = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(tok.u).first<{ name: string }>();
+    return c.json(await sendInvite(env, s, { id: tok.u, name: me?.name || tok.n }, to, tok.g, tok.e, data));
+  }
+  throw bad('op must be list or invite.');
 });

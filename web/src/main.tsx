@@ -40,6 +40,7 @@ import { Legal, LEGAL_DOCS, legalTitle, type LegalDoc } from './pages/Legal';
 import { OPERATOR } from './operator';
 import { SearchBox, StoreBar } from './store';
 import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
+import { FriendsButton, SocialRoot } from './social';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
 /** Sign in and Create account stand alone: no top bar, store bar or footer, only the panel and a way home. */
@@ -88,6 +89,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
           </nav>
           <div className="nav-search"><SearchBox hotkey /></div>
           <div className="nav-tools">
+            {user && <FriendsButton />}
             <ThemeSwitch />
             <LangPicker short />
             {user ? (
@@ -245,6 +247,7 @@ function App() {
           <span className="foot-tools"><ThemeSwitch label /><FxToggle /><LangPicker /></span></div>
       </div></footer>}
       <GuestProgressPrompt user={state.user} toast={toast} />
+      {!bare && <SocialRoot />}
       {toastMsg && <div className={'toast' + (toastMsg.bad ? ' bad' : '')} role="status">{toastMsg.msg}</div>}
     </AppCtx.Provider>
   );

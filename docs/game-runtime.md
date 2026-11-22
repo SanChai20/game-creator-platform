@@ -72,6 +72,13 @@ What no script can fix is caught before publishing:
 
 ## Versions
 
+- **2.7.0** — New: platform friends from inside the game. `GCP.friends` (`available`, `list()`, `invite(id, { match,
+  label, data })`, `open({ match, label, data })`, `on('change' | 'join' | 'answer')`), `GCP.presence.set({ detail,
+  joinable })` / `clear()`, `GCP.launch.join` and `GCP.match.join(join, opts)`. `GCP.match.find({ private: true })` opens
+  an invite-only lobby (`match.private`, `match.lobby`) that friends enter only through an invite; `lobby_gone` and
+  `lobby_full` close a join to a lobby that started or filled. Typed codes (`find({ code })`, `GCP.room(code)`) keep
+  working unchanged. Nothing changes for a game that calls none of it.
+
 - **2.6.1** — Fixed: after `GCP.match.rejoin()` the page's inputs were ignored for as long as the player had been in
   the match before the reload (the reloaded page numbered its inputs from zero, and a match takes only numbers above
   the last it saw). The page now carries on from the match's own count. Works for matches already running.

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent, type ReactNode, type Ref } from 'react';
 import { artStyle, getLang, t, useApp, useLang } from './lib';
 import { Button } from './ui';
+import { attachFrame, fromGame } from './social';
 import { sanitizeControls, type TouchControls } from './touch-controls';
 import { elementFullscreen, isIOSDevice, thisDevice } from './install';
 import { barsShowing, tuckLook, tuckStart, type TuckState, type ViewportSizes } from './tuck';
@@ -222,7 +223,9 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false, onCaptureHook }: {
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false, onCaptureHook, social = false }: {
+  /** Friends on the platform: the game's GCP.friends / GCP.presence messages reach the friends panel (the game page sets it). */
+  social?: boolean;
   /** The game registered GCP.test.onCapture (true) or has not (false, also whenever a new game page loads). */
   onCaptureHook?: (on: boolean) => void;
   /** The version's on-screen controls for touch screens (from the API); the SDK in the game draws them. */
@@ -435,6 +438,9 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   useEffect(() => { post(); }, [post]);
   // The platform language, switched on the page while the game runs: the game keeps running and is told (GCP.lang, GCP.onLang).
   const lang = useLang();
+  const socialRef = useRef(social); socialRef.current = social;
+  // a new game page starts with no join listener; the friends panel talks to this frame while it runs
+  useEffect(() => { if (!social) return; attachFrame(url ? frame.current?.contentWindow || null : null); return () => attachFrame(null); }, [url, social]);
   const postLang = useCallback(() => { frame.current?.contentWindow?.postMessage({ gcp: 'lang', lang: getLang() }, '*'); }, []);
   useEffect(() => { postLang(); }, [lang, postLang]);
   useEffect(() => {
@@ -460,6 +466,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
       if (d.gcp === 'shown') splash.onShown(urlRef.current);
       if (d.gcp === 'capture_hook') hookRef.current?.(d.on === true);
+      if (socialRef.current && (d.gcp === 'presence' || d.gcp === 'friends_open' || d.gcp === 'social_hooks')) fromGame(d);
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
   }, [enter, exit, toggle, quit, post, postLang, active, onTrialOver, onSessionEnded]);

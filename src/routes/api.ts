@@ -41,6 +41,9 @@ import { signPlayToken } from '../runtime/game-worker.js';
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
+import { socialHub } from '../social';
+// @ts-ignore plain JS module
+import { ensureProfile } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
@@ -94,6 +97,7 @@ api.post('/auth/signup', async (c) => {
   if (await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) throw new AppError(409, 'An account with that email already exists. Sign in instead.', 'exists');
   const id = newUserId();
   await c.env.DB.prepare('INSERT INTO users (id, email, name, pw_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)').bind(id, email, name, await hashPassword(pw), now(), now()).run();
+  await ensureProfile(c.env.DB, { id, name }).catch(() => {});   // findable by friends from the start (src/social-rules.js)
   await endPreviousLogin(c.env, c.req.raw);   // games still open on the browser's earlier sign-in stop (see session-binding.js)
   c.header('set-cookie', await createSession(c.env, c.req.raw, id));
   return c.json({ ok: true });
@@ -167,8 +171,10 @@ api.post('/guest-progress', async (c) => {
 });
 
 api.post('/auth/logout', async (c) => {
-  const t = sessionToken(c.req.raw);
+  const t = sessionToken(c.req.raw), u = c.get('user');
   if (t) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(await sha256(t)).run();
+  // the friends connection of this sign-in closes now, so this browser goes offline at once (src/social.ts)
+  if (t && u && c.env.SOCIAL) await socialHub(c.env, u.id).closeLogin(await sha256(t)).catch(() => {});
   c.header('set-cookie', sessionCookie(c.req.raw, '', 0));
   return c.json({ ok: true });
 });

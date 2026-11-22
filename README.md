@@ -85,6 +85,15 @@ Every game gets per-player progress from the platform: cloud saves (`GCP.save`),
 - **Continue playing.** Signed-in players get a Continue row on the store front and a library (`/library`, `/api/me/continue`, `/api/me/library`): every live game they played, most recent first, with play time, last played and last saved, built from the play record with no game code. A game may add where the player is with `GCP.resume.set({ label, detail, progress })` (cleared with `GCP.resume.clear()`, and by a progress reset), and Continue opens it with `GCP.launch.continue` true so it can skip its title screen and load the saved run. A player can take a game off the row; it comes back when they play it again. Rules in `src/player-data.js`, tests in `tests/continue.mjs`.
 - The SDK's offline copy in `localStorage` is keyed by game, environment and player, so people sharing a browser stay apart.
 
+## Friends, chat and invites
+
+Players add friends by name or by friend code (`XXXX-XXXX`); a request becomes a friendship only when the other player accepts, and they get a notification for it. Friends chat one to one, invite each other to play from the friends panel or from inside a game, and can be removed, blocked (which also ends the friendship and cancels invites) and reported. Status is Online, Away, Busy or Invisible (shown as Offline), with automatic Away after 5 minutes in a hidden tab; friends see which game an online friend plays and for how long, unless that friend hides it. Invites go only to Online, Away and Busy friends; a Busy friend gets them quietly (no pop-up), and Invisible and Offline friends cannot be invited. Privacy settings on the Account page choose who may send requests, messages and invites, whether friends see the game and may join it, and whether the player can be found by name. Admin, Reports handles abuse reports.
+
+- Rules: `src/social-rules.js` (pure, over D1, tested in `tests/social.mjs`); routes: `src/routes/social.ts` (`/api/social/*`) and `/api/rt/friends` for games. Migration `0037_friends.sql`.
+- Live delivery: one `SocialHub` Durable Object per account (`src/social.ts`) holds that account's open pages over a hibernating WebSocket, works out its presence (`src/presence.js`) and pushes changes to its friends' hubs. The web app falls back to polling once a minute when the socket is down.
+- Games: SDK 2.7.0 `GCP.friends`, `GCP.presence`, `GCP.launch.join`, `GCP.match.join`. `GCP.match.find({ private: true })` opens an invite-only lobby: the matchmaker names it with a platform-made code and the owner gets a signed lobby token (`src/lobby.ts`) that invites carry, so nobody enters by guessing. Typed codes keep working for older games, but the guides recommend friend invites.
+- Limits (admin settings, group "Friends and chat"): friends per account, requests per day, messages per minute, invites per 10 minutes, days chat is kept. Guests and the verifier have no friends.
+
 ## Two-factor sign-in
 
 Any account can turn on two-factor sign-in under Account: an authenticator app (TOTP: 6 digits, 30 seconds, the settings Google Authenticator, Microsoft Authenticator, 1Password and Authy use) plus ten single-use recovery codes, shown once. With it on, the right password only opens a second step (`/api/auth/login/code`): the code has to follow within five minutes and five tries, and a password reset link still asks for it. Every way in goes through that login, so agent sign-in (OAuth and device sign-in) is covered too. A code works once, the secret is stored encrypted with a key derived from `SESSION_SECRET` and bound to its account, and recovery codes and challenges are kept only as hashes. Turning it off or making new recovery codes needs the password and a code. An admin can turn it off for someone who lost both their phone and their codes (Admin, Users, Actions).
@@ -116,7 +125,7 @@ Stripe's own processing fee is charged to the platform account, so by default it
 
 ## Cloudflare resources
 
-Declared in `wrangler.jsonc`: D1 (`gcp-db`), R2 (`gcp-games`), KV (OAuth state), two Durable Object classes (`GameRoom` for realtime rooms, `Pipeline` for deploy jobs), Browser Rendering, static assets, and a daily cron for cleanup.
+Declared in `wrangler.jsonc`: D1 (`gcp-db`), R2 (`gcp-games`), KV (OAuth state), Durable Object classes (`GameRoom` for realtime rooms, `Matchmaker` for queues and private lobbies, `SocialHub` for friends and presence, `Pipeline` for deploy jobs), Browser Rendering, static assets, and a daily cron for cleanup.
 
 Each game is deployed as a standalone Worker named `gcp-<project>-preview` or `gcp-<project>-live` through the Cloudflare API, bound to the R2 bucket that holds its files.
 
