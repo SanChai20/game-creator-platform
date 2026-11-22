@@ -19,7 +19,7 @@ interface Counts { messages: number; chats: Record<string, number>; requests: nu
 interface Summary { enabled: boolean; profile?: Profile; me?: Presence; counts?: Counts; invites?: Invite[]; limits?: { message_max: number; friends_max: number } }
 interface Msg { id: number; from: string; to: string; kind: 'text' | 'invite'; body: string; at: number; read: boolean; invite?: { id: string; status: string; game: { slug: string; title: string } | null; expires_at: number; label: string } }
 export interface Join { id: string; kind: string; from: { id: string; name: string }; match: boolean; queue?: string; players?: number; min?: number; mode?: string; label?: string; data?: unknown }
-interface Toast { id: number; kind: string; title: string; body?: string; actions?: { label: string; primary?: boolean; run: () => void }[]; ttl: number }
+interface Toast { id: number; kind: string; title: string; body?: string; who?: string; actions?: { label: string; primary?: boolean; run: () => void }[]; ttl: number }
 type Tab = 'friends' | 'requests' | 'add';
 interface OpenState { tab: Tab; peer?: { id: string; name: string } | null; invite?: { slug: string; title: string; lobby: string | null; label: string; data?: unknown } | null }
 
@@ -94,13 +94,13 @@ function onMessage(m: any) {
   switch (ev.kind) {
     case 'request':
       soonSummary();
-      toast({ kind: 'request', title: t('{name} sent you a friend request', '{name} 向你发送了好友请求', { name: ev.from.name }), actions: [
+      toast({ kind: 'request', who: ev.from.name, title: t('{name} sent you a friend request', '{name} 向你发送了好友请求', { name: ev.from.name }), actions: [
         { label: t('Accept', '接受'), primary: true, run: () => void acceptRequest(ev.from.id) },
         { label: t('View', '查看'), run: () => openPanel({ tab: 'requests' }) }] });
       break;
     case 'accepted':
       soonSummary(); soonFriends();
-      toast({ kind: 'accepted', title: t('{name} accepted your friend request', '{name} 接受了你的好友请求', { name: ev.by.name }), actions: [{ label: t('Message', '发消息'), run: () => openChat(ev.by) }] });
+      toast({ kind: 'accepted', who: ev.by.name, title: t('{name} accepted your friend request', '{name} 接受了你的好友请求', { name: ev.by.name }), actions: [{ label: t('Message', '发消息'), run: () => openChat(ev.by) }] });
       break;
     case 'friends': soonFriends(); soonSummary(); break;
     case 'message': {
@@ -109,7 +109,7 @@ function onMessage(m: any) {
       if (open && !ev.msg) void loadChat(ev.peer);
       if (!ev.mine) {
         soonSummary(); if (S.friends) soonFriends();
-        if (!open && !ev.quiet && ev.from) toast({ kind: 'message', title: ev.from.name, body: String(ev.msg?.body || '').slice(0, 120), actions: [{ label: t('Reply', '回复'), primary: true, run: () => openChat(ev.from) }] });
+        if (!open && !ev.quiet && ev.from) toast({ kind: 'message', who: ev.from.name, title: ev.from.name, body: String(ev.msg?.body || '').slice(0, 120), actions: [{ label: t('Reply', '回复'), primary: true, run: () => openChat(ev.from) }] });
       }
       break;
     }
@@ -117,7 +117,7 @@ function onMessage(m: any) {
       soonSummary();
       const inv = ev.invite as Invite;
       if (S.chat && S.chat.peer === inv.from.id) void loadChat(inv.from.id);
-      if (!ev.quiet) toast({ kind: 'invite', ttl: 25000, title: t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name: inv.from.name, game: local(inv.game, 'title') }), body: inv.label || undefined, actions: [
+      if (!ev.quiet) toast({ kind: 'invite', who: inv.from.name, ttl: 25000, title: t('{name} invites you to play {game}', '{name} 邀请你一起玩 {game}', { name: inv.from.name, game: local(inv.game, 'title') }), body: inv.label || undefined, actions: [
         { label: t('Join', '加入'), primary: true, run: () => void answerInvite(inv.id, true) },
         { label: t('Decline', '拒绝'), run: () => void answerInvite(inv.id, false) }] });
       break;
@@ -125,10 +125,21 @@ function onMessage(m: any) {
     case 'invite_answer':
       try { S.frame?.postMessage({ gcp: 'friends_answer', id: ev.id, accepted: ev.accepted, by: ev.by }, '*'); } catch { /* gone */ }
       if (S.chat && S.chat.peer === ev.by.id) void loadChat(ev.by.id);
-      toast({ kind: 'answer', title: ev.accepted ? t('{name} accepted your invite to {game}', '{name} 接受了你的 {game} 邀请', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) : t('{name} declined your invite', '{name} 拒绝了你的邀请', { name: ev.by.name }) });
+      toast({ kind: 'answer', who: ev.by.name, title: ev.accepted ? t('{name} accepted your invite to {game}', '{name} 接受了你的 {game} 邀请', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) : t('{name} declined your invite', '{name} 拒绝了你的邀请', { name: ev.by.name }) });
       break;
-    case 'joining': toast({ kind: 'answer', title: t('{name} is joining you in {game}', '{name} 正在加入你的 {game}', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) }); break;
+    case 'joining': toast({ kind: 'answer', who: ev.by.name, title: t('{name} is joining you in {game}', '{name} 正在加入你的 {game}', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) }); break;
     case 'invite_cancelled': case 'counts': soonSummary(); if (S.chat) void loadChat(S.chat.peer); break;
+  }
+}
+
+/** The small label over a pop-up, by what it is about. */
+function toastKick(kind: string) {
+  switch (kind) {
+    case 'invite': return t('Game invite', '游戏邀请');
+    case 'request': return t('Friend request', '好友请求');
+    case 'accepted': return t('New friend', '新好友');
+    case 'message': return t('New message', '新消息');
+    default: return t('Friends', '好友');
   }
 }
 
@@ -246,9 +257,10 @@ export function SocialRoot() {
     {s.open && <Panel />}
     {s.toasts.length > 0 && <div className="fr-toasts" role="status" aria-live="polite">{s.toasts.map((x) => (
       <div key={x.id} className={'fr-toast ' + x.kind}>
-        <div className="fr-toast-text"><b>{x.title}</b>{x.body && <span>{x.body}</span>}</div>
-        {x.actions && <div className="fr-toast-acts">{x.actions.map((a, i) => <button key={i} type="button" className={'fr-tbtn' + (a.primary ? ' primary' : '')} onClick={() => { dismiss(x.id); a.run(); }}>{a.label}</button>)}</div>}
-        <button type="button" className="fr-x" aria-label={t('Close', '关闭')} onClick={() => dismiss(x.id)}>×</button>
+        <div className="fr-toast-head"><span className="fr-toast-kick">{toastKick(x.kind)}</span>
+          <button type="button" className="fr-x" aria-label={t('Close', '关闭')} onClick={() => dismiss(x.id)}>×</button></div>
+        <div className="fr-toast-main">{x.who && <Initial name={x.who} />}<div className="fr-toast-text"><b>{x.title}</b>{x.body && <span>{x.body}</span>}</div></div>
+        {x.actions && <div className="fr-toast-acts">{x.actions.map((a, i) => <button key={i} type="button" className={a.primary ? 'btn btn-sm btn-primary' : 'btn btn-sm'} onClick={() => { dismiss(x.id); a.run(); }}>{a.label}</button>)}</div>}
       </div>))}</div>}
   </>, layer);
 }

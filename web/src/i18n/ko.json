@@ -2109,5 +2109,9 @@
  "The language the title, tagline, description and cover are written in (worked out from the text when not set)": "제목, 한 줄 소개, 설명, 커버에 쓰인 언어(설정하지 않으면 텍스트로 판단)",
  "The title, tagline, description and controls in every other platform language the game is played in. Players see the listing in their platform language when the game supports it, else in English, else in the game's own language. Required for each platform language the game declares.": "게임이 지원하는 다른 플랫폼 언어마다의 제목, 한 줄 소개, 설명, 조작 안내. 플레이어에게는 게임이 지원하면 플랫폼 언어로, 아니면 영어로, 그것도 없으면 게임 자체 언어로 표시됩니다. 게임이 선언한 플랫폼 언어마다 필수입니다.",
  "A cover per language (update_project), for covers that show the game's name or other text": "언어별 커버(update_project). 게임 이름 등 글자가 들어간 커버용",
- "More": "더보기"
+ "More": "더보기",
+ "Game invite": "게임 초대",
+ "Friend request": "친구 요청",
+ "New friend": "새 친구",
+ "New message": "새 메시지"
 }
