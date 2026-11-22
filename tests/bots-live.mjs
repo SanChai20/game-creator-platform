@@ -148,3 +148,41 @@ test('bots alone fill a public queue: an agent can run an online match without a
   assert.equal(new Set(st.bots.map((b) => b.match)).size, 1, 'one match');
   await post('/stop');
 });
+
+test('in the preview the bots are the creator\'s friends: invited into a private lobby, one answers and joins through the real invite path', async () => {
+  const r = await post('/start', { platform: PLATFORM, game: GAME, request: { bots: 3, target: 'invite', net: 'wifi' } });
+  assert.ok(r.fleet);
+  assert.ok(await until(async () => { const s = await get('/status'); return s.running && s.bots.length === 3; }));
+  const t = await ownerToken();
+  const rt = async (b) => { const x = await (await fetch(`${PLATFORM}/api/rt/friends`, { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify({ t, ...b }) })).text(); try { return JSON.parse(x); } catch { throw new Error(x.slice(0, 500)); } };
+  const list = await rt({ op: 'list' });
+  assert.ok(list.ok, JSON.stringify(list));
+  const bots = list.friends.filter((f) => f.test_bot);
+  assert.equal(bots.length, 3, 'GCP.friends.list() in the owner\'s preview lists the running bots');
+  assert.ok(bots.every((f) => f.status === 'online' && f.invitable));
+  // the creator opens a private lobby: bots waiting for invites stay where they are
+  const search = await creatorSearch(`queue=${QUEUE}&players=${PLAYERS}&min=${MIN}&private=1`);
+  const lobby = (await until(() => search.got.find((m) => m.lobby), 10_000))?.lobby;
+  assert.ok(lobby, `a private lobby with its token: ${JSON.stringify(search.got)}`);
+  await sleep(1000);
+  assert.ok((await get('/status')).bots.every((b) => b.phase === 'idle'), 'nobody walks into a private lobby uninvited');
+  // GCP.friends.invite(bot, { match }) from the game
+  const inv = await rt({ op: 'invite', to: bots[0].id, lobby, label: 'Private Court' });
+  assert.ok(inv.ok && inv.id, JSON.stringify(inv));
+  const st = await until(async () => { const s = await get('/status'); return (s.invites || []).some((a) => a.id === inv.id && a.accepted) && s.bots[0].phase === 'searching' ? s : null; }, 10_000);
+  assert.ok(st, `the bot accepts and enters the lobby: ${JSON.stringify((await get('/status')).log.slice(-6))}`);
+  const row = await get(`/db?q=${encodeURIComponent(`SELECT env, status, kind FROM game_invites WHERE id = '${inv.id}'`)}`);
+  assert.deepEqual(row[0], { env: 'preview', status: 'accepted', kind: 'match' }, 'the same invite record a friend gets, in the preview');
+  const both = await until(() => search.got.filter((m) => m.t === 'lobby').find((m) => (m.players || []).some((p) => p.id === bots[0].id)), 10_000);
+  assert.ok(both, `the creator sees the bot in their private lobby: ${JSON.stringify(search.got.slice(-2))}`);
+  assert.ok(both.players.every((p) => p.id === 'owner1' || p.id === bots[0].id), 'only the invited bot came');
+  // a room game's invite ({ data: { room } }) sends the bot to that room
+  const inv2 = await rt({ op: 'invite', to: bots[1].id, data: { room: 'fgarden12345' }, label: 'Co-op garden' });
+  assert.ok(inv2.ok);
+  assert.ok(await until(async () => (await get('/status')).log.some((l) => /joining room fgarden12345/.test(l)), 8000), 'the bot heads to the room the invite names');
+  // an invite to a bot of nobody's fleet is refused
+  const bad = await rt({ op: 'invite', to: 'bot_zzzzzzzz_1', lobby });
+  assert.equal(bad.code, 'not_online');
+  try { search.mm.close(); } catch { /* closed */ }
+  await post('/stop');
+});

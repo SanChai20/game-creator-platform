@@ -69,6 +69,8 @@ test('what a creator may ask for', () => {
   assert.match(fleetRequest({ bots: 16 }, L).error, /between 1 and 15/);
   assert.match(fleetRequest({ bots: 2, target: 'queue' }, L).error, /players/);
   assert.ok(fleetRequest({ bots: 3, target: 'queue', players: 4, queue: 'duel' }, L).ok);
+  assert.equal(fleetRequest({ bots: 3, target: 'invite' }, L).cfg.target, 'invite', 'bots that wait for the creator\'s invites');
+  assert.match(fleetRequest({ bots: 3, target: 'nowhere' }, L).error, /follow, invite, queue/);
   assert.match(fleetRequest({ bots: 2, target: 'code', code: 'x' }, L).error, /code/);
   assert.match(fleetRequest({ bots: 2, region: 'mars' }, L).error, /region/);
   assert.equal(fleetRequest({ bots: 2, minutes: 500 }, L).cfg.minutes, 30, 'never longer than the platform allows');

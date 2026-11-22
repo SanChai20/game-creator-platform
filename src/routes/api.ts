@@ -1,5 +1,5 @@
 // The web app's API: accounts, marketplace, play sessions, purchases, the creator console and billing.
-import { actBots, botOptions, botStatus, startBots, stopBots } from '../bots';
+import { actBots, botOptions, botStatus, inviteBotFor, startBots, stopBots } from '../bots';
 import { Hono } from 'hono';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from '../env';
 import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestCookieId, guestIdentity, userFromRequest, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
@@ -1098,6 +1098,12 @@ api.post('/console/projects/:id/bots', async (c) => {
 api.post('/console/projects/:id/bots/act', async (c) => {
   const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
   return c.json(await actBots(c.env, u, c.req.param('id'), b));
+});
+// the invite picker over the preview (GCP.friends.open) invites a test bot as a friend: { bot, lobby?, label?, data? }
+api.post('/console/projects/:id/bots/invite', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  await rateLimit(c.env, 'botinvite:' + u.id, 120, 600);
+  return c.json(await inviteBotFor(c.env, u, c.req.param('id'), b));
 });
 api.delete('/console/projects/:id/bots', async (c) => {
   const u = requireUser(c);

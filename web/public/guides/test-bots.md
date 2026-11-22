@@ -21,10 +21,27 @@ inside your page. Latency, stutter, a reconnect or a desync only show over a rea
 
 | target | what happens |
 | --- | --- |
-| `follow` (default) | The bots wait for you. Press your game's own Find Match (or open a room) in the preview and the free bots search the same queue with the same options, or join the same private lobby or room, through the same matchmaker. An eight-seat game with seven bots starts at once. |
+| `follow` (default) | The bots wait for you. Press your game's own Find Match (or open a room) in the preview and the free bots search the same queue with the same options, or join the same lobby code or room, through the same matchmaker. An eight-seat game with seven bots starts at once. A private lobby (`GCP.match.find({ private: true })`) is entered by invite only, as with friends: invite the bots (below). |
+| `invite` | The bots go nowhere until you invite them from your game, as friends (below). |
 | `queue` | They search a public queue you name (`queue`, `players`, `min`, `teams`, `mode`, as your game passes them to `GCP.match.find`). Bots alone can fill a match: with `bots` at least the queue's `min` it starts without anyone else, so an agent can run an online match end to end without a browser. After a match they look for the next one. |
 | `code` | They join a private lobby code. |
 | `room` | They join a room code. |
+
+## Bots as your friends: testing invites
+
+Your real friends never meet a preview, so in your preview the running bots are your friends:
+
+- `GCP.friends.list()` lists them first, `online` (or `busy` while in a match), each with `test_bot: true`.
+- `GCP.friends.open({ match })` shows the invite picker over the preview with the test players, and an **Invite** button
+  for each (with no bots running, it offers to start three).
+- `GCP.friends.invite(botId, { match })` invites one directly.
+
+A bot reads the invite for a moment and answers like a friend: your game hears `GCP.friends.on('answer')` and the page
+shows the answer. It says yes when it is free (it leaves a search or a room for you) and no when it is busy in a match. On
+yes it goes where a friend's page would after `GCP.match.join(join)`: into your private lobby, through the real invite
+path (the same invite record a friend gets, in the preview), or to the room your invite's data names (`{ room }`, for a
+`GCP.room` game). In `preview_bots`, `action: "invite"` does the same for an agent (`bot`, and `lobby` or `data`), and
+`status` lists the latest answers.
 
 ## What the bots do: `server/bot.js`
 
@@ -88,7 +105,7 @@ with a small spread; a long gap or growing unacknowledged inputs is a stall.
 ## Where to find it
 
 - In the console: **Play preview**, then **Test players** under the game.
-- For agents: the MCP tool `preview_bots` (`options`, `start`, `status`, `act`, `stop`).
+- For agents: the MCP tool `preview_bots` (`options`, `start`, `status`, `act`, `invite`, `stop`).
 
 ## Limits
 

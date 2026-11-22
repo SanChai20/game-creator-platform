@@ -1934,7 +1934,6 @@
  "{name} accepted your friend request": "{name} 接受了你的好友邀請",
  "Reply": "回覆",
  "{name} invites you to play {game}": "{name} 邀請你一起玩 {game}",
- "Decline": "拒絕",
  "{name} accepted your invite to {game}": "{name} 接受了你的 {game} 邀請",
  "{name} declined your invite": "{name} 拒絕了你的邀請",
  "{name} is joining you in {game}": "{name} 正在加入你的 {game}",
@@ -1947,7 +1946,6 @@
  "Busy": "忙碌",
  "Invisible": "隱身",
  "just started": "剛開始",
- "{n} min": "{n} 分鐘",
  "{h} h {m} min": "{h} 小時 {m} 分鐘",
  "Playing {game}": "正在玩 {game}",
  "Friends, {n} new": "好友，{n} 則新訊息",
@@ -2134,5 +2132,14 @@
  "Game invite": "遊戲邀請",
  "Friend request": "好友邀請",
  "New friend": "新好友",
- "New message": "新訊息"
+ "New message": "新訊息",
+ "Wait for my invites (as friends)": "等我邀請（作為好友）",
+ "waiting for your invites": "等待你的邀請",
+ "In this preview the bots are your online friends: invite them from your game's own Invite Friends, and they answer and join like friends do.": "在這個預覽中，機器人就是你的線上好友：用遊戲自己的「邀請好友」邀請它們，它們會像好友一樣回覆並加入。",
+ "Invite test players": "邀請測試玩家",
+ "Your friends cannot join a preview": "好友無法加入預覽",
+ "Here your test players stand in for them: invite one as a player invites a friend, and it answers and joins through the real invite path.": "這裡由測試玩家代替好友：像玩家邀請好友一樣邀請它們，它們會透過真實的邀請流程回覆並加入。",
+ "No test players are running": "沒有正在執行的測試玩家",
+ "Start a few and they show here as your online friends.": "啟動幾個，它們就會作為你的線上好友出現在這裡。",
+ "Start 3 test players": "啟動 3 個測試玩家"
 }

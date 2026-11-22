@@ -42,7 +42,7 @@ export async function lobbyData(env: Env, token: unknown, g: string, e: string, 
  * away or busy as their hub shows them to the sender; a Busy friend gets it quietly (no pop-up, just the badge and chat).
  */
 export async function sendInvite(env: Env, s: Settings, from: { id: string; name: string }, to: string, project: string, envName: 'live' | 'preview', data: Record<string, unknown>) {
-  if (envName !== 'live') throw new AppError(409, 'Invites work in the live game. In the preview, test with GCP.friends.list() and a private match of your own.', 'preview');
+  if (envName !== 'live') throw new AppError(409, 'Your friends cannot join a preview: invite your test players instead (Test players under the preview, or preview_bots). In the live game invites go to friends.', 'preview');
   await rateLimit(env, 'invite:' + from.id, Math.max(1, Number(s.invites_per_10min) || 30), 600);
   const status = (await presenceOfUser(env, to, from.id)).s;
   const kind = data.lobby ? 'match' : 'game';

@@ -35,6 +35,10 @@ import { BOT_LIMITS, BOT_REGIONS, NET_PROFILES, botId, botMinutes, fleetRequest,
 // @ts-ignore plain JS module
 import { BotClient } from './bot-client.js';
 // @ts-ignore plain JS module
+import { answerBotInvite, createBotInvite } from './social-rules.js';
+import { pushTo } from './social';
+import { lobbyData, rules } from './routes/social';
+// @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
 
 const BOT_SESSION_S = 2 * 3600;
@@ -158,6 +162,7 @@ export class BotFleet extends DurableObject<Env> {
       this.goAll({ kind: 'match', query: qs.toString(), label: `queue ${q.queue}` });
     } else if (t === 'code') this.goAll({ kind: 'match', query: new URLSearchParams({ code: s.cfg.code, players: String(s.cfg.queue?.players || 8) }).toString(), label: `lobby ${s.cfg.code}` });
     else if (t === 'room') this.goAll({ kind: 'room', room: s.cfg.room, label: `room ${s.cfg.room}` });
+    else if (t === 'invite') this.say('waiting for your invites: invite the bots from your game\'s own Invite Friends in the preview (they are your online friends there)');
     else this.say('waiting for you: press your game\'s own Find Match (or open a room) in the preview, and the bots join you');
     await this.ctx.storage.setAlarm(Date.now() + ALARM_MS);
   }
@@ -169,13 +174,60 @@ export class BotFleet extends DurableObject<Env> {
   }
 
   /** The creator searched or opened a room in this preview: following bots that are free go there too. */
-  async follow(target: BotTarget): Promise<{ sent: number }> {
-    if (!this.info || this.ended || this.info.cfg.target !== 'follow') return { sent: 0 };
+  async follow(target: BotTarget | { kind: 'private' }): Promise<{ sent: number }> {
+    if (!this.info || this.ended) return { sent: 0 };
+    // a private lobby is entered by invite only, by bots as by anyone: say how
+    if (target.kind === 'private') { this.say('you opened a private lobby: invite bots into it from your game\'s Invite Friends (they show there as your online friends)'); return { sent: 0 }; }
+    if (this.info.cfg.target !== 'follow') return { sent: 0 };
     this.followed = target;
     const free = (b: any) => ['idle', 'ended', 'out', 'left'].includes(b.phase) || (target.kind === 'room' && b.phase === 'in room' && b.target?.room !== target.room);
     const before = this.bots.filter(free).length;
     this.goAll(target, free);
     return { sent: before };
+  }
+
+  /**
+   * The creator invited a bot from the game (GCP.friends.invite or the invite picker over the preview). Like a player, it
+   * reads the invite for a moment and answers: yes when it is free (it leaves a search or a room for it), no when it is
+   * in a match. Yes enters the private lobby through the real invite path (/api/rt/match?invite=), or the room the
+   * invite's data names ({ room }), as the game's own join code would.
+   */
+  async invite(o: { id: string; bot: string; game: unknown; data: Record<string, any> }): Promise<{ ok: true; name: string; status: string }> {
+    if (!this.info || this.ended) throw new Error('No test bots are running.');
+    const b = this.bots.find((x) => x.id === o.bot);
+    if (!b) throw new Error('That test bot is not running.');
+    const status = this.friendStatus(b);
+    this.say(`${b.name}: got your invite${o.data.label ? ` (${o.data.label})` : ''}`);
+    const wait = 700 + Math.floor(Math.random() * 900);
+    setTimeout(() => { void this.answer(b, o, status === 'online').catch((e) => this.say(`${b.name}: could not answer the invite: ${String((e as Error)?.message || e).slice(0, 160)}`)); }, wait);
+    return { ok: true, name: b.name, status };
+  }
+
+  /** How a bot shows in the creator's friends list in the preview: online when free, busy in a match. */
+  private friendStatus(b: any): 'online' | 'busy' {
+    return ['playing', 'waiting', 'reconnecting', 'away'].includes(b.phase) ? 'busy' : 'online';
+  }
+
+  private answers: { id: string; bot: string; name: string; accepted: boolean; at: number; why?: string }[] = [];
+  private async answer(b: any, o: { id: string; data: Record<string, any> }, yes: boolean) {
+    if (!this.info || this.ended || b.stopped) return;
+    const r = await answerBotInvite(this.env.DB, b.id, o.id, yes) as { from: string; game: unknown; join?: any };
+    this.answers.push({ id: o.id, bot: b.id, name: b.name, accepted: yes, at: Date.now(), ...(yes ? {} : { why: 'in a match' }) });
+    if (this.answers.length > 20) this.answers.shift();
+    // the creator's platform page hears it as from a friend (a toast, and the game's GCP.friends.on('answer'))
+    await pushTo(this.env, r.from, { kind: 'invite_answer', id: o.id, by: { id: b.id, name: b.name }, accepted: yes, game: r.game, test_bot: true });
+    if (!yes) { this.say(`${b.name}: declined your invite (busy in a match)`); return; }
+    const room = o.data?.data && typeof o.data.data === 'object' ? (o.data.data as any).room : null;
+    if (o.data?.lobby) {
+      b.closeAll(); b.searchStarted = Date.now();
+      this.say(`${b.name}: accepted, joining your private lobby`);
+      void b.go({ kind: 'match', query: new URLSearchParams({ invite: o.id }).toString(), label: 'your invite' });
+    } else if (typeof room === 'string' && room) {
+      if (b.phase === 'in room' && b.target?.room === room) { this.say(`${b.name}: accepted (already in ${room})`); return; }
+      b.closeAll();
+      this.say(`${b.name}: accepted, joining room ${room}`);
+      void b.go({ kind: 'room', room, label: `room ${room}` });
+    } else this.say(`${b.name}: accepted (the invite names no match or room, so a player would just open the game)`);
   }
 
   async act(a: { bot?: string; action: string; ms?: number; extra?: number; net?: unknown; reload?: boolean }): Promise<{ ok: true; bots: number }> {
@@ -208,7 +260,7 @@ export class BotFleet extends DurableObject<Env> {
       running, fleet: info.fleet, version: this.version, region: info.region, region_name: info.region === 'auto' ? BOT_REGIONS.auto : (BOT_REGIONS as Record<string, string>)[info.region], target: info.cfg.target,
       following: this.followed ? (this.followed.label || this.followed.kind) : null, ends_at: new Date(info.endsAt).toISOString(), seconds_left: Math.max(0, Math.round((info.endsAt - t) / 1000)),
       brain: { note: this.brain.note, kind: this.brain.desc?.think ? 'game' : this.brain.desc?.actions ? 'generic' : 'none', think_ms: this.brain.desc?.thinkMs ?? null },
-      bots: this.bots.map((b) => b.status(t)), log: this.log.slice(-30), ended: this.ended && { at: new Date(this.ended.at).toISOString(), why: this.ended.why },
+      bots: this.bots.map((b) => ({ ...b.status(t), friend: this.friendStatus(b) })), invites: this.answers.slice(-10).map((x) => ({ ...x, at: new Date(x.at).toISOString() })), log: this.log.slice(-30), ended: this.ended && { at: new Date(this.ended.at).toISOString(), why: this.ended.why },
     };
   }
 
@@ -251,9 +303,9 @@ export class BotFleet extends DurableObject<Env> {
     }
     const t = Date.now();
     if (t >= info.endsAt) { await this.halt(`time is up (${info.cfg.minutes} minutes)`); return; }
-    if (info.cfg.target === 'follow') {
+    if (info.cfg.target === 'follow' || info.cfg.target === 'invite') {
       for (const b of this.bots) if (b.phase === 'searching' && b.searchStarted && t - b.searchStarted > FOLLOW_GIVE_UP_MS) { b.closeAll(); b.set('idle', 'no match came: waiting for your next search'); }
-    } else if (info.cfg.target !== 'room') {
+    } else if (info.cfg.target === 'queue' || info.cfg.target === 'code') {
       // a queue or lobby fleet plays on: after a match it looks for the next one
       for (const b of this.bots) if (['ended', 'idle'].includes(b.phase) && b.target && (!b.endedAt || t - b.endedAt > 3000)) { if (b.phase === 'ended' && !b.endedAt) { b.endedAt = t; continue; } b.endedAt = 0; b.searchStarted = t; void b.go(b.target); }
     }
@@ -364,10 +416,50 @@ export async function stopBots(env: Env, u: User, projectId: string) {
  * Called by /api/rt/match and /api/rt/room when the game's owner searches or opens a room in their preview: a running
  * 'follow' fleet sends its free bots after them. Never fails or slows the creator's own request.
  */
-export async function followCreator(env: Env, pid: string, owner: string, target: BotTarget): Promise<void> {
+export async function followCreator(env: Env, pid: string, owner: string, target: BotTarget | { kind: 'private' }): Promise<void> {
   try {
     if (!env.BOTS) return;
     const f = await activeFleet(env, pid, owner);
     if (f) await stubOf(env, f.do_name, f.region).follow(target);
   } catch (e) { console.error('bots follow', String((e as Error)?.message || e)); }
+}
+
+// ----- bots as the creator's friends in the preview ------------------------------------------------------------------
+// Real friends never meet a preview, so a creator could not test their game's invite flow. A running fleet's bots show
+// in GCP.friends.list() in the owner's preview as online friends (busy while in a match), and an invite to one goes
+// through the same invite record a friend's does: the bot answers (GCP.friends.on('answer') in the game, a toast on the
+// page) and enters the private lobby with the invite, as a friend's page would with GCP.match.join(join).
+
+/** The running fleet's bots as GCP.friends.list() shows friends, in the owner's preview. [] when none run. */
+export async function botFriends(env: Env, pid: string, owner: string): Promise<{ id: string; name: string; status: string; playing: unknown; since: null; joinable: false; invitable: true; test_bot: true }[]> {
+  try {
+    if (!env.BOTS) return [];
+    const f = await activeFleet(env, pid, owner);
+    if (!f) return [];
+    const st = await stubOf(env, f.do_name, f.region).status();
+    if (!st.running) return [];
+    return (st.bots || []).map((b: any) => ({ id: b.id, name: b.name, status: b.friend || 'online', playing: b.friend === 'busy' ? { here: true, title: '', detail: 'Test player' } : null, since: null, joinable: false, invitable: true, test_bot: true }));
+  } catch (e) { console.error('bot friends', String((e as Error)?.message || e)); return []; }
+}
+
+/**
+ * The owner invites one of their running test bots (from the game in the preview, the invite picker over it, or the MCP
+ * tool). data is what an invite to a friend carries (lobby, label, data), already checked by the caller.
+ */
+export async function inviteBot(env: Env, pid: string, owner: string, to: string, data: Record<string, unknown>) {
+  const f = await activeFleet(env, pid, owner);
+  if (!f || !to.startsWith(`bot_${f.id.slice(0, 8)}_`)) throw new AppError(409, 'That test player is not running any more. Start test players again under the preview.', 'not_online');
+  const inv = await rules(() => createBotInvite(env.DB, { from: owner, to, project: pid, kind: data.lobby ? 'match' : 'game', data })) as { id: string; expires_at: number };
+  const r = await stubOf(env, f.do_name, f.region).invite({ id: inv.id, bot: to, game: pid, data: { ...data } }).catch((e: unknown) => { throw new AppError(409, String((e as Error)?.message || e), 'not_online'); });
+  return { ok: true, id: inv.id, status: r.status, expires_at: inv.expires_at, test_bot: true };
+}
+
+/** The console's invite (the picker over the preview, and the MCP tool): checks the owner, then as above. */
+export async function inviteBotFor(env: Env, u: User, projectId: string, b: Record<string, any>) {
+  const p = await ownedProject(env, u, projectId);
+  const to = String(b.bot || '');
+  if (!/^bot_[a-z0-9]{8}_\d{1,2}$/.test(to)) throw bad('bot must be a test bot\'s id (from the status).');
+  const data: Record<string, unknown> = b.lobby ? await lobbyData(env, b.lobby, p.id, 'preview', b.label) : (b.label != null ? { label: String(b.label).slice(0, 60) } : {});
+  if (b.data !== undefined) data.data = b.data;
+  return inviteBot(env, p.id, u.id, to, data);
 }

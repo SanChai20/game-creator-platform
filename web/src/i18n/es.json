@@ -1912,7 +1912,6 @@
  "{name} accepted your friend request": "{name} aceptó tu solicitud de amistad",
  "Reply": "Responder",
  "{name} invites you to play {game}": "{name} te invita a jugar a {game}",
- "Decline": "Rechazar",
  "{name} accepted your invite to {game}": "{name} aceptó tu invitación a {game}",
  "{name} declined your invite": "{name} rechazó tu invitación",
  "{name} is joining you in {game}": "{name} se está uniendo a ti en {game}",
@@ -1925,7 +1924,6 @@
  "Busy": "Ocupado",
  "Invisible": "Invisible",
  "just started": "recién empezado",
- "{n} min": "{n} min",
  "{h} h {m} min": "{h} h {m} min",
  "Playing {game}": "Jugando a {game}",
  "Friends, {n} new": "Amigos, {n} nuevos",
@@ -2112,5 +2110,14 @@
  "Game invite": "Invitación a jugar",
  "Friend request": "Solicitud de amistad",
  "New friend": "Nuevo amigo",
- "New message": "Mensaje nuevo"
+ "New message": "Mensaje nuevo",
+ "Wait for my invites (as friends)": "Esperar mis invitaciones (como amigos)",
+ "waiting for your invites": "esperando tus invitaciones",
+ "In this preview the bots are your online friends: invite them from your game's own Invite Friends, and they answer and join like friends do.": "En esta vista previa los bots son tus amigos en línea: invítalos desde el propio Invitar amigos de tu juego, y responden y se unen como lo hacen los amigos.",
+ "Invite test players": "Invitar jugadores de prueba",
+ "Your friends cannot join a preview": "Tus amigos no pueden unirse a una vista previa",
+ "Here your test players stand in for them: invite one as a player invites a friend, and it answers and joins through the real invite path.": "Aquí tus jugadores de prueba los sustituyen: invita a uno como un jugador invita a un amigo, y responde y se une por el camino real de invitación.",
+ "No test players are running": "No hay jugadores de prueba en marcha",
+ "Start a few and they show here as your online friends.": "Inicia algunos y aparecerán aquí como tus amigos en línea.",
+ "Start 3 test players": "Iniciar 3 jugadores de prueba"
 }

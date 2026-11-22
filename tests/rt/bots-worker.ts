@@ -11,6 +11,8 @@ export { Matchmaker } from '../../src/matchmaker';
 export { BotFleet } from '../../src/bots';
 
 const app = new Hono<{ Bindings: any }>();
+// as the platform answers (src/index.ts): an AppError is its status and { error, code }
+app.onError((e: any, c) => (e && e.status && e.code ? c.json({ error: e.message, code: e.code }, e.status) : c.json({ error: String(e?.message || e) }, 500)));
 app.route('/api/rt', rt);
 app.post('/seed', async (c) => {
   const b = await c.req.json<{ files: Record<string, string>; manifest: unknown }>(), db = c.env.DB, t = Date.now();

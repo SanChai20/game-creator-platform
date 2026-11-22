@@ -366,6 +366,30 @@ export async function acceptedInvite(db, me, id, g, e, t = now()) {
   let d = {}; try { d = JSON.parse(r.data || '{}'); } catch { return null; }
   return d.lobby ? { ...d, from: r.from_id } : null;
 }
+/**
+ * A creator's invite to one of their own preview test bots (src/bots.ts): the same invite row a friend gets, in the
+ * preview, so the bot enters the lobby through the real invite path (acceptedInvite). No friendship (a bot is nobody's
+ * friend), no chat line, and no live-game check: the caller has checked that the bot is in the creator's running fleet.
+ */
+export async function createBotInvite(db, { from, to, project, kind = 'game', data = {} }, t = now()) {
+  if (!/^bot_[a-z0-9]{8}_\d{1,2}$/.test(String(to))) throw err(400, 'bad_request', 'That is not a test bot.');
+  const id = 'inv_' + rnd(10), clean = cleanInviteData(data), ttl = INVITE_TTL_MS[kind] || INVITE_TTL_MS.game;
+  await exec(db, [
+    db.prepare("UPDATE game_invites SET status = 'cancelled', answered_at = ? WHERE from_id = ? AND to_id = ? AND project_id = ? AND status = 'sent'").bind(t, from, to, project),
+    db.prepare("INSERT INTO game_invites (id, from_id, to_id, project_id, env, kind, data, status, created_at, expires_at) VALUES (?, ?, ?, ?, 'preview', ?, ?, 'sent', ?, ?)")
+      .bind(id, from, to, project, kind, JSON.stringify(clean), t, t + ttl),
+  ]);
+  return { id, kind, label: clean.label || '', created_at: t, expires_at: t + ttl };
+}
+/** A test bot answers a preview invite: as answerInvite, without the live-game check (the preview is never live). */
+export async function answerBotInvite(db, bot, id, accept, t = now()) {
+  const r = await inviteRow(db, id);
+  if (!r || r.to_id !== bot || r.env !== 'preview') throw err(404, 'not_found', 'No such invite.');
+  if (r.status !== 'sent') throw err(409, 'gone', r.status === 'cancelled' ? 'This invite was withdrawn.' : 'This invite was already answered.');
+  if (r.expires_at <= t) throw err(409, 'expired', 'This invite has expired.');
+  await db.prepare('UPDATE game_invites SET status = ?, answered_at = ? WHERE id = ? AND status = \'sent\'').bind(accept ? 'accepted' : 'declined', t, id).run();
+  return { invite: id, from: r.from_id, accepted: !!accept, game: gameRef(r, r.project_id), ...(accept ? { join: joinOf(r) } : {}) };
+}
 /** "Join" on a friend who offers a place: recorded as an invite the joiner has already accepted. */
 export async function createJoin(db, { me, friend, project, env = 'live', data }, t = now()) {
   if (!(await areFriends(db, me, friend)) || await blockedEither(db, me, friend)) throw err(403, 'not_friends', 'You can join only your friends.');

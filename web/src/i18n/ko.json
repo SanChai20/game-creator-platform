@@ -1913,7 +1913,6 @@
  "{name} accepted your friend request": "{name} 님이 친구 요청을 수락했습니다",
  "Reply": "답장",
  "{name} invites you to play {game}": "{name} 님이 {game} 함께 하자고 초대했습니다",
- "Decline": "거절",
  "{name} accepted your invite to {game}": "{name} 님이 {game} 초대를 수락했습니다",
  "{name} declined your invite": "{name} 님이 초대를 거절했습니다",
  "{name} is joining you in {game}": "{name} 님이 {game}에 합류하는 중입니다",
@@ -1926,7 +1925,6 @@
  "Busy": "바쁨",
  "Invisible": "숨김",
  "just started": "방금 시작",
- "{n} min": "{n}분",
  "{h} h {m} min": "{h}시간 {m}분",
  "Playing {game}": "{game} 플레이 중",
  "Friends, {n} new": "친구, 새 알림 {n}개",
@@ -2113,5 +2111,14 @@
  "Game invite": "게임 초대",
  "Friend request": "친구 요청",
  "New friend": "새 친구",
- "New message": "새 메시지"
+ "New message": "새 메시지",
+ "Wait for my invites (as friends)": "내 초대를 기다리기 (친구로)",
+ "waiting for your invites": "초대를 기다리는 중",
+ "In this preview the bots are your online friends: invite them from your game's own Invite Friends, and they answer and join like friends do.": "이 미리보기에서는 봇이 내 온라인 친구입니다. 게임 자체의 친구 초대로 초대하면 친구처럼 답하고 참가합니다.",
+ "Invite test players": "테스트 플레이어 초대",
+ "Your friends cannot join a preview": "친구는 미리보기에 참가할 수 없습니다",
+ "Here your test players stand in for them: invite one as a player invites a friend, and it answers and joins through the real invite path.": "여기서는 테스트 플레이어가 친구를 대신합니다. 친구를 초대하듯 초대하면 실제 초대 경로로 답하고 참가합니다.",
+ "No test players are running": "실행 중인 테스트 플레이어가 없습니다",
+ "Start a few and they show here as your online friends.": "몇 개를 시작하면 여기에 온라인 친구로 표시됩니다.",
+ "Start 3 test players": "테스트 플레이어 3개 시작"
 }
