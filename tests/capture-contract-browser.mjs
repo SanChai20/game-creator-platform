@@ -39,6 +39,21 @@ async function check(name, path, expect, url, opts = {}) {
   } catch (e) { failed++; console.log('  ✗', name, String(e.message || e).split('\n')[0]); }
   finally { await page.close(); }
 }
+// The console's preview greys out Capture feedback unless the game tells it that it hands over its frame: the SDK says
+// so to the page around the game (capture_hook) when the game registers GCP.test.onCapture, and says nothing otherwise.
+async function hookSaid(path) {
+  const page = await browser.newPage();
+  try {
+    await page.setContent('<iframe id="g" style="width:640px;height:360px;border:0"></iframe>');
+    await page.evaluate((src) => { window.said = []; addEventListener('message', (e) => { if (e.data && e.data.gcp === 'capture_hook') window.said.push(e.data.on); }); document.getElementById('g').src = src; }, 'http://127.0.0.1:8932' + path);
+    await page.waitForTimeout(4000);
+    return await page.evaluate(() => window.said);
+  } finally { await page.close(); }
+}
+if (!process.env.ONLY) {
+  try { assert.deepEqual(await hookSaid('/contract.html'), [true]); console.log('  ✓ a game with GCP.test.onCapture tells the console it can be captured'); } catch (e) { failed++; console.log('  ✗ capture_hook from a game with the hook', String(e.message || e).split('\n')[0]); }
+  try { assert.deepEqual(await hookSaid('/html-ui.html'), []); console.log('  ✓ a game without it says nothing (Capture feedback stays greyed out)'); } catch (e) { failed++; console.log('  ✗ capture_hook from a game without the hook', String(e.message || e).split('\n')[0]); }
+}
 if (!process.env.ONLY) await check('a game drawn in its canvases, with both hooks, passes', '/contract.html', (c, r) => { assert.equal(c.ok, true, c.detail); assert.equal(r.capture.exact, true); });
 if (!process.env.ONLY) await check('a text field over the game is allowed and noted', '/contract.html?field=1', (c, r) => { assert.equal(c.ok, true, c.detail); assert.ok(r.notes.some((n) => /Text fields/.test(n))); assert.deepEqual(r.capture.redrawn, ['input#name']); });
 if (!process.env.ONLY) await check('a hook that hands over only part of the frame fails', '/contract.html?wrong=1', (c) => { assert.equal(c.ok, false); assert.match(c.detail, /does not match the screen/); });

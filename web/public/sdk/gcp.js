@@ -2000,7 +2000,7 @@
           The platform copies those canvases right after the game draws its next frame, wherever they are drawn (this page or
           a Web Worker, 2D, WebGL or WebGPU), so the creator's feedback screenshots are the frame they saw, on every device.
           A game draws all of its UI in its canvases: the preview check fails elements of the page painted over the game. */
-      onCapture: function (fn) { captureFn = typeof fn === 'function' ? fn : null; S.capture = !!captureFn; },
+      onCapture: function (fn) { captureFn = typeof fn === 'function' ? fn : null; S.capture = !!captureFn; toParent({ gcp: 'capture_hook', on: S.capture }); },   // the preview's Capture feedback works only with it
     },
     /** Open (true), close (false) or toggle (no argument) the platform's menu in the player: Resume and Quit game. Give your
         own pause screen a button for it when the game hides the platform's menu button (setDisplay({ exitButton: 'none' })). */

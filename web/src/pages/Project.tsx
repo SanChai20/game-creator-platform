@@ -136,7 +136,7 @@ export function Project({ id }: { id: string }) {
   usePlayClock(preview ? previewSession : null, preview ? previewClock : null);   // the platform's play clock for the preview session (src/play-clock.ts)
   // creator feedback: a capture being marked up (the game keeps its place, hidden, behind the editor), and a counter that
   // refreshes the queue card after an item was added
-  const stage = useRef<StageCtl>(null), stageBox = useRef<HTMLDivElement>(null), [shot, setShot] = useState<Shot | null>(null), [fbStamp, setFbStamp] = useState(0);
+  const stage = useRef<StageCtl>(null), stageBox = useRef<HTMLDivElement>(null), [shot, setShot] = useState<Shot | null>(null), [fbStamp, setFbStamp] = useState(0), [canCapture, setCanCapture] = useState(false);
 
   // While a deployment is running, keep the page fresh.
   const working = !!data?.versions.some((v: any) => ['queued', 'deploying', 'verifying'].includes(v.status));
@@ -262,16 +262,16 @@ export function Project({ id }: { id: string }) {
       {preview && <Modal wide game onClose={() => { setPreview(null); setShot(null); void reload(); }}><div className="stack">
         <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); setShot(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
         {(() => {
-          const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} version={p.preview_version} capture={(pic) => stage.current!.capture(pic)} frame={() => stageBox.current?.querySelector('iframe') ?? null}
+          const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} supported={canCapture} version={p.preview_version} capture={(pic) => stage.current!.capture(pic)}
             fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); (document.activeElement as HTMLElement | null)?.blur?.(); setShot(sh); }} /> : null;
           // While a capture is marked up, the editor covers the game rather than replacing it: the game's frame keeps its
           // size and stays on screen. Hiding or shrinking it would resize the game, and a browser slows the drawing of a
           // frame it no longer shows, which a game can take for a slow device and lower its picture quality for good.
           return <div className="fb-stack">
             <div ref={stageBox} inert={shot ? true : undefined}>
-              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} />
+              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} onCaptureHook={setCanCapture} />
             </div>
-            {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} redraw={() => shot.alt ?? stage.current!.capture(true)} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
+            {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
           </div>;
         })()}
         <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>
