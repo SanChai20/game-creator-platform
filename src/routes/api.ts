@@ -2,12 +2,16 @@
 import { actBots, botOptions, botStatus, inviteBotFor, startBots, stopBots } from '../bots';
 import { Hono } from 'hono';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from '../env';
-import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestCookieId, guestIdentity, userFromRequest, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
+import { clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestCookieId, guestIdentity, userFromRequest, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
+import { CODE_TTL_MS, checkCode, cleanName, confirmedUntil, markConfirmed, newSignupLink, normEmail, peekSignupLink, safeNext, startCode, takeSignupLink, validEmail } from '../email-auth';
+import { ALGS, PASSKEY_CHALLENGE_TTL_MS, passkeyName, verifyAssertion, verifyRegistration, type AssertionJSON, type RegistrationJSON } from '../passkey';
+import { sendAuthMail } from '../auth-mail';
+import { pageLang } from '../consent-text';
 import { GUEST_SESSION_S, PLAY_SESSION_S } from './rt';
 import { gameUrl, playKey, undeployGame } from '../deploy';
 import { ensurePreview } from '../cleanup';
-import { deleteAccount, deleteBlocker, newResetToken, takeResetToken } from '../account';
-import { passwordResetMail } from '../mail';
+import { deleteAccount, deleteBlocker } from '../account';
+import { devMailOn, devOutbox } from '../mail';
 import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
 import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
 import { gameRefundState, purchaseHistory, requestRefund, stripePay } from '../refunds';
@@ -38,7 +42,7 @@ import { payoutReady, stripe, stripeReady, stripeV2, verifyWebhook } from '../st
 import { startWithdrawal } from '../payouts';
 export { autoPayouts, retryTransfers, reverseWithdrawal, sendTransfer } from '../payouts';
 import { beginTrial, trialMinutes, trialState } from '../trials';
-import { addDays, dayOf, now, parseJson, readCapped, rid, safeEqual, sha256 } from '../util';
+import { addDays, b64u, dayOf, now, parseJson, readCapped, rid, safeEqual, sha256, token, unb64 } from '../util';
 // @ts-ignore plain JS module
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
@@ -94,57 +98,115 @@ api.get('/me', async (c) => {
   return c.json({ user: { ...pubUser(u), makes_games: makes } });
 });
 
+// ----- signing up and signing in: no passwords (src/email-auth.ts, src/passkey.ts) ---------------------------------
+// Sign-up is an emailed link, and the account exists only once it is opened; sign-in is a code emailed to the account,
+// or a passkey. With two-factor on, the authenticator code follows the email code. The answers never tell whether an
+// email has an account: every request sends an email, saying what applies to that address.
+const emailFailed = () => new AppError(503, 'We could not send the email right now. Try again in a few minutes.', 'email_failed');
+const authLinks = (origin: string, email: string, next: string | null) => {
+  const q = (p: string) => `${origin}${p}?email=${encodeURIComponent(email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`;
+  return { login: q('/login'), signup: q('/signup') };
+};
+
 api.post('/auth/signup', async (c) => {
-  const b = await c.req.json<{ email?: string; name?: string; password?: string }>().catch(() => ({} as any)), s = await getSettings(c.env);
+  const b = await c.req.json<{ email?: string; name?: string; next?: string }>().catch(() => ({} as any)), s = await getSettings(c.env);
   if (!s.signups_open) throw forbidden('Sign-ups are closed right now.');
   // Per network, not per person: carriers in much of Asia, Africa and South America put thousands of phones behind one
   // IPv4 address (carrier-grade NAT), so the bar is set for a busy shared address, not one household.
   await rateLimit(c.env, 'signup:' + clientNet(c.req.raw), 30, 3600);
-  const email = String(b.email || '').trim().toLowerCase(), name = String(b.name || '').trim().slice(0, 40), pw = String(b.password || '');
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 200) throw bad('Enter a valid email address.');
+  const email = normEmail(b.email), name = cleanName(b.name), next = safeNext(b.next);
+  if (!validEmail(email)) throw bad('Enter a valid email address.');
   if (name.length < 2) throw bad('Choose a display name of at least 2 characters.');
-  if (pw.length < 8 || pw.length > 200) throw bad('Password must be at least 8 characters.');
-  if (await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) throw new AppError(409, 'An account with that email already exists. Sign in instead.', 'exists');
-  const id = newUserId();
-  await c.env.DB.prepare('INSERT INTO users (id, email, name, pw_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)').bind(id, email, name, await hashPassword(pw), now(), now()).run();
-  await ensureProfile(c.env.DB, { id, name }).catch(() => {});   // findable by friends from the start (src/social-rules.js)
-  await endPreviousLogin(c.env, c.req.raw);   // games still open on the browser's earlier sign-in stop (see session-binding.js)
-  c.header('set-cookie', await createSession(c.env, c.req.raw, id));
-  return c.json({ ok: true });
+  await rateLimit(c.env, 'signupmail:' + email, 4, 3600);   // nobody's inbox is flooded with links
+  const lang = pageLang(c.req.raw), links = authLinks(c.get('origin'), email, next);
+  const taken = await c.env.DB.prepare("SELECT 1 FROM users WHERE email = ? AND status != 'deleted'").bind(email).first();
+  const sent = taken
+    ? await sendAuthMail(c.env, email, lang, { kind: 'signup_exists', link: links.login })
+    : await sendAuthMail(c.env, email, lang, { kind: 'signup_link', name, link: `${c.get('origin')}/verify?token=${await newSignupLink(c.env, email, name, next)}` });
+  if (!sent) throw emailFailed();
+  return c.json({ ok: true, sent: true });
 });
 
-const DUMMY_HASH = 'pbkdf2$100000$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+// The page the sign-up link opens shows who the account is for; nothing is created until the person confirms there.
+api.get('/auth/signup/link', async (c) => {
+  await rateLimit(c.env, 'signuppeek:' + clientNet(c.req.raw), 60, 3600);
+  const l = await peekSignupLink(c.env, String(c.req.query('token') || ''));
+  if (!l) throw new AppError(400, 'This link has expired or was already used. Create your account again to get a new link.', 'bad_token');
+  const exists = !!(await c.env.DB.prepare("SELECT 1 FROM users WHERE email = ? AND status != 'deleted'").bind(l.email).first());
+  return c.json({ email: l.email, name: l.name, exists });
+});
+
+api.post('/auth/signup/confirm', async (c) => {
+  const b = await c.req.json<{ token?: string }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'signupconfirm:' + clientNet(c.req.raw), 30, 3600);
+  const l = await takeSignupLink(c.env, String(b.token || ''));
+  if (!l) throw new AppError(400, 'This link has expired or was already used. Create your account again to get a new link.', 'bad_token');
+  const t = now();
+  let u = await c.env.DB.prepare("SELECT id, status FROM users WHERE email = ? AND status != 'deleted'").bind(l.email).first<{ id: string; status: string }>();
+  const created = !u;
+  if (!u) {
+    if (!(await getSettings(c.env)).signups_open) throw forbidden('Sign-ups are closed right now.');
+    const id = newUserId();
+    // pw_hash is a leftover NOT NULL column: no account has a password any more
+    await c.env.DB.prepare("INSERT INTO users (id, email, name, pw_hash, created_at, last_seen_at, email_verified_at) VALUES (?, ?, ?, '', ?, ?, ?)").bind(id, l.email, l.name, t, t, t).run();
+    await ensureProfile(c.env.DB, { id, name: l.name }).catch(() => {});   // findable by friends from the start (src/social-rules.js)
+    u = { id, status: 'active' };
+  } else {
+    // the link proves the email, so it signs in to the account that has it (two-factor still applies)
+    if (u.status !== 'active') throw forbidden('This account is suspended.');
+    await c.env.DB.prepare('UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?').bind(t, u.id).run();
+    if (await twoFactorOn(c.env, u.id)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, u.id), next: l.next });
+  }
+  await signIn(c, u.id, 'link');
+  return c.json({ ok: true, created, next: l.next });
+});
+
+// Signing in, step 1: a 6-digit code to the email. Every email gets a handle back; only an account's email gets a code
+// (others get an email saying no account uses them), so neither the answer nor its timing tells who has an account.
 api.post('/auth/login', async (c) => {
-  const b = await c.req.json<{ email?: string; password?: string }>().catch(() => ({} as any));
-  const email = String(b.email || '').trim().toLowerCase();
-  // Attempts are limited per network (many emails from one place), per email from one network (guessing one password),
-  // and per email overall at a higher bar (a spread-out attack), so a stranger cannot lock someone out with a few tries.
-  const net = clientNet(c.req.raw);
+  const b = await c.req.json<{ email?: string; next?: string }>().catch(() => ({} as any));
+  const email = normEmail(b.email), net = clientNet(c.req.raw);
+  if (!validEmail(email)) throw bad('Enter a valid email address.');
+  // per network (many emails from one place), and per email: a few codes per quarter hour, so no inbox is flooded
   await rateLimit(c.env, 'loginnet:' + net, 60, 900);
-  await rateLimit(c.env, 'login:' + email + '|' + net, 10, 900);
-  await rateLimit(c.env, 'loginall:' + email, 200, 3600);
-  const u = await c.env.DB.prepare('SELECT id, pw_hash, status FROM users WHERE email = ?').bind(email).first<{ id: string; pw_hash: string; status: string }>();
-  // an unknown email costs the same hash as a known one, so the answer time does not tell which emails have accounts
-  const good = await checkPassword(String(b.password || ''), u?.pw_hash || DUMMY_HASH);
-  if (!u || !good) throw new AppError(401, 'Wrong email or password.', 'bad_login');
-  if (u.status !== 'active') throw forbidden('This account is suspended.');
-  // With two-factor on, the right password only opens the second step: nothing is signed in until the code follows.
-  if (await twoFactorOn(c.env, u.id)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, u.id) });
-  return c.json(await signIn(c, u.id));
+  await rateLimit(c.env, 'logincode:' + email, 5, 900);
+  await rateLimit(c.env, 'loginall:' + email, 20, 86400 / 4);
+  const u = await c.env.DB.prepare("SELECT id, name, status FROM users WHERE email = ? AND status != 'deleted'").bind(email).first<{ id: string; name: string; status: string }>();
+  const lang = pageLang(c.req.raw), { handle, code } = await startCode(c.env, 'login', email, u?.id || null);
+  const sent = u && code
+    ? await sendAuthMail(c.env, email, lang, { kind: 'login_code', name: u.name, code })
+    : await sendAuthMail(c.env, email, lang, { kind: 'login_unknown', link: authLinks(c.get('origin'), email, safeNext(b.next)).signup });
+  if (!sent) throw emailFailed();
+  return c.json({ ok: true, challenge: handle, expires_in: Math.round(CODE_TTL_MS / 1000) });
 });
 
-/** Signs this browser in as the account (the password, and the code when two-factor is on, were checked). */
-async function signIn(c: Ctx, userId: string) {
+// Signing in, step 2: the code from the email. With two-factor on, it opens the authenticator step (/auth/login/code).
+api.post('/auth/login/verify', async (c) => {
+  const b = await c.req.json<{ challenge?: string; code?: string }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'loginverify:' + clientNet(c.req.raw), 60, 900);
+  const r = await checkCode(c.env, 'login', String(b.challenge || ''), String(b.code || ''));
+  if (!r.ok) throw r.reason === 'expired'
+    ? new AppError(401, 'This code has expired or had too many wrong tries. Ask for a new code.', 'code_expired')
+    : new AppError(401, 'That code is not right. Use the code in the latest email from us.', 'bad_email_code');
+  const u = await c.env.DB.prepare('SELECT status FROM users WHERE id = ?').bind(r.userId).first<{ status: string }>();
+  if (u?.status !== 'active') throw forbidden('This account is suspended.');
+  await c.env.DB.prepare('UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?').bind(now(), r.userId).run();
+  if (await twoFactorOn(c.env, r.userId)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, r.userId) });
+  return c.json(await signIn(c, r.userId, 'email'));
+});
+
+/** Signs this browser in as the account (its email code or link, and the authenticator code when two-factor is on, were checked; or a passkey). */
+async function signIn(c: Ctx, userId: string, method: 'email' | 'link' | 'passkey') {
   await c.env.DB.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').bind(now(), userId).run();
   // Signing in replaces this browser's earlier sign-in, whoever it was: games still open on it (another tab, a reload)
   // stop at their next call instead of carrying on as the previous account.
   await endPreviousLogin(c.env, c.req.raw);
-  c.header('set-cookie', await createSession(c.env, c.req.raw, userId));
+  c.header('set-cookie', await createSession(c.env, c.req.raw, userId, method));
   return { ok: true as const };
 }
 
-// The second step of a sign-in with two-factor on: the challenge from the password step and a code from the
-// authenticator app, or one of the recovery codes (src/two-factor.ts). Five wrong codes and the password is asked again.
+// The authenticator step of a sign-in with two-factor on: the challenge from the email step and a code from the
+// authenticator app, or one of the recovery codes (src/two-factor.ts). Five wrong codes and the sign-in starts again.
 /** Codes one account may try at the second step of signing in, from anywhere: ample for a person, too few to guess with. */
 export const TWO_FACTOR_CODES_PER_15_MIN = 10, TWO_FACTOR_CODES_PER_DAY = 30;
 api.post('/auth/login/code', async (c) => {
@@ -155,12 +217,85 @@ api.post('/auth/login/code', async (c) => {
     await rateLimit(c.env, '2falogind:' + userId, TWO_FACTOR_CODES_PER_DAY, 86400);
   });
   if (!r.ok) throw r.reason === 'expired'
-    ? new AppError(401, 'This sign-in timed out or had too many wrong codes. Enter your password again.', 'challenge_expired')
+    ? new AppError(401, 'This sign-in timed out or had too many wrong codes. Start again with your email.', 'challenge_expired')
     : new AppError(401, 'That code is not right. Check the time on your phone, or use a recovery code.', 'bad_code');
   const u = await c.env.DB.prepare('SELECT status FROM users WHERE id = ?').bind(r.userId).first<{ status: string }>();
   if (u?.status !== 'active') throw forbidden('This account is suspended.');
-  await signIn(c, r.userId);
+  await signIn(c, r.userId, 'email');
   return c.json({ ok: true, used_recovery: r.kind === 'recovery', recovery_left: r.kind === 'recovery' ? (await twoFactorState(c.env, r.userId)).recovery_left : undefined });
+});
+
+// ----- passkeys (src/passkey.ts) -------------------------------------------------------------------------------------
+const rpOf = (c: Ctx) => ({ origin: c.get('origin'), rpId: new URL(c.get('origin')).hostname });
+async function newPasskeyChallenge(c: Ctx, kind: 'register' | 'login' | 'confirm', userId: string | null) {
+  const ch = token(32), t = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM passkey_challenges WHERE expires_at < ?').bind(t),
+    c.env.DB.prepare('INSERT INTO passkey_challenges (id, kind, user_id, expires_at) VALUES (?, ?, ?, ?)').bind(ch, kind, userId, t + PASSKEY_CHALLENGE_TTL_MS),
+  ]);
+  return ch;
+}
+/** Uses up the challenge a ceremony's clientDataJSON names, if it is this kind (and this account's), unexpired and unused. */
+async function takePasskeyChallenge(c: Ctx, cred: { response?: { clientDataJSON?: string } }, kind: string, userId: string | null): Promise<string> {
+  let ch = '';
+  try { ch = String(JSON.parse(new TextDecoder().decode(unb64(String(cred?.response?.clientDataJSON || '')))).challenge || ''); } catch { /* refused below */ }
+  const row = ch && ch.length < 100 ? await c.env.DB.prepare('DELETE FROM passkey_challenges WHERE id = ?1 AND kind = ?2 AND expires_at > ?3 RETURNING user_id').bind(ch, kind, now()).first<{ user_id: string | null }>() : null;
+  if (!row || (userId && row.user_id !== userId)) throw new AppError(400, 'This passkey request expired. Try again.', 'passkey_expired');
+  return ch;
+}
+type PasskeyRow = { id: string; user_id: string; public_key: string; alg: number; sign_count: number; transports: string | null; name: string; created_at: number; last_used_at: number | null };
+const passkeyFailed = (e: unknown) => { console.warn('passkey refused', (e as Error).message); return new AppError(400, 'That passkey could not be verified. Try again, or sign in with an email code.', 'passkey_failed'); };
+/** Checks a sign-in assertion: the account it belongs to (and, with userId, only that account's passkeys). */
+async function checkPasskey(c: Ctx, cred: AssertionJSON, kind: 'login' | 'confirm', userId: string | null): Promise<string> {
+  const challenge = await takePasskeyChallenge(c, cred, kind, userId);
+  const row = typeof cred?.id === 'string' && cred.id.length < 1400 ? await c.env.DB.prepare('SELECT * FROM passkeys WHERE id = ?').bind(cred.id).first<PasskeyRow>() : null;
+  if (!row || (userId && row.user_id !== userId)) throw new AppError(400, 'This passkey is not on any account here. Sign in with an email code, then add it on your account page.', 'passkey_unknown');
+  let counter: number;
+  try { counter = await verifyAssertion(cred, { jwk: JSON.parse(row.public_key), alg: row.alg, counter: row.sign_count }, { challenge, ...rpOf(c) }); }
+  catch (e) { throw passkeyFailed(e); }
+  await c.env.DB.prepare('UPDATE passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?').bind(counter, now(), row.id).run();
+  return row.user_id;
+}
+
+// The options for navigator.credentials.get(): a sign-in (any passkey of the site; the browser offers the ones it has)
+// or, signed in, a confirmation with one of this account's own passkeys.
+api.post('/auth/passkey/options', async (c) => {
+  const b = await c.req.json<{ purpose?: string }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'pkopts:' + clientNet(c.req.raw), 120, 900);
+  const confirm = b.purpose === 'confirm', u = confirm ? requireUser(c) : null;
+  const allow = u ? (await c.env.DB.prepare('SELECT id, transports FROM passkeys WHERE user_id = ?').bind(u.id).all<{ id: string; transports: string | null }>()).results : [];
+  if (u && !allow.length) throw new AppError(409, 'This account has no passkey yet.', 'no_passkey');
+  return c.json({
+    challenge: await newPasskeyChallenge(c, confirm ? 'confirm' : 'login', u?.id || null), rpId: rpOf(c).rpId, timeout: PASSKEY_CHALLENGE_TTL_MS, userVerification: 'required',
+    allowCredentials: allow.map((p) => ({ type: 'public-key', id: p.id, transports: parseJson<string[]>(p.transports, []) })),
+  });
+});
+// A passkey signs in on its own: it is the device plus its fingerprint, face or PIN, so the authenticator code is not asked.
+api.post('/auth/passkey/login', async (c) => {
+  const b = await c.req.json<{ credential?: AssertionJSON }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'pklogin:' + clientNet(c.req.raw), 60, 900);
+  const userId = await checkPasskey(c, b.credential as AssertionJSON, 'login', null);
+  const u = await c.env.DB.prepare('SELECT status FROM users WHERE id = ?').bind(userId).first<{ status: string }>();
+  if (u?.status !== 'active') throw forbidden('This account is suspended.');
+  return c.json(await signIn(c, userId, 'passkey'));
+});
+
+api.post('/auth/logout', async (c) => {
+  const t = sessionToken(c.req.raw), u = c.get('user');
+  if (t) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(await sha256(t)).run();
+  // the friends connection of this sign-in closes now, so this browser goes offline at once (src/social.ts)
+  if (t && u && c.env.SOCIAL) await socialHub(c.env, u.id).closeLogin(await sha256(t)).catch(() => {});
+  c.header('set-cookie', sessionCookie(c.req.raw, '', 0));
+  return c.json({ ok: true });
+});
+// Passwords are gone: a page still open from before gets told what to do instead.
+for (const p of ['/auth/forgot', '/auth/reset', '/auth/password']) api.post(p, () => { throw new AppError(410, 'Passwords are gone. Sign in with a code we email you, or with a passkey.', 'no_passwords'); });
+
+// Local development only: the emails the Worker would have sent, for tests/e2e.mjs and other local runs.
+api.get('/dev/mail', (c) => {
+  if (!devMailOn(c.env)) throw notFound('Not found.');
+  const to = normEmail(c.req.query('to'));
+  return c.json({ mail: devOutbox.filter((m) => !to || m.to === to).slice(-20) });
 });
 
 // Progress this browser made as a guest, offered to the signed-in account. Nothing moves until the player says so
@@ -180,21 +315,11 @@ api.post('/guest-progress', async (c) => {
   return c.json({ ok: true, ...(r || { moved: 0, kept: 0, games: [] }) });
 });
 
-api.post('/auth/logout', async (c) => {
-  const t = sessionToken(c.req.raw), u = c.get('user');
-  if (t) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(await sha256(t)).run();
-  // the friends connection of this sign-in closes now, so this browser goes offline at once (src/social.ts)
-  if (t && u && c.env.SOCIAL) await socialHub(c.env, u.id).closeLogin(await sha256(t)).catch(() => {});
-  c.header('set-cookie', sessionCookie(c.req.raw, '', 0));
-  return c.json({ ok: true });
-});
-
-// ----- account: password, sign-ins, deletion, reset by email (security review, finding 8) --------------------------
-const checkNewPassword = (pw: string) => { if (pw.length < 8 || pw.length > 200) throw bad('Password must be at least 8 characters.'); };
-const pwHashOf = async (c: Ctx, id: string) => (await c.env.DB.prepare('SELECT pw_hash FROM users WHERE id = ?').bind(id).first<{ pw_hash: string }>())?.pw_hash || '';
-async function requirePassword(c: Ctx, u: User, pw: unknown) {
-  await rateLimit(c.env, 'pwcheck:' + u.id, 10, 900);
-  if (!(await checkPassword(String(pw || ''), await pwHashOf(c, u.id)))) throw new AppError(401, 'That is not your current password.', 'bad_password');
+// ----- account: sign-ins, passkeys, two-factor, deletion (security review, finding 8) ------------------------------
+// Sensitive changes need a fresh proof that the person at this sign-in is its owner: signing in counts for ten minutes,
+// and after that a code we email or one of the account's passkeys (src/email-auth.ts, confirmedUntil).
+async function requireConfirmed(c: Ctx) {
+  if (!(await confirmedUntil(c.env, await loginIdOf(c.req.raw)))) throw new AppError(403, 'Confirm it is you first.', 'confirm_required');
 }
 /** Ends every sign-in of this account except the one making the request. */
 async function endOtherSessions(c: Ctx, userId: string) {
@@ -204,13 +329,87 @@ async function endOtherSessions(c: Ctx, userId: string) {
 
 api.get('/account', async (c) => {
   const u = requireUser(c), mine = await loginIdOf(c.req.raw);
-  const rows = await c.env.DB.prepare('SELECT id, created_at, ua FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 50').bind(u.id, now()).all<{ id: string; created_at: number; ua: string }>();
+  const rows = await c.env.DB.prepare('SELECT id, created_at, ua, method FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 50').bind(u.id, now()).all<{ id: string; created_at: number; ua: string; method: string | null }>();
+  const keys = await c.env.DB.prepare('SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at').bind(u.id).all<{ id: string; name: string; created_at: number; last_used_at: number | null }>();
+  const v = await c.env.DB.prepare('SELECT email_verified_at FROM users WHERE id = ?').bind(u.id).first<{ email_verified_at: number | null }>();
   return c.json({
-    user: pubUser(u), created_at: u.created_at,
-    sessions: rows.results.map((r) => ({ created_at: r.created_at, ua: r.ua || '', current: r.id === mine })),
+    user: pubUser(u), created_at: u.created_at, email_verified_at: v?.email_verified_at || null,
+    sessions: rows.results.map((r) => ({ created_at: r.created_at, ua: r.ua || '', method: r.method || null, current: r.id === mine })),
+    passkeys: keys.results,
+    confirmed_until: await confirmedUntil(c.env, mine),
     delete_blocker: await deleteBlocker(c.env, u),
     two_factor: await twoFactorState(c.env, u.id),
   });
+});
+
+// Confirming it is you: a code to the account's email, or one of its passkeys. Either keeps this sign-in confirmed for ten minutes.
+api.post('/account/confirm/send', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'confirmmail:' + u.id, 5, 900);
+  const { handle, code } = await startCode(c.env, 'confirm', u.email, u.id);
+  if (!(await sendAuthMail(c.env, u.email, pageLang(c.req.raw), { kind: 'confirm_code', name: u.name, code: code! }))) throw emailFailed();
+  return c.json({ ok: true, challenge: handle });
+});
+api.post('/account/confirm', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ challenge?: string; code?: string }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'confirmcheck:' + u.id, 20, 900);
+  const r = await checkCode(c.env, 'confirm', String(b.challenge || ''), String(b.code || ''));
+  if (!r.ok || r.userId !== u.id) throw r.ok || r.reason === 'bad_code'
+    ? new AppError(401, 'That code is not right. Use the code in the latest email from us.', 'bad_email_code')
+    : new AppError(401, 'This code has expired or had too many wrong tries. Ask for a new code.', 'code_expired');
+  const id = await loginIdOf(c.req.raw);
+  if (id) await markConfirmed(c.env, id);
+  return c.json({ ok: true, confirmed_until: await confirmedUntil(c.env, id) });
+});
+api.post('/account/confirm/passkey', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ credential?: AssertionJSON }>().catch(() => ({} as any));
+  await rateLimit(c.env, 'confirmpk:' + u.id, 20, 900);
+  await checkPasskey(c, b.credential as AssertionJSON, 'confirm', u.id);
+  const id = await loginIdOf(c.req.raw);
+  if (id) await markConfirmed(c.env, id);
+  return c.json({ ok: true, confirmed_until: await confirmedUntil(c.env, id) });
+});
+
+// Adding a passkey: the options for navigator.credentials.create(), then the browser's answer.
+const MAX_PASSKEYS = 20;
+api.post('/account/passkeys/options', async (c) => {
+  const u = requireUser(c);
+  await requireConfirmed(c);
+  const have = (await c.env.DB.prepare('SELECT id, transports FROM passkeys WHERE user_id = ?').bind(u.id).all<{ id: string; transports: string | null }>()).results;
+  if (have.length >= MAX_PASSKEYS) throw new AppError(409, `An account can have up to ${MAX_PASSKEYS} passkeys. Remove one first.`, 'too_many');
+  const s = await getSettings(c.env);
+  return c.json({
+    challenge: await newPasskeyChallenge(c, 'register', u.id), timeout: PASSKEY_CHALLENGE_TTL_MS, attestation: 'none',
+    rp: { id: rpOf(c).rpId, name: s.brand_name || DEFAULT_BRAND },
+    user: { id: b64u(new TextEncoder().encode(u.id)), name: u.email, displayName: u.name },
+    pubKeyCredParams: ALGS.map((alg) => ({ type: 'public-key', alg })),
+    excludeCredentials: have.map((p) => ({ type: 'public-key', id: p.id, transports: parseJson<string[]>(p.transports, []) })),
+    authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' },
+  });
+});
+api.post('/account/passkeys', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ credential?: RegistrationJSON; name?: string }>().catch(() => ({} as any));
+  await requireConfirmed(c);
+  const challenge = await takePasskeyChallenge(c, b.credential as RegistrationJSON, 'register', u.id);
+  let pk;
+  try { pk = await verifyRegistration(b.credential as RegistrationJSON, { challenge, ...rpOf(c) }); } catch (e) { throw passkeyFailed(e); }
+  if (await c.env.DB.prepare('SELECT 1 FROM passkeys WHERE id = ?').bind(pk.id).first()) throw new AppError(409, 'This passkey is already on an account.', 'exists');
+  const name = cleanName(b.name) || passkeyName(c.req.header('user-agent') || '');
+  await c.env.DB.prepare('INSERT INTO passkeys (id, user_id, public_key, alg, sign_count, transports, name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(pk.id, u.id, JSON.stringify(pk.jwk), pk.alg, pk.counter, JSON.stringify(pk.transports), name, now()).run();
+  return c.json({ ok: true, id: pk.id, name });
+});
+api.post('/account/passkeys/:id/rename', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ name?: string }>().catch(() => ({} as any)), name = cleanName(b.name);
+  if (!name) throw bad('Give the passkey a name.');
+  await c.env.DB.prepare('UPDATE passkeys SET name = ? WHERE id = ? AND user_id = ?').bind(name, c.req.param('id'), u.id).run();
+  return c.json({ ok: true });
+});
+api.post('/account/passkeys/:id/delete', async (c) => {
+  const u = requireUser(c);
+  await requireConfirmed(c);
+  await c.env.DB.prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?').bind(c.req.param('id'), u.id).run();
+  return c.json({ ok: true });
 });
 
 // ----- two-factor sign-in (src/two-factor.ts): the same for every account, players and creators alike ---------------
@@ -219,11 +418,11 @@ async function requireCode(c: Ctx, u: User, code: unknown) {
   await rateLimit(c.env, '2facheck:' + u.id, 10, 900);
   if (!(await useCode(c.env, u.id, String(code || '')))) throw new AppError(401, 'That code is not right. Check the time on your phone, or use a recovery code.', 'bad_code');
 }
-// 1. the password again, then a new secret to put in the authenticator app (a QR code of `uri`, or `secret` typed in)
+// 1. a fresh confirmation, then a new secret to put in the authenticator app (a QR code of `uri`, or `secret` typed in)
 api.post('/account/2fa/setup', async (c) => {
-  const u = requireUser(c), b = await c.req.json<{ password?: string }>().catch(() => ({} as any));
+  const u = requireUser(c);
   if (u.totp_enabled_at) throw new AppError(409, 'Two-factor sign-in is already on.', 'already_on');
-  await requirePassword(c, u, b.password);
+  await requireConfirmed(c);
   return c.json(await beginSetup(c.env, u, (await getSettings(c.env)).brand_name || DEFAULT_BRAND));
 });
 // 2. a code from the app proves it has the secret: two-factor is on, the recovery codes are shown once, and every other
@@ -237,32 +436,19 @@ api.post('/account/2fa/enable', async (c) => {
   return c.json({ ok: true, recovery_codes: codes, ended: await endOtherSessions(c, u.id) });
 });
 api.post('/account/2fa/disable', async (c) => {
-  const u = requireUser(c), b = await c.req.json<{ password?: string; code?: string }>().catch(() => ({} as any));
+  const u = requireUser(c), b = await c.req.json<{ code?: string }>().catch(() => ({} as any));
   if (!u.totp_enabled_at) return c.json({ ok: true });
-  await requirePassword(c, u, b.password);
+  await requireConfirmed(c);
   await requireCode(c, u, b.code);
   await disableTwoFactor(c.env, u.id);
   return c.json({ ok: true });
 });
 api.post('/account/2fa/recovery-codes', async (c) => {
-  const u = requireUser(c), b = await c.req.json<{ password?: string; code?: string }>().catch(() => ({} as any));
+  const u = requireUser(c), b = await c.req.json<{ code?: string }>().catch(() => ({} as any));
   if (!u.totp_enabled_at) throw new AppError(409, 'Turn on two-factor sign-in first.', 'not_on');
-  await requirePassword(c, u, b.password);
+  await requireConfirmed(c);
   await requireCode(c, u, b.code);
   return c.json({ ok: true, recovery_codes: await replaceRecoveryCodes(c.env, u.id) });
-});
-
-api.post('/auth/password', async (c) => {
-  const u = requireUser(c), b = await c.req.json<{ current?: string; password?: string }>().catch(() => ({} as any));
-  const pw = String(b.password || '');
-  checkNewPassword(pw);
-  await requirePassword(c, u, b.current);
-  await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').bind(await hashPassword(pw), u.id),
-    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.id),
-  ]);
-  // whoever else knew the old password is signed out everywhere; this browser stays signed in
-  return c.json({ ok: true, ended: await endOtherSessions(c, u.id) });
 });
 
 api.post('/auth/sessions/end-others', async (c) => {
@@ -270,44 +456,9 @@ api.post('/auth/sessions/end-others', async (c) => {
   return c.json({ ok: true, ended: await endOtherSessions(c, u.id) });
 });
 
-// The answer is the same whether or not the email has an account, so the form cannot be used to find out who has one.
-api.post('/auth/forgot', async (c) => {
-  if (!c.env.EMAIL) throw new AppError(503, 'Password reset by email is not available right now. Contact us to recover your account.', 'no_email');
-  const b = await c.req.json<{ email?: string }>().catch(() => ({} as any));
-  const email = String(b.email || '').trim().toLowerCase().slice(0, 200);
-  await rateLimit(c.env, 'forgotnet:' + clientNet(c.req.raw), 10, 3600);
-  await rateLimit(c.env, 'forgot:' + email, 3, 3600);
-  const u = await c.env.DB.prepare("SELECT id, name, email FROM users WHERE email = ? AND status = 'active'").bind(email).first<{ id: string; name: string; email: string }>();
-  if (u) {
-    const link = `${c.get('origin')}/reset?token=${await newResetToken(c.env, u.id)}`;
-    const send = passwordResetMail(c.env, u.email, u.name, link).then(() => {});
-    // sent after the answer, so how long the answer takes does not tell either
-    try { c.executionCtx.waitUntil(send); } catch { await send; }
-  }
-  return c.json({ ok: true });
-});
-
-api.post('/auth/reset', async (c) => {
-  const b = await c.req.json<{ token?: string; password?: string }>().catch(() => ({} as any));
-  const pw = String(b.password || '');
-  checkNewPassword(pw);
-  await rateLimit(c.env, 'reset:' + clientNet(c.req.raw), 20, 3600);
-  const id = await takeResetToken(c.env, String(b.token || ''));
-  const u = id ? await c.env.DB.prepare('SELECT id, status FROM users WHERE id = ?').bind(id).first<{ id: string; status: string }>() : null;
-  if (!u || u.status !== 'active') throw new AppError(400, 'This reset link has expired or was already used. Ask for a new one.', 'bad_token');
-  await c.env.DB.batch([
-    c.env.DB.prepare('UPDATE users SET pw_hash = ?, last_seen_at = ? WHERE id = ?').bind(await hashPassword(pw), now(), u.id),
-    c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(u.id),
-    c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(u.id),
-  ]);
-  // A reset link proves the email, not the second factor: with two-factor on, the code is still asked before signing in.
-  if (await twoFactorOn(c.env, u.id)) return c.json({ ok: true, two_factor: true, challenge: await startChallenge(c.env, u.id) });
-  return c.json(await signIn(c, u.id));
-});
-
 api.post('/account/delete', async (c) => {
-  const u = requireUser(c), b = await c.req.json<{ password?: string }>().catch(() => ({} as any));
-  await requirePassword(c, u, b.password);
+  const u = requireUser(c);
+  await requireConfirmed(c);
   const blocker = await deleteBlocker(c.env, u);
   if (blocker) throw new AppError(409, blocker, 'cannot_delete');
   await deleteAccount(c.env, u.id);

@@ -103,7 +103,7 @@ admin.patch('/users/:id', async (c) => {
     if (b.status === 'suspended') await c.env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id).run();
   }
   // For someone who lost both their authenticator and their recovery codes: after checking it is really them, an admin
-  // turns two-factor off and they sign in with the password alone (and can turn it on again from their account).
+  // turns two-factor off and they sign in with an email code alone (and can turn it on again from their account).
   if (b.two_factor === false) {
     await disableTwoFactor(c.env, id);
     console.log(JSON.stringify({ event: 'two_factor_reset', user: id, by: me.id }));

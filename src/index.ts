@@ -29,7 +29,11 @@ import { social } from './routes/social';
 import { push } from './routes/push';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
-import { dayOf, esc, now } from './util';
+import { dayOf, esc, now, parseJson } from './util';
+import { GUIDES, gamePage, homePage, injectMeta, isPrivatePath, llmsTxt, robotsTxt, siteJsonLd, sitemapXml, staticPage, type PageMeta, type SitemapEntry } from './seo';
+import { GENRES } from '../web/src/gamemeta';
+import { TAGS, normalizeStoredTags } from '../web/src/tags';
+import { OPERATOR } from '../web/src/operator';
 import { backfill, backfillIdentity } from './originality-check';
 import { backfillMature } from './mature';
 import { TOKENS_CSS } from '../web/src/ui/tokens';
@@ -225,8 +229,81 @@ app.all('/authorize', async (c) => {
   }
 });
 
-// Anything else is the web app (served from static assets; unknown paths fall back to index.html).
-app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
+// ----- being found: robots.txt, the sitemap, llms.txt, and meta tags in the pages (src/seo.ts) ---------------------
+const PUBLIC_TXT = { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=3600', 'access-control-allow-origin': '*' };
+type SeoGame = { slug: string; title: string; tagline: string | null; tags: string | null; price_cents: number; plays: number; updated_at: number | null; published_at: number | null; author: string; age: number | null; open_implementation: number };
+const liveGames = (env: Env, limit: number) => env.DB.prepare(`SELECT p.slug, p.title, p.tagline, p.tags, p.price_cents, p.plays, p.updated_at, p.published_at, p.age, p.open_implementation, u.name AS author
+  FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.status = 'live' ORDER BY p.plays DESC LIMIT ?`).bind(limit).all<SeoGame>().then((r) => r.results);
+const genreOf = (tags: string | null) => normalizeStoredTags(parseJson<string[]>(tags, []))[0] || null;
+
+app.get('/robots.txt', (c) => c.text(robotsTxt(c.get('origin')), 200, PUBLIC_TXT));
+app.get('/sitemap.xml', async (c) => {
+  const games = await liveGames(c.env, 20000), t = now();
+  const entries: SitemapEntry[] = [
+    { path: '/', changefreq: 'daily', priority: 1 }, { path: '/browse', changefreq: 'daily', priority: 0.8 }, { path: '/categories', changefreq: 'weekly', priority: 0.7 },
+    { path: '/create', changefreq: 'weekly', priority: 0.9 }, { path: '/docs', changefreq: 'weekly', priority: 0.9 }, { path: '/creator-store', changefreq: 'daily', priority: 0.7 },
+    ...games.map((g) => ({ path: `/g/${encodeURIComponent(g.slug)}`, lastmod: g.updated_at || g.published_at, changefreq: 'weekly' as const, priority: 0.8 })),
+    ...games.filter((g) => g.open_implementation).map((g) => ({ path: `/creator-store/${encodeURIComponent(g.slug)}`, lastmod: g.updated_at, changefreq: 'weekly' as const, priority: 0.5 })),
+    ...[...GENRES, ...TAGS].map((tag) => ({ path: `/c/${encodeURIComponent(tag)}`, changefreq: 'weekly' as const, priority: 0.5 })),
+    ...GUIDES.map(([f]) => ({ path: `/guides/${f}`, changefreq: 'monthly' as const, priority: 0.6 })),
+    { path: '/llms.txt', lastmod: t, priority: 0.6 }, { path: '/llms-full.txt', lastmod: t, priority: 0.4 },
+    ...['terms', 'privacy', 'cookies', 'refunds'].map((d) => ({ path: `/legal/${d}`, changefreq: 'monthly' as const, priority: 0.2 })),
+  ];
+  return c.body(sitemapXml(c.get('origin'), entries), 200, { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' });
+});
+async function llmsBody(c: { env: Env; get: (k: 'origin') => string }) {
+  const s = await getSettings(c.env), games = await liveGames(c.env, 200);
+  const stats = await c.env.DB.prepare("SELECT COUNT(*) AS games, COUNT(DISTINCT owner_id) AS creators FROM projects WHERE status = 'live'").first<{ games: number; creators: number }>();
+  return llmsTxt({ brand: s.brand_name || 'HearthCade', origin: c.get('origin'), games: stats?.games || 0, creators: stats?.creators || 0, licenseTermCents: s.license_term_cents, licenseTermDays: s.license_term_days, licenseLifetimeCents: s.license_lifetime_cents, feePercent: s.platform_fee_percent, feeOpenPercent: s.platform_fee_open_percent },
+    games.filter((g) => !((g.age || 0) >= 18)).slice(0, 100).map((g) => ({ slug: g.slug, title: g.title, tagline: g.tagline, genre: genreOf(g.tags), price_cents: g.price_cents, author: g.author, plays: g.plays })));
+}
+app.get('/llms.txt', async (c) => c.text(await llmsBody(c), 200, PUBLIC_TXT));
+app.get('/llms-full.txt', async (c) => {
+  const parts = [await llmsBody(c)];
+  for (const [f] of GUIDES) {
+    const r = await c.env.ASSETS.fetch(new Request(`${new URL(c.req.url).origin}/guides/${f}`));
+    if (r.ok && !(r.headers.get('content-type') || '').includes('text/html')) parts.push(`\n\n---\n\n<!-- ${c.get('origin')}/guides/${f} -->\n\n` + (await r.text()).replaceAll('{{ORIGIN}}', c.get('origin')).replaceAll('{{THREE}}', THREE_VERSION).replaceAll('{{TARGET}}', String((await getSettings(c.env)).craft_target)));
+  }
+  return c.text(parts.join(''), 200, PUBLIC_TXT);
+});
+
+/** The page's meta tags, JSON-LD and noscript summary for the app's HTML, or null to send it as it is. */
+async function pageMeta(env: Env, origin: string, path: string): Promise<PageMeta | null> {
+  const brand = (await getSettings(env)).brand_name || 'HearthCade';
+  if (isPrivatePath(path)) return { title: brand, description: brand, path, noindex: true };
+  const site = siteJsonLd(origin, brand, OPERATOR);
+  if (path === '/') {
+    const games = (await liveGames(env, 60)).filter((g) => !((g.age || 0) >= 18)).slice(0, 40);
+    return { ...homePage(origin, brand, games), jsonld: site };
+  }
+  const m = path.match(/^\/g\/([^/]+)$/);
+  if (m) {
+    const slug = decodeURIComponent(m[1]);
+    const g = await env.DB.prepare(`SELECT p.slug, p.title, p.tagline, p.description, p.tags, p.price_cents, p.rating_sum, p.rating_count, p.cover_key, p.age, p.published_at, p.updated_at, p.plays, u.name AS author
+      FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ? AND p.status = 'live'`).bind(slug).first<Record<string, any>>().catch(() => null);
+    if (!g) return null;
+    const tags = normalizeStoredTags(parseJson<string[]>(g.tags, []));
+    const meta = gamePage(origin, brand, { slug: g.slug, title: g.title, tagline: g.tagline, description: g.description, genre: tags[0] || null, tags: tags.slice(1), price_cents: g.price_cents, author: g.author,
+      rating_sum: g.rating_sum, rating_count: g.rating_count, cover: (g.age || 0) >= 18 || !g.cover_key ? null : `${origin}/api/media/${g.cover_key}`, age: g.age, published_at: g.published_at, updated_at: g.updated_at, plays: g.plays,
+      multiplayer: tags.some((x) => ['multiplayer', 'co-op', 'pvp', 'local-multiplayer'].includes(x)) });
+    return { ...meta, jsonld: [...(meta.jsonld || []), ...site] };
+  }
+  const st = staticPage(origin, brand, path);
+  return st ? { ...st, jsonld: site } : null;
+}
+
+// Anything else is the web app (served from static assets; unknown paths fall back to index.html), with the page's own
+// meta in its HTML for crawlers and link previews.
+app.all('*', async (c) => {
+  const res = await c.env.ASSETS.fetch(c.req.raw);
+  if (c.req.method !== 'GET' || res.status !== 200 || !(res.headers.get('content-type') || '').includes('text/html')) return res;
+  const path = new URL(c.req.url).pathname.replace(/\/+$/, '') || '/';
+  const meta = await pageMeta(c.env, c.get('origin'), path).catch((e) => { console.warn('page meta', path, (e as Error).message); return null; });
+  if (!meta) return res;
+  const h = new Headers(res.headers); h.delete('content-length'); h.delete('etag');
+  if (meta.noindex) h.set('x-robots-tag', 'noindex, nofollow');
+  return new Response(injectMeta(await res.text(), c.get('origin'), meta), { status: 200, headers: h });
+});
 
 // ----- wiring ----------------------------------------------------------------------------------
 const providers = new Map<string, OAuthProvider<Env>>();
@@ -291,6 +368,13 @@ function isolated(res: Response): Response {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
+/** Personal pages, sign-in, the API and MCP are never indexed, whatever answers them (src/seo.ts). */
+function unlisted(path: string, res: Response): Response {
+  if (!isPrivatePath(path) || res.status === 101 || res.headers.has('x-robots-tag')) return res;
+  const h = new Headers(res.headers); h.set('x-robots-tag', 'noindex, nofollow');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 /** Every fetch() a game's Dynamic Worker makes (its server code, and the runtime's calls to the platform) comes here
     (src/game-host.ts): the admin's blocked hosts are refused, calls to the platform are answered in-process (one Worker
     does not reach itself over HTTP) and say which game made them, whatever the game's code put in the headers. */
@@ -349,7 +433,7 @@ const handler = {
         return new Response(JSON.stringify({ ...meta, device_authorization_endpoint: `${origin}/oauth/device`, grant_types_supported: [...new Set([...grants, DEVICE_GRANT])] }), { status: 200, headers: h });
       }
     }
-    return isolated(res);
+    return isolated(unlisted(url.pathname, res));
   },
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Everything the store keeps in order runs from here, so no admin has to look after it (src/rankings.ts lists it);
@@ -380,6 +464,9 @@ const handler = {
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare('DELETE FROM login_challenges WHERE expires_at < ?').bind(t),
+      env.DB.prepare('DELETE FROM email_codes WHERE expires_at < ?').bind(t),
+      env.DB.prepare('DELETE FROM signup_links WHERE expires_at < ?').bind(t),
+      env.DB.prepare('DELETE FROM passkey_challenges WHERE expires_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
       // preview test bots (src/bots.ts): a fleet removes its bots' sessions when it stops; these catch one that never did
       env.DB.prepare("DELETE FROM plays WHERE kind = 'bot' AND started_at < ?").bind(t - 86400000),

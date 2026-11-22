@@ -51,21 +51,63 @@ function client() {
 }
 const must = (r, code = 200) => { assert.equal(r.status, code, `expected ${code}, got ${r.status}: ${r.text.slice(0, 300)}`); return r.json; };
 
+// ----- signing up and in: no passwords; the local Worker (DEV_MAIL=1 in .dev.vars) keeps its emails for /api/dev/mail ------
+async function lastMail(to, kind) {
+  for (let i = 0; i < 20; i++) {
+    const r = await fetch(`${BASE}/api/dev/mail?to=${encodeURIComponent(to)}`);
+    assert.equal(r.status, 200, 'set DEV_MAIL=1 in .dev.vars so the local Worker keeps the emails it sends');
+    const m = (await r.json()).mail.filter((x) => kind.test(x.text)).pop();
+    if (m) return m;
+    await sleep(100);
+  }
+  throw new Error(`no email to ${to}`);
+}
+async function signUp(cl, email, name) {
+  const before = Date.now();
+  must(await cl.post('/api/auth/signup', { email, name }));
+  const m = await lastMail(email, /\/verify\?token=/);
+  assert.ok(m.at >= before - 1000);
+  const token = m.text.match(/\/verify\?token=([\w-]+)/)[1];
+  return must(await cl.post('/api/auth/signup/confirm', { token }));
+}
+async function signIn(cl, email) {
+  const { challenge } = must(await cl.post('/api/auth/login', { email }));
+  const code = (await lastMail(email, /sign-in code is \d{6}/)).text.match(/sign-in code is (\d{6})/)[1];
+  return must(await cl.post('/api/auth/login/verify', { challenge, code }));
+}
+
 async function main() {
   console.log(`E2E against ${BASE}`);
   const A = client(), B = client();
   // accounts
-  must(await A.post('/api/auth/signup', { email: `creator-${run}@example.com`, name: 'Creator ' + run, password: 'correct horse' }));
-  must(await B.post('/api/auth/signup', { email: `player-${run}@example.com`, name: 'Player ' + run, password: 'correct horse' }));
-  assert.equal((await A.post('/api/auth/login', { email: `creator-${run}@example.com`, password: 'nope' })).status, 401);
-  ok('sign up, wrong password refused');
+  await signUp(A, `creator-${run}@example.com`, 'Creator ' + run);
+  await signUp(B, `player-${run}@example.com`, 'Player ' + run);
+  { // no account exists before its link is opened; a link works once; a code works once and a wrong one is refused
+  const X = client(), xmail = `pending-${run}@example.com`;
+  must(await X.post('/api/auth/signup', { email: xmail, name: 'Pending ' + run }));
+  assert.equal(must(await X.get('/api/me')).user, null);
+  const xl = await lastMail(xmail, /\/verify\?token=/), xt = xl.text.match(/\/verify\?token=([\w-]+)/)[1];
+  assert.equal(must(await X.get(`/api/auth/signup/link?token=${xt}`)).exists, false);
+  const unknown = must(await X.post('/api/auth/login', { email: xmail }));
+  assert.ok(unknown.challenge, 'an email with no account gets an answer like any other');
+  assert.match((await lastMail(xmail, /no account uses/)).subject, /no account/);
+  must(await X.post('/api/auth/signup/confirm', { token: xt }));
+  assert.equal(must(await X.get('/api/me')).user.email, xmail);
+  assert.equal((await client().post('/api/auth/signup/confirm', { token: xt })).status, 400, 'a link works once');
+  const P = client(), { challenge: lc } = must(await P.post('/api/auth/login', { email: `creator-${run}@example.com` }));
+  const code = (await lastMail(`creator-${run}@example.com`, /sign-in code is/)).text.match(/sign-in code is (\d{6})/)[1];
+  assert.equal((await P.post('/api/auth/login/verify', { challenge: lc, code: code === '000000' ? '111111' : '000000' })).status, 401);
+  must(await P.post('/api/auth/login/verify', { challenge: lc, code }));
+  assert.equal((await client().post('/api/auth/login/verify', { challenge: lc, code })).status, 401, 'a code works once');
+  assert.equal((await P.post('/api/auth/password', { current: 'x', password: 'yyyyyyyy' })).status, 410);
+  }
+  ok('sign up by link (nothing before it is opened, once), sign in by code (once, wrong ones refused), no passwords');
   const claim = await A.post('/api/claim-admin', { token: 'dev-claim' });
   const isAdmin = claim.status === 200;
   assert.ok(isAdmin || claim.status === 403);
   let ADM = A;
   if (!isAdmin) { // an admin exists from an earlier run: reuse it
-    ADM = client(); const l = await ADM.post('/api/auth/login', { email: process.env.ADMIN_EMAIL || 'admin@example.com', password: 'correct horse' });
-    assert.equal(l.status, 200, 'an admin from an earlier run exists; start from a clean local database (rm -rf .wrangler/state) or set ADMIN_EMAIL');
+    ADM = client(); await signIn(ADM, process.env.ADMIN_EMAIL || 'admin@example.com').catch(() => assert.fail('an admin from an earlier run exists; start from a clean local database (rm -rf .wrangler/state) or set ADMIN_EMAIL'));
   }
   assert.equal((await B.get('/api/admin/overview')).status, 403);
   must(await ADM.put('/api/admin/settings', { play_min_seconds: 2, verify_human_min_seconds: 2, earnings_hold_days: 0, refund_window_hours: 0, withdraw_min_cents: 300, new_creator_days: 0 }));
@@ -102,7 +144,7 @@ async function main() {
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } });
   assert.equal(init.protocolVersion, '2025-06-18');
   const tools = (await rpc('tools/list')).tools;
-  assert.equal(tools.length, 25, tools.map((t) => t.name).join(', '));
+  assert.equal(tools.length, 26, tools.map((t) => t.name).join(', '));
   assert.ok(tools.every((t) => t.description.length > 40 && t.inputSchema.type === 'object'));
   assert.match(init.instructions, /web games only/);
   const started = await tool('get_started');
@@ -432,7 +474,7 @@ GCP.ready();
 
   // Binding: every session belongs to the identity that started it. An account's session ends with its sign-in.
   const BC = client(), cmail = `binder-${run}@example.com`;
-  must(await BC.post('/api/auth/signup', { email: cmail, name: 'Binder ' + run, password: 'correct horse' }));
+  await signUp(BC, cmail, 'Binder ' + run);
   const cpl = must(await BC.post(`/api/games/${slug}/play`)), ct = new URL(cpl.url).searchParams.get('gcp_t');
   assert.equal(cpl.player.guest, false); assert.equal(cpl.player.name, 'Binder ' + run);
   const rtc = (tk, path, body) => fetch(`${BASE}/api/rt/${path}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ t: tk, ...body }) });
@@ -441,7 +483,7 @@ GCP.ready();
   const rn = await (await rtc(ct, 'renew', {})).json();
   assert.equal(rn.token, null, 'a fresh token is not renewed early');
   // the same browser signs in as someone else: the first account's game stops at its next call, in every tab
-  must(await BC.post('/api/auth/login', { email: `creator-${run}@example.com`, password: 'correct horse' }));
+  await signIn(BC, `creator-${run}@example.com`);
   const ended = await rtc(ct, 'save', { op: 'set', key: 'slot1', value: { mine: 'creator?' } });
   assert.equal(ended.status, 401); const ej = await ended.json(); assert.equal(ej.code, 'session_ended'); assert.equal(ej.hint, 'signed_out');
   for (const path of ['beat', 'stats', 'score', 'record', 'renew']) assert.equal((await rtc(ct, path, { op: 'all', board: 'b' })).status, 401, `${path} still open after switching accounts`);
@@ -454,7 +496,7 @@ GCP.ready();
   must(await BC.post('/api/auth/logout'));
   assert.equal((await rtc(ct2, 'save', { op: 'get', key: 'slot1' })).status, 401);
   // the binder's save never moved anywhere: signing back in finds it
-  must(await BC.post('/api/auth/login', { email: cmail, password: 'correct horse' }));
+  await signIn(BC, cmail);
   const ct3 = new URL(must(await BC.post(`/api/games/${slug}/play`)).url).searchParams.get('gcp_t');
   assert.deepEqual((await (await rtc(ct3, 'save', { op: 'get', key: 'slot1' })).json()).value, { mine: 'binder' });
   ok('binding: an account session ends when the browser signs out or switches accounts (every service and a reopened page); progress stays with its own account');
@@ -464,7 +506,7 @@ GCP.ready();
   const hpl = must(await H.post(`/api/games/${slug}/play`)), ht = new URL(hpl.url).searchParams.get('gcp_t'), hid = hpl.player.id;
   assert.equal((await rtc(ht, 'save', { op: 'set', key: 'slot9', value: { guestRun: 7 } })).status, 200);
   assert.equal((await rtc(ht, 'beat', { frames: 5, active: false, first: true })).status, 200);
-  must(await H.post('/api/auth/signup', { email: `guest-${run}@example.com`, name: 'Was Guest ' + run, password: 'correct horse' }));
+  await signUp(H, `guest-${run}@example.com`, 'Was Guest ' + run);
   assert.equal((await rtc(ht, 'save', { op: 'get', key: 'slot9' })).status, 200, 'nothing moves before the player says so');
   const offer = must(await H.get('/api/guest-progress'));
   assert.ok(offer.games.length === 1 && offer.games[0].slug === slug && offer.games[0].kept === false, JSON.stringify(offer));
@@ -608,7 +650,7 @@ GCP.ready();
 
   // license gate for a brand-new creator
   const C = client();
-  must(await C.post('/api/auth/signup', { email: `new-${run}@example.com`, name: 'Newbie ' + run, password: 'correct horse' }));
+  await signUp(C, `new-${run}@example.com`, 'Newbie ' + run);
   let me = must(await C.get('/api/me')).user;
   assert.equal(me.creator, false); assert.equal(me.license.active, false);
   assert.equal((await C.post('/api/billing/license', { plan: 'monthly' })).status, 400);
