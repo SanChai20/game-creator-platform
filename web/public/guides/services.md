@@ -8,18 +8,19 @@ The live version of this list, with the numbers this platform is set to, is the 
 
 ```
  player's browser                                   the platform (Cloudflare)
- ┌──────────────────────────────┐                   ┌─────────────────────────────────────────┐
- │ game page (its own origin)   │  files            │ game Worker  gcp-<project>-<preview|live>│
- │  index.html + your files  ◄──┼───────────────────┤  serves the version from R2, checks the  │
- │  window.GCP (injected SDK)   │                   │  play session, injects the SDK           │
- │                              │  GCP.server()     │  server/index.js (optional)  ── env.store│
- │                              ├──────────────────►│                                    │     │
- │  GCP.save / playerStats /    │  HTTPS            │ platform Worker  /api/rt/*         ▼     │
- │  shared / leaderboard /      ├──────────────────►│  saves, stats, shared data, scores (D1)  │
- │  playRecord / heartbeat      │                   │                                          │
- │  GCP.room(code)              │  WebSocket        │ GameRoom Durable Object                  │
- │                              ├──────────────────►│  one per game, environment and code      │
- └──────────────────────────────┘                   └─────────────────────────────────────────┘
+ ┌──────────────────────────────┐                   ┌──────────────────────────────────────────┐
+ │ game page (its own origin)   │  files            │ game host  gcp-<project>-<preview|live>   │
+ │  index.html + your files  ◄──┼───────────────────┤  serves the version from R2, checks the   │
+ │  window.GCP (injected SDK)   │                   │  play session, injects the SDK            │
+ │                              │  GCP.server()     │  server/index.js (optional, sandboxed)    │
+ │                              ├──────────────────►│                          ── env.store ─┐  │
+ │  GCP.save / playerStats /    │  HTTPS            │ platform Worker  /api/rt/*             ▼  │
+ │  shared / leaderboard /      ├──────────────────►│  saves, stats, shared data, scores (D1)   │
+ │  playRecord / friends        │                   │                                           │
+ │  GCP.room(name)              │  WebSocket        │ GameRoom Durable Object                   │
+ │  GCP.match.find()            ├──────────────────►│  one per game, environment and room name; │
+ │                              │                   │  matchmaker and match Durable Objects     │
+ └──────────────────────────────┘                   └──────────────────────────────────────────┘
         the agent ── MCP tools (this server) ──► projects, versions, game_data, game_room, get_stats
 ```
 
@@ -66,10 +67,10 @@ The live version of this list, with the numbers this platform is set to, is the 
 
 ## Hosting and delivery
 
-Each version of a game runs on its own Cloudflare Worker, `gcp-<project>-preview` or `gcp-<project>-live`, with the files in R2.
+The platform serves every game itself from Cloudflare's network: the files of each version sit in R2, and the game has two addresses of its own, `gcp-<project>-preview.hearthcade.app` and `gcp-<project>-live.hearthcade.app`. There is nothing to host or scale. A deploy, publish or rollback reaches players within about 10 seconds. A game's optional `server/index.js` runs in an isolated sandbox built for that version, and a game with server-run matches (`server/match.js`) gets a Cloudflare Worker of its own, because each match runs in one of its Durable Objects.
 
-- `deploy_preview` freezes the workspace as a numbered, immutable version and deploys it to the preview address. `publish` makes a verified version live; `rollback` points live at an earlier version in about a second; `unpublish` takes the game offline. Every version is kept.
-- The Worker serves every file with its content type, supports range requests (large audio, video and models stream), caches live files for 5 minutes and revalidates preview files. `index.html` is only served with a valid play session; players start one by pressing Play on the game page.
+- `deploy_preview` freezes the workspace as a numbered, immutable version and deploys it to the preview address. `publish` makes a verified version live; `rollback` points live at an earlier version within seconds; `unpublish` takes the game offline. Every version is kept.
+- The game host serves every file with its content type, supports range requests (large audio, video and models stream), caches live files for 5 minutes and revalidates preview files. `index.html` is only served with a valid play session; players start one by pressing Play on the game page.
 - Upload text files with `upload_files`. For big or binary files, or a whole folder (an engine's web export), use `create_upload_url` and curl: the URL is valid for 30 minutes, `PUT …?path=<file>` sends one file and `POST …/zip` a zipped folder.
 - There is no build step on the platform. Upload what the browser runs.
 
@@ -182,14 +183,14 @@ room.rtt;                                    // round trip to the room in ms
 
 **What rooms are for.** Rooms are host-authoritative: one player's browser runs the game for everyone. That suits co-op, party games, casual versus among friends and turn-based games. It does not suit ranked or high-intensity competitive play (shooters, fighting games, competitive sports): the host decides hits and can cheat, every guest's lag depends on the host's connection, and there is no lag compensation. Use server-run matches for those.
 
-- One Cloudflare Durable Object per game, environment and room code, created when the first player joins. The first player in is the host; when the host leaves, the longest-connected player takes over and everyone gets a `host` event.
+- One Cloudflare Durable Object per game, environment and room name, created when the first player joins. The first player in is the host; when the host leaves, the longest-connected player takes over and everyone gets a `host` event.
 - Rooms relay messages and keep one snapshot. They do not run game logic: the host is the authority (host-authoritative model). For turn-based games the host checks each move and stores the state.
 - A room is created in the region of the player who opens it, so friends in one region get a nearby room.
 - The SDK reconnects by itself (up to six tries with backoff). An empty room forgets everything, including the snapshot: keep anything that spans sessions in server code or saves.
 - Each player has a message budget per second. Past it, messages are dropped and the sender gets an `error` with `code: 'rate_limited'`; a player who keeps flooding for 10 seconds is disconnected (close code 4008).
 - `game_room` shows who is in a room, who hosts and the stored snapshot, and resets a stuck room. `get_stats` shows room occupancy.
 
-Limits: 16 players per room by default (at most 64), 64 KB per message, 60 messages a second per player by default (bursts of twice that) and 256 KB a second, 256 KB of state, room codes up to 40 characters. Messages are JSON, or binary when you send an ArrayBuffer or typed array.
+Limits: 16 players per room by default (at most 64), 64 KB per message, 60 messages a second per player by default (bursts of twice that) and 256 KB a second, 256 KB of state, room names up to 40 characters. Messages are JSON, or binary when you send an ArrayBuffer or typed array.
 
 Smooth remote movement with `GCP.smooth()`: push each sample with `meta.at`, read `value()` every frame. Verification can prove two browsers share one world if you register `GCP.test.onTwoPlayers`. Details: `get_started {topic: "multiplayer"}`.
 
@@ -237,7 +238,7 @@ const r = await GCP.friends.invite(friends[0].id, { match: m });   // { ok, stat
 
 ## Game server code
 
-Optional `server/index.js` in the bundle, run inside the game's own Worker for requests under `/api/`:
+Optional `server/index.js` in the bundle, run by the platform for requests under the game's `/api/`, in a sandbox built for that version:
 
 ```js
 // server/index.js
@@ -253,9 +254,9 @@ export default {
 
 It runs on the standard Workers runtime (fetch, Web Crypto, streams) with no access to the platform's own data or secrets and no bindings of its own (no KV, D1, Durable Objects, cron or AI). Use it to validate scores, run daily challenges or keep a world that lasts between sessions.
 
-**Limits per request.** Each request to server code has a CPU time budget and a budget of outgoing requests (`fetch()` and every `env.store` call count); the numbers for this platform are in `platform_services` under `server_code.limits` (`cpu_ms_per_request`, `outgoing_requests_per_request`, and any `blocked_hosts`). A request past either budget fails with HTTP 503 and `{"code": "limit_exceeded"}`: tell the developer which budget was hit and move the heavy part out of the request (precompute while building, cache in `env.store`, or split the work over several calls). Read everything from the `env` argument of `fetch`: `import { env } from 'cloudflare:workers'` and `process.env` are empty in game Workers.
+**Limits per request.** Each request to server code has a CPU time budget and a budget of outgoing requests (`fetch()` and every `env.store` call count); the numbers for this platform are in `platform_services` under `server_code.limits` (`cpu_ms_per_request`, `outgoing_requests_per_request`, and any `blocked_hosts`). A request past either budget fails with HTTP 503 and `{"code": "limit_exceeded"}`: tell the developer which budget was hit and move the heavy part out of the request (precompute while building, cache in `env.store`, or split the work over several calls). Read everything from the `env` argument of `fetch`: `import { env } from 'cloudflare:workers'` and `process.env` are empty in server code.
 
-**`server/` is never served.** The game Worker answers 404 for every path under `server/`, in preview and live, so players cannot download your server code; every other file in the bundle is public. There is no secrets store: a key written into `server/` stays readable to you through MCP and to the platform's automated checks, so use keys you can revoke and never put one in a client file.
+**`server/` is never served.** The game host answers 404 for every path under `server/`, in preview and live, so players cannot download your server code; every other file in the bundle is public. There is no secrets store: a key written into `server/` stays readable to you through MCP and to the platform's automated checks, so use keys you can revoke and never put one in a client file.
 
 Whether server code is allowed on this platform is shown by `get_started` under `account.limits.server_code`.
 
@@ -379,13 +380,13 @@ Limits (defaults): 20 items waiting per game, kept 30 days if unread, 1.5 MB per
 
 ## Publish checks
 
-Before a verified version goes live it is compared with other creators' live games (code fingerprints that survive renaming, identical files, screenshot hash; templates, kits and common libraries ignored), checked for content and abusive code, and confirmed to be a web game. Workers AI decision models review only borderline copies; every version's content is reviewed from frames taken while the verification browser plays it. Adult games (sexual content, graphic violence, other mature themes) are allowed when `content` declares them: they are listed as 18+ with a blurred cover, and players confirm a warning before they start. Undeclared sexual content or realistic violence fails the review (`get_started {topic: "metadata"}`). `publish` says which check refused a version and how to fix it.
+Before a verified version goes live it is compared with other creators' live games, on two kinds of evidence: the code (fingerprints that survive renaming, identical files, asset hashes; templates, kits and common libraries ignored) and the identity (the same or a near title, the same tagline, the names of its characters, cards, enemies and places, the same look), so a game rebuilt from another's description is caught too. Building a game like another is allowed; taking its identity is not, and a refusal lists exactly what matched. No person reviews copies: clear cases are settled by rules, and close ones by Workers AI decision models. It is also checked for content and abusive code, and confirmed to be a web game; every version's content is reviewed from frames taken while the verification browser plays it. Adult games (sexual content, graphic violence, other mature themes) are allowed when `content` declares them: they are listed as 18+ with a blurred cover, and players confirm a warning before they start. Undeclared sexual content or realistic violence fails the review (`get_started {topic: "metadata"}`). `publish` says which check refused a version and how to fix it.
 
 ## Marketplace, payments and payouts
 
 - `update_project` sets the title, tagline, description, tags, controls text and cover (png, jpg or webp under 2 MB). `game_metadata` detects, suggests and declares the standardized store metadata (genre, tags from the platform list, languages, players, content and age rating, session length, progress, accessibility); publishing is refused until the required fields are on record (`get_started {topic: "metadata"}`). Players rate and review from the game page after a counted play (30 seconds of active play by default).
-- `update_project {price_cents}` sells the game for a one-time price (default range $1.99 to $99.99); the platform keeps its cut (default 10%, or 5% while the game shares its build skill for free) and credits the rest after a holding period (default 7 days). `trial_minutes` offers a free trial kept per account on the server; when it ends the SDK pauses the game and asks the player to buy, and the data services answer 402.
-- Horylo LLC, the company that operates the platform, is the seller of every paid game; Stripe Checkout shows it as the seller and links the Terms and Refund policy. Payments run on Stripe Checkout and payouts on Stripe Connect. Buyers can refund a game within 1 day of buying it if they played it for less than 10 minutes, once per game; the refund takes back the creator's credit for that sale, and the platform gives back its cut. Build skills are non-refundable; the creator withdraws from the console once the balance reaches the minimum (default $50). Publishing needs a one-time creator license; building and previewing are free.
+- `update_project {price_cents}` sells the game for a one-time price (default range $1.99 to $99.99); the platform keeps its cut (default 10%, or 5% while the game shares its build skill for free) and credits the rest after a holding period (default 3 days, never shorter than the refund window; 30 days during a creator's first 90 days). `update_project {sale: {price_cents, days}}` runs a limited-time sale: at least 10% off for up to 30 days by default, shown in the store with the regular price struck through, and charged at checkout. `trial_minutes` offers a free trial kept per account on the server; when it ends the SDK pauses the game and asks the player to buy, and the data services answer 402.
+- Horylo LLC, the company that operates the platform, is the seller of every paid game; Stripe Checkout shows it as the seller and links the Terms and Refund policy. Payments run on Stripe Checkout and payouts on Stripe Connect. Buyers can refund a game within 1 day of buying it if they played it for less than 10 minutes, once per game; the refund takes back the creator's credit for that sale, and the platform gives back its cut. Build skills are non-refundable; the creator withdraws from the console once the balance reaches the minimum (default $50). Publishing needs a creator license, a one-time payment for a year or for life; building and previewing are free.
 - The game never takes payments itself and never needs to check ownership: the platform only opens a paid game for owners and trial players.
 
 Ask the user before setting or changing a price.
@@ -424,7 +425,7 @@ Plan around these instead of looking for them.
 | Checking from game code whether the player bought the game | Not needed: only owners and trial players can open a paid game. |
 | Achievements and badges | Track milestones with `GCP.playerStats` and show them in the game. |
 | Player profiles, avatars and in-game chat channels | Players have platform friends and direct chat (`GCP.friends`). For chat inside a match or room, relay text over `room.send` and moderate what players type. |
-| A list of open rooms | Invite friends with `GCP.friends`, or use fixed room names for public play; for a lobby list, players join a `lobby` room and advertise their codes there. Competitive games use `GCP.match.find()`, which matches players by itself. |
+| A list of open rooms | Invite friends with `GCP.friends`, or use fixed room names for public play; for a lobby list, players join a `lobby` room and advertise their room names there. Competitive games use `GCP.match.find()`, which matches players by itself. |
 | Server-authoritative simulation inside rooms | Rooms stay host-authoritative. For a neutral server use server-run matches (`server/match.js` with `GCP.match.find`). |
 | Dedicated game servers (UDP, native engines, 128-tick) | Server-run matches run JavaScript at up to 60 ticks a second over WebSockets, which suits browser shooters and fighting games. Native or UDP servers are not offered. |
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |

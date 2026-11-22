@@ -33,7 +33,7 @@ addEventListener('blur', () => keys.clear());
 document.addEventListener('visibilitychange', () => { if (document.hidden) keys.clear(); });
 ```
 
-`preventDefault` on the arrow keys and space stops the page from scrolling under the game.
+`preventDefault` on the arrow keys and space stops your own page from scrolling. In the player, the platform also keeps keys that scroll (Space, the arrows, Page Up and Down, Home, End) from moving the page around the game, whatever has the focus; your scrolling lists, text fields and buttons keep their keys.
 
 **Pointer events** cover mouse, touch and pen with one set of listeners. Track each finger by `pointerId`:
 

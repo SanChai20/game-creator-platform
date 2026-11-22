@@ -14,7 +14,7 @@ export const legalTitle = (d: LegalDoc) => ({
 }[d]);
 
 /** The date each text takes effect. Change it whenever that text changes in a meaningful way. */
-const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-22', privacy: '2026-11-19', cookies: '2026-11-19', refunds: '2026-11-22' };
+const EFFECTIVE: Record<LegalDoc, string> = { terms: '2026-11-22', privacy: '2026-11-22', cookies: '2026-11-19', refunds: '2026-11-22' };
 
 const S = ({ h, children }: { h: string; children: ReactNode }) => <section><h2>{h}</h2>{children}</section>;
 
@@ -96,6 +96,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
         <ul>
           <li>{t('Account: email address, display name, your role (player, creator, administrator) and how you sign in.', '账户信息：电子邮箱、显示名称、身份（玩家、创作者、管理员）以及登录方式。')}</li>
           <li>{t('Gameplay: games you play and for how long, trial time, saves, stats and leaderboard entries that games keep with us, messages relayed in multiplayer rooms, purchases and reviews.', '游玩信息：你游玩的游戏及时长、试玩时间、游戏在我们这里保存的存档、统计数据和排行榜记录、多人房间中转发的消息、购买记录和评价。')}</li>
+          <li>{t('Friends: your friend code, your friends and friend requests, who you blocked, your status and privacy choices, your chat messages with friends, game invites, and reports you send.', '好友信息：你的好友码、好友与好友请求、你屏蔽的人、你的状态与隐私设置、你与好友的聊天消息、游戏邀请，以及你提交的举报。')}</li>
           <li>{t('Creators: projects, uploaded files, versions, verification screenshots, listings and agent connections.', '创作者信息：项目、上传的文件、版本、验证截图、商店信息和智能体连接。')}</li>
           <li>{t('Device, coarsely: the kind of device and the browser family, plus IP addresses in short-lived security logs. No exact browser version and no fingerprinting.', '粗略的设备信息：设备类型和浏览器种类，以及短期安全日志中的 IP 地址。不包括具体浏览器版本，也不做设备指纹识别。')}</li>
           <li>{t('Payments: Stripe, our payment processor, handles card and bank details. We see the result of a payment, never your full card number.', '支付信息：银行卡与银行账户信息由我们的支付处理方 Stripe 处理。我们只能看到付款结果，永远看不到你的完整卡号。')}</li>
@@ -111,11 +112,13 @@ export function Legal({ doc }: { doc: LegalDoc }) {
           <li>{t('Payments: Stripe processes purchases and refunds.', '支付：Stripe 处理购买和退款。')}</li>
           <li>{t('Analytics: play statistics are computed by us on our own hosting; no outside analytics service receives them. Creators see aggregated statistics about their own games.', '分析：游玩统计由我们在自己的托管环境中计算，不会发送给任何外部分析服务。创作者可以看到其游戏的汇总统计。')}</li>
           <li>{t('Games and other players: a game you play receives your player name and a player id; your reviews and leaderboard entries show your public name.', '游戏与其他玩家：你游玩的游戏会获得你的玩家名称和玩家 ID；你的评价和排行榜记录会显示你的公开名称。')}</li>
+          <li>{t('Friends: your friends see your status and, unless you hide it in your privacy settings, which game you are playing and for how long. A game you play can list your friends and their status so you can invite them. People can find you by your friend code, and by your name if you allow it.', '好友：你的好友可以看到你的状态，以及（除非你在隐私设置中隐藏）你正在玩的游戏和时长。你游玩的游戏可以列出你的好友及其状态，方便你邀请他们。别人可以通过好友码找到你，在你允许时也可以通过名字找到你。')}</li>
           <li>{t('When the law requires it, to protect people or the Service, or to a buyer if {op} or the Service is sold.', '在法律要求时、为保护他人或本服务时，或在 {op} 或本服务被出售时提供给买方。', { op })}</li>
         </ul>
       </S>
       <S h={t('How long we keep it', '保存期限')}>
         <P>{t('We keep account and gameplay data while your account is open. When you delete your account on your Account page, your email, name, password, saves, stats, scores and reviews are deleted at once. Purchase, payment and tax records are kept, no longer linked to your name or email, as long as the law requires, usually up to 7 years. Security logs are kept for a short time. When a game is removed from the Service, its players’ saves, stats and scores are deleted within 30 days.', '账户和游玩数据在你的账户存续期间保留。你在“账户”页面删除账户后，你的邮箱、名称、密码、存档、统计、分数和评价会立即删除。购买、支付和税务记录会保留，但不再与你的名称或邮箱关联，保留期限按法律要求，通常最长 7 年。安全日志仅短期保留。游戏从本服务中移除后，其玩家的存档、统计和分数会在 30 天内删除。')}</P>
+        <P>{t('Chat messages are deleted {days} days after they are sent, and at once when you or the friend you chatted with deletes their account. Your friends, friend requests, blocks and invites are deleted with your account. Reports about abuse are kept so we can act on them.', '聊天消息在发送 {days} 天后删除；你或与你聊天的好友删除账户时会立即删除。你的好友、好友请求、屏蔽记录和邀请会随你的账户一并删除。关于滥用的举报会被保留，以便我们处理。', { days: Math.max(7, Number(s.dm_keep_days) || 365) })}</P>
       </S>
       <S h={t('Your rights', '你的权利')}>
         <P>{t('Depending on where you live, you can ask to see, correct, export or delete your information, or object to how we use it. You can delete your account yourself on your Account page. Send other privacy requests to {email}. We may need to confirm it is you, and we will answer within the time the law sets. You can also complain to your local data protection authority.', '根据你所在地区的法律，你可以要求查看、更正、导出或删除你的信息，或反对我们使用这些信息的方式。你可以在“账户”页面自行删除账户。其他隐私请求请发送至 {email}。我们可能需要核实你的身份，并会在法律规定的期限内答复。你也可以向当地的数据保护机构投诉。', { email: legal })}</P>

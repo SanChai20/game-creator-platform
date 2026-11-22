@@ -1,6 +1,8 @@
 # Moving game Workers to Workers for Platforms
 
-Today every game runs as its own standard Cloudflare Worker (`gcp-<project>-preview` and `gcp-<project>-live`), deployed and updated by the platform through the Cloudflare API. Workers for Platforms (WfP) puts those same scripts into one **dispatch namespace** and serves them through a **dispatch Worker**, which adds unlimited scripts, untrusted-mode isolation, per-request custom limits, tags and an outbound Worker.
+> **Not the current setup.** The platform now runs `DEPLOY_DRIVER="shared"`: every game is served by the platform Worker itself, and only games with server-run matches keep a standard Worker ([shared-game-host.md](shared-game-host.md)). This page describes the dispatch-namespace option, which still works but is not in use.
+
+Before the shared host, every game ran as its own standard Cloudflare Worker (`gcp-<project>-preview` and `gcp-<project>-live`), deployed and updated by the platform through the Cloudflare API. Workers for Platforms (WfP) puts those same scripts into one **dispatch namespace** and serves them through a **dispatch Worker**, which adds unlimited scripts, untrusted-mode isolation, per-request custom limits, tags and an outbound Worker.
 
 The code is already shaped for that move. Switching is configuration plus a few one-time Cloudflare resources; the platform then moves the games over by itself, a few at a time.
 
