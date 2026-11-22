@@ -9,6 +9,7 @@
 //   5. keeps rendering after keyboard, mouse and touch input   (input)
 //   6. throws no uncaught errors during all of the above       (clean)
 import { craftReview, decodePng, imageMetrics, motionBetween } from './craft-review.js';
+import { NUMBERS } from './standards.js';
 
 /** Decodes an 8-bit RGB/RGBA PNG and summarises it. `img` is the decoded picture, kept for the craft review. */
 export function pngStats(buf) {
@@ -35,7 +36,7 @@ const state = (page) => page.evaluate(() => {
   const s = window.__GCP; if (!s) return null;
   const c = document.querySelector('canvas');
   return { ready: s.ready, loadMs: s.ready ? Math.round(s.readyAt - s.boot) : 0, frames: s.frames, fatal: s.fatal, errors: s.errors.slice(), warnings: s.warnings.slice(0, 8), missing: s.missing.slice(),
-    progress: s.progress, label: s.label, stats: s.stats, canvas: c ? { w: c.width, h: c.height } : null,
+    progress: s.progress, progressBeforeReady: (s.probe && s.probe.progressBeforeReady) || 0, label: s.label, stats: s.stats, canvas: c ? { w: c.width, h: c.height } : null,
     caps: { webgl2: !!document.createElement('canvas').getContext('webgl2'), webgpu: !!navigator.gpu } };
 });
 
@@ -470,7 +471,7 @@ export async function verifyPage(page, url, opts = {}) {
   add('clean', errs.length === 0, 'No uncaught errors', errs.length ? `${errs.length} uncaught error(s)` : '', errs.length ? 'Fix each error listed under "errors", then deploy a new preview.' : '');
 
   report.errors = errs; report.warnings.push(...(s.warnings || [])); report.missing = missing;
-  report.metrics = { loadMs: s.loadMs, frames: s.frames, fps: Math.round(f1 / observedS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
+  report.metrics = { loadMs: s.loadMs, progressBeforeReady: s.progressBeforeReady, frames: s.frames, fps: Math.round(f1 / observedS), framesAfterInput: f2, canvas: s.canvas, stats: s.stats, pictureChanged: !!(pic1 && pic2 && pic1.hash !== pic2.hash), colors: pic1 ? pic1.colors : 0 };
   report.ok = checks.every((c) => c.ok);
   // a few more frames of the game left running after the checks, for the content review; nothing here can fail the version
   if (report.ok) for (let i = 0; i < 3 && frames.length < 7; i++) { await sleep(1500); await snap(); }
@@ -583,6 +584,74 @@ const layoutOf = (page) => page.evaluate(() => {
 }).catch(() => null);
 
 /**
+ * The game standards' reserved zones, checked on a phone (src/standards.js, "menu-button" and "safe-area"). The page is
+ * told it is in fullscreen on a notched phone (the same message the platform's player sends, with iPhone insets), then
+ * the layers GCP.test.onCapture hands over are read back right after the game draws: the world (the bottom layer) may
+ * fill the screen, but the interface layers above it must leave the notch, the home bar and the platform menu button's
+ * corner clear. A game that hands over one canvas cannot be checked this way, and is told so.
+ * Returns { checked, layers, reason?, safe, corner, zones: [{ zone, coverage, box }] } or null.
+ */
+export const ZONE_INSETS = { landscape: { top: 0, right: 47, bottom: 21, left: 47 }, portrait: { top: 47, right: 0, bottom: 34, left: 0 } };
+export async function zonesOf(page, orientation) {
+  const safe = ZONE_INSETS[orientation === 'portrait' ? 'portrait' : 'landscape'], mb = NUMBERS.menu_button;
+  const told = await page.evaluate((a) => {
+    const G = window.__GCP; if (!G || !G.captureLayers) return null;
+    const prefs = G.displayPrefs || {}, edge = prefs.edgeToEdge !== false;
+    window.postMessage({ gcp: 'display', fullscreen: true, mode: 'fullscreen', orientation: a.orientation, touch: true, edgeToEdge: edge, safe: edge ? a.safe : { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false }, '*');
+    return { edge, corner: prefs.exitButton || 'top-left' };
+  }, { safe, orientation: orientation === 'portrait' ? 'portrait' : 'landscape' }).catch(() => null);
+  if (!told) return null;
+  await sleep(900);
+  return page.evaluate(async (a) => {
+    const G = window.__GCP, vw = innerWidth, vh = innerHeight, sf = a.edge ? a.safe : { top: 0, right: 0, bottom: 0, left: 0 };
+    const layers = await G.captureLayers().catch(() => null);
+    const out = { checked: false, layers: layers ? layers.length : 0, safe: sf, corner: a.corner, edgeToEdge: a.edge, zones: [] };
+    if (!layers || !layers.length) { out.reason = 'no-hook'; return out; }
+    if (layers.length < 2) { out.reason = 'one-layer'; return out; }
+    const sq = a.size + 2 * a.inset, rects = [];
+    if (sf.left) rects.push({ zone: 'notch-left', x: 0, y: sf.top, w: sf.left, h: vh - sf.top - sf.bottom });
+    if (sf.right) rects.push({ zone: 'notch-right', x: vw - sf.right, y: sf.top, w: sf.right, h: vh - sf.top - sf.bottom });
+    if (sf.top) rects.push({ zone: 'notch-top', x: 0, y: 0, w: vw, h: sf.top });
+    if (sf.bottom) rects.push({ zone: 'home-bar', x: 0, y: vh - sf.bottom, w: vw, h: sf.bottom });
+    if (a.corner !== 'none') {
+      const right = /right/.test(a.corner), bottom = /bottom/.test(a.corner);
+      rects.push({ zone: 'menu-button', x: right ? vw - sf.right - sq : sf.left, y: bottom ? vh - sf.bottom - sq : sf.top, w: sq, h: sq });
+    }
+    // read the interface layers right after the game's next frame (a WebGL canvas is readable until it is composited)
+    const counts = await new Promise((done) => requestAnimationFrame(() => {
+      const res = rects.map(() => ({ hit: 0, all: 0, x0: 1e9, y0: 1e9, x1: -1, y1: -1 }));
+      for (const c of layers.slice(1)) {
+        const r = c.getBoundingClientRect(); if (!r.width || !r.height) continue;
+        const k = document.createElement('canvas'); k.width = Math.max(1, Math.round(r.width)); k.height = Math.max(1, Math.round(r.height));
+        const g = k.getContext('2d', { willReadFrequently: true }); let px;
+        try { g.drawImage(c, 0, 0, k.width, k.height); px = g.getImageData(0, 0, k.width, k.height).data; } catch { continue; }
+        // a layer that is opaque nearly everywhere is not an overlay: it is the world, or a full-screen menu
+        let solid = 0, n = 0; for (let i = 3; i < px.length; i += 4 * 97) { n++; if (px[i] >= 200) solid++; }
+        if (n && solid / n > 0.85) continue;
+        rects.forEach((z, j) => {
+          const o = res[j];
+          for (let y = Math.max(0, Math.floor(z.y - r.top)); y < Math.min(k.height, Math.ceil(z.y + z.h - r.top)); y += 2)
+            for (let x = Math.max(0, Math.floor(z.x - r.left)); x < Math.min(k.width, Math.ceil(z.x + z.w - r.left)); x += 2) {
+              o.all++; if (px[(y * k.width + x) * 4 + 3] >= 200) { o.hit++; const X = x + r.left, Y = y + r.top; if (X < o.x0) o.x0 = X; if (Y < o.y0) o.y0 = Y; if (X > o.x1) o.x1 = X; if (Y > o.y1) o.y1 = Y; }
+            }
+        });
+      }
+      done(res);
+    }));
+    out.checked = true;
+    rects.forEach((z, j) => { const o = counts[j]; const cov = o.all ? o.hit / o.all : 0; if (cov > 0.03) out.zones.push({ zone: z.zone, coverage: Math.round(cov * 100) / 100, box: [Math.round(o.x0), Math.round(o.y0), Math.round(o.x1 - o.x0 + 1), Math.round(o.y1 - o.y0 + 1)] }); });
+    return out;
+  }, { safe, edge: told.edge, corner: told.corner, size: mb.size, inset: mb.inset }).catch(() => null);
+}
+const ZONE_WORDS = { 'notch-left': 'under the notch on the left', 'notch-right': 'under the rounded corner on the right', 'notch-top': 'under the notch at the top', 'home-bar': 'over the home bar at the bottom', 'menu-button': 'under the platform menu button' };
+/** The zone check in words, for the report's notes. */
+export function zoneNotes(z, label = 'iPhone') {
+  if (!z) return [];
+  if (!z.checked) return z.reason === 'one-layer' ? [`On ${label}: the reserved zones (notch, home bar, the platform menu button's corner) could not be checked, because GCP.test.onCapture hands over one canvas. Hand over the interface as its own layer (return [world, ui]) so the platform can check it.`] : [];
+  return z.zones.map((x) => `On ${label} in fullscreen: the interface draws ${ZONE_WORDS[x.zone] || x.zone} (${Math.round(x.coverage * 100)}% of that zone, around ${x.box[0]},${x.box[1]} ${x.box[2]}×${x.box[3]} px). ${x.zone === 'menu-button' ? `Keep the ${z.corner} corner free or move the button with GCP.setDisplay({ exitButton }).` : 'Keep the interface inside GCP.display.safe.'}`);
+}
+
+/**
  * Plays the game on each device profile. openDevicePage(profile, viewport) -> a fresh page emulating that device (touch,
  * mobile, density, user agent). Returns [{ id, label, kind, ok, problems: [..], notes: [..], loadMs, fps, runtime }].
  */
@@ -631,6 +700,8 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
       const thrown = [...new Set([...(after ? after.errors : s.errors), ...errs])];
       if (thrown.length) res.problems.push(`It threw ${thrown.length === 1 ? 'an error' : thrown.length + ' errors'}: ${thrown.slice(0, 2).map((e) => e.slice(0, 160)).join(' | ')}`);
       res.runtime = await page.evaluate(() => (window.__GCP && window.__GCP.runtime) || null).catch(() => null);
+      // the game standards' reserved zones, on the phone only
+      if (profile.kind === 'mobile' && !res.zones) { res.zones = await zonesOf(page, orientation); res.notes.push(...zoneNotes(res.zones, profile.label)); }
       // what the screen shows
       const L = await layoutOf(page);
       if (L) {
@@ -656,6 +727,7 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
  */
 export function applyDeviceResults(report, results, devices = ['desktop', 'tablet', 'mobile']) {
   report.devices = results;
+  const z = results.find((r) => r.zones); if (z) report.zones = z.zones;
   const failed = [];
   for (const r of results) {
     const made = devices.includes(r.kind), label = `Plays on ${r.label} (touch screen, ${r.viewport})`;

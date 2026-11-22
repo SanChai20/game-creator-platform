@@ -50,8 +50,8 @@ export const STANDARDS = [
     ],
     do: ['Design a cover; do not rely on the verification screenshot.', 'Check it on the template, cropped to the banner, 16:10 and 16:7, and at 240 px wide.'],
     dont: ['Close-up faces cut by the crops.', 'Text near any edge.'],
-    enforced: 'update_project answers with cover_check (size and shape); publish reminds about the safe area. The composition is yours to check by looking.',
-    checks: [], guide: '/guides/game-metadata.md#cover-image', template: COVER.template,
+    enforced: 'update_project answers with cover_check (size and shape); game_standards check and publish warn when there is no cover (the store then crops the verification screenshot). The composition inside the safe area is yours to check by looking at the template.',
+    checks: ['cover-missing'], guide: '/guides/game-metadata.md#cover-image', template: COVER.template,
   },
   {
     id: 'cover-languages', area: 'store', title: 'A cover per language',
@@ -158,8 +158,8 @@ export const STANDARDS = [
   },
   {
     id: 'no-icons', area: 'not-offered', title: 'Icons, logos and title art',
-    where: 'Nowhere: there is no icon, favicon or logo slot. The title is set in text by the store; the Home Screen icon is the platform\'s.',
-    spec: ['Put the game\'s logo or title art on the cover and the game\'s own title screen only.', 'Do not draw the platform\'s logo (HearthCade) anywhere: the platform shows its own splash.'],
+    where: 'Nowhere: there is no icon, favicon or logo slot. Where a store shows an icon, this one shows the cover, cropped to 16:10, as small as 64 px wide (search suggestions, "since you were away"). The title is set in text by the store; the Home Screen icon is the platform\'s.',
+    spec: ['The cover is the game\'s icon: its main subject must still read at 64 px wide, so keep it large and simple inside the cover\'s safe area.', 'Put the game\'s logo or title art on the cover and the game\'s own title screen only.', 'Do not draw the platform\'s logo (HearthCade) anywhere: the platform shows its own splash.'],
     do: ['Keep title art inside the cover\'s safe area.'], dont: ['Ship icon sets, favicons or manifest icons for the store.'],
     enforced: 'game_standards check warns when the game draws the platform\'s name, and notes icon files.', checks: ['platform-logo', 'unused-store-files'], guide: '/guides/standards.md#no-icons',
   },
@@ -179,8 +179,8 @@ export const STANDARDS = [
       'Draw the loading screen at once, set its text, language and font before the second GCP.progress() call, then only move the bar.',
     ],
     do: ['Call GCP.progress(f, label) while loading and GCP.ready() after the first playable frame.'], dont: ['Draw a platform logo or a second splash.', 'Show a blank page, a stand-in font or text still being filled in.'],
-    enforced: 'boots check (GCP.ready() in time). game_standards check notes a game that never reports progress.',
-    checks: ['no-progress', 'platform-logo'], guide: '/guides/platform-contract.md#the-platform-splash-before-your-loading-screen',
+    enforced: 'boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).',
+    checks: ['no-progress', 'progress-hand-off', 'platform-logo'], guide: '/guides/platform-contract.md#the-platform-splash-before-your-loading-screen',
   },
   {
     id: 'menu-button', area: 'game', title: 'The platform menu button',
@@ -193,7 +193,7 @@ export const STANDARDS = [
     ],
     do: [`Keep a ${N.menu_button.size + 2 * N.menu_button.inset} px square free in the chosen corner, inside the safe area.`, 'Choose the corner where your HUD has nothing.'],
     dont: ['Put a pause, score or health widget under the button.', 'Hide it without a Quit of your own.'],
-    enforced: 'game_standards check notes a game that never chooses a corner.', checks: ['menu-corner'], guide: '/guides/standards.md#menu-button',
+    enforced: 'Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button\'s square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.', checks: ['menu-corner', 'zone-menu-button', 'zones-one-layer'], guide: '/guides/standards.md#menu-button',
   },
   {
     id: 'safe-area', area: 'game', title: 'Safe areas: notch, rounded corners, home bar',
@@ -205,8 +205,8 @@ export const STANDARDS = [
       'GCP.setDisplay({ edgeToEdge: false }) keeps the game inside them with black bars instead.',
     ],
     do: ['Use max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px)) in CSS, or GCP.ui.rect for canvas layouts.'], dont: ['Assume the frame is already inside the notch.'],
-    enforced: 'device_iphone and device_ipad report UI drawn off screen. game_standards check warns when a game for phones never reads the insets.',
-    checks: ['safe-area'], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
+    enforced: 'Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.',
+    checks: ['safe-area', 'zone-safe-area'], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
   },
   {
     id: 'touch-controls', area: 'game', title: 'The platform\'s on-screen controls',
@@ -306,7 +306,8 @@ const VIDEO = /\.(mp4|webm|mov|m4v|ogv)$/i, ICONS = /(^|\/)(favicon|apple-touch-
  * @param input {
  *   listing?: { title, tagline, description, controls, lang?, translations?: { [lang]: { title, tagline, description, controls } } },
  *   texts?: Map<path, text> | { [path]: text } (the workspace's text files; code checks are skipped without them),
- *   paths?: string[] (every workspace path), gcp?: gcp.json object, brand?: the platform's name }
+ *   paths?: string[] (every workspace path), gcp?: gcp.json object, brand?: the platform's name,
+ *   report?: a version's verification report (metrics.progressBeforeReady, zones) }
  */
 export function checkStandards(input = {}) {
   const out = [];
@@ -329,6 +330,18 @@ export function checkStandards(input = {}) {
       const mc = markdownIn(t.controls);
       if (mc.length) add('controls-text', 'warning', `The controls text${where} uses Markdown (${mc.join(', ')}); the store shows it as typed.`, 'One control per line in plain text: "WASD or arrows · move".', { lang, check: 'controls-markdown' });
     }
+  }
+  if (L && L.has_cover === false) add('cover', 'warning', 'The game has no cover, so the store crops the verification screenshot (a frame of play with its interface) into the home banner, cards and thumbnails.', `Design a ${COVER.width}x${COVER.height} cover on the template and set it with update_project cover.`, { check: 'cover-missing' });
+  const R = input.report;
+  if (R) {
+    const pb = R.metrics && R.metrics.progressBeforeReady;
+    if (typeof pb === 'number' && pb < 2) add('splash-loading', 'warning', `Verification saw ${pb} GCP.progress() call${pb === 1 ? '' : 's'} before GCP.ready(), so the platform splash waited 1.2 s and handed over to whatever was on screen.`, 'Draw the loading screen in its final look, then call GCP.progress(f, label) at least twice while loading.', { check: 'progress-hand-off' });
+    const z = R.zones;
+    if (z && z.checked) for (const x of z.zones) {
+      const menu = x.zone === 'menu-button';
+      add(menu ? 'menu-button' : 'safe-area', 'warning', `On a phone in fullscreen the interface covers ${Math.round(x.coverage * 100)}% of ${menu ? `the platform menu button's ${z.corner} square` : x.zone === 'home-bar' ? 'the home bar strip' : 'the notch strip'} (around x ${x.box[0]}, y ${x.box[1]}, ${x.box[2]}×${x.box[3]} px).`, menu ? `Move that part of the HUD out of the ${N.menu_button.size + 2 * N.menu_button.inset} px corner square, or put the button in a free corner with GCP.setDisplay({ exitButton }).` : 'Anchor the HUD inside GCP.display.safe (GCP.ui.rect does it by default).', { check: menu ? 'zone-menu-button' : 'zone-safe-area' });
+    }
+    if (z && !z.checked && z.reason === 'one-layer') add('menu-button', 'note', 'The reserved zones (notch, home bar, menu button corner) could not be checked: GCP.test.onCapture hands over a single canvas.', 'Return [world, ui] from GCP.test.onCapture, with the interface on its own canvas, so verification can check them.', { check: 'zones-one-layer' });
   }
   const texts = input.texts instanceof Map ? input.texts : new Map(Object.entries(input.texts || {}));
   if (texts.size) {

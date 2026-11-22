@@ -412,8 +412,8 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   const openAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : undefined;
   const gate = await releaseGate(c.env, p, v, { mode: rollback ? 'rollback' : 'publish', openImplementation: openAfter });
   await recordGate(c.env, gate);
-  const listingFindings = checkStandards({ listing: listingForStandards(p) }).filter((f: { level: string }) => f.level === 'warning').map(findingLine);
-  const standardsOut = listingFindings.length ? { standards: { findings: listingFindings, note: 'Not blocking yet: the store shows these as described. Fix them with game_metadata declare (no deploy needed). game_standards {project, action: "check"} checks the code too.' } } : {};
+  const listingFindings = checkStandards({ listing: listingForStandards(p), report: parseJson<Record<string, unknown> | null>(v.report || 'null', null) }).filter((f: { level: string }) => f.level === 'warning').map(findingLine);
+  const standardsOut = listingFindings.length ? { standards: { findings: listingFindings, note: 'Not blocking yet, but players see them. Listing findings are fixed with game_metadata declare or update_project (no deploy needed); findings from verification (loading hand-off, reserved zones) need a code change and a new version. game_standards {project, action: "check"} checks the code too.' } } : {};
   if (a.dry_run) return { ...standardsOut, would_go_live: gate.ok || onlyReviewNeeded(gate), ...(onlyReviewNeeded(gate) ? { review: 'needed', note: 'Everything else holds; publish asks a platform admin to review it because the verification browser could not run it.' } : {}), requirements: gateView(gate), summary: gateText(gate) };
   if (!gate.ok && !onlyReviewNeeded(gate)) {
     const err = gateError(gate), meta = gate.failures.find((f) => f.id === 'metadata');
@@ -787,9 +787,13 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (!a.project) throw bad('check needs project.');
       const p = await ownedProject(c.env, c.user, a.project);
       const r = await checkProject(c.env, p, c.origin);
+      // what verification measured on the newest version (the loading hand-off, the reserved zones on a phone)
+      const last = await c.env.DB.prepare('SELECT n, report FROM versions WHERE project_id = ? AND report IS NOT NULL ORDER BY n DESC LIMIT 1').bind(p.id).first<{ n: number; report: string }>();
+      const rep = last ? parseJson<Record<string, unknown> | null>(last.report, null) : null;
+      if (rep) r.standards.push(...(checkStandards({ report: rep }) as typeof r.standards));
       const warnings = r.standards.filter((f) => f.level === 'warning'), notes = r.standards.filter((f) => f.level === 'note');
       return {
-        project: p.id, ok: !warnings.length,
+        project: p.id, ok: !warnings.length, ...(last ? { measured_on_version: last.n } : { measured_on_version: null, note: 'No verified version yet: the checks that need the verification browser (loading hand-off, reserved zones on a phone) run at deploy_preview.' }),
         warnings: warnings.map(findingLine), notes: notes.map(findingLine),
         not_checked: STANDARDS.filter((x) => !x.checks.length && /^Not checked/.test(x.enforced)).map((x) => `${x.id}: ${x.enforced}`),
         next: warnings.length ? 'Fix each warning (listing fields with game_metadata declare, code with upload_files), then check again. They are not blocking yet, but players see the result.' : 'No warnings. Read the notes and the not_checked items, and look at the cover and the preview on a phone viewport (debug_preview) yourself.',

@@ -68,7 +68,9 @@ test('every standard is complete, and every check it names is one the validator 
     texts: { 'index.html': 'addEventListener("keydown", f); const a = "achievement"; const b = "HearthCade";' },
     paths: ['index.html', 'trailer.mp4'], gcp: { requirements: { devices: ['mobile'] } },
   }).map((f) => f.check));
-  for (const f of checkStandards({ listing: { title: 'Ok', tagline: 'Fine.', description: '' }, texts: { 'a.js': 'onkeydown = keydown;' } })) raised.add(f.check);
+  for (const f of checkStandards({ listing: { title: 'Ok', tagline: 'Fine.', description: '', has_cover: false }, texts: { 'a.js': 'onkeydown = keydown;' } })) raised.add(f.check);
+  for (const f of checkStandards({ report: { metrics: { progressBeforeReady: 0 }, zones: { checked: true, corner: 'top-left', zones: [{ zone: 'menu-button', coverage: 0.5, box: [47, 0, 56, 56] }, { zone: 'home-bar', coverage: 0.3, box: [0, 369, 844, 21] }] } } })) raised.add(f.check);
+  for (const f of checkStandards({ report: { zones: { checked: false, reason: 'one-layer', zones: [] } } })) raised.add(f.check);
   for (const s of STANDARDS) for (const c of s.checks) assert.ok(raised.has(c), `${s.id} names check ${c}, which the validator never raised`);
 });
 
@@ -108,4 +110,14 @@ test('the code checks', () => {
   assert.ok(checkStandards({ texts: { 'index.html': 'GCP.progress(1)', 'vendor/lib.js': 'const n = "HearthCade";' } }).every((x) => x.check !== 'platform-logo'));
   // warnings reach deploy_preview; notes stay in game_standards check
   for (const x of checkStandards({ texts: { 'index.html': 'GCP.ready()' } })) assert.equal(x.level, 'note');
+});
+
+test('what verification measured', () => {
+  const run = (report) => checkStandards({ report }).map((x) => `${x.level}:${x.check}`);
+  assert.deepEqual(run({ metrics: { progressBeforeReady: 3 }, zones: { checked: true, corner: 'top-right', zones: [] } }), []);
+  assert.deepEqual(run({ metrics: { progressBeforeReady: 1 } }), ['warning:progress-hand-off']);
+  assert.deepEqual(run({ metrics: {} }), [], 'an older report without the count says nothing');
+  assert.deepEqual(run({ zones: { checked: true, corner: 'top-left', zones: [{ zone: 'notch-left', coverage: 0.2, box: [0, 0, 47, 300] }] } }), ['warning:zone-safe-area']);
+  assert.deepEqual(run({ zones: { checked: false, reason: 'one-layer', zones: [] } }), ['note:zones-one-layer']);
+  assert.deepEqual(checkStandards({ listing: { title: 'A', tagline: 'Fine.', description: 'x', has_cover: false } }).map((x) => x.check), ['cover-missing']);
 });
