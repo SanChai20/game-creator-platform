@@ -370,7 +370,16 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   }
   const copy = await publishGate(c.env, p, v);
   if (copy) throw new AppError(409, copy, 'not_original', 'Make the game your own (your own code, rules and look; platform templates and kits are fine to start from), then deploy_preview again.');
+  // The duplication check found it close to another creator's game and could not be sure: a person decides.
+  const dup = rollback ? null : parseJson<any>(v.report, {}).originality?.review;
+  if (dup && v.review === 'denied') throw new AppError(409, `The platform did not approve version ${v.n}${v.review_note ? `: ${v.review_note}` : '.'}`, 'review_denied', 'Fix what the review note says (usually: give the game its own title, tagline and names), deploy_preview again, and publish the new version.');
+  if (dup && v.review === 'pending') throw new AppError(409, `Version ${v.n} is waiting for the platform to review it: it is close to "${dup.title}" by another creator (${dup.why}).`, 'awaiting_review', 'Nothing to do: the game goes live by itself once a platform admin approves it. Tell the user it is waiting for review.');
   if (typeof a.open_implementation === 'boolean') await setOpenImplementation(c.env, p, a.open_implementation, c.client, false);
+  if (dup && v.review !== 'approved') {
+    await c.env.DB.prepare("UPDATE versions SET review = 'pending', review_note = NULL, reviewed_at = NULL, reviewed_by = NULL WHERE project_id = ? AND n = ?").bind(p.id, v.n).run();
+    await logEvent(c.env, p.id, 'review_requested', `Close to ${dup.slug}: ${dup.why}`.slice(0, 300), v.n, c.client);
+    return { live: false, version: v.n, review: 'pending', matched: { game: dup.title, page: `${c.origin}/g/${dup.slug}`, what: dup.why }, next: `Version ${v.n} is waiting for a platform review because it is close to "${dup.title}" by another creator (${dup.why}). It goes live by itself once approved; list_versions {project, version: ${v.n}} shows the review state. Tell the user. To skip the review, give the game its own title, tagline and names, deploy_preview again and publish that version.` };
+  }
   if (el.review === 'needed') {
     // Every other check passed; a person looks at the game before it goes live (the admin's Reviews queue).
     await c.env.DB.prepare("UPDATE versions SET review = 'pending', review_note = NULL, reviewed_at = NULL, reviewed_by = NULL WHERE project_id = ? AND n = ?").bind(p.id, v.n).run();

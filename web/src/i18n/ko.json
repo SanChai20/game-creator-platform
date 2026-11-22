@@ -1785,5 +1785,8 @@
  "Allow creators to sell their game's build skill": "크리에이터가 게임의 빌드 스킬을 판매하도록 허용",
  "Lowest price a paid build skill can have": "유료 빌드 스킬의 최저 가격",
  "Highest price a paid build skill can have": "유료 빌드 스킬의 최고 가격",
- "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "빌드 스킬을 공유하는 게임은 에이전트가 해당 버전의 스킬을 작성할 때까지 새 버전 게시를 거부(모든 스킬을 라이브 게임과 일치하게 유지)"
+ "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "빌드 스킬을 공유하는 게임은 에이전트가 해당 버전의 스킬을 작성할 때까지 새 버전 게시를 거부(모든 스킬을 라이브 게임과 일치하게 유지)",
+ "Close to another game": "다른 게임과 유사",
+ "likely a copy": "복제 가능성",
+ "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "검증 브라우저에서 실행할 수 없었거나 다른 크리에이터의 게임과 비슷한 버전으로, 공개 전에 사람이 확인합니다"
 }

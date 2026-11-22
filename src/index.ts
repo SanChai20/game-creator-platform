@@ -28,7 +28,7 @@ import { rt } from './routes/rt';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now } from './util';
-import { backfill } from './originality-check';
+import { backfill, backfillIdentity } from './originality-check';
 import { backfillMature } from './mature';
 import { TOKENS_CSS } from '../web/src/ui/tokens';
 import { langTag, pageLang, TEXT } from './consent-text';
@@ -359,6 +359,8 @@ const handler = {
     job('mature', () => backfillMature(env, 20));
     // debug browsers past their lifetime are closed (src/debug.ts)
     job('debug sessions', () => reapDebugSessions(env));
+    // live games published before the identity index get their keys (a no-op once all have them; src/originality-check.ts)
+    job('identity index', () => backfillIdentity(env, 10));
     if (event.cron !== DAILY_CRON) return;
     job('payouts', () => autoPayouts(env));
     const t = now();
@@ -372,6 +374,7 @@ const handler = {
       env.DB.prepare('DELETE FROM login_challenges WHERE expires_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
+      env.DB.prepare('DELETE FROM dup_judgments WHERE created_at < ?').bind(t - 30 * 86400000),
       env.DB.prepare('DELETE FROM matches WHERE created_at < ?').bind(t - 30 * 86400000),   // ratings stay; the match log is a month
       oldSeatsStmt(env.DB, t - 86400000),   // a match lasts an hour: older seats lead nowhere
       oldPicksStmt(env.DB, t),

@@ -51,14 +51,17 @@ writeFileSync(join(pub, 'kits/blocks.json'), JSON.stringify({ three, groups: blo
 
 // fingerprints of the code everyone starts from (templates and kits): the duplication check ignores them, so two games
 // built on the same template or kit are not mistaken for copies of each other
-const { fingerprints, inlineScripts } = await import(pathToFileURL(join(root, 'src/originality.js')).href);
-const base = new Set();
+const { contentNames, fingerprints, inlineScripts } = await import(pathToFileURL(join(root, 'src/originality.js')).href);
+const base = new Set(), baseNames = new Set();
 for (const dir of ['templates', 'kits/v1']) for (const f of walk(join(pub, dir))) {
   if (!/\.(m?js|html)$/.test(f.path)) continue;
   const text = readFileSync(join(pub, dir, f.path), 'utf8');
+  for (const n of contentNames([{ path: f.path, text }])) baseNames.add(n);
   for (const part of /\.html$/.test(f.path) ? inlineScripts(text) : [text]) for (const h of fingerprints(part)) base.add(h);
 }
 writeFileSync(join(pub, 'kits/baseline.bin'), Buffer.from(Int32Array.from([...base].sort((a, b) => a - b)).buffer));
+// and the names in them (characters, items, places of the templates), so two games on one template do not share names
+writeFileSync(join(pub, 'kits/baseline-names.json'), JSON.stringify([...baseNames].sort()));
 
 mkdirSync(join(root, 'src/generated'), { recursive: true });
 const runtime = readFileSync(join(root, 'src/runtime/game-worker.js'), 'utf8');

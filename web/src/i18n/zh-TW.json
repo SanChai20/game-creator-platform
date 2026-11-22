@@ -1806,5 +1806,8 @@
  "Allow creators to sell their game's build skill": "允許創作者出售遊戲的建構技能",
  "Lowest price a paid build skill can have": "付費建構技能的最低價格",
  "Highest price a paid build skill can have": "付費建構技能的最高價格",
- "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "分享建構技能的遊戲，在其智慧體為新版本編寫技能前拒絕發布該版本（讓每個技能與上線遊戲保持一致）"
+ "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "分享建構技能的遊戲，在其智慧體為新版本編寫技能前拒絕發布該版本（讓每個技能與上線遊戲保持一致）",
+ "Close to another game": "與其他遊戲相似",
+ "likely a copy": "可能是複製",
+ "versions the verification browser could not run, or that are close to another creator's game, checked by a person before they go live": "驗證瀏覽器無法執行或與其他創作者遊戲相似的版本，上線前需人工檢查"
 }
