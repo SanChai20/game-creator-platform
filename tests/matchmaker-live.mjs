@@ -129,3 +129,21 @@ test('a malformed seat is refused', async () => {
   const bad = new WebSocket(`${BASE}/?seat=${encodeURIComponent('{"q":"x"}')}`);
   assert.equal(await new Promise((r) => { bad.onclose = (ev) => r(ev.code); }), 4000);
 });
+
+test('wait and settle: two of eight start short when the first has waited their own wait; a late third is held to settle', { timeout: 60_000 }, async () => {
+  await seed('play_w1:w1', 'play_w2:w2', 'play_w3:w3', 'play_w4:w4');
+  const shape = { q: 'q8', size: 8, min: 2, wait: 6, settle: 3 };
+  const a = queue(seat('w1', shape)); await a.open; const t0 = Date.now(); await sleep(2000);
+  const b = queue(seat('w2', shape)); await b.open;
+  await sleep(2500); assert.ok(!a.got.some((m) => m.t === 'found'), 'not before the first has waited 6 s');
+  assert.ok(await until(() => a.got.some((m) => m.t === 'found') && b.got.some((m) => m.t === 'found'), 8000));
+  const took = (Date.now() - t0) / 1000; assert.ok(took >= 5.5 && took <= 9, 'found at about 6 s, was ' + took);
+  assert.deepEqual(a.got.find((m) => m.t === 'found').players.map((p) => p.id).sort(), ['w1', 'w2']);
+  assert.equal((await verifyTicket(a.got.find((m) => m.t === 'found').ticket, env)).min, 2);
+  // one who has waited long past their wait, then a newcomer: matched when the newcomer has settled, not at once
+  const c = queue(seat('w3', shape)); await c.open; await sleep(8000);
+  const d = queue(seat('w4', shape)); await d.open; const t1 = Date.now();
+  await sleep(1500); assert.ok(!d.got.some((m) => m.t === 'found'), 'the newcomer is not taken at once');
+  assert.ok(await until(() => c.got.some((m) => m.t === 'found') && d.got.some((m) => m.t === 'found'), 6000));
+  const settled = (Date.now() - t1) / 1000; assert.ok(settled >= 2.5 && settled <= 5.5, 'found about 3 s after the newcomer joined, was ' + settled);
+});
