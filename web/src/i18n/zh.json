@@ -139,5 +139,13 @@
  "Allow creators to sell their game's build skill": "允许创作者出售游戏的构建技能",
  "Lowest price a paid build skill can have": "付费构建技能的最低价格",
  "Highest price a paid build skill can have": "付费构建技能的最高价格",
- "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "分享构建技能的游戏，在其智能体为新版本编写技能前拒绝发布该版本（让每个技能与线上游戏保持一致）"
+ "Refuse to publish a new version of a game that shares its build skill until its agent has written the skill for that version (keeps every skill in step with the live game)": "分享构建技能的游戏，在其智能体为新版本编写技能前拒绝发布该版本（让每个技能与线上游戏保持一致）",
+ "Hours after paying that a buyer can ask for a refund of a game, once per game (0 turns refund requests off)": "买家付款后可申请游戏退款的小时数，每款游戏限一次（0 表示关闭退款）",
+ "Minutes of play (free trial included) from which a game can no longer be refunded": "游玩达到多少分钟（含免费试玩）后游戏不再可退款",
+ "Refund eligible games automatically when the buyer asks (off: every refund waits for an admin)": "买家申请时自动为符合条件的游戏退款（关闭：所有退款等待管理员处理）",
+ "Who bears the payment processing fee Stripe keeps when a game is refunded (platform or creator)": "游戏退款时 Stripe 保留的支付手续费由谁承担（平台或创作者）",
+ "Refunds within the period after which an account loses self-service refunds and its refunds wait for an admin (0: no limit)": "在统计周期内退款达到此次数后，账户将失去自助退款，其退款需等待管理员处理（0：不限制）",
+ "Period for the refund limit (days)": "退款次数限制的统计周期（天）",
+ "platform": "平台",
+ "creator": "创作者"
 }

@@ -35,6 +35,7 @@ import { Browse } from './pages/Browse';
 import { Categories, Category } from './pages/Categories';
 import { Queue } from './pages/Queue';
 import { Library } from './pages/Library';
+import { Purchases } from './pages/Purchases';
 import { CreatorStore, SkillPage } from './pages/CreatorStore';
 import { Legal, LEGAL_DOCS, legalTitle, type LegalDoc } from './pages/Legal';
 import { OPERATOR } from './operator';
@@ -97,6 +98,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                   <div className="pop" role="menu">
                     <div className="who"><b className="clip">{user.name}</b><div className="mute clip fs-sm">{user.email}</div></div>
                     <Link to="/library">{t('Library', '游戏库')}</Link>
+                    <Link to="/purchases">{t('Purchases and refunds', '购买记录与退款')}</Link>
                     {/* the creator's side, only for creators: a player-only account has no console or earnings to look at */}
                     {user.makes_games && <><Link to="/console">{t('Console', '控制台')}</Link><Link to="/console/earnings">{t('Earnings', '收益')}</Link></>}
                     <Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link>
@@ -161,7 +163,7 @@ function NotFound() {
 
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
-  const needUser = path === '/library' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account';
+  const needUser = path === '/library' || path === '/purchases' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account';
   useEffect(() => { if (needUser && !user) navigate(loginUrl(), true); }, [needUser, user, loc]);
   if (needUser && !user) return <RouteSkeleton path={path} />;
   let m: RegExpMatchArray | null;
@@ -176,6 +178,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/reset') return <Reset />;
   if (path === '/account') return <Account />;
   if (path === '/library') return <Library />;
+  if (path === '/purchases') return <Purchases />;
   if (path === '/create') return <Creators />;
   if (path === '/creator-store') return <CreatorStore />;
   if ((m = path.match(/^\/creator-store\/([^/]+)$/))) return <SkillPage key={m[1]} slug={decodeURIComponent(m[1])} />;

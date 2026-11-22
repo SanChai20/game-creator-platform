@@ -48,3 +48,51 @@ export async function passwordResetMail(env: Env, to: string, name: string, link
     html: `<p>Hi ${esc(name)},</p><p>${esc(body)}</p><p><a href="${esc(link)}">Choose a new password</a></p><p>— ${esc(brand)}</p>`,
   });
 }
+
+// ---- refunds (src/refunds.ts) ---------------------------------------------------------------------------------------
+interface RefundRow { id: string; status: string; price_cents: number; decision_note: string | null; review_reason: string | null; buyer_email: string | null; buyer_name: string | null; creator_email: string | null; creator_name: string | null; title: string; slug: string; creator_net_cents: number | null; fee_bearer: string | null; stripe_fee_cents: number | null; transfer_reversal_cents: number }
+async function refundRow(env: Env, id: string): Promise<RefundRow | null> {
+  return env.DB.prepare(`SELECT q.*, b.email AS buyer_email, b.name AS buyer_name, o.email AS creator_email, o.name AS creator_name, p.title, p.slug
+    FROM refund_requests q JOIN projects p ON p.id = q.project_id LEFT JOIN users b ON b.id = q.user_id LEFT JOIN users o ON o.id = q.owner_id WHERE q.id = ?`).bind(id).first<RefundRow>();
+}
+/** How long a refund takes to show up, said the same way everywhere (the confirmation, the emails, the policy). */
+export const REFUND_TIMELINE = 'It usually takes 5 to 10 business days to show up on your statement, depending on your bank.';
+
+async function simpleMail(env: Env, to: string, name: string, subject: string, lines: string[], link: { href: string; label: string }): Promise<boolean> {
+  const brand = (await getSettings(env)).brand_name || 'HearthCade';
+  return sendMail(env, {
+    to, subject: `${brand}: ${subject}`,
+    text: [`Hi ${name},`, ...lines, `${link.label}: ${link.href}`, `— ${brand}`].join('\n\n'),
+    html: `<p>Hi ${esc(name)},</p>${lines.map((l) => `<p>${esc(l)}</p>`).join('')}<p><a href="${esc(link.href)}">${esc(link.label)}</a></p><p>— ${esc(brand)}</p>`,
+  });
+}
+
+/** Tells a buyer their refund request reached the platform and waits for a decision. */
+export async function refundReceivedMail(env: Env, id: string, origin?: string): Promise<boolean> {
+  const r = await refundRow(env, id);
+  if (!r?.buyer_email) return false;
+  return simpleMail(env, r.buyer_email, r.buyer_name || '', `we received your refund request for ${r.title}`,
+    [`We received your request to refund ${r.title} (${usd(r.price_cents)}). The platform reviews it, usually within 2 business days, and emails you the decision. You can keep playing meanwhile.`],
+    { href: `${origin || originOf(env)}/purchases`, label: 'See your purchases' });
+}
+
+/** Tells a buyer their refund went through, or that the platform declined it and why. */
+export async function refundDecidedMail(env: Env, id: string, origin?: string): Promise<boolean> {
+  const r = await refundRow(env, id);
+  if (!r?.buyer_email || (r.status !== 'refunded' && r.status !== 'denied')) return false;
+  const ok = r.status === 'refunded';
+  return simpleMail(env, r.buyer_email, r.buyer_name || '', ok ? `${usd(r.price_cents)} for ${r.title} is on its way back` : `your refund request for ${r.title}`,
+    ok ? [`We refunded ${r.title}: ${usd(r.price_cents)} goes back to the card or account you paid with. ${REFUND_TIMELINE}`, 'The game has left your library. Your saves are kept in case you buy it again; a game bought again after a refund cannot be refunded a second time.']
+      : [`We looked at your request to refund ${r.title} and could not refund it under the refund policy.${r.decision_note ? ` ${r.decision_note}` : ''}`, 'The game stays in your library. If you think this is wrong, reply to this email.'],
+    { href: `${origin || originOf(env)}/purchases`, label: 'See your purchases' });
+}
+
+/** Tells a creator a sale of their game was refunded and what it took off their balance. */
+export async function saleRefundedMail(env: Env, id: string, origin?: string): Promise<boolean> {
+  const r = await refundRow(env, id);
+  if (!r?.creator_email || r.status !== 'refunded') return false;
+  const net = r.creator_net_cents ?? 0, fee = r.fee_bearer === 'creator' ? (r.stripe_fee_cents || 0) : 0;
+  const lines = [`A sale of ${r.title} (${usd(r.price_cents)}) was refunded to its buyer. Your ${usd(net)} credit for that sale was taken back${fee ? `, with the ${usd(fee)} payment fee Stripe keeps on a refund` : ''}.`];
+  if (r.transfer_reversal_cents > 0) lines.push(`That share had already been paid out, so ${usd(r.transfer_reversal_cents)} was taken back from your payout account.`);
+  return simpleMail(env, r.creator_email, r.creator_name || '', `a sale of ${r.title} was refunded`, lines, { href: `${origin || originOf(env)}/console/earnings`, label: 'See your Earnings page' });
+}

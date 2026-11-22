@@ -10,7 +10,8 @@ import { register } from 'node:module';
 import { SKILL_OUTLINE, checkSkill, headingsOf, normalizeSkill, skillMarkdown, skillName } from '../src/skill-rules.js';
 
 register('./ts-hook.mjs', import.meta.url);
-const { splitSale, splitSkillSale, freeSkillShared, recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns, ownsSkill, refundablePurchase } = await import('../src/earnings.ts');
+const { splitSale, splitSkillSale, freeSkillShared, recordPurchase, refundPurchase, partialRefund, disputePurchase, disputeWon, balanceOf, owns, ownsSkill } = await import('../src/earnings.ts');
+const { gameRefundState, adminRefund, requestRefund } = await import('../src/refunds.ts');
 const { writeSkill, skillGate, storeItem, storeList, liveSkill, setSkillPrice } = await import('../src/skills.ts');
 const { SETTING_DEFS } = await import('../src/settings.ts');
 
@@ -196,16 +197,15 @@ test('a skill price stays within the platform range, and cannot be set before a 
 
 test('build skills are non-refundable: no self-serve refund, the admin refund refuses them, checkout says so', async () => {
   const env = await world();
-  const open = { refund_window_hours: 24, refund_max_play_minutes: 30 };
+  const open = { refund_window_hours: 24, refund_max_play_minutes: 10 };
   await recordPurchase(env, S, { userId: 'u_buyer', projectId: 'g1', ownerId: 'u_maker', title: 'Bloom', priceCents: 1500, provider: 'stripe', providerRef: 'cs_skill', paymentIntent: 'pi_skill', item: 'skill' });
-  assert.equal(await refundablePurchase(env, open, 'u_buyer', 'g1'), null);   // the buyer has only the skill: nothing to refund
+  assert.equal(await gameRefundState(env, open, 'u_buyer', 'g1'), null);   // the buyer has only the skill: nothing to refund
+  const skill = env.DB.sql.prepare('SELECT id FROM skill_purchases').get().id, pay = { refund: async () => 're', fee: async () => 0, reverseTransfer: async () => {} };
+  await assert.rejects(requestRefund(env, open, 'u_buyer', skill, '', pay), (e) => e.code === 'skill_non_refundable');
+  await assert.rejects(adminRefund(env, open, 'u_admin', skill, pay), (e) => e.code === 'skill_non_refundable');
   await recordPurchase(env, S, { userId: 'u_buyer', projectId: 'g1', ownerId: 'u_maker', title: 'Bloom', priceCents: 1000, provider: 'stripe', providerRef: 'cs_game', paymentIntent: 'pi_game' });
-  const r = await refundablePurchase(env, open, 'u_buyer', 'g1');
-  assert.ok(r && r.payment_intent === 'pi_game');                              // games keep their refund rules
-  const admin = readFileSync(new URL('../src/routes/admin.ts', import.meta.url), 'utf8');
-  const route = admin.slice(admin.indexOf("admin.post('/purchases/:id/refund'"), admin.indexOf("admin.post('/grant-game'"));
-  assert.match(route, /skill_purchases[\s\S]*skill_non_refundable/);
-  assert.doesNotMatch(route, /\?\? await c\.env\.DB\.prepare\('SELECT \* FROM skill_purchases/);
+  const r = await gameRefundState(env, open, 'u_buyer', 'g1');
+  assert.ok(r && r.refundable);                                               // games keep their refund rules
   const api = readFileSync(new URL('../src/routes/api.ts', import.meta.url), 'utf8');
   assert.match(api, /Build skills are non-refundable\./);
   assert.match(api, /build skills are non-refundable \(\[refund policy\]/);

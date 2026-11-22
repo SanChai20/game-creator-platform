@@ -42,7 +42,8 @@ const ITEM = {
 } as const;
 
 /** How long a sale's credit waits before the creator can withdraw it: the hold period, and never less than the window in
- *  which the buyer can still refund it themselves, so a self-serve refund never has to claw back money already paid out. */
+ *  which the buyer can still refund it themselves, so a self-service refund never has to claw back money already paid out
+ *  (a sale with a refund request still open is held for as long as it stays open, see availableRow). */
 export function holdMs(s: Pick<Settings, 'earnings_hold_days' | 'refund_window_hours'> & Partial<Pick<Settings, 'new_creator_hold_days' | 'new_creator_days'>>, creatorAgeMs = Infinity): number {
   const base = Math.max(s.earnings_hold_days * 86400000, s.refund_window_hours * 3600000);
   // A new creator's sales wait longer: card disputes arrive weeks after a sale, and a creator who sells to themselves
@@ -62,7 +63,8 @@ export async function playedSeconds(env: Env, userId: string, projectId: string)
   return Math.round(r?.s || 0);
 }
 
-/** Seconds the game's heartbeats say its sessions ran past the page's last check-in (see refundablePurchase). */
+/** Seconds the game's heartbeats say its sessions ran past the page's last check-in. More than UNCONFIRMED_PLAY_S means
+ *  the platform could not confirm the play time, so a refund waits for an admin (src/refunds.ts). */
 export const UNCONFIRMED_PLAY_S = 120;
 export async function unconfirmedSeconds(env: Env, userId: string, projectId: string): Promise<number> {
   const r = await env.DB.prepare("SELECT COALESCE(SUM(MAX(0, last_beat_at - COALESCE(seen_at, started_at)) / 1000), 0) AS s FROM plays WHERE user_id = ? AND project_id = ? AND env = 'live'")
@@ -70,30 +72,22 @@ export async function unconfirmedSeconds(env: Env, userId: string, projectId: st
   return Math.round(r?.s || 0);
 }
 
-/** The purchase a buyer can still refund themselves, if any: paid through Stripe within the refund window, played for
- *  less than the limit, and the first purchase of this game they would refund (a game is refunded once per buyer, so
- *  buy-play-refund cannot repeat). */
-export async function refundablePurchase(env: Env, s: Pick<Settings, 'refund_window_hours' | 'refund_max_play_minutes'>, userId: string, projectId: string): Promise<{ id: string; payment_intent: string; created_at: number; until: number; played_seconds: number } | null> {
-  if (!(s.refund_window_hours > 0)) return null;
-  const win = s.refund_window_hours * 3600000;
-  const p = await env.DB.prepare("SELECT id, payment_intent, created_at FROM purchases WHERE user_id = ?1 AND project_id = ?2 AND status = 'paid' AND provider = 'stripe' AND payment_intent IS NOT NULL AND created_at > ?3 AND NOT EXISTS (SELECT 1 FROM purchases o WHERE o.user_id = ?1 AND o.project_id = ?2 AND o.status = 'refunded') ORDER BY created_at DESC LIMIT 1")
-    .bind(userId, projectId, now() - win).first<{ id: string; payment_intent: string; created_at: number }>();
-  if (!p) return null;
-  const played = await playedSeconds(env, userId, projectId);
-  if (played >= s.refund_max_play_minutes * 60) return null;
-  // The page's check-ins can be blocked by the buyer. If the game's own heartbeats say it kept running well past the
-  // page's last check-in, the platform cannot confirm the play time, so the refund is not automatic: support decides.
-  // (The heartbeats never add play time: a game that sends them after the player left only sends the buyer to support.)
-  if (await unconfirmedSeconds(env, userId, projectId) > UNCONFIRMED_PLAY_S) return null;
-  return { ...p, until: p.created_at + win, played_seconds: played };
-}
+export interface Balance { total: number; available: number; pending: number; held: number }
 
-export interface Balance { total: number; available: number; pending: number }
+/** SQL: whether a ledger row counts towards the withdrawable balance at time `t` (a bound parameter such as "?1"). Debits
+ *  count at once; a credit counts once its hold has passed and no refund request for its sale is waiting for a decision,
+ *  so a sale whose buyer asked for a refund is never paid out while the platform is still deciding (src/refunds.ts). */
+export const availableRow = (l: string, t: string) =>
+  `(${l}.amount_cents < 0 OR (${l}.available_at <= ${t} AND NOT EXISTS (SELECT 1 FROM refund_requests rr WHERE rr.purchase_id = ${l}.ref AND rr.status = 'pending')))`;
+
 export async function balanceOf(env: Env, userId: string): Promise<Balance> {
-  const r = await env.DB.prepare('SELECT COALESCE(SUM(amount_cents), 0) AS total, COALESCE(SUM(CASE WHEN available_at <= ?1 OR amount_cents < 0 THEN amount_cents ELSE 0 END), 0) AS available FROM ledger WHERE user_id = ?2')
-    .bind(now(), userId).first<{ total: number; available: number }>();
+  const r = await env.DB.prepare(`SELECT COALESCE(SUM(l.amount_cents), 0) AS total, COALESCE(SUM(CASE WHEN ${availableRow('l', '?1')} THEN l.amount_cents ELSE 0 END), 0) AS available,
+      COALESCE(SUM(CASE WHEN l.amount_cents > 0 AND EXISTS (SELECT 1 FROM refund_requests rr WHERE rr.purchase_id = l.ref AND rr.status = 'pending') THEN l.amount_cents ELSE 0 END), 0) AS held
+    FROM ledger l WHERE l.user_id = ?2`)
+    .bind(now(), userId).first<{ total: number; available: number; held: number }>();
   const total = r?.total || 0, available = Math.min(total, r?.available || 0);
-  return { total, available: Math.max(0, available), pending: Math.max(0, total - Math.max(0, available)) };
+  // held: credits of sales whose buyer asked for a refund that is still open (part of pending)
+  return { total, available: Math.max(0, available), pending: Math.max(0, total - Math.max(0, available)), held: Math.max(0, r?.held || 0) };
 }
 
 /** Records a paid purchase and credits the creator. Idempotent on providerRef. Returns false if it already existed. */
@@ -139,6 +133,10 @@ async function reversePurchase(env: Env, item: Item, where: { paymentIntent?: st
     env.DB.prepare(`UPDATE ${it.table} SET status = ?, refunded_at = ? WHERE id = ? AND status = 'paid'`).bind(status, t, p.id),
     env.DB.prepare(`INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) SELECT ?1, ?5, -?2 - ${PARTIAL}, ?3, ?6, ?4, ?4 WHERE EXISTS (SELECT 1 FROM ${it.table} WHERE id = ?3 AND refunded_at = ?4) AND NOT EXISTS (SELECT 1 FROM ledger WHERE ref = ?3 AND kind = ?5)`).bind(p.owner_id, p.net_cents, p.id, t, kind, note),
     env.DB.prepare(`UPDATE projects SET ${it.counter} = MAX(0, ${it.counter} - 1) WHERE id = ? AND EXISTS (SELECT 1 FROM ${it.table} WHERE id = ? AND refunded_at = ?)`).bind(p.project_id, p.id, t),
+    // an open refund request for this sale is settled by it: refunded (by the request, an admin or the Stripe Dashboard),
+    // or closed when the buyer disputed the charge instead
+    env.DB.prepare("UPDATE refund_requests SET status = ?, decided_at = ?, decided_by = COALESCE(decided_by, 'payment') WHERE purchase_id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM purchases WHERE id = ? AND refunded_at = ?)")
+      .bind(kind === 'refund' ? 'refunded' : 'closed', t, p.id, p.id, t),
   ]);
   return !!upd.meta.changes;
 }

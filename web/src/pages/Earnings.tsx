@@ -27,7 +27,7 @@ export function Earnings() {
   const setup = () => act('acct', async () => { const r = await api<{ url: string }>('/billing/payout-account', { body: { country } }); location.href = r.url; });
   const withdraw = (method: 'stripe' | 'manual') => act('wd', async () => { await api('/billing/withdraw', { body: { method, details } }); setManual(false); setDetails(''); await reload(); },
     method === 'stripe' ? t('Withdrawal sent to your payout account.', '提现已发送至你的收款账户。') : t('Withdrawal requested. An administrator will send it.', '已提交提现申请，管理员将为你打款。'));
-  const kinds: Record<string, string> = { sale: t('Game sale', '游戏销售'), skill_sale: t('Skill sale', '技能销售'), partial_refund: t('Partial refund', '部分退款'), dispute: t('Chargeback', '拒付'), dispute_won: t('Chargeback won', '拒付胜诉'), refund: t('Refund', '退款'), withdrawal: t('Withdrawal', '提现'), withdrawal_reversal: t('Withdrawal returned', '提现退回'), adjustment: t('Adjustment', '调整') };
+  const kinds: Record<string, string> = { sale: t('Game sale', '游戏销售'), skill_sale: t('Skill sale', '技能销售'), partial_refund: t('Partial refund', '部分退款'), dispute: t('Chargeback', '拒付'), dispute_won: t('Chargeback won', '拒付胜诉'), refund: t('Refund', '退款'), refund_fee: t('Refund payment fee', '退款手续费'), transfer_reversal: t('Taken back from a payout', '从已打款中收回'), withdrawal: t('Withdrawal', '提现'), withdrawal_reversal: t('Withdrawal returned', '提现退回'), adjustment: t('Adjustment', '调整') };
 
   return (
     <div className="wrap page">
@@ -36,7 +36,7 @@ export function Earnings() {
       <div className="stack l">
         <StatGrid>
           <Stat tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />
-          <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={(data.hold_days === 1 ? t('Sales clear after 1 day', '销售收入在 1 天后可提现') : t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days }))} />
+          <Stat label={t('Pending', '待结算')} value={usd(b.pending)} sub={<>{data.hold_days === 1 ? t('Sales clear after 1 day', '销售收入在 1 天后可提现') : t('Sales clear after {n} days', '销售收入在 {n} 天后可提现', { n: data.hold_days })}{b.held > 0 && <> · {t('{amount} held while buyers ask for a refund', '{amount} 因买家申请退款而暂缓结算', { amount: usd(b.held) })}</>}</>} />
           <Stat label={t('Your share', '你的分成')} value={`${100 - data.fee_percent}%`} sub={data.fee_open_percent != null && data.fee_open_percent < data.fee_percent
             ? t('The platform keeps {cut}% of each game sale, {open}% on games that share their build skill for free', '平台从每笔游戏销售中收取 {cut}%，免费分享构建技能的游戏仅收取 {open}%', { cut: data.fee_percent, open: data.fee_open_percent })
             : t('The platform keeps {cut}% of each sale', '平台从每笔销售中收取 {cut}%', { cut: data.fee_percent })} />

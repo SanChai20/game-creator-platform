@@ -33,6 +33,8 @@ const mock = createServer(async (req, res) => {
   if (url.pathname === '/v2/core/account_links') return send({ url: 'https://connect.stripe.test/onboard' });
   if (url.pathname === '/v1/transfers') return send({ id: 'tr_test1', amount: Number(p.amount) });
   if (url.pathname === '/v1/refunds') return send({ id: 're_test1' });
+  if (/^\/v1\/transfers\/[^/]+\/reversals$/.test(url.pathname)) return send({ id: 'trr_test1', amount: Number(p.amount) });
+  if (url.pathname.startsWith('/v1/payment_intents/')) return send({ id: url.pathname.split('/').pop(), latest_charge: { balance_transaction: { fee: 59 } } });
   res.writeHead(404); res.end('{}');
 }).listen(8798, '127.0.0.1');
 
@@ -559,8 +561,13 @@ GCP.ready();
   const money = must(await ADM.get('/api/admin/money'));
   must(await ADM.post(`/api/admin/purchases/${money.purchases[0].id}/refund`));
   assert.equal(must(await B.get(`/api/games/${slug}`)).owned, false);
-  assert.equal(must(await A.get('/api/console/earnings')).balance.total, -449);
-  ok('refund: access revoked, creator credit reversed');
+  // the creator's share was already transferred, so that much of the Transfer is reversed: nothing is left owed
+  assert.equal(must(await A.get('/api/console/earnings')).balance.total, 0);
+  const rev = stripeCalls.find((c) => c.path === '/v1/transfers/tr_test1/reversals');
+  assert.equal(rev.p.amount, '449');
+  const books = must(await ADM.get('/api/admin/money')).refunds[0];
+  assert.deepEqual([books.status, books.transfer_reversal_cents, books.stripe_fee_cents, books.fee_bearer], ['refunded', 449, 59, 'platform']);
+  ok('refund: access revoked, creator credit reversed from the payout already sent, the platform absorbs the Stripe fee');
 
   // versions: a second version, rollback, unpublish, console views, admin views
   await tool('upload_files', { project: pid, edits: [{ path: 'index.html', old_string: '<title>Shard Island</title>', new_string: '<title>Shard Island II</title>' }] });
