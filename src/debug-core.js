@@ -196,7 +196,7 @@ export async function runSteps(page, steps) {
           const wrap = (body) => `(async () => { const v = await (async () => { ${body} })(); try { return v === undefined ? 'undefined' : typeof v === 'string' ? v : (JSON.stringify(v) ?? String(v)); } catch (e) { return String(v); } })()`;
           let value;
           try { value = await page.evaluate(wrap(`return (\n${s.js}\n);`)); }
-          catch (e) { if (!/SyntaxError/.test(String(e && e.message))) throw e; value = await page.evaluate(wrap(s.js)); }
+          catch (e) { if (!/SyntaxError|Unexpected (token|identifier|end of input|string|number)|missing \) |Illegal return/.test(String(e && e.message))) throw e; value = await page.evaluate(wrap(s.js)); }
           entry.detail = String(value).slice(0, DEBUG_LIMITS.eval_result_chars);
           break;
         }
