@@ -6,14 +6,14 @@ import { AdminSkeleton } from '../skeletons';
 
 const MB = 1024 * 1024;
 
-const tabs = (): [string, string][] => [['overview', t('Overview', '概览')], ['settings', t('Settings', '参数设置')], ['users', t('Users', '用户')], ['games', t('Games', '游戏')], ['money', t('Money', '资金')]];
+const tabs = (): [string, string][] => [['overview', t('Overview', '概览')], ['settings', t('Settings', '参数设置')], ['users', t('Users', '用户')], ['games', t('Games', '游戏')], ['money', t('Money', '资金')], ['reports', t('Reports', '举报')]];
 
 export function Admin({ tab }: { tab: string }) {
   return (
     <div className="wrap page">
       <PageHeader eyebrow={t('Admin', '管理后台')} title={tabs().find(([k]) => k === tab)?.[1] || t('Admin', '管理后台')} />
       <Tabs active={tab} items={tabs().map(([k, label]) => ({ key: k, to: k === 'overview' ? '/admin' : `/admin/${k}`, label }))} />
-      {tab === 'overview' ? <Overview /> : tab === 'settings' ? <Settings /> : tab === 'users' ? <Users /> : tab === 'games' ? <Games /> : tab === 'money' ? <Money /> : null}
+      {tab === 'overview' ? <Overview /> : tab === 'settings' ? <Settings /> : tab === 'users' ? <Users /> : tab === 'games' ? <Games /> : tab === 'money' ? <Money /> : tab === 'reports' ? <Reports /> : null}
     </div>
   );
 }
@@ -384,5 +384,41 @@ function Refunds({ rows, reload }: { rows: any[]; reload: () => Promise<unknown>
             : r.buyer_review_at ? <Button size="sm" disabled={busy === 'rv' + r.user_id} onClick={() => restore(r)}>{t('Restore self-service', '恢复自助退款')}</Button> : null}</td>
         </tr>)}</tbody></Table> : <div className="pad mute">{t('No refunds yet.', '暂无退款。')}</div>}
     </Card>
+  );
+}
+
+// Players' reports of other players (the friends panel's Report). Open ones first; each shows the recent messages the
+// reporter's chat held with the player, and lets the moderator close it, or suspend the player from the Users tab.
+const REASONS = (): Record<string, string> => ({ harassment: t('Harassment or bullying', '骚扰或欺凌'), spam: t('Spam or scams', '垃圾信息或诈骗'), hate: t('Hate speech', '仇恨言论'), cheating: t('Cheating', '作弊'), name: t('Offensive name', '不当名称'), other: t('Something else', '其他') });
+function Reports() {
+  const [closed, setClosed] = useState(false), { busy, act } = useAct();
+  const { data, error, loading, reload } = useData<any>(`/admin/social-reports${closed ? '?status=closed' : ''}`);
+  const set = (r: any, status: string) => act(String(r.id), async () => { await api(`/admin/social-reports/${r.id}`, { body: { status } }); await reload(); }, t('Updated.', '已更新。'));
+  const suspend = (r: any) => act(String(r.id), async () => { await api(`/admin/users/${r.target.id}`, { method: 'PATCH', body: { status: 'suspended' } }); await api(`/admin/social-reports/${r.id}`, { body: { status: 'actioned' } }); await reload(); }, t('Player suspended.', '已停用该玩家。'));
+  return (
+    <div className="stack l">
+      <div className="admin-tools row"><label className="row fs-sm"><Switch checked={closed} onChange={(e) => setClosed(e.target.checked)} /> {t('Show closed reports', '显示已处理的举报')}</label></div>
+      {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : !data.reports.length ? <Card pad><span className="mute">{closed ? t('No closed reports.', '没有已处理的举报。') : t('No open reports.', '没有待处理的举报。')}</span></Card> : (
+        <div className="stack">{data.reports.map((r: any) => (
+          <Card key={r.id} pad>
+            <div className="stack s">
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <span><b>{r.target.name}</b> <span className="mute fs-sm">{r.target.email}</span> {r.target.status !== 'active' && <Badge tone="bad">{r.target.status}</Badge>} {r.target.reports > 1 && <Badge tone="accent">{t('{n} reports', '{n} 次举报', { n: r.target.reports })}</Badge>}</span>
+                <span className="mute fs-sm">{dateTime(r.created_at)}</span>
+              </div>
+              <div><Badge>{REASONS()[r.reason] || r.reason}</Badge> <span className="fs-sm">{t('by {name}', '举报人：{name}', { name: r.reporter.name })} <span className="mute">{r.reporter.email}</span></span></div>
+              {r.detail && <p style={{ whiteSpace: 'pre-wrap' }}>{r.detail}</p>}
+              {r.messages.length > 0 && <div className="stack s fs-sm" style={{ borderLeft: '3px solid var(--line-2)', paddingLeft: 12 }}>{r.messages.map((m: any, i: number) => <div key={i}><b>{m.from === r.target.id ? r.target.name : r.reporter.name}:</b> {m.body} <span className="dim">{ago(m.at)}</span></div>)}</div>}
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                {r.status === 'open' ? <>
+                  <Button size="sm" variant="ghost" disabled={busy === String(r.id)} onClick={() => void set(r, 'dismissed')}>{t('Dismiss', '驳回')}</Button>
+                  <Button size="sm" variant="secondary" disabled={busy === String(r.id)} onClick={() => void set(r, 'actioned')}>{t('Mark handled', '标记为已处理')}</Button>
+                  {r.target.status === 'active' && <Button size="sm" variant="danger" disabled={busy === String(r.id)} onClick={() => { if (confirm(t('Suspend {name}? They are signed out everywhere.', '要停用 {name} 吗？对方将在所有设备上退出登录。', { name: r.target.name }))) void suspend(r); }}>{t('Suspend player', '停用该玩家')}</Button>}
+                </> : <><StatusBadge status={r.status} /><Button size="sm" variant="ghost" disabled={busy === String(r.id)} onClick={() => void set(r, 'open')}>{t('Reopen', '重新打开')}</Button></>}
+              </div>
+            </div>
+          </Card>))}</div>
+      )}
+    </div>
   );
 }

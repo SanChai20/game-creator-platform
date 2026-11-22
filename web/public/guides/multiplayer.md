@@ -22,7 +22,7 @@ For those, use **[server-run matches](matches.md)** (`server/match.js` with `GCP
 ## Rooms
 
 ```js
-const room = GCP.room('lobby');                  // any code up to 40 characters. Same code, same room.
+const room = GCP.room('world');                  // any name up to 40 characters. Same name, same room.
 room.on('open', ({ id, host, peers, state }) => { /* connected. state is the last snapshot the host stored */ });
 room.on('join', (peer) => {});                   // { id, name }
 room.on('leave', (id) => {});
@@ -43,7 +43,48 @@ room.isHost; room.id; room.peers; room.leave();
 - The room size limit is set by the platform and can be lowered per room with `GCP.room(code, { max: 4 })`.
 - The first player in is the host. When the host leaves, the player who has been in the room longest becomes host.
 - Players in a room are signed-in players of this game. Preview and live rooms are separate.
-- For private matches, generate a short code, show it, and let friends type it in. For public play, use a fixed code such as `'world'`, or several (`'world-1'`, `'world-2'`).
+- For play with friends, do not show a code to type: open the room under a random id (`crypto.randomUUID()`) and invite friends with `GCP.friends.invite(id, { data: { room: roomId } })` or `GCP.friends.open({ data: { room: roomId } })`; the friend's game opens with `GCP.launch.join.data.room` (see Friends below). For public play, use a fixed name such as `'world'`, or several (`'world-1'`, `'world-2'`).
+
+## Playing with friends
+
+Players have platform friends (requests, chat, blocking and privacy are the platform's). Games invite them; that is the
+recommended way to play together, for rooms and for server-run matches alike. Never ask players to type or share codes.
+
+```js
+// a server-run match: an invite-only lobby, and the platform's picker over the game
+const m = GCP.match.find({ private: true, players: 4, min: 2, predict });
+m.on('lobby', () => {
+  GCP.friends.open({ match: m, label: 'Private court' });
+  GCP.presence.set({ detail: 'Private court', joinable: m });   // friends see it, with Join
+});
+m.on('start', () => GCP.presence.clear());
+
+// a room game: a random room, sent with the invite
+const roomId = crypto.randomUUID();
+const room = GCP.room(roomId);
+GCP.friends.open({ data: { room: roomId }, label: 'Co-op run' });
+
+// the friend's side: on boot, and while the game runs
+function joinFriend(join) {
+  if (join.match) return startMatch(GCP.match.join(join, { predict }));
+  if (join.data && join.data.room) return startRoom(GCP.room(join.data.room));
+}
+if (GCP.launch.join) joinFriend(GCP.launch.join);                // skip the title screen
+GCP.friends.on('join', joinFriend);                             // accepted while playing: no reload
+
+// your own friends list, if it suits the game's look better than the platform's picker
+const list = await GCP.friends.list();    // [{ id, name, status: 'online'|'away'|'busy'|'offline', playing, since, joinable, invitable }]
+const r = await GCP.friends.invite(list[0].id, { match: m, label: 'Private court' });
+// r: { ok: true, id, status } | { ok: false, code: 'not_online' | 'not_friends' | 'not_allowed' | 'lobby_gone' | 'rate_limited' | 'guest' | 'preview' | ... }
+GCP.friends.on('change', refreshList);    // a friend's status changed
+GCP.friends.on('answer', ({ accepted, by }) => toast(by.name + (accepted ? ' is coming' : ' declined')));
+```
+
+- Online, Away and Busy friends can be invited. Show the status next to Invite: Away and Busy friends may not answer soon, and a Busy friend gets the invite quietly in their notifications instead of a pop-up. Invisible and offline friends cannot be invited (`not_online`).
+- A friend's lobby that started, filled or emptied meanwhile answers `lobby_gone` or `lobby_full`: say so and go back to the menu.
+- A match invite lasts 10 minutes, a game invite 60; a private lobby is kept for 2 hours.
+- `GCP.friends.available` is `false` for guests, the verifier and a game opened outside the platform: hide friend buttons and keep public play working. Invites work only in the live game (`preview` in a preview).
+- The verifier's two-player check still meets on `GCP.test.twoPlayers.code` (below); that code is for the check only.
 
 ## The host-authoritative model
 

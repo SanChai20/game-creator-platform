@@ -22,6 +22,9 @@ export interface Seat {
   g: string; e: string; q: string; size: number; min: number; teams: number; mode: string; code: string | null;
   region: RegionHint | null; rating: number; at: number;
   wait?: number; settle?: number;   // this player's own short-start wait and settling time, in seconds (src/match-making.ts)
+  // a private lobby only invited friends enter (src/lobby.ts): priv, whether this player opened it (own), and the signed
+  // lobby token this player may put in invites (lk)
+  priv?: boolean; own?: boolean; lk?: string;
 }
 
 export const TICKET_TTL_S = 2 * 3600;
@@ -44,6 +47,9 @@ export class Matchmaker extends DurableObject<Env> {
     this.ctx.acceptWebSocket(pair[1]);
     if (!seat || !seat.u) { pair[1].close(4000, 'Bad request'); return new Response(null, { status: 101, webSocket: pair[0] }); }
     const all = this.seats();
+    // a private lobby is opened by its owner only; an invitee who arrives after everyone left, or once it is full, is told so
+    if (seat.priv && !seat.own && !all.some((x) => x.s.u !== seat.u)) { this.send(pair[1], { t: 'error', code: 'lobby_gone', message: 'Your friend is not in that match any more. Ask them for a new invite.' }); pair[1].close(4004, 'Lobby gone'); return new Response(null, { status: 101, webSocket: pair[0] }); }
+    if (seat.priv && all.filter((x) => x.s.u !== seat.u).length >= seat.size) { this.send(pair[1], { t: 'error', code: 'lobby_full', message: 'That match is full.' }); pair[1].close(4004, 'Lobby full'); return new Response(null, { status: 101, webSocket: pair[0] }); }
     if (all.length >= MAX_WAITING) { pair[1].close(4003, 'The queue is full. Try again in a moment.'); return new Response(null, { status: 101, webSocket: pair[0] }); }
     // one place in the queue per player: a second tab takes it over
     for (const x of all) if (x.s.u === seat.u) {
@@ -52,7 +58,7 @@ export class Matchmaker extends DurableObject<Env> {
       try { x.ws.close(4002, 'Searching in another tab'); } catch { /* closed */ }
     }
     pair[1].serializeAttachment({ ...seat, at: Date.now() });
-    this.send(pair[1], { t: 'queued', queue: seat.q, players: seat.size, code: seat.code, waiting: this.seats().length });
+    this.send(pair[1], { t: 'queued', queue: seat.q, players: seat.size, code: seat.priv ? null : seat.code, waiting: this.seats().length, ...(seat.priv ? { lobby: seat.lk, private: true } : {}) });
     if (seat.code) this.lobby();
     else await this.match();
     if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
@@ -98,7 +104,7 @@ export class Matchmaker extends DurableObject<Env> {
     if (!left.length) return;
     if (left[0].s.code) this.lobby(); else await this.match();
     const still = this.seats();
-    for (const { ws, s } of still) this.send(ws, { t: 'queued', queue: s.q, players: s.size, code: s.code, waiting: still.length, waited: Math.round((now - s.at) / 1000) });
+    for (const { ws, s } of still) this.send(ws, { t: 'queued', queue: s.q, players: s.size, code: s.priv ? null : s.code, waiting: still.length, waited: Math.round((now - s.at) / 1000) });
     if (still.length) await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
   }
 
@@ -118,7 +124,8 @@ export class Matchmaker extends DurableObject<Env> {
     const size = here[0].s.size;
     if (here.length >= size) { void this.launch(here.slice(0, size)); return; }
     const players = here.map(({ s }) => ({ id: s.u, name: s.n }));
-    for (const { ws } of here) this.send(ws, { t: 'lobby', code: here[0].s.code, players, owner: players[0].id, need: size });
+    const priv = !!here[0].s.priv;
+    for (const { ws, s } of here) this.send(ws, { t: 'lobby', code: priv ? null : here[0].s.code, players, owner: players[0].id, need: size, ...(priv ? { private: true, lobby: s.lk } : {}) });
   }
 
   /** Records the match, gives each player a signed ticket, and lets them go. */

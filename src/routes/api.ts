@@ -1,4 +1,5 @@
 // The web app's API: accounts, marketplace, play sessions, purchases, the creator console and billing.
+import { actBots, botOptions, botStatus, startBots, stopBots } from '../bots';
 import { Hono } from 'hono';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from '../env';
 import { checkPassword, clearGuestCookie, clientNet, createSession, endPreviousLogin, existingGuestId, guestCookieId, guestIdentity, userFromRequest, hashPassword, isGuestId, loginIdOf, newUserId, rateLimit, requireUser, sessionCookie, sessionToken, type Ctx } from '../auth';
@@ -42,6 +43,9 @@ import { signPlayToken } from '../runtime/game-worker.js';
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
+import { socialHub } from '../social';
+// @ts-ignore plain JS module
+import { ensureProfile } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
@@ -95,6 +99,7 @@ api.post('/auth/signup', async (c) => {
   if (await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first()) throw new AppError(409, 'An account with that email already exists. Sign in instead.', 'exists');
   const id = newUserId();
   await c.env.DB.prepare('INSERT INTO users (id, email, name, pw_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)').bind(id, email, name, await hashPassword(pw), now(), now()).run();
+  await ensureProfile(c.env.DB, { id, name }).catch(() => {});   // findable by friends from the start (src/social-rules.js)
   await endPreviousLogin(c.env, c.req.raw);   // games still open on the browser's earlier sign-in stop (see session-binding.js)
   c.header('set-cookie', await createSession(c.env, c.req.raw, id));
   return c.json({ ok: true });
@@ -168,8 +173,10 @@ api.post('/guest-progress', async (c) => {
 });
 
 api.post('/auth/logout', async (c) => {
-  const t = sessionToken(c.req.raw);
+  const t = sessionToken(c.req.raw), u = c.get('user');
   if (t) await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(await sha256(t)).run();
+  // the friends connection of this sign-in closes now, so this browser goes offline at once (src/social.ts)
+  if (t && u && c.env.SOCIAL) await socialHub(c.env, u.id).closeLogin(await sha256(t)).catch(() => {});
   c.header('set-cookie', sessionCookie(c.req.raw, '', 0));
   return c.json({ ok: true });
 });
@@ -1053,6 +1060,26 @@ api.get('/console/projects/:id', async (c) => {
     online: await onlineNow(c.env, p.id),
     implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
   });
+});
+
+// Preview test bots (src/bots.ts): bot players that join the creator's own preview over the real network path.
+api.get('/console/projects/:id/bots', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const [options, status] = await Promise.all([botOptions(c.env, p, u), botStatus(c.env, u, p.id)]);
+  return c.json({ options, status });
+});
+api.post('/console/projects/:id/bots', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  await rateLimit(c.env, 'bots:' + u.id, 30, 3600);
+  return c.json(await startBots(c.env, c.get('origin'), u, c.req.param('id'), b));
+});
+api.post('/console/projects/:id/bots/act', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  return c.json(await actBots(c.env, u, c.req.param('id'), b));
+});
+api.delete('/console/projects/:id/bots', async (c) => {
+  const u = requireUser(c);
+  return c.json(await stopBots(c.env, u, c.req.param('id')));
 });
 
 /** Players who started a free trial of this game, and how many of them then bought it. */

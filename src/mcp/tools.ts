@@ -13,6 +13,7 @@ import {
 import { takeOffline, trialStats } from '../routes/api';
 import { trialMinutes } from '../trials';
 import type { GameRoom } from '../room';
+import { actBots, botOptions, botStatus, startBots, stopBots } from '../bots';
 import { getSettings } from '../settings';
 import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
@@ -57,8 +58,9 @@ export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summ
   { topic: 'metadata', file: 'game-metadata', title: 'Game metadata', summary: 'The specification behind every store page: each field, its allowed values, what is required to publish, how the age rating is worked out, what the platform detects and what players see. Read before the first publish.' },
   { topic: 'versions', file: 'troubleshooting', title: 'Versions and failed verification', summary: 'How previews, versions, publishing and rollback relate, each verification check, why it usually fails, and the fix.' },
   { topic: 'saves', file: 'saves', title: 'Player progress, saves, leaderboards and server code', summary: 'Each player\'s progress: cloud saves and stats per player and game, the play record the platform keeps, shared game data, leaderboards, and optional server code that runs in the game\'s own Worker.' },
-  { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
+  { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, playing with friends (friend invites, GCP.friends, GCP.presence), the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
   { topic: 'matches', file: 'matches', title: 'Server-run matches', summary: 'Competitive real-time games (shooters, fighting games, sports, racing): server/match.js runs the match at a fixed tick on the platform, with matchmaking by region and rating, private lobbies, client prediction, smooth playback and lag-compensated hit checks.' },
+  { topic: 'bots', file: 'test-bots', title: 'Testing online games with bots', summary: 'Bot players in the preview that connect like real ones over the platform\'s network: following the creator into a match or room, a public queue, a private lobby or a room; server/bot.js for what they do; network profiles, lag spikes, drops and reloads; the numbers per bot; limits. Read before testing a multiplayer game.' },
   { topic: 'storage', file: 'storage', title: 'Game storage', summary: 'How much a game\'s files may add up to, how uploads, deploys and publishing enforce it, how to keep a game small (generate content from code, load large or optional content at run time from your own host with CORS, compress what ships), and how to ask for more. Read before adding large assets.' },
   { topic: 'touch', file: 'input', title: 'Phones, tablets and input', summary: 'What the platform does so every game plays on touch screens (on-screen controls from the game\'s keys, mouse from the finger, pointer lock, taps, pixel density), gcp.json "controls" and GCP.controls, and what makes touch controls of your own good.' },
   { topic: 'services', file: 'services', title: 'Platform services', summary: 'Every service the platform gives games and agents (hosting, accounts, saves, stats, shared data, leaderboards, rooms, server code, display, verification, payments, analytics, agent access): how each works, how to reach it, its limits, and what the platform does not provide.' },
@@ -450,7 +452,8 @@ export const TOOLS: Tool[] = [
           sdk: 'window.GCP, injected into every page. GCP.ready(), GCP.progress(f, label), GCP.fatal(err), GCP.player, GCP.env, GCP.lang and GCP.onLang(fn) (the platform language; switching it mid-game never restarts the game, fn(lang, previous) lets it swap text live), GCP.display (fullscreen, touch, paused), one pause owner: GCP.onEscape(fn) (Esc closes an open menu first; fn returns false only when nothing was open), GCP.pauseMenu(open) and GCP.setPaused(on) for a game with its own pause menu (Esc then opens that menu, never the platform menu too), GCP.paused and GCP.onPause(fn) (platform pause and game pause combined; freeze on it, never open a menu from it), GCP.menu(), GCP.quit(), GCP.setDisplay({ orientation, exitButton, edgeToEdge }). GCP.fullscreen() toggles fullscreen (the player also has a button and Alt+Enter, and phones start in fullscreen); see the input guide for touch controls. Every page is opened by a signed-in player (the platform requires an account to play, free games included; GCP.player.guest is true only if an administrator opens free games to guests). GCP.player.id is always that player.',
           saves: 'Every game should keep each player\'s progress with the platform: GCP.save.get/set/remove for the player\'s save (JSON), GCP.playerStats.add/max/min/set for numbers worth tracking (levels cleared, coins, best lap), GCP.playRecord() for what the platform recorded on its own (sessions, play time, first and last played). All of it is private to the signed-in player and this game, and preview is kept apart from live; the server enforces it, so a game cannot read another player\'s data. GCP.shared.get reads data every player sees. Load the save before the first playable frame and save at checkpoints and when the tab is hidden. game_data seeds shared data, aggregates saves and stats and manages leaderboards. get_started {topic: "saves"}.',
           leaderboards: 'GCP.leaderboard.submit(board, score, order) and GCP.leaderboard.top(board, n, order). game_data {action: "leaderboard"} reads or clears one.',
-          multiplayer: 'GCP.room(code): a realtime room per code on the platform\'s multiplayer servers, with a host and host migration. Host-authoritative (one player\'s browser runs the game): right for co-op, party, casual versus and turn-based games, not for ranked or competitive shooters and fighting games (the host can cheat, no lag compensation). game_room inspects or resets one. get_started {topic: "multiplayer"}.',
+          multiplayer: 'GCP.room(name): a realtime room per room name on the platform\'s multiplayer servers, with a host and host migration. To play with friends, create the room under a random name and send it with a friend invite (see friends); never ask players to type or share a code. Host-authoritative (one player\'s browser runs the game): right for co-op, party, casual versus and turn-based games, not for ranked or competitive shooters and fighting games (the host can cheat, no lag compensation). game_room inspects or resets one. get_started {topic: "multiplayer"}.',
+          friends: s.social_enabled ? 'Play with friends through friend invites, never typed codes: GCP.match.find({ private: true }) opens an invite-only lobby, GCP.friends.open({ match }) shows the platform\'s invite picker over the game (or GCP.friends.invite(id, { match }) from your own list, GCP.friends.list()), and a friend who accepts arrives with GCP.launch.join (or a GCP.friends.on("join") event) and calls GCP.match.join(join). A room game sends { data: { room } } instead. Only Online, Away and Busy friends can be invited. GCP.presence.set({ detail, joinable }) shows friends what the player does. get_started {topic: "multiplayer"}, section Playing with friends.' : 'Friends are switched off on this platform.',
           matches: 'GCP.match.find({ queue, players }) with server/match.js: for competitive real-time games. The platform matches players by region and rating, runs the game\'s rules at a fixed tick on its own servers near the players, predicts each player\'s own movement and judges shots where the target was on the shooter\'s screen (lag compensation). get_started {topic: "matches"}.',
           server_code: s.allow_server_code ? 'Optional server/index.js runs in the game\'s own Worker and is reached with GCP.server. get_started {topic: "saves"}.' : 'Disabled on this platform.',
           open_implementations: `Learn how other developers' live games were built, when they chose to share it: find_implementations searches them by kind of game, engine or technique and shows the patterns across them; get_implementation {game} returns one card (engine, rendering, input, audio, assets, platform services, loop and performance techniques, structure, verified play-through, summary). ${NEVER_SHARED} Games that share also publish a build skill in the Creator Store (${c.origin}/creator-store): an agent skill their own agent wrote. get_implementation includes it when it is free. To share your own, ask the user, write the skill with build_skill {action: "write"}, then update_project {open_implementation: true}; the user chooses free or a price (update_project skill_price_cents). While shared, write the skill again for each version before publishing it: publish refuses a version without one. ${openPerks(s)}`,
@@ -956,10 +959,10 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'game_room', title: 'Multiplayer room: inspect or reset',
-    description: 'Looks inside one of the game\'s realtime multiplayer rooms, the ones players join with GCP.room(code): who is connected, who is the host, and the world snapshot the host stored. reset clears the snapshot (with kick: true it also disconnects everyone, who can rejoin at once); use it when a room is stuck on a bad state. Rooms are per environment and per code; an empty room keeps nothing. get_started {topic: "multiplayer"} explains the room model.',
+    description: 'Looks inside one of the game\'s realtime multiplayer rooms, the ones players join with GCP.room(name): who is connected, who is the host, and the world snapshot the host stored. reset clears the snapshot (with kick: true it also disconnects everyone, who can rejoin at once); use it when a room is stuck on a bad state. Rooms are per environment and per code; an empty room keeps nothing. get_started {topic: "multiplayer"} explains the room model.',
     inputSchema: obj({
       project: PROJECT,
-      room: { type: 'string', description: 'The room code the game passed to GCP.room(code). Default "lobby".' },
+      room: { type: 'string', description: 'The room name the game passed to GCP.room(name). Default "lobby".' },
       env: { type: 'string', enum: ['preview', 'live'], description: 'Default live.' },
       action: { type: 'string', enum: ['inspect', 'reset'], description: 'Default inspect.' },
       kick: { type: 'boolean', description: 'For reset: also disconnect everyone in the room.' },
@@ -977,6 +980,45 @@ export const TOOLS: Tool[] = [
       const bytes = r.state_json ? r.state_json.length : 0;
       const state = !r.state_json ? null : bytes > 20000 ? `${r.state_json.slice(0, 20000)} …[truncated, ${bytes} bytes]` : JSON.parse(r.state_json);
       return { env, room: code, players: r.players, host: r.host, state, state_bytes: bytes, limits: { players_per_room: s.room_max_peers, message_bytes: 64 * 1024, state_bytes: 256 * 1024 }, ...(r.players.length ? {} : { note: 'Nobody is in this room now. Rooms are created when the first player joins and forget everything when the last one leaves.' }) };
+    },
+  },
+  {
+    name: 'preview_bots', title: 'Test an online game with bot players',
+    description: 'Puts bot players into the game\'s preview to test online play over the platform\'s real network path. Each bot is a remote client like a player\'s page: it has a play session of its own (preview only, never rated), waits in the real matchmaker (GCP.match.find) or joins the real room (GCP.room), and plays the match over a WebSocket to the game\'s own Worker, from the region you pick, with an optional last mile of added latency, jitter and packet loss. Bots play with the game\'s own server/bot.js (export default { thinkMs, think(view, me, ctx) -> input } or actions(view, me, ctx) -> [inputs] for a generic random bot; room(ctx) -> messages for rooms), run in a sandbox with no network; without it they join and stay connected but send nothing. '
+      + 'action start: target "follow" (default) sends the bots wherever the creator searches or opens a room in their preview; "queue" puts them in a public queue (queue, players, min, teams, mode as the game passes them to GCP.match.find, so they meet the players searching the same); "code" into a private lobby; "room" into a room. Bots alone can fill a match: with target queue and bots >= the queue\'s min the match starts without anyone else, so an agent can run an online match end to end without a browser. '
+      + 'status: per bot its phase, round trip (last, median, 95th percentile), snapshots per second and their spacing and jitter, the longest gap, unacknowledged inputs, traffic, reconnects, errors (the match\'s and server/bot.js\'s), plus the fleet\'s log. act: drop (the connection drops and comes back after ms with the same ticket, like the SDK\'s reconnect), reload (comes back after ms like a reloaded page, through GCP.match.rejoin\'s path), spike (extra ms of delay for ms), outage (nothing gets through for ms), net (a new network profile), leave (for good), rejoin; bot "all" or one bot\'s id or name. stop ends the fleet and its sessions. '
+      + 'Limits: a fleet stops by itself after its minutes; bots per fleet, fleets at once and bot-minutes per day are capped (status shows them).',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['options', 'start', 'status', 'act', 'stop'], description: 'Default status.' },
+      bots: { type: 'integer', description: 'start: how many bots (default 3).' },
+      target: { type: 'string', enum: ['follow', 'queue', 'code', 'room'], description: 'start: where the bots go. Default follow.' },
+      queue: { type: 'string', description: 'start with target queue: the queue name the game uses (default "default").' },
+      players: { type: 'integer', description: 'start with target queue or code: the match size the game asks for (GCP.match.find players).' },
+      min: { type: 'integer', description: 'start with target queue: the game\'s min.' },
+      teams: { type: 'integer', description: 'start with target queue: the game\'s teams.' },
+      mode: { type: 'string', description: 'start with target queue: the game\'s mode.' },
+      code: { type: 'string', description: 'start with target code: the private lobby code.' },
+      room: { type: 'string', description: 'start with target room: the room code.' },
+      region: { type: 'string', enum: ['auto', 'wnam', 'enam', 'sam', 'weur', 'eeur', 'apac', 'oc', 'afr', 'me'], description: 'start: where the bots connect from. Default auto.' },
+      net: { description: 'start: the last mile every bot gets: a profile (none, fiber, wifi, 4g, 3g, poor, far) or { latency, jitter, loss } (one-way ms, ms, percent). act net: the new one.' },
+      nets: { type: 'array', description: 'start: one network per bot (profile names or objects), overriding net for those bots.' },
+      names: { type: 'array', items: { type: 'string' }, description: 'start: display names for the bots.' },
+      skill: { type: 'number', description: 'start: 0 to 1, handed to server/bot.js as ctx.skill (default 1).' },
+      minutes: { type: 'integer', description: 'start: how long the fleet may run before it stops by itself.' },
+      bot: { type: 'string', description: 'act: a bot\'s id or name, or "all" (default).' },
+      what: { type: 'string', enum: ['drop', 'reload', 'spike', 'outage', 'net', 'leave', 'rejoin'], description: 'act: what to do.' },
+      ms: { type: 'integer', description: 'act: how long (drop, reload: until the bot comes back; spike, outage: how long it lasts). Default 5000.' },
+      extra: { type: 'integer', description: 'act spike: the extra delay in ms (default 400).' },
+    }, ['project']), annotations: { destructiveHint: false },
+    run: async (a, c) => {
+      const action = a.action || 'status';
+      if (action === 'options') { const p = await ownedProject(c.env, c.user, a.project); return botOptions(c.env, p, c.user); }
+      if (action === 'start') return startBots(c.env, c.origin, c.user, a.project, a);
+      if (action === 'act') return actBots(c.env, c.user, a.project, { bot: a.bot, action: a.what, ms: a.ms, extra: a.extra, net: a.net });
+      if (action === 'stop') return stopBots(c.env, c.user, a.project);
+      if (action !== 'status') throw bad('action must be options, start, status, act or stop.');
+      return botStatus(c.env, c.user, a.project);
     },
   },
   {

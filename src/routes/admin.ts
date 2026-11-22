@@ -296,3 +296,24 @@ admin.post('/grant-game', async (c) => {
   return c.json({ ok: true });
 });
 
+
+// ----- player reports (friends and chat, src/social-rules.js) -------------------------------------------------------
+// Open reports first, each with the reported messages as they were when reported. Suspending the account is done from
+// Users (Actions); here a report is closed as dismissed or acted on.
+admin.get('/social-reports', async (c) => {
+  const status = c.req.query('status') === 'closed' ? "r.status != 'open'" : "r.status = 'open'";
+  const rows = await c.env.DB.prepare(`SELECT r.*, a.name AS reporter_name, a.email AS reporter_email, b.name AS target_name, b.email AS target_email, b.status AS target_status,
+      (SELECT COUNT(*) FROM social_reports x WHERE x.target_id = r.target_id) AS target_reports
+      FROM social_reports r JOIN users a ON a.id = r.reporter_id JOIN users b ON b.id = r.target_id WHERE ${status} ORDER BY r.created_at DESC LIMIT 200`).all<Record<string, any>>();
+  return c.json({ reports: rows.results.map((r) => { let ctx: { messages?: unknown[] } = {}; try { ctx = JSON.parse(r.context || '{}'); } catch { /* bad row */ }
+    return { id: r.id, reason: r.reason, detail: r.detail, status: r.status, created_at: r.created_at, handled_at: r.handled_at, messages: ctx.messages || [],
+      reporter: { id: r.reporter_id, name: r.reporter_name, email: r.reporter_email }, target: { id: r.target_id, name: r.target_name, email: r.target_email, status: r.target_status, reports: r.target_reports } }; }) });
+});
+admin.post('/social-reports/:id', async (c) => {
+  const b = await c.req.json<{ status?: string }>().catch(() => ({} as { status?: string }));
+  if (b.status !== 'dismissed' && b.status !== 'actioned' && b.status !== 'open') throw bad('status must be dismissed, actioned or open.');
+  const me = c.get('user')!;
+  const r = await c.env.DB.prepare('UPDATE social_reports SET status = ?, handled_by = ?, handled_at = ? WHERE id = ?').bind(b.status, me.id, now(), c.req.param('id')).run();
+  if (!r.meta.changes) throw notFound('No such report.');
+  return c.json({ ok: true });
+});

@@ -25,6 +25,7 @@ import { admin } from './routes/admin';
 import { api, autoPayouts, retryTransfers } from './routes/api';
 import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './routes/device';
 import { rt } from './routes/rt';
+import { social } from './routes/social';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now } from './util';
@@ -41,12 +42,16 @@ import { idleGuestCleanupStmts, verifierCleanupStmts } from './player-data.js';
 import { claimedGuestCleanupStmts } from './session-binding.js';
 // @ts-ignore plain JS module
 import { oldSeatsStmt } from './match-seats.js';
+// @ts-ignore plain JS module
+import { cleanupStmts as socialCleanupStmts } from './social-rules.js';
 
 import { recentStmt, refreshCatalog } from './catalog';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
+export { BotFleet } from './bots';
 export { Pipeline } from './pipeline';
+export { SocialHub } from './social';
 export { PlayClock, GameTally } from './clock-do';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
@@ -98,6 +103,7 @@ app.use('/api/*', async (c, next) => {
 });
 app.route('/api/admin', admin);
 app.route('/api/device', deviceApi);
+app.route('/api/social', social);
 app.route('/api', api);
 app.all('/api/*', (c) => c.json({ error: 'Not found', code: 'not_found' }, 404));
 
@@ -373,6 +379,10 @@ const handler = {
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare('DELETE FROM login_challenges WHERE expires_at < ?').bind(t),
       env.DB.prepare("DELETE FROM plays WHERE kind = 'verify' AND started_at < ?").bind(t - 7 * 86400000),
+      // preview test bots (src/bots.ts): a fleet removes its bots' sessions when it stops; these catch one that never did
+      env.DB.prepare("DELETE FROM plays WHERE kind = 'bot' AND started_at < ?").bind(t - 86400000),
+      env.DB.prepare("UPDATE bot_fleets SET ended_at = ends_at, summary = COALESCE(summary, '{\"why\":\"closed by the daily cleanup\"}') WHERE ended_at IS NULL AND ends_at < ?").bind(t - 3600000),
+      env.DB.prepare('DELETE FROM bot_fleets WHERE started_at < ?').bind(t - 90 * 86400000),
       env.DB.prepare('DELETE FROM ai_usage WHERE day < ?').bind(dayOf(t - 60 * 86400000)),
       env.DB.prepare('DELETE FROM dup_judgments WHERE created_at < ?').bind(t - 30 * 86400000),
       env.DB.prepare('DELETE FROM matches WHERE created_at < ?').bind(t - 30 * 86400000),   // ratings stay; the match log is a month
@@ -389,6 +399,8 @@ const handler = {
     job('old versions', () => purgeOldVersions(env));
     job('removed game data', () => purgeRemovedGameData(env));
     job('old feedback', () => purgeOldFeedback(env));
+    // chat older than the setting, answered invites after a week, seen notifications after 90 days (src/social-rules.js)
+    job('old chat', async () => eachStmt(socialCleanupStmts(env.DB, t, Math.max(7, Number((await getSettings(env)).dm_keep_days) || 365))));
   },
 } satisfies ExportedHandler<Env>;
 export default handler;

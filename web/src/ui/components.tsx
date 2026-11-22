@@ -161,7 +161,7 @@ export function RowMenu({ actions, disabled, label }: { actions: RowAction[]; di
     </button>
     {pos && createPortal(<div ref={list} className="pop row-menu" role="menu" onKeyDown={move} style={{ position: 'fixed', right: pos.right, ...(pos.up ? { top: 'auto', bottom: innerHeight - pos.top } : { top: pos.top }) }}>
       {items.map((a, i) => <button key={i} type="button" role="menuitem" className={a.danger ? 'bad' : undefined} onClick={() => { close(true); a.onClick(); }}>{a.label}</button>)}
-    </div>, document.body)}
+    </div>, document.fullscreenElement || document.body)}
   </>;
 }
 

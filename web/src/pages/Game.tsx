@@ -7,6 +7,7 @@ import { Skeleton, SkCard } from '../ui/skeleton';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
 import { CompatGate, CompatPill, CompatSection, useCompat } from '../compat-ui';
 import { Stage, type StageCtl } from '../player';
+import { encodeJoin, onLaunch, setActivity } from '../social';
 import { InstallTip } from '../install-tip';
 import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
 import type { Lang } from '../lib';
@@ -63,6 +64,7 @@ function MatureGate({ cats, onConfirm, onCancel }: { cats: string[]; onConfirm: 
 }
 
 /** The play URL with the viewer's platform language, read by the SDK as GCP.lang. */
+const withJoin = (u: string, j: string | null) => { if (!j) return u; try { const x = new URL(u, location.href); x.searchParams.set('gcp_join', j); return x.toString(); } catch { return u; } };
 const withLang = (u: string, cont = false) => { try { const x = new URL(u, location.href); x.searchParams.set('gcp_lang', getLang()); if (cont) x.searchParams.set('gcp_continue', '1'); return x.toString(); } catch { return u; } };
 
 /** Where the player left off, from the game's GCP.resume or else from the platform's own record: one line under Continue. */
@@ -119,6 +121,19 @@ export function Game({ slug }: { slug: string }) {
   // Opened from a game's own address (?play=1): start at once for whoever is signed in here (a visitor signs in first, unless guests may play). Only where
   // nothing has to be asked first (an adults-only warning, buying); otherwise the page shows what is needed.
   const auto = useRef(query().get('play') === '1');
+  // A friend's invite or a join from the friends panel (?join=…, or handed over while this page is open): the game is
+  // started with it in gcp_join, where the SDK reads it (GCP.launch.join) to seat the player in the friend's match.
+  const joinRef = useRef<string | null>(query().get('join'));
+  useEffect(() => onLaunch((s, j) => {
+    if (s !== slug || !data) return false;
+    joinRef.current = encodeJoin(j);
+    if (url) { setUrl(null); setTimeout(() => startRef.current(), 50); } else startRef.current();
+    return true;
+  }), [slug, data, url]);
+  // Friends see this game, and for how long, while it runs for a signed-in player.
+  const playTitle = data?.game?.title as string | undefined;
+  useEffect(() => { setActivity(url && user && playingAs && !playingAs.guest && playTitle ? { slug, title: playTitle } : null); }, [url, user?.id, playingAs, slug, playTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => setActivity(null), []);
   // Continue (the default once the player has progress here) opens the game with GCP.launch.continue, so it can load the
   // saved run; "Start from the title screen" opens it without. Kept in a ref so the adult and compatibility gates keep it.
   const wantCont = useRef(query().get('continue') !== '0');
@@ -155,7 +170,7 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); setUrl(withLang(r.url, wantCont.current && !!data.continue)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current; joinRef.current = null; setUrl(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j), j)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -216,7 +231,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage social={!!user} ctl={stage} poster={g.cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
                 : locked && canTry ? <>

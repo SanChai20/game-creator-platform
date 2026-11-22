@@ -45,6 +45,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Realtime multiplayer rooms | available | `GCP.room` | `game_room`, `get_stats` | multiplayer |
 | Server-run matches | available unless switched off | `GCP.match.find` | `upload_files`, `deploy_preview`, `get_stats` | matches |
 | Matchmaking and ratings | available unless switched off | `GCP.match.find` | `get_stats` | matches |
+| Friends, invites and presence | available unless switched off | `GCP.friends`, `GCP.presence`, `GCP.launch.join`, `GCP.match.join` | none | multiplayer |
 | Network smoothing | available | `GCP.smooth` | none | multiplayer |
 | Game server code | available unless switched off | `GCP.server` | `upload_files`, `deploy_preview` | saves |
 | Display, fullscreen and devices | available | `GCP.fullscreen`, `GCP.display`, `GCP.setDisplay` | `compatibility` | contract |
@@ -169,7 +170,7 @@ Board names are yours (up to 40 characters), so per-level or per-season boards a
 ## Realtime multiplayer rooms
 
 ```js
-const room = GCP.room('ABCD', { max: 4 });
+const room = GCP.room(roomId, { max: 4 });     // roomId: a random id you send to friends with GCP.friends.invite
 room.on('open', ({ id, host, peers, state }) => { /* joined; state is the host's last snapshot */ });
 room.on('message', (data, from, meta) => { /* meta.at is the sender's clock, for GCP.smooth */ });
 room.on('join', (peer) => {}); room.on('leave', (id) => {}); room.on('host', (newHostId) => {});
@@ -205,12 +206,34 @@ const { me, others, state } = match.view();  // every frame: me predicted, other
 
 **What matches are for.** Competitive real-time games: shooters, fighting games, sports, racing. The game's `server/match.js` (`export default { tickRate, init, input, tick, hitboxes, view }`) runs in a Durable Object of the game's own Worker, at a fixed tick (10 to 60 a second), in the region most of the players are in. No player is the authority.
 
-- The matchmaker groups players by region and rating (widening with the wait), splits teams evenly, and opens private lobbies by code. Ratings (Elo, per queue) move when a match ends with a ranking.
+- The matchmaker groups players by region and rating (widening with the wait), splits teams evenly, and opens invite-only private lobbies (`find({ private: true })`) that friends enter through friend invites. Ratings (Elo, per queue) move when a match ends with a ranking.
 - The SDK predicts the player's own movement with `predict()` and reconciles it with the server's acknowledged inputs; everyone else is played back between snapshots.
 - `ctx.hitscan()` checks shots against hitboxes rewound to what the shooter saw (up to `maxRewindMs`, at most 400 ms).
 - Snapshots are deltas against the previous one; `view(state, player)` sends each player only what they may see.
 
 Limits: 16 players per match by default (at most 64), 2 KB per input, 64 KB per snapshot per player, 1 hour per match, 20 s to reconnect. Details: `get_started {topic: "matches"}`.
+
+## Friends, invites and presence
+
+Players have platform friends: requests, chat, blocking, privacy and reports all live on the platform. A game reaches them through the SDK, and this is how players play together. **Do not build typed room codes**: invite friends instead.
+
+```js
+// "Play with friends": an invite-only lobby, and the platform's invite picker over the game
+const m = GCP.match.find({ private: true, players: 4, min: 2 });
+m.on('lobby', () => { GCP.friends.open({ match: m, label: 'Private court' }); GCP.presence.set({ detail: 'Private court', joinable: m }); });
+// on boot, and while running: a friend's invite the player accepted
+if (GCP.launch.join) GCP.match.join(GCP.launch.join);
+GCP.friends.on('join', (join) => GCP.match.join(join));
+// or a list of your own
+const friends = await GCP.friends.list();     // [{ id, name, status, playing, since, joinable, invitable }]
+const r = await GCP.friends.invite(friends[0].id, { match: m });   // { ok, status } or { ok: false, code }
+```
+
+- Online, Away and Busy friends can be invited; a Busy friend gets the invite quietly in their notifications, and `r.status` tells the game so it can say "they may not answer soon". Invisible and offline friends are refused (`code: 'not_online'`).
+- Without `match`, an invite opens the game; `data` (up to 1 KB of JSON) goes with it and comes back as `join.data`, so a room game can send `{ room: roomId }` and the friend calls `GCP.room(join.data.room)`.
+- A friend's lobby that started or filled meanwhile answers `lobby_gone` or `lobby_full`: say so and go back to the menu.
+- `GCP.presence.set({ detail, joinable: match })` is what friends see in their list ("Playing Noctelle · Private court · 12 min"), with Join while the lobby waits.
+- Guests, the verifier and a game opened outside the platform have no friends: `GCP.friends.available` is `false`, `list()` gives `[]`. Invites only work in the live game. The verifier's two-player check still meets on `GCP.test.twoPlayers.code`.
 
 ## Game server code
 
@@ -400,8 +423,8 @@ Plan around these instead of looking for them.
 | In-game purchases, currencies sold for money, subscriptions | Sell the whole game or offer a free trial. Currencies earned by play live in saves or stats. |
 | Checking from game code whether the player bought the game | Not needed: only owners and trial players can open a paid game. |
 | Achievements and badges | Track milestones with `GCP.playerStats` and show them in the game. |
-| Friends, chat, invites, player profiles | Share a room code; relay chat over `room.send` and moderate what players type. |
-| A list of open rooms | Fixed or shared room codes; for a lobby list, players join a `lobby` room and advertise their codes there. Competitive games use `GCP.match.find()`, which matches players by itself. |
+| Player profiles, avatars and in-game chat channels | Players have platform friends and direct chat (`GCP.friends`). For chat inside a match or room, relay text over `room.send` and moderate what players type. |
+| A list of open rooms | Invite friends with `GCP.friends`, or use fixed room names for public play; for a lobby list, players join a `lobby` room and advertise their codes there. Competitive games use `GCP.match.find()`, which matches players by itself. |
 | Server-authoritative simulation inside rooms | Rooms stay host-authoritative. For a neutral server use server-run matches (`server/match.js` with `GCP.match.find`). |
 | Dedicated game servers (UDP, native engines, 128-tick) | Server-run matches run JavaScript at up to 60 ticks a second over WebSockets, which suits browser shooters and fighting games. Native or UDP servers are not offered. |
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |

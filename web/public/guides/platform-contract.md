@@ -44,6 +44,10 @@ const rec = await GCP.playRecord();              // sessions, play time, first a
 await GCP.leaderboard.submit('time', 42.5, 'asc');
 const rows = await GCP.leaderboard.top('time', 10, 'asc');   // [{ name, score, me }]
 const room = GCP.room('lobby');                  // realtime multiplayer, see the multiplayer guide
+const friends = await GCP.friends.list();       // platform friends: invite them, never ask for typed codes
+GCP.friends.open({ match });                     // the platform's invite picker over the game (match: GCP.match.find({ private: true }))
+if (GCP.launch.join) GCP.match.join(GCP.launch.join);   // the player accepted a friend's invite; GCP.friends.on('join', fn) while running
+GCP.presence.set({ detail: 'Private court', joinable: match });   // what friends see, with Join
 
 GCP.player        // { id, name, guest } of the signed-in player (guest is true only if the platform has opened free games to guests)
 GCP.env           // 'preview' | 'live' | 'local'

@@ -5,6 +5,8 @@
 import type { Env } from './env';
 import { balanceOf } from './earnings';
 import { now, sha256, token } from './util';
+// @ts-ignore plain JS module
+import { deleteAccountStmts as socialDeleteStmts } from './social-rules.js';
 
 export const RESET_TTL_MS = 60 * 60 * 1000;
 
@@ -41,6 +43,8 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM login_challenges WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
+    // friends lose the account; its chats, requests, invites and blocks go with it (reports about it stay for admins)
+    ...(socialDeleteStmts(db, userId) as D1PreparedStatement[]),
     // the address is freed for a new account; the row stays so purchases and the ledger keep their owner
     db.prepare(`UPDATE users SET email = ?1, name = 'Deleted account', pw_hash = '!', status = 'deleted', role = 'user', stripe_customer = NULL, totp_secret = NULL, totp_enabled_at = NULL, totp_pending = NULL, last_seen_at = ?2 WHERE id = ?3`)
       .bind(`deleted-${userId}@deleted.invalid`, t, userId),

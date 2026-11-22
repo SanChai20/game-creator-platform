@@ -147,5 +147,17 @@
  "Refunds within the period after which an account loses self-service refunds and its refunds wait for an admin (0: no limit)": "在统计周期内退款达到此次数后，账户将失去自助退款，其退款需等待管理员处理（0：不限制）",
  "Period for the refund limit (days)": "退款次数限制的统计周期（天）",
  "platform": "平台",
- "creator": "创作者"
+ "creator": "创作者",
+ "Friends and chat": "好友与聊天",
+ "Friends, chat and game invites": "好友、聊天和游戏邀请",
+ "Most friends one account can have": "每个账户最多可有的好友数",
+ "Friend requests one account may send per day": "每个账户每天可发送的好友请求数",
+ "Chat messages one account may send per minute": "每个账户每分钟可发送的聊天消息数",
+ "Game invites one account may send per 10 minutes": "每个账户每 10 分钟可发送的游戏邀请数",
+ "Days chat messages are kept": "聊天消息保留天数",
+ "Let creators add test bots to their previews (bot players that connect like real ones; preview only, never rated)": "允许创作者在预览中加入测试机器人（像真实玩家一样连接的机器人玩家；仅限预览，从不计分）",
+ "Test bots per fleet (one creator, one game)": "每组测试机器人的数量（一位创作者、一款游戏）",
+ "Longest a test-bot fleet runs before it stops by itself (minutes)": "一组测试机器人自动停止前最长运行时间（分钟）",
+ "Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)": "每位创作者每天可用的机器人分钟数（机器人数 × 分钟；7 个机器人 30 分钟为 210）",
+ "Test-bot fleets one creator can run at once": "一位创作者可同时运行的测试机器人组数"
 }

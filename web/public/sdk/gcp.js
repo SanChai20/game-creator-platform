@@ -29,7 +29,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.6.1', fixes: {} };
+  var RT = S.runtime = { version: '2.7.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -719,6 +719,8 @@
     var angles = Object.assign({}, ANGLES); (opts.angles || []).forEach(function (a) { angles[a] = 1; });
     this.phase = rejoin ? 'rejoining' : 'searching'; this.id = null; this.you = cfg.player && cfg.player.id; this.players = []; this.tickRate = 0; this.tick = 0;
     this.queue = !rejoin && opts.queue != null ? String(opts.queue) : null; this.mode = !rejoin && opts.mode != null ? String(opts.mode) : null; this.rejoined = !!rejoin;
+    // a private lobby (find({ private: true }) or join(invite)): lobby is what GCP.friends.invite() hands to friends
+    this.private = !rejoin && !!(opts.private || opts.invite); this.lobby = null;
     this.state = null; this.ack = 0; this.rtt = null; this.result = null; this.renderTick = null;
     var buf = new Smooth({ minDelay: opts.delay != null ? opts.delay : 50, maxDelay: 250, extrapolate: 100 });
     // what the verifier's two-player check reports when it fails: who this page is, who the lobby listed, how far it got
@@ -857,17 +859,22 @@
     }
     if (standalone) { setTimeout(function () { var e = new Error('Server-run matches need the platform: open the game from its page.'); e.code = 'standalone'; self.phase = 'closed'; emit('error', e); emit('close', 0); }, 0); return; }
     var q = '/api/rt/match?t=' + encodeURIComponent(cfg.token);
-    ['queue', 'players', 'min', 'teams', 'code', 'mode', 'wait', 'settle'].forEach(function (k) { if (opts[k] != null) q += '&' + k + '=' + encodeURIComponent(opts[k]); });
+    if (opts.invite) q += '&invite=' + encodeURIComponent(opts.invite);   // the lobby of an accepted invite: its shape comes from the lobby
+    else {
+      if (opts.private) q += '&private=1';
+      ['queue', 'players', 'min', 'teams', 'code', 'mode', 'wait', 'settle'].forEach(function (k) { if (opts[k] != null && !(opts.private && k === 'code')) q += '&' + k + '=' + encodeURIComponent(opts[k]); });
+    }
+    if ((opts.private || opts.invite) && !friendsOk) { setTimeout(function () { var e = new Error(standalone ? 'Private matches need the platform: open the game from its page.' : 'Sign in to play with friends.'); e.code = standalone ? 'standalone' : 'guest'; self.phase = 'closed'; emit('error', e); emit('close', 0); }, 0); return; }
     mm = new WebSocket(cfg.api.replace(/^http/, 'ws') + q);
     mm.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-      if (m.t === 'queued') emit('queued', { waiting: m.waiting, waited: m.waited || 0 });
-      else if (m.t === 'lobby') { seen.lobby = (m.players || []).map(function (p) { return p && p.id; }); emit('lobby', { code: m.code, players: m.players, owner: m.owner, need: m.need }); }
-      else if (m.t === 'found') { ticket = m.ticket; self.id = m.match; self.players = m.players; self.phase = 'connecting'; emit('found', { match: m.match, players: m.players, region: m.region }); connectMatch(); }
+      if (m.t === 'queued') { if (m.lobby) self.lobby = m.lobby; emit('queued', { waiting: m.waiting, waited: m.waited || 0 }); }
+      else if (m.t === 'lobby') { if (m.lobby) self.lobby = m.lobby; seen.lobby = (m.players || []).map(function (p) { return p && p.id; }); emit('lobby', { code: m.code, players: m.players, owner: m.owner, need: m.need, private: !!m.private }); }
+      else if (m.t === 'found') { ticket = m.ticket; self.id = m.match; self.players = m.players; self.phase = 'connecting'; self.lobby = null; emit('found', { match: m.match, players: m.players, region: m.region }); connectMatch(); }
       else if (m.t === 'error') {
         seen.error = String(m.code || m.message || ''); var e = new Error(m.message); e.code = m.code; emit('error', e);
         // the search moved to another tab, or the session ended: this one is over (close it ourselves, whatever the server does)
-        if (m.code === 'replaced' || m.code === 'session_ended') { closed = true; self.phase = 'closed'; try { mm.close(1000); } catch (x) { /* closed */ } emit('close', m.code === 'replaced' ? 4002 : 4001, m.message); }
+        if (m.code === 'replaced' || m.code === 'session_ended' || m.code === 'lobby_gone' || m.code === 'lobby_full') { closed = true; self.phase = 'closed'; try { mm.close(1000); } catch (x) { /* closed */ } emit('close', m.code === 'replaced' ? 4002 : 4001, m.message); }
       }
     };
     mm.onclose = function (ev) { if (!ticket) seen.closes++; if (!ticket && !closed) { self.phase = 'closed'; emit('close', ev.code, ev.reason); } };
@@ -1878,6 +1885,33 @@
     fix('gpu-warmup', !!GPU.auto);
     return { version: RT.version, fixes: Object.keys(RT.fixes).filter(function (k) { return RT.fixes[k]; }).sort() };
   }
+  // ---- friends: GCP.friends, GCP.presence, GCP.launch.join ----
+  // The player's platform friends, from inside the game. list() reads them (status, and what they play only as "this
+  // game" or its title); invite(id, { match }) asks one to play, with the private lobby the player is in (find({ private:
+  // true })) so only invited friends can enter it; open({ match }) shows the platform's own invite picker over the game.
+  // An accepted invite (or "Join" on a friend) opens the game with GCP.launch.join set, or reaches a running game as a
+  // 'join' event; GCP.match.join(join) then enters the lobby. presence.set({ detail, joinable: match }) says what the
+  // player is doing ("Private court, 3 of 8") and offers friends a place. Guests, the verifier and a game opened outside
+  // the platform have no friends: list() gives [] and invite() a refusal with a code.
+  var friendsOk = !standalone && !!(cfg.player && cfg.player.id) && !/^guest_/.test(String(cfg.player.id)) && cfg.kind !== 'verify';
+  var FR = { fns: { change: [], join: [], answer: [] } };
+  function frEmit(type, a) { (FR.fns[type] || []).slice().forEach(function (fn) { try { fn(a); } catch (e) { console.error(e); } }); }
+  function lobbyOf(m) { return m && typeof m === 'object' && typeof m.lobby === 'string' ? m.lobby : null; }
+  function cleanLabel(v) { return v == null ? undefined : String(v).slice(0, 60); }
+  function frApi(body) {
+    if (!friendsOk) return Promise.resolve({ ok: false, code: standalone ? 'standalone' : cfg.kind === 'verify' ? 'verify' : 'guest', error: standalone ? 'Friends need the platform: open the game from its page.' : 'Sign in to play with friends.' });
+    return fetch(cfg.api + '/api/rt/friends', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(Object.assign({ t: cfg.token }, body)) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) { if (r.status === 401 && j.code === 'session_ended') sessionEnded(j); return { ok: false, code: j.code || 'error', error: j.error || ('HTTP ' + r.status) }; } return j; }); })
+      .catch(function (e) { return { ok: false, code: 'network', error: String(e && e.message || e) }; });
+  }
+  var launchJoin = (function () {
+    var raw = q.get('gcp_join'); if (!raw) return null;
+    try {
+      var bin = atob(raw.replace(/-/g, '+').replace(/_/g, '/')), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      var j = JSON.parse(typeof TextDecoder === 'function' ? new TextDecoder().decode(u) : bin);
+      return j && typeof j === 'object' && typeof j.id === 'string' ? j : null;
+    } catch (e) { return null; }
+  })();
   var GCP = window.GCP = {
     sdk: 1,
     /** The game runtime this page runs on: { version, fixes }, fixes being the compatibility fixes active on this device
@@ -1931,7 +1965,7 @@
     playRecord: function () { return api('record', {}).catch(function () { return null; }); },
     /** How the player opened the game. continue is true when they pressed Continue on the platform (their Continue row,
         library or the game page after playing before): skip the title screen and load their saved run if there is one. */
-    launch: { continue: q.get('gcp_continue') === '1' },
+    launch: { continue: q.get('gcp_continue') === '1', join: launchJoin },
     /** Where the player left off, shown on their Continue row and library. Optional; games without it still appear there.
         set({ label: 'Act 2, Floor 14', detail?: 'Ember Knight, 3 relics', progress?: 0..1 }) at checkpoints; clear() when
         the run ends and there is nothing to resume; get() returns what was last set, or null. */
@@ -1966,6 +2000,43 @@
           rejoin: true }) and 'start' when it leads back in; 'none', then 'close', when there is nothing to go back to
           (no match, it is over, or the player left it with cancel()). Call it once when the game opens. */
       rejoin: function (opts) { return new Match(opts, true); },
+      /** Enters the private lobby of an accepted invite or a friend's place: join is GCP.launch.join or what a 'join' event
+          gave. Takes find()'s drawing options; the lobby's size, teams and mode are the inviter's. Returns the match
+          object, which emits 'lobby' and then 'found' like any private lobby, or an error with code 'lobby_gone' when the
+          friend's lobby has started or emptied meanwhile. */
+      join: function (join, opts) { return new Match(Object.assign({}, opts || {}, { invite: join && join.id ? String(join.id) : '' })); },
+    },
+    /** The player's platform friends (see "friends" above). */
+    friends: {
+      /** false for guests, the verifier and a game opened outside the platform. */
+      available: friendsOk,
+      /** Resolves to [{ id, name, status: 'online'|'away'|'busy'|'offline', playing: null | { here, title, detail? }, since,
+          joinable, invitable }], online first. Never rejects: [] when there are none or the platform cannot be reached. */
+      list: function () { return frApi({ op: 'list' }).then(function (r) { return r && r.friends || []; }); },
+      /** Invites one friend (an id from list()). o.match: the private match the player is in (find({ private: true })), so
+          the friend joins that lobby; without it the invite only opens the game. o.label: a short line shown with the
+          invite ("Private court"). Resolves to { ok: true, id, status } or { ok: false, code, error } (code not_online,
+          not_friends, not_allowed, lobby_gone, rate_limited, guest, preview…). Online, Away and Busy friends can be invited
+          (Busy ones get it quietly); Invisible and offline friends cannot. */
+      invite: function (to, o) { o = o || {}; var b = { op: 'invite', to: String(to || '') }, l = lobbyOf(o.match); if (l) b.lobby = l; if (o.label != null) b.label = cleanLabel(o.label); if (o.data !== undefined) b.data = o.data; return frApi(b); },
+      /** Shows the platform's friends panel over the game, ready to invite into o.match (and fullscreen-safe). o.label and
+          o.data (a small JSON value, such as { room } for a GCP.room game) go with every invite sent from it, as in invite(). */
+      open: function (o) { o = o || {}; var m = { gcp: 'friends_open', lobby: lobbyOf(o.match), label: cleanLabel(o.label) || '' }; if (o.data !== undefined) { try { m.data = JSON.parse(JSON.stringify(o.data)); } catch (e) { /* not JSON */ } } toParent(m); },
+      /** on('change', fn): a friend's status or the friends list changed (call list() again). on('join', fn(join)): the
+          player accepted an invite or joined a friend into this game while it runs (call GCP.match.join(join)). Without a
+          'join' listener the platform reloads the game with GCP.launch.join instead. on('answer', fn({ id, accepted, by }))
+          when a friend answers an invite. Returns a function that stops listening. */
+      on: function (type, fn) {
+        if (!FR.fns[type] || typeof fn !== 'function') return function () { };
+        FR.fns[type].push(fn); if (type === 'join') toParent({ gcp: 'social_hooks', join: true });
+        return function () { var a = FR.fns[type], i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); if (type === 'join' && !a.length) toParent({ gcp: 'social_hooks', join: false }); };
+      },
+    },
+    /** What friends see the player doing in this game. set({ detail: 'Private court, 3 of 8', joinable: match }) (detail at
+        most 60 characters; joinable: a private match friends may join with "Join"); clear() when it no longer applies. */
+    presence: {
+      set: function (o) { o = o || {}; toParent({ gcp: 'presence', detail: o.detail == null ? '' : String(o.detail).slice(0, 60), lobby: lobbyOf(o.joinable), label: cleanLabel(o.label) || '' }); },
+      clear: function () { toParent({ gcp: 'presence', detail: '', lobby: null }); },
     },
     /** A playback buffer for one remote stream (a host's snapshots, one player's position): push(value, meta.at) when a message
         arrives, value() or sample() every frame. Movement comes out smooth on a jittery connection. Options: delay (fixed ms;
@@ -2895,6 +2966,12 @@
     if (e.source === window.parent && d && d.gcp === 'escape_key') { escapeFromPage(); return; }
     if (e.source === window.parent && d && d.gcp === 'pause_request') { pauseRequest(); return; }
     if (e.source === window.parent && d && d.gcp === 'lang') { setLang(d.lang); return; }
+    // friends, from the platform page around the game (only that page: the origin is the platform's)
+    if (e.source === window.parent && d && e.origin === platformOrigin && friendsOk) {
+      if (d.gcp === 'friends_changed') { frEmit('change'); return; }
+      if (d.gcp === 'friends_join' && d.join && typeof d.join.id === 'string') { frEmit('join', d.join); return; }
+      if (d.gcp === 'friends_answer') { frEmit('answer', { id: String(d.id || ''), accepted: !!d.accepted, by: d.by || null }); return; }
+    }
     if (e.source !== window.parent || !d || d.gcp !== 'display') return;
     display.fullscreen = !!d.fullscreen; display.mode = String(d.mode || 'inline'); display.orientation = String(d.orientation || 'any'); display.touch = !!d.touch;
     display.edgeToEdge = !!d.edgeToEdge; var sf = d.safe || {}, n = function (v) { v = +v; return isFinite(v) && v > 0 ? Math.min(200, Math.round(v)) : 0; };

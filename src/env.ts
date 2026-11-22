@@ -7,9 +7,11 @@ export interface Env {
   ASSETS: Fetcher;
   ROOMS: DurableObjectNamespace;
   MATCHMAKER: DurableObjectNamespace;
+  BOTS?: DurableObjectNamespace;     // preview test bots: one BotFleet per creator, game and region (src/bots.ts)
   PIPELINE: DurableObjectNamespace;
   PLAY_CLOCK?: DurableObjectNamespace;   // one per player: check-ins and heartbeats (src/clock-do.ts, setting play_clock_do)
   GAME_TALLY?: DurableObjectNamespace;   // one per game: play totals and players online, written in batches
+  SOCIAL?: DurableObjectNamespace;       // one per account: presence and live delivery for friends (src/social.ts)
   BROWSER?: Fetcher;
   PLAY_RL?: RateLimit;               // game service calls per play session (wrangler.jsonc ratelimits)
   SERVER_RL?: RateLimit;             // game server code's store calls per game and environment

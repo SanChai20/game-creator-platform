@@ -68,6 +68,12 @@ export const SETTING_DEFS = {
   room_max_peers: { v: 16, type: 'int', group: 'Limits', label: 'Players per multiplayer room' },
   allow_matches: { v: true, type: 'bool', group: 'Limits', label: 'Allow server-run matches (server/match.js) and the matchmaker' },
   match_max_players: { v: 16, type: 'int', group: 'Limits', label: 'Players per server-run match (2 to 64)' },
+  // Preview test bots (src/bots.ts): bot players a creator adds to their own preview, connected over the real network path
+  preview_bots_enabled: { v: true, type: 'bool', group: 'Limits', label: 'Let creators add test bots to their previews (bot players that connect like real ones; preview only, never rated)', public: true },
+  preview_bots_max: { v: 15, type: 'int', group: 'Limits', label: 'Test bots per fleet (one creator, one game)', public: true },
+  preview_bots_max_minutes: { v: 30, type: 'int', group: 'Limits', label: 'Longest a test-bot fleet runs before it stops by itself (minutes)', public: true },
+  preview_bots_daily_minutes: { v: 600, type: 'int', group: 'Limits', label: 'Bot-minutes a creator can use per day (bots x minutes; 7 bots for 30 minutes is 210)', public: true },
+  preview_bots_fleets: { v: 2, type: 'int', group: 'Limits', label: 'Test-bot fleets one creator can run at once' },
   room_msgs_per_second: { v: 60, type: 'int', group: 'Limits', label: 'Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)' },
 
   dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },
@@ -104,6 +110,14 @@ export const SETTING_DEFS = {
   feedback_enabled: { v: true, type: 'bool', group: 'Debugging and feedback', label: 'Let creators send annotated screenshots of their preview to their agent (creator feedback queue)', public: true },
   feedback_max_pending: { v: 20, type: 'int', group: 'Debugging and feedback', label: 'Feedback items waiting per game before the creator must remove some or the agent read them', public: true },
   feedback_keep_days: { v: 30, type: 'int', group: 'Debugging and feedback', label: 'Days an unread feedback item is kept', public: true },
+
+  // Friends, chat and invites (src/social-rules.js, src/routes/social.ts)
+  social_enabled: { v: true, type: 'bool', group: 'Friends and chat', label: 'Friends, chat and game invites', public: true },
+  friends_max: { v: 300, type: 'int', group: 'Friends and chat', label: 'Most friends one account can have', public: true },
+  friend_requests_per_day: { v: 50, type: 'int', group: 'Friends and chat', label: 'Friend requests one account may send per day' },
+  messages_per_minute: { v: 30, type: 'int', group: 'Friends and chat', label: 'Chat messages one account may send per minute' },
+  invites_per_10min: { v: 30, type: 'int', group: 'Friends and chat', label: 'Game invites one account may send per 10 minutes' },
+  dm_keep_days: { v: 365, type: 'int', group: 'Friends and chat', label: 'Days chat messages are kept' },
 
   oauth_access_ttl_s: { v: 3600, type: 'int', group: 'Agent access (OAuth)', label: 'Access token lifetime (seconds)' },
   oauth_grant_ttl_s: { v: 30 * 86400, type: 'int', group: 'Agent access (OAuth)', label: 'Authorization lifetime before the agent must be re-approved (seconds)' },
