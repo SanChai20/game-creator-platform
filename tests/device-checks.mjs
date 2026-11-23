@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from 'acorn';
 import { deviceIssues, syntaxFindings, apiFindings } from '../src/device-checks.js';
-import { applyDeviceResults, deviceViewport, DEVICE_PROFILES, verifyDevices } from '../src/verify-core.js';
+import { applyDeviceResults, deviceViewport, DEVICE_PROFILES, verifyDevices, leftFor } from '../src/verify-core.js';
 
 const ast = (src) => parse(src, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
 const ids = (src) => syntaxFindings(ast(src)).map((f) => f.id).sort();
@@ -93,4 +93,13 @@ test('a game that plays both ways gets an upright phone pass, and its zones and 
   ]);
   assert.equal(r.zones.zones.length, 0); assert.equal(r.zonesUpright.zones[0].zone, 'notch-top'); assert.equal(r.turn.ok, false);
   assert.ok(r.notes.some((n) => /turned sideways \(844×390\): the page reloaded/.test(n)));
+});
+
+test('a touched page that left says where it went: a reload, another address or the browser going back', () => {
+  const from = 'https://g.example/~t/abc/index.html?gcp_autostart=1';
+  assert.match(leftFor(from, 'about:blank'), /went back.*swipe-back/);
+  assert.match(leftFor(from, from), /reloaded itself/);
+  assert.match(leftFor(from, from + '#x'), /reloaded itself/);
+  assert.match(leftFor(from, 'https://g.example/other.html'), /went to \/other\.html/);
+  assert.match(leftFor(from, 'https://elsewhere.example/x?token=1'), /went to https:\/\/elsewhere\.example$/);
 });
