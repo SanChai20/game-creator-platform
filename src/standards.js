@@ -196,14 +196,15 @@ export const STANDARDS = [
     where: 'Over the game whenever it plays: in its window on the page and in fullscreen, in the browser and the installed app.',
     spec: [
       `A ${N.menu_button.size} px round button sits ${N.menu_button.inset} px in from the safe edge, in the ${N.menu_button.corner} corner unless the game asks for another.`,
-      `It fades to ${Math.round(N.menu_button.fade_to * 100)}% after ${N.menu_button.fade_after_s} s; the player can drag it anywhere. A trial clock may sit beside it.`,
+      `It fades to ${Math.round(N.menu_button.fade_to * 100)}% after ${N.menu_button.fade_after_s} s; the player can drag it anywhere, and the spot is kept per game and orientation. A trial clock may sit beside it.`,
       `For the first ${N.menu_button.tip_plays} plays on a device a short tip (up to ${N.menu_button.tip_width} px wide) shows at top centre for 5 s; taps go through it.`,
       'It is always there and always on top: the game is a frame under it and cannot paint over it, take fullscreen for itself or hide it. exitButton: \'none\' is taken as the top-left corner.',
-      'Move it with GCP.setDisplay({ exitButton: \'top-right\' | \'bottom-left\' | \'bottom-right\' }).',
+      'Its corner is not reserved: it floats over the game, faded, and a player it is in the way of drags it aside. Lay the interface out for the game alone and use the whole safe area, top corners included.',
+      'GCP.setDisplay({ exitButton: \'top-right\' | \'bottom-left\' | \'bottom-right\' }) picks the corner it starts in, if another suits the game better.',
     ],
-    do: [`Keep a ${N.menu_button.size + 2 * N.menu_button.inset} px square free in the chosen corner, inside the safe area.`, 'Choose the corner where your HUD has nothing.', 'When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.'],
-    dont: ['Put a pause, score or health widget under the button.', 'Count on hiding it: exitButton \'none\' no longer does.'],
-    enforced: 'Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button\'s square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.', checks: ['menu-corner', 'zone-menu-button', 'zones-one-layer'], guide: '/guides/standards.md#menu-button',
+    do: ['Lay out the HUD for the game itself, inside the safe area; the top corners are yours.'],
+    dont: ['Move the HUD aside for the button or leave a corner empty for it.', 'Count on hiding it: exitButton \'none\' does not.'],
+    enforced: 'Not checked: the button never needs room from the game.', checks: [], guide: '/guides/standards.md#menu-button',
   },
   {
     id: 'safe-area', area: 'game', title: 'Safe areas: notch, rounded corners, home bar',
@@ -217,7 +218,7 @@ export const STANDARDS = [
     ],
     do: ['Use max(env(safe-area-inset-left, 0px), var(--gcp-safe-left, 0px)) in CSS, or GCP.ui.rect for canvas layouts.'], dont: ['Assume the frame is already inside the notch.'],
     enforced: 'Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.',
-    checks: ['safe-area', 'zone-safe-area'], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
+    checks: ['safe-area', 'zone-safe-area', 'zones-one-layer'], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
   },
   {
     id: 'touch-controls', area: 'game', title: 'The platform\'s on-screen controls',
@@ -281,7 +282,7 @@ export const STANDARDS = [
       'landscape: design for aspect ratios from 4:3 (iPad, 1.33) to about 21:9 (phones, 2.17). Keep HUD on the edges and corners, controls in the bottom corners, and nothing important in the bottom 20 px on a phone (the home bar).',
       'portrait: design for 9:21 (phones) to 3:4 (iPad). On a computer the 16:9 window shows a centred column: fill the sides with the world or a backdrop, never stretch.',
       'both: give the interface a real layout for each shape, chosen from innerWidth > innerHeight on every resize, never once at start. Turning the device mid-game keeps all state (no restart, no reload, no lost menu) and relays out within one frame. Portrait is not landscape shrunk: stack top-bar items into rows or move secondary ones to the bottom, make primary menu buttons full-width in one column, keep thumb controls in the bottom third, and size text and buttons from the short side (GCP.ui does this).',
-      'In every orientation: no two interface elements overlap, no text is cut off or runs outside its box, tap targets are at least 44 CSS px, and everything stays inside the safe area (GCP.display.safe) and clear of the platform menu button\'s corner (GCP.display.menuButton). GCP.display.orientation tells the game what was declared, or what GCP.setDisplay({ orientation }) chose at run time.',
+      'In every orientation: no two interface elements overlap, no text is cut off or runs outside its box, tap targets are at least 44 CSS px, and everything stays inside the safe area (GCP.display.safe). GCP.display.orientation tells the game what was declared, or what GCP.setDisplay({ orientation }) chose at run time.',
     ],
     do: [
       'Check each declared orientation with debug_preview: phone-portrait (390x844) and phone-landscape (844x390), and an iPad shape, on every screen (title, menus, play, pause, results).',
@@ -294,7 +295,7 @@ export const STANDARDS = [
       'Read the orientation once at start, or reload the game on a turn.',
       'Call screen.orientation.lock() yourself: in a frame it only asks the platform, which already locks to the declaration.',
     ],
-    enforced: 'game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch, home bar or menu button upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.',
+    enforced: 'game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch or home bar upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.',
     checks: ['orientation', 'orientation-conflict', 'orientation-own-prompt', 'orientation-turn'], guide: '/guides/standards.md#orientation',
   },
   {
@@ -459,8 +460,8 @@ export function checkStandards(input = {}) {
     const pb = R.metrics && R.metrics.progressBeforeReady;
     if (typeof pb === 'number' && pb < 2) add('splash-loading', 'warning', `Verification saw ${pb} GCP.progress() call${pb === 1 ? '' : 's'} before GCP.ready(), so the platform splash waited 1.2 s and handed over to whatever was on screen.`, 'Draw the loading screen in its final look, then call GCP.progress(f, label) at least twice while loading.', { check: 'progress-hand-off' });
     for (const [z, way] of [[R.zones, ''], [R.zonesUpright, ' held upright']]) if (z && z.checked) for (const x of z.zones) {
-      const menu = x.zone === 'menu-button';
-      add(menu ? 'menu-button' : 'safe-area', 'warning', `On a phone${way} in fullscreen the interface covers ${Math.round(x.coverage * 100)}% of ${menu ? `the platform menu button's ${z.corner} square` : x.zone === 'home-bar' ? 'the home bar strip' : 'the notch strip'} (around x ${x.box[0]}, y ${x.box[1]}, ${x.box[2]}×${x.box[3]} px).`, menu ? `Move that part of the HUD out of the ${N.menu_button.size + 2 * N.menu_button.inset} px corner square, or put the button in a free corner with GCP.setDisplay({ exitButton }).` : 'Anchor the HUD inside GCP.display.safe (GCP.ui.rect does it by default).', { check: menu ? 'zone-menu-button' : 'zone-safe-area' });
+      if (x.zone === 'menu-button') continue;   // an older report: the button's corner is no longer reserved
+      add('safe-area', 'warning', `On a phone${way} in fullscreen the interface covers ${Math.round(x.coverage * 100)}% of ${x.zone === 'home-bar' ? 'the home bar strip' : 'the notch strip'} (around x ${x.box[0]}, y ${x.box[1]}, ${x.box[2]}×${x.box[3]} px).`, 'Anchor the HUD inside GCP.display.safe (GCP.ui.rect does it by default).', { check: 'zone-safe-area' });
     }
     // the ui-layout standard at each screen size verification played: one finding per problem, with every size it showed at
     if (Array.isArray(R.layout)) {
@@ -472,7 +473,7 @@ export function checkStandards(input = {}) {
     }
     const z = R.zones;
     if (R.turn && R.turn.ok === false) add('orientation', 'warning', `After the phone was turned ${R.turn.to === 'portrait' ? 'upright' : 'sideways'} (${R.turn.viewport}), ${R.turn.problem}`, 'Size the canvas and lay out the interface from innerWidth and innerHeight on every resize, keeping the game where it was; a game that plays one way only declares that orientation instead.', { check: 'orientation-turn' });
-    if (z && !z.checked && z.reason === 'one-layer') add('menu-button', 'note', 'The reserved zones (notch, home bar, menu button corner) could not be checked: GCP.test.onCapture hands over a single canvas.', 'Return [world, ui] from GCP.test.onCapture, with the interface on its own canvas, so verification can check them.', { check: 'zones-one-layer' });
+    if (z && !z.checked && z.reason === 'one-layer') add('safe-area', 'note', 'The reserved zones (notch, home bar) could not be checked: GCP.test.onCapture hands over a single canvas.', 'Return [world, ui] from GCP.test.onCapture, with the interface on its own canvas, so verification can check them.', { check: 'zones-one-layer' });
   }
   const texts = input.texts instanceof Map ? input.texts : new Map(Object.entries(input.texts || {}));
   if (texts.size) {
@@ -481,8 +482,6 @@ export function checkStandards(input = {}) {
     const phones = devices.includes('mobile') || devices.includes('tablet');
     const usesKeys = /\b(keydown|keyup)\b/.test(code);
     if (L && usesKeys && !String(L.controls || '').trim()) add('controls-text', 'note', 'The game reads the keyboard but its listing has no controls text.', 'Add the controls (game_metadata declare controls), one per line.', { check: 'controls-missing' });
-    if (/\bexitButton\s*:\s*['"]none['"]/.test(code) && !/\bmenuButton\b/.test(code)) add('menu-button', 'warning', `The game asks for exitButton: 'none', but the platform menu button always shows: it sits in the ${N.menu_button.corner} corner (${N.menu_button.size + 2 * N.menu_button.inset} px square).`, `Keep that corner free, move the button to a free corner with GCP.setDisplay({ exitButton }), or move the HUD aside by GCP.display.menuButton.`, { check: 'menu-corner' });
-    if (!/\bexitButton\b|\bmenuButton\b/.test(code)) add('menu-button', 'note', `The platform menu button (${N.menu_button.size} px) sits in the ${N.menu_button.corner} corner whenever the game plays (in its window and in fullscreen) and cannot be hidden.`, `Keep that corner free, or move the button with GCP.setDisplay({ exitButton: 'top-right' }) to a corner your HUD leaves empty.`, { check: 'menu-corner' });
     if (phones && !/GCP\.display\.safe|display\.safe|--gcp-safe|ui\.rect\s*\(|ui\.safe|edgeToEdge\s*:\s*false|createUi\s*\(|createInput\s*\(/.test(code)) add('safe-area', 'warning', 'The game lists phones or tablets but never reads the safe-area insets; in fullscreen its HUD can sit under the notch or the home bar.', "Keep HUD and buttons inside GCP.display.safe (or --gcp-safe-* in CSS, or GCP.ui.rect), or call GCP.setDisplay({ edgeToEdge: false }).", { check: 'safe-area' });
     // ui-layout: the game reads the screen size, and names the boxes it places so verification can measure them
     if (/<canvas|getContext\s*\(|\bcanvas\b/i.test(code) && !/innerWidth|innerHeight|clientWidth|clientHeight|getBoundingClientRect|ResizeObserver|visualViewport|GCP\.ui\b|\bui\.(rect|view|state|onChange)\b|['"]resize['"]|onresize/.test(code)) add('ui-layout', 'warning', 'The game never reads the size of the screen, so its interface is laid out for one size and is cut off or misplaced on others and in fullscreen.', 'Lay the interface out with GCP.ui.rect anchors and redo it on every GCP.ui.onChange (or every frame).', { check: 'layout-fixed-size' });
@@ -591,11 +590,10 @@ export function safeAreaSvg() {
     tx(W / 2, H - 6, `home bar: inset ${bottom} px; keep nothing important in the bottom 20 px`, 11, '#9b2c2c', 'middle'),
     `<text x="${ox + side / 2 + 4}" y="${oy + H / 2}" font-size="11" fill="#9b2c2c" text-anchor="middle" transform="rotate(-90 ${ox + side / 2 + 4} ${oy + H / 2})" font-family="system-ui, sans-serif">notch: inset ${side} px</text>`,
     // menu button
-    r(side, 0, mb.size + 2 * mb.inset, mb.size + 2 * mb.inset, '#ffe8b3', '#b7791f', 'stroke-dasharray="4 3"'),
     `<circle cx="${ox + side + mb.inset + mb.size / 2}" cy="${oy + mb.inset + mb.size / 2}" r="${mb.size / 2}" fill="rgba(12,10,18,.55)" stroke="#fff"/>`,
     `<path d="M${ox + side + mb.inset + 11} ${oy + mb.inset + 14}h18M${ox + side + mb.inset + 11} ${oy + mb.inset + 20}h18M${ox + side + mb.inset + 11} ${oy + mb.inset + 26}h18" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>`,
     tx(side + mb.size + 2 * mb.inset + 8, 22, `platform menu button, ${mb.size} px, ${mb.inset} px in`, 11, '#7b4a00'),
-    tx(side + mb.size + 2 * mb.inset + 8, 36, 'top left unless GCP.setDisplay({ exitButton })', 11, '#7b4a00'),
+    tx(side + mb.size + 2 * mb.inset + 8, 36, 'floats on top, drag it anywhere', 11, '#7b4a00'),
     // tip
     r(W - side - popW, N.friends_popup.top, popW, 46, 'rgba(56,161,105,.12)', '#2f855a', 'rx="10" stroke-dasharray="4 3"'),
     tx(W - side - popW / 2, N.friends_popup.top + 19, `friend pop-ups: top right, up to ${popW} px, about ${N.friends_popup.seconds} s`, 11, '#22543d', 'middle'),
@@ -614,7 +612,7 @@ export function safeAreaSvg() {
     // legend
     tx(0, H + 44, 'Insets come from GCP.display.safe and --gcp-safe-*; GCP.ui.rect anchors inside them. They differ per device: read them, never hard-code these numbers.', 12, '#333'),
     tx(0, H + 64, `The on-screen controls show only for games without touch controls of their own; they sit ${t.edge} px plus the inset from the edges.`, 12, '#333'),
-    tx(0, H + 84, 'Keep the menu button corner and, when the platform controls show, the bottom corners free of HUD. Standards: /guides/standards.md', 12, '#333'),
+    tx(0, H + 84, 'The menu button needs no room. When the platform controls show, keep the bottom corners free of HUD. Standards: /guides/standards.md', 12, '#333'),
     `</svg>`,
   ].join('');
 }

@@ -940,7 +940,7 @@
   // { corner, x, y, w, h }. The button shows whenever the game plays in the platform's player (in its window on the page
   // and in fullscreen; a game cannot hide it, so exitButton 'none' is the top-left corner), so it is null only outside
   // the player. In the window on a narrow page the frame is drawn scaled down, and the square grows to match.
-  // A HUD that shares that corner moves aside by it.
+  // Where the button starts, for information only: the player drags it anywhere, so a HUD need not move aside for it.
   var menuSquare = function () {
     var c = (S.displayPrefs && S.displayPrefs.exitButton) || 'top-left', k = S.frameScale > 0 && S.frameScale < 1 ? S.frameScale : 1;
     var sq = 56, sf = display.safe, W = window.innerWidth || 0, H = window.innerHeight || 0;
@@ -2183,7 +2183,8 @@
     /** Preferences for the player around the game: { orientation: 'landscape' | 'portrait' | 'any' (overrides the declared
         requirement; the platform locks the screen to it in fullscreen where the browser allows, and asks the player to
         turn the phone where it does not), exitButton: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'none'
-        (the platform's 40 px menu button goes in that corner, which the game keeps free; left out, it is top-left; the
+        (the corner the platform's 40 px menu button starts in; it floats on top and the player drags it anywhere, so
+        the game need not keep that corner free; left out, it is top-left; the
         button always shows while the game plays, so 'none' is taken as top-left; the menu also opens from Back, a
         three-finger tap, Esc or GCP.menu()), menuGesture: false (the game uses three-finger taps
         itself: they no longer open the platform menu), textSelect: true (the game's text can be selected and copied; left

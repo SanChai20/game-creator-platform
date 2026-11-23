@@ -12,7 +12,7 @@ export const SKILL_OUTLINE = [
   { heading: 'Architecture', ask: 'How the game is put together: engine or none, modules and what each one owns, how state flows between simulation, rendering and interface, and in what order to build them.' },
   { heading: 'Rendering and art', ask: 'How things are drawn (renderer, camera, lighting, materials, effects), how art is made (procedural or files), and the choices that gave the look.' },
   { heading: 'Game loop and feel', ask: 'Timing (fixed step or delta time), movement and physics, juice (screen shake, hit pause, particles), and the numbers that were tuned and why.' },
-  { heading: 'Controls and devices', ask: 'Keyboard, mouse, touch and gamepad handling, phones and tablets, interface scaling and orientation, and how the interface keeps clear of what the platform draws over the game (the safe area, the menu button corner, the on-screen control zones; game_standards).' },
+  { heading: 'Controls and devices', ask: 'Keyboard, mouse, touch and gamepad handling, phones and tablets, interface scaling and orientation, and how the interface keeps clear of what the platform draws over the game (the safe area, the on-screen control zones; game_standards).' },
   { heading: 'Content and progression', ask: 'Levels, waves, unlocks, balance, difficulty curve, saves and what the player keeps between sessions.' },
   { heading: 'Platform services', ask: 'Which platform services the game uses (saves, leaderboards, rooms, matches, server code) and how, by name, not by code.' },
   { heading: 'Performance', ask: 'Budgets and the techniques that kept frame time inside them on phones.' },
