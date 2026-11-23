@@ -19,6 +19,7 @@ import { currentPicks, JOBS } from '../rankings';
 import { reverseWithdrawal, takeOffline } from './api';
 import { grantLicense, isPlan, revokeLicense } from '../license';
 import { RULES, RULESET, gateView, recordGate, releaseGate, unwaive, waive } from '../release-gate';
+import { reportQueue, reviewReports, type ReviewAction } from '../store-quality';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
@@ -118,7 +119,7 @@ admin.patch('/users/:id', async (c) => {
 admin.get('/games', async (c) => {
   const q = (c.req.query('q') || '').trim(), like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%', since = addDays(dayOf(now()), -6), off = pageOf(c);
   const rows = await c.env.DB.prepare(
-    `SELECT p.id, p.slug, p.title, p.status, p.featured, p.price_cents, p.sales, p.plays, p.seconds, p.rating_sum, p.rating_count, p.live_version, p.preview_version, p.created_at, p.published_at, p.removed_reason, p.cover_key, p.storage_bytes,
+    `SELECT p.id, p.slug, p.title, p.status, p.shelf, p.hidden_at, p.hidden_reason, p.featured, p.price_cents, p.sales, p.plays, p.seconds, p.rating_sum, p.rating_count, p.live_version, p.preview_version, p.created_at, p.published_at, p.removed_reason, p.cover_key, p.storage_bytes,
        (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.project_id = p.id) AS used_bytes,
        u.name AS author, u.email AS author_email,
        (SELECT COALESCE(SUM(plays), 0) FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?3) AS plays7,
@@ -135,6 +136,11 @@ admin.patch('/games/:id', async (c) => {
   const p = await getProject(c.env, c.req.param('id')), b = await c.req.json<Record<string, any>>().catch(() => ({} as Record<string, any>));
   if (!p) throw notFound();
   if (typeof b.featured === 'boolean') await c.env.DB.prepare('UPDATE projects SET featured = ? WHERE id = ?').bind(b.featured ? 1 : 0, p.id).run();
+  // the New shelf (src/store-quality.ts): an admin can move a game to the main store at once, or back to the New shelf
+  if (b.shelf === 'main' || b.shelf === 'new') {
+    await c.env.DB.prepare('UPDATE projects SET shelf = ?, shelf_at = ? WHERE id = ?').bind(b.shelf, b.shelf === 'main' ? now() : null, p.id).run();
+    await logEvent(c.env, p.id, 'shelf', b.shelf === 'main' ? 'Moved to the main store by a platform admin.' : 'Moved back to the New shelf by a platform admin.', null, 'admin');
+  }
   if (b.action === 'offline' && p.status === 'live') await takeOffline(c.env, p, 'admin');
   if (b.action === 'remove') {
     await c.env.DB.prepare("UPDATE projects SET status = 'removed', removed_reason = ?, updated_at = ? WHERE id = ?").bind(String(b.reason || 'Removed by the platform').slice(0, 300), now(), p.id).run();
@@ -296,6 +302,19 @@ admin.post('/grant-game', async (c) => {
   return c.json({ ok: true });
 });
 
+
+// ----- game reports (src/store-quality.ts) --------------------------------------------------------------------------
+// Games players reported (broken, low effort, …) and games hidden from the store, most reported first. dismiss: nothing
+// wrong, back in the store; hide: reports upheld, it stays out of the store; unhide: back in the store, reports left open.
+// Taking a game offline or removing it is done from Games.
+admin.get('/game-reports', async (c) => c.json({ games: await reportQueue(c.env, await getSettings(c.env)) }));
+admin.post('/game-reports/:id', async (c) => {
+  const p = await getProject(c.env, c.req.param('id')), b = await c.req.json<{ action?: string }>().catch(() => ({} as { action?: string }));
+  if (!p) throw notFound('No such game.');
+  if (b.action !== 'dismiss' && b.action !== 'hide' && b.action !== 'unhide') throw bad('action must be dismiss, hide or unhide.');
+  await reviewReports(c.env, c.get('user')!.id, p, b.action as ReviewAction);
+  return c.json({ ok: true });
+});
 
 // ----- player reports (friends and chat, src/social-rules.js) -------------------------------------------------------
 // Open reports first, each with the reported messages as they were when reported. Suspending the account is done from

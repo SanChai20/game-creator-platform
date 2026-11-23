@@ -6,6 +6,7 @@
      GCP.progress(f, label) optional, 0..1 while loading (again after ready() while a world or level loads)
      GCP.fatal(err)         call if the game cannot start (also set automatically by nothing: uncaught
                             errors are recorded, not fatal, unless they stop frames from advancing)
+     GCP.score(n) / GCP.gameOver(result)  optional: report a score or an ending if the game has one (a small ranking lift)
    Everything else is optional help: saves, leaderboards, rooms, test hooks. */
 (function () {
   'use strict';
@@ -16,7 +17,9 @@
   var standalone = !cfg;           // opened outside the platform (local file / local dev server)
   if (standalone) cfg = { api: '', token: '', gameId: 'local', version: 0, env: 'local', base: '', player: { id: 'local', name: 'Player' }, kind: 'owner', session: 'local' };
   var q = new URLSearchParams(location.search);
-  var S = window.__GCP = { boot: performance.now(), ready: false, readyAt: 0, frames: 0, fatal: null, errors: [], warnings: [], progress: 0, label: '', missing: [], stats: null };
+  var S = window.__GCP = { boot: performance.now(), ready: false, readyAt: 0, frames: 0, fatal: null, errors: [], warnings: [], progress: 0, label: '', missing: [], stats: null,
+    // the score and endings the game reported (GCP.score, GCP.gameOver, GCP.leaderboard.submit, a server-run match ending)
+    outcome: { scores: 0, ends: 0, submits: 0, matchEnds: 0, score: null, last: '' } };
 
   // ---- The game runtime. This script is the one place where the platform makes games work the same in every browser
   // and on every device: the platform serves it to every game it hosts, live ones included, so a fix made here reaches
@@ -829,7 +832,7 @@
         else if (m.t === 'start') { self.players = m.players; start(); }
         else if (m.t === 'wait' || m.t === 'players') { self.players = m.players; emit('players', m.players); }
         else if (m.t === 'po') { if (pings[m.n]) { var r = performance.now() - pings[m.n]; self.rtt = self.rtt == null ? r : self.rtt * 0.7 + r * 0.3; delete pings[m.n]; } }
-        else if (m.t === 'end') { self.phase = 'ended'; self.result = m.result; clearInterval(timer); emit('end', m.result); }
+        else if (m.t === 'end') { S.outcome.matchEnds++; self.phase = 'ended'; self.result = m.result; clearInterval(timer); emit('end', m.result); }
         else if (m.t === 'error') { seen.error = String(m.code || m.message || ''); var e = new Error(m.message); e.code = m.code; emit('error', e); }
       };
       ws.onclose = function (ev) {
@@ -2001,6 +2004,16 @@
     fatal: function (err) { fontHold.release(); splash.send('fatal'); S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },
     /** Optional numbers for reports and the console (draw calls, triangles, quality, …). */
     stats: function (obj) { S.stats = obj; },
+    /** The player's current score. Optional: a game with a score calls this when the score changes, and GCP.gameOver
+        when a run, level or match ends; the store ranks it a little higher. Sandbox, idle, creative and exploration
+        games without a score or an ending need neither. Returns the number. */
+    score: function (n) { var v = +n; if (!isFinite(v)) return null; S.outcome.scores++; S.outcome.score = v; return v; },
+    /** A run, level or match ended: gameOver({ outcome: 'win' | 'lose' | 'draw' | 'done', score }). Both fields optional. */
+    gameOver: function (result) {
+      var r = result && typeof result === 'object' ? result : { outcome: result };
+      S.outcome.ends++; S.outcome.last = String(r.outcome == null ? 'done' : r.outcome).slice(0, 20);
+      if (r.score != null && isFinite(+r.score)) { S.outcome.scores++; S.outcome.score = +r.score; }
+    },
     /** Per-player cloud saves (JSON, 256 KB per key). Falls back to localStorage offline. */
     save: {
       get: function (key) { return api('save', { op: 'get', key: key }).then(function (r) { if (r.value != null) LS.set(key, r.value); return r.value; }).catch(function () { return LS.get(key); }); },
@@ -2040,7 +2053,7 @@
     shared: { get: function (key) { return api('save', { op: 'get', key: key, shared: true }).then(function (r) { return r.value; }).catch(function () { return null; }); } },
     leaderboard: {
       /** Keeps each player's best score per board. order: 'desc' (default, higher is better) or 'asc'. */
-      submit: function (board, score, order) { return api('score', { op: 'submit', board: board, score: +score, order: order || 'desc' }).catch(function () { return null; }); },
+      submit: function (board, score, order) { S.outcome.submits++; return api('score', { op: 'submit', board: board, score: +score, order: order || 'desc' }).catch(function () { return null; }); },
       top: function (board, limit, order) { return api('score', { op: 'top', board: board, limit: limit || 10, order: order || 'desc' }).then(function (r) { return r.rows; }).catch(function () { return []; }); },
     },
     /** Realtime room on the platform (Durable Object WebSocket relay). First player in is the host. */
@@ -3097,6 +3110,9 @@
   ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook', 'displayPrefs', 'captureLayers', 'layoutBoxes'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
   ['errors', 'warnings', 'missing', 'warns', 'calls'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
   Object.defineProperty(view, 'runtime', { get: runtimeInfo, enumerable: true });
+  // what the playability checks read: the score and endings reported, and which input events the game's own code listens for
+  Object.defineProperty(view, 'outcome', { get: function () { var o = S.outcome; return { scores: o.scores, ends: o.ends, submits: o.submits, matchEnds: o.matchEnds, score: o.score, last: o.last }; }, enumerable: true });
+  Object.defineProperty(view, 'inputHeard', { get: function () { var h = {}; for (var k in TL.heard) h[k] = TL.heard[k]; ['onkeydown', 'onkeyup', 'onpointerdown', 'onmousedown', 'onclick', 'ontouchstart'].forEach(function (k) { if (window[k] || document[k] || (document.body && document.body[k])) h[k.slice(2)] = (h[k.slice(2)] || 0) + 1; }); return h; }, enumerable: true });
   ['hold', 'pauseCheck', 'step', 'captureFrame', 'pageUi', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }
 })();

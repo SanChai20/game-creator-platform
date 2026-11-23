@@ -8,7 +8,7 @@ import { HomeSkeleton } from '../skeletons';
 import { ContinueRow } from '../continue';
 import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, type Genre, type StoreStats } from '../store';
 
-interface HomeData { stats: StoreStats; shelves: { picks?: GameCard[]; trending: GameCard[]; playing: GameCard[]; new: GameCard[]; top: GameCard[]; free: GameCard[]; sale?: GameCard[] }; genres: Genre[] }
+interface HomeData { stats: StoreStats; shelves: { picks?: GameCard[]; trending: GameCard[]; playing: GameCard[]; new: GameCard[]; new_shelf?: GameCard[]; top: GameCard[]; free: GameCard[]; sale?: GameCard[] }; genres: Genre[] }
 
 export function Home() {
   const { config, user } = useApp();
@@ -61,7 +61,8 @@ export function Home() {
         <Shelf live title={t('Playing right now', '正在热玩')} note={t('Games with players in them this minute.', '此刻有玩家在线的游戏。')} to="/browse?sort=playing" games={sh.playing} />
         <Shelf rank title={t('Trending this week', '本周热门')} note={t('Most played and talked about in the last seven days.', '过去七天游玩与讨论最多。')} to="/browse" games={sh.trending} />
         <QueueBand pool={pool} />
-        <Shelf title={t('New arrivals', '新上架')} note={t('Fresh from creators and their agents.', '创作者与智能体的最新作品。')} to="/browse?sort=new" games={sh.new} freshSince={since} />
+        {/* the New shelf: just released games still earning their place on the main store (src/store-quality.ts) */}
+        {!!sh.new_shelf?.length && <Shelf title={t('New arrivals', '新上架')} note={t('Just released and still earning their place in the store. Play one and rate it.', '刚刚上架，仍在争取进入主商店。玩一款并为它评分吧。')} to="/browse?shelf=new" games={sh.new_shelf} freshSince={since} />}
 
         <section className="pitch ink">
           <CelScene seed={2} />

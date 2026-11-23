@@ -11,6 +11,11 @@ This page is the whole set of rules. There are two kinds, and the line between t
 2. **Call `GCP.ready()` once**, right after the first frame a player could act on is drawn. Not at script start, not when a menu is still loading.
 3. **Stay alive.** After ready the page must keep rendering frames through `requestAnimationFrame`, must not throw uncaught errors, and must survive keyboard, mouse and touch input.
 
+3b. **Be playable.** A game reacts to the player and keeps running whatever the player presses. Verification checks both (`input_handled`, `bot_play` below), and `publish` refuses a version that fails one:
+   - Make every press visibly do something (move, aim, select, shoot, a menu highlight). The verifier presses arrows, WASD, Space, Enter, J, K, Z, X, clicks, drags and taps in the play area and compares the screen with what changes when nothing is pressed. If the game opens on a title screen, register `GCP.test.onAutostart` to drop into play. When the whole screen moves by itself anyway, `GCP.test.onState(fn)` returning what the player changes (position, selection) is read instead.
+   - Keep running through bot play: random keys, clicks, drags and taps for about 45 seconds (`get_started` shows this platform's number). No uncaught errors, no stopped loop, no leaving the page. Restarting by reloading ("Play again") is fine when it boots again.
+   - A score or an ending is **optional**. Sandbox, idle, creative and exploration games can have neither, and nothing needs declaring. A game that has one reports it with `GCP.score(n)` when the score changes and `GCP.gameOver({ outcome: 'win' | 'lose' | 'done', score })` when a run, level or match ends (`GCP.leaderboard.submit` and a `GCP.test.onPlaythrough` that plays to the end count too); the store then ranks it a little higher (`score_or_end` below, advice only).
+
 4. **Play on computers, tablets and phones.** Every game on the platform must be playable on every kind of device it supports: with a keyboard or a mouse on a computer, and by touch on a phone or tablet (touch controls of your own, or the platform's on-screen controls pressing your keys). Declare `"devices": ["desktop", "tablet", "mobile"]` in `requirements`. Verification plays every version on an emulated iPhone and iPad, and it must start, keep drawing and survive taps and a drag there. `publish` refuses a version that leaves a kind of device out (rule `every_device`). Which way up it is played is your choice (`orientation`): a landscape-only or portrait-only game meets this rule.
 
 5. **Fit the game's storage.** All of a game's files together may use the game's storage (50 MB by default, the largest file 20 MB; `get_started` shows this platform's numbers under `storage`). Uploads that would go over are refused, and a version over it cannot be deployed or published. Generate content from code, load large or optional content at run time from your own host, and tell the developer about the limit when planning. `get_started {topic: "storage"}`.
@@ -41,6 +46,8 @@ If your `index.html` has its own `<script type="importmap">`, the platform leave
 GCP.progress(0.4, 'Building terrain');   // optional, 0..1 while loading
 GCP.ready();                              // required, once
 GCP.fatal(err);                           // if the game cannot start; shown as the failure reason
+GCP.score(120);                           // optional: the score now, for games that have one (a small ranking lift)
+GCP.gameOver({ outcome: 'lose', score: 120 });   // optional: a run, level or match ended: 'win' | 'lose' | 'draw' | 'done'
 
 await GCP.save.set('slot1', { level: 3 });       // per-player cloud save (JSON, 256 KB per key)
 const data = await GCP.save.get('slot1');        // null when nothing is saved
@@ -123,6 +130,9 @@ With WebGPU, create pipelines with `createRenderPipelineAsync` / `createComputeP
 | playthrough | Only if the game registered one: its own play-through script finished without failing. |
 | input | After key presses, clicks, drags and touches, frames are still being drawn. A game that restarts by reloading the page (a "Play again" button) passes as long as it boots again. |
 | responds | Something on screen or in the page changes while the game runs and is played. A still picture fails. |
+| input_handled | Required. The game's own code listens for keyboard, mouse, touch or gamepad input (or has controls on the page), and pressing keys, clicking, dragging and tapping changes the screen clearly more than time alone does (or changes the page, or the state `GCP.test.onState` returns). |
+| bot_play | Required. Through about 45 s of random keys, clicks, drags and taps the game keeps drawing frames, throws no uncaught errors, does not stop with `GCP.fatal` and stays on its page (a reload that boots again is fine). |
+| score_or_end | Optional, advice only (never stops a version). Passes with a note when the game called `GCP.score`, `GCP.gameOver` or `GCP.leaderboard.submit`, or its play-through played it to the end; such a game ranks a little higher in the store. A game without a score or an ending is fine. |
 | conduct | The page stays on the game: it does not leave for another site, start downloads, open more than one window or pile up dialogs. |
 | files | Every file the page asked for was served. Calls to the game's own server code (`/api/*`) are not counted here. |
 | server | Only when the game calls its server code: no request made it throw. A crash in `server/index.js` is listed with its message and, in a preview, the line it came from. |
@@ -268,6 +278,16 @@ When a game's own pages name who made it (a credits screen, an about box), they 
 - Keep the bundle lean. The game's storage, the largest file and the file count are shown by `get_started` under `storage` and in every upload answer; `game_storage {project}` shows what uses the space.
 - The page has no Content-Security-Policy on connections or media, so it can load data and media at run time from any HTTPS host that sends CORS headers. The storage guide covers how to do it so verification and players are not caught out.
 
+## The store: the New shelf, weekly caps, ranking and reports
+
+The store keeps low-effort games out of view without blocking anyone who ships finished games (`get_started` shows this platform's numbers):
+
+- **The New shelf.** A new game starts on the New shelf (shown on the home page and at `/browse?shelf=new`, and found by search). It moves to the main store's lists, shelves, genre pages and daily picks by itself once players stick with it: by default 15 players other than you, 2 minutes of play each on average, at most half of them leaving within their first minute and never coming back, and 3 ratings averaging 3 stars or more (with the store's prior). `publish` and `list_projects` say where a game stands and what it still needs.
+- **A weekly cap on new games.** An account can put 3 new games live in any 7 days, one more for each of its live games with 5 or more ratings averaging 4 stars, up to 10. Updates to games that are already live are never limited. `publish` refuses a new game over the cap (rule `publish_cap`) and says when the next slot opens.
+- **Ranking by play time and retention.** Trending weighs minutes played over play count, and multiplies by how players stick with the game: time per player and players who come back another day (each judged against the typical game on the store right now), and players who leave within a minute. A game whose live version reports a score or an ending (`GCP.score`, `GCP.gameOver`) gets a small lift (5%); a game without one is not marked down.
+- **Player reports.** Players who played a game can report it (broken, low effort, a copy, harmful, …). When enough different players report it (5 by default, more for games with many players, never more than 25), the game is hidden from the store. It stays playable by its link, and comes back by itself when you put a new version live (that version passes every check again; reports about it count afresh). A platform admin may also review the reports, but nothing waits on that.
+- **Everything runs by itself.** Graduation, hiding, the daily picks and the ranking weights are worked out by the schedule from player data: the engagement scales follow what is typical across the store, every 10 minutes.
+
 ## A complete minimal game
 
 ```html
@@ -282,19 +302,28 @@ When a game's own pages name who made it (a credits screen, an about box), they 
 <body>
 <canvas id="c"></canvas>
 <script type="module">
+// Catch the moving orb: tap or click it, or steer the paddle onto it with the arrow keys or A and D.
 const c = document.getElementById('c'), g = c.getContext('2d');
-let t = 0, last = performance.now(), told = false;
+let t = 0, last = performance.now(), told = false, score = 0, px = 0.5, dir = 0;
+const orb = () => ({ x: c.width / 2 + Math.cos(t) * 120, y: c.height / 2 + Math.sin(t * 1.3) * 80 });
+const catchAt = (x, y) => { const o = orb(); if (Math.hypot(x - o.x, y - o.y) < 40) { score++; if (window.GCP) GCP.score(score); } };
+addEventListener('pointerdown', (e) => { px = e.clientX / innerWidth; catchAt(e.clientX, e.clientY); });
+addEventListener('keydown', (e) => { if (e.code === 'ArrowLeft' || e.code === 'KeyA') dir = -1; if (e.code === 'ArrowRight' || e.code === 'KeyD') dir = 1; });
+addEventListener('keyup', () => { dir = 0; });
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, (now - last) / 1000); last = now; t += dt;
   if (c.width !== innerWidth || c.height !== innerHeight) { c.width = innerWidth; c.height = innerHeight; }
+  px = Math.max(0, Math.min(1, px + dir * dt * 0.8));
   g.fillStyle = '#101418'; g.fillRect(0, 0, c.width, c.height);
-  g.fillStyle = '#ffb347';
-  g.beginPath(); g.arc(c.width / 2 + Math.cos(t) * 120, c.height / 2 + Math.sin(t * 1.3) * 80, 24, 0, 7); g.fill();
-  if (!told) { told = true; if (window.GCP) GCP.ready(); }   // after the first real frame
+  const o = orb(); g.fillStyle = '#ffb347'; g.beginPath(); g.arc(o.x, o.y, 24, 0, 7); g.fill();
+  g.fillStyle = '#7fd1ff'; g.fillRect(px * c.width - 60, o.y + 40, 120, 12);   // the paddle follows the player
+  if (dir && Math.abs(px * c.width - o.x) < 60) catchAt(o.x, o.y);
+  g.fillStyle = '#fff'; g.font = '20px sans-serif'; g.fillText('Score ' + score, 16, 32);
+  if (!told) { told = true; if (window.GCP) { GCP.ready(); GCP.score(0); } }   // after the first real frame; a score from the start
 }
 requestAnimationFrame(frame);
-if (window.GCP) { GCP.test.onCapture(() => c); GCP.test.onState(() => ({ t: Math.round(t) })); }   // hand over the frame
+if (window.GCP) { GCP.test.onCapture(() => c); GCP.test.onState(() => ({ score, paddle: Math.round(px * 100) })); }   // hand over the frame
 </script>
 </body>
 </html>

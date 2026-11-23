@@ -20,7 +20,7 @@ const DEVICE_NAME = { desktop: 'computers (desktop)', tablet: 'tablets (tablet)'
 
 /** One sentence each, used by get_started, the standards guide, game_standards and the docs. */
 export const SPLIT = {
-  requirements: 'Platform requirements are mandatory: a version that misses one cannot go live, and publish says exactly what to fix. Every game must boot and play in the browser without errors, be playable on computers, tablets and phones (keyboard or mouse on a computer, touch on a phone or tablet), pass the content and originality checks, fit its storage, and have its store metadata on record.',
+  requirements: 'Platform requirements are mandatory: a version that misses one cannot go live, and publish says exactly what to fix. Every game must boot and play in the browser without errors, react to the player\'s input, keep running through bot play (a score or an ending is optional; reporting one with GCP.score or GCP.gameOver lifts its ranking a little), be playable on computers, tablets and phones (keyboard or mouse on a computer, touch on a phone or tablet), pass the content and originality checks, fit its storage, and have its store metadata on record.',
   recommendations: 'Design recommendations are advice: how the game looks, which way up it is played (landscape, portrait or both), how it lays out its interface, its cover, loading screen and sound are the game\'s own decisions. The platform says how its own surfaces behave and recommends how to fit around them; no recommendation ever stops a version.',
 };
 

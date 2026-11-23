@@ -55,7 +55,8 @@ try {
     const a = score * 2.4, d = 6;
     beacon.position.set(player.position.x + Math.cos(a) * d, 1.2, player.position.z + Math.sin(a) * d);
   }
-  function restart() { score = 0; player.position.set(0, 0.5, 0); placeBeacon(); }
+  // optional score and ending (a small ranking lift): GCP.score when it changes, GCP.gameOver when a run ends
+  function restart() { score = 0; player.position.set(0, 0.5, 0); placeBeacon(); if (G) G.score(0); }
   restart();
 
   // ---- input: keys by physical position (works on every layout), and a drag for touch and mouse ----
@@ -80,7 +81,7 @@ try {
     player.position.x += mx * 6 * dt; player.position.z += mz * 6 * dt;
     if (len > 0.01) player.rotation.y = Math.atan2(mx, mz);
     beacon.rotation.y = now * 1.5; beacon.position.y = 1.2 + Math.sin(now * 2) * 0.2;
-    if (Math.hypot(beacon.position.x - player.position.x, beacon.position.z - player.position.z) < 1.2) { score++; placeBeacon(); }
+    if (Math.hypot(beacon.position.x - player.position.x, beacon.position.z - player.position.z) < 1.2) { score++; if (G) G.score(score); placeBeacon(); }
     camera.position.set(player.position.x, 9, player.position.z + 11); camera.lookAt(player.position);
     renderer.render(scene, camera);
     drawHud();

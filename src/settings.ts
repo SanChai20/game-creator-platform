@@ -57,6 +57,8 @@ export const SETTING_DEFS = {
   verify_devices: { v: 'iphone,ipad', type: 'text', group: 'Verification', label: 'Touch devices each version is also played on after it passes (emulated): iphone, ipad, android, comma separated; empty turns the device check off' },
   craft_target: { v: 75, type: 'int', group: 'Verification', label: 'Craft score (0 to 100) agents are told to reach before calling a game finished; publishing never depends on it', public: true },
   verify_capture_required: { v: true, type: 'bool', group: 'Verification', label: 'Fail a version that does not hand over its exact frame (the capture check: everything visible drawn in canvases, GCP.test.onCapture and onState registered); it fails only a version of a live game, any other game gets a note; off reports it without failing' },
+  verify_playability_required: { v: true, type: 'bool', group: 'Verification', label: 'Require the playability checks: the game reacts to input and keeps running through bot play (off: they are not run)', public: true },
+  verify_bot_play_s: { v: 45, type: 'int', group: 'Verification', label: 'Seconds of bot play (random keys, clicks, drags and taps) a game must keep running through (5 to 180)', public: true },
   verify_browser_required: { v: true, type: 'bool', group: 'Verification', label: 'Require the automated browser check (otherwise a clean creator preview session also qualifies)' },
   metadata_required: { v: true, type: 'bool', group: 'Verification', label: 'Require complete game metadata to publish (genre, requirements, languages, players, content descriptors)' },
   verify_human_min_seconds: { v: 20, type: 'int', group: 'Verification', label: 'Seconds of clean real-browser preview play that qualify a version when the automated browser cannot run it' },
@@ -92,6 +94,22 @@ export const SETTING_DEFS = {
   content_block: { v: true, type: 'bool', group: 'Content and conduct', label: 'Block publishing a version the content check refuses (off: report it as a warning only)' },
   content_ai_daily: { v: 1000, type: 'int', group: 'Content and conduct', label: 'Most Workers AI content reviews per day (Clef with up to 4 frames of the game in play, about $0.001 each; past the cap a small rule set decides)' },
   content_ai_threshold: { v: 50, type: 'int', group: 'Content and conduct', label: 'How likely (percent) the content review must find a version harmful, or showing adult content it does not declare, to refuse it' },
+
+  // Store quality (src/store-quality.ts): weekly caps on new games, the New shelf, ranking by engagement, player reports
+  publish_cap_base: { v: 3, type: 'int', group: 'Store quality', label: 'New games one creator can put live in any 7 days (updates to live games are never limited; 0: no cap)', public: true },
+  publish_cap_per_good: { v: 1, type: 'int', group: 'Store quality', label: 'More new games per 7 days for each of the creator\'s well-rated live games', public: true },
+  publish_cap_max: { v: 10, type: 'int', group: 'Store quality', label: 'Highest weekly cap on new games, however many well-rated games a creator has', public: true },
+  good_game_min_ratings: { v: 5, type: 'int', group: 'Store quality', label: 'Ratings a live game needs before it can count as well rated', public: true },
+  good_game_min_rating: { v: 4, type: 'number', group: 'Store quality', label: 'Average rating (with the store\'s prior of three 3.5-star ratings) from which a live game counts as well rated', public: true },
+  new_shelf: { v: true, type: 'bool', group: 'Store quality', label: 'New games start on the New shelf and reach the main store once players stick with them (off: every live game is on the main store)', public: true },
+  graduate_min_players: { v: 15, type: 'int', group: 'Store quality', label: 'Players (other than the creator) a game on the New shelf needs before it moves to the main store', public: true },
+  graduate_min_minutes: { v: 2, type: 'number', group: 'Store quality', label: 'Average minutes each of those players has played it', public: true },
+  graduate_max_quit_percent: { v: 50, type: 'int', group: 'Store quality', label: 'Most of its players (percent) who left within their first minute and never came back', public: true },
+  graduate_min_ratings: { v: 3, type: 'int', group: 'Store quality', label: 'Ratings it needs', public: true },
+  graduate_min_rating: { v: 3, type: 'number', group: 'Store quality', label: 'Average rating it needs (with the store\'s prior)', public: true },
+  report_hide_min: { v: 5, type: 'int', group: 'Store quality', label: 'Reports from different players that hide a game from the store until a new version goes live or an admin reviews it (0: reports never hide a game)', public: true },
+  report_hide_percent: { v: 10, type: 'int', group: 'Store quality', label: 'For games with many players: reports must also come from this share of its players (percent)', public: true },
+  report_hide_max: { v: 25, type: 'int', group: 'Store quality', label: 'Reports that always hide a game, however many players it has', public: true },
 
   // The Creator Store (src/skills.ts): each game's build skill, free or sold. Skill sales are counted apart from game sales.
   skill_fee_percent: { v: 5, type: 'number', group: 'Creator Store', label: 'Platform commission on each build skill sale (percent; separate from the game\'s own cut)', public: true },

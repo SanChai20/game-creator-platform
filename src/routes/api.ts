@@ -31,6 +31,7 @@ import { grantLicense, isPlan, licenseOf, licenseView, offerOf, planName, syncLi
 import { freeTrendingArgs, freeTrendingOrder, freeTrendingQuery } from '../catalog';
 import { gameAnalytics, ONLINE_WINDOW_MS, onlineNow } from '../analytics';
 import { currentPicks } from '../rankings';
+import { REPORT_REASONS, fileReport, shelfWhere, storeStatus, type ReportReason } from '../store-quality';
 import { checkIn, sessionStartStmt } from '../play-clock';
 import { CLOCK_ONLINE_FRESH_MS, playClock } from '../clock-do';
 import { CLOCK_HEADER, clockTicket, readClockTicket } from '../clock-ticket';
@@ -472,7 +473,7 @@ api.post('/account/delete', async (c) => {
 // ---- the catalogue -------------------------------------------------------------------------------
 // Built for tens of thousands of games: every list is paged (limit and offset, with the total), and the home
 // page gets all of its shelves in one request. "Playing now" counts players whose game page checked in during the last minute (src/play-clock.ts).
-type ListOpts = { sort?: string; q?: string; tag?: string; price?: string; limit?: number; offset?: number; newSince?: number; by?: string; minRating?: number };
+type ListOpts = { sort?: string; q?: string; tag?: string; price?: string; limit?: number; offset?: number; newSince?: number; by?: string; minRating?: number; shelf?: string };
 const ORDER: Record<string, string> = {
   new: 'p.published_at DESC',
   top: '(p.rating_sum + 3.5 * 3) * 1.0 / (p.rating_count + 3) DESC, p.rating_count DESC',
@@ -494,6 +495,10 @@ async function listGames(c: Ctx, o: ListOpts) {
   const sort = ORDER[o.sort || ''] ? o.sort! : 'trending', q = (o.q || '').trim().slice(0, 60), tag = (o.tag || '').trim().toLowerCase().slice(0, 130);
   const limit = Math.max(1, Math.min(60, o.limit || 24)), offset = Math.max(0, Math.min(100000, o.offset || 0));
   const where = ["p.status = 'live'"], args: unknown[] = [];
+  // which shelf (src/store-quality.ts): the main store by default; search and a creator's page show both shelves; the New
+  // shelf on request. Games hidden by player reports are never listed.
+  const shelf = o.shelf === 'new' || o.shelf === 'all' || o.shelf === 'main' ? o.shelf : q || o.by ? 'all' : 'main';
+  where.push(shelfWhere(shelf, (await getSettings(c.env)).new_shelf !== false));
   // the title and tagline in every language the listing is in, so a game is found by its name in any of them
   if (q) { where.push("(p.title LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\' OR p.tags LIKE ? ESCAPE '\\' OR (p.listing_i18n != '{}' AND EXISTS (SELECT 1 FROM json_each(p.listing_i18n) j WHERE json_extract(j.value, '$.title') LIKE ? ESCAPE '\\' OR json_extract(j.value, '$.tagline') LIKE ? ESCAPE '\\')))"); const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%'; args.push(like, like, like.toLowerCase(), like, like); }
   // tag can name several genres, comma separated: a game must carry all of them
@@ -534,7 +539,7 @@ function genreCounts(c: Ctx, top = 16, within = '') {
 }
 async function readGenreCounts(c: Ctx, top: number, within: string) {
   const w = within ? " AND tags LIKE ? ESCAPE '\\'" : '', a = within ? ['%"' + within.replace(/[\\%_]/g, '\\$&') + '"%'] : [];
-  const rows = await c.env.DB.prepare(`SELECT tags, cover_key, mature FROM projects WHERE status = 'live'${w} ORDER BY plays DESC LIMIT 5000`).bind(...a).all<{ tags: string; cover_key: string | null; mature: string }>();
+  const rows = await c.env.DB.prepare(`SELECT tags, cover_key, mature FROM projects WHERE status = 'live' AND hidden_at IS NULL${w} ORDER BY plays DESC LIMIT 5000`).bind(...a).all<{ tags: string; cover_key: string | null; mature: string }>();
   const counts = new Map<string, { n: number; covers: string[] }>(), origin = c.get('origin');
   for (const r of rows.results) for (const t of normalizeStoredTags(parseJson<string[]>(r.tags, []))) {
     if (t === within) continue;
@@ -552,7 +557,7 @@ const num = (v: string | undefined) => (v && /^\d+$/.test(v) ? Number(v) : undef
 api.get('/games', (c) => edgeCached(c, 30, async () => {
   const qy = (k: string) => c.req.query(k);
   const [list, genres] = await Promise.all([
-    listGames(c, { sort: qy('sort'), q: qy('q'), tag: qy('tag'), price: qy('price'), limit: num(qy('limit')) || 60, offset: num(qy('offset')), newSince: num(qy('since')), by: qy('by'), minRating: Number(qy('rating')) || undefined }),
+    listGames(c, { sort: qy('sort'), q: qy('q'), tag: qy('tag'), price: qy('price'), limit: num(qy('limit')) || 60, offset: num(qy('offset')), newSince: num(qy('since')), by: qy('by'), minRating: Number(qy('rating')) || undefined, shelf: qy('shelf') }),
     num(qy('offset')) || qy('facets') === '0' ? Promise.resolve(null) : genreCounts(c),   // facets=0: just the games (instant search, shelves)
   ]);
   return c.json({ ...list, ...(genres && { tags: genres.map((g) => g.tag), genres }) });
@@ -589,11 +594,13 @@ async function edgeCached(c: Ctx, seconds: number, make: () => Promise<Response>
 api.get('/home', (c) => edgeCached(c, 20, () => homeData(c)));
 async function homeData(c: Ctx): Promise<Response> {
   const t = now(), weekAgo = t - 7 * 86400000;
-  const [picks, trending, playing, fresh, top, free, sale, genres, stats] = await Promise.all([
+  const [picks, trending, playing, fresh, newShelf, top, free, sale, genres, stats] = await Promise.all([
     currentPicks(c.env.DB, t),
     listGames(c, { sort: 'trending', limit: 16 }),
     listGames(c, { sort: 'playing', limit: 12 }),
     listGames(c, { sort: 'new', limit: 12 }),
+    // the New shelf: games still earning their place on the main store, the most played first
+    listGames(c, { sort: 'trending', shelf: 'new', limit: 12 }),
     listGames(c, { sort: 'top', limit: 12 }),
     listGames(c, { sort: 'trending', price: 'free', limit: 12 }),
     listGames(c, { sort: 'trending', price: 'sale', limit: 12 }),
@@ -610,7 +617,7 @@ async function homeData(c: Ctx): Promise<Response> {
     shelves: {
       // today's picks lead the page (chosen each day by the schedule, src/rankings.ts)
       picks: picks.map((r) => card(c.get('origin'), r)),
-      trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
+      trending: trending.games, playing: playing.games.filter((g) => g.playing > 0), new: fresh.games, new_shelf: newShelf.games, top: top.games.filter((g) => g.rating_count > 0), free: free.games,
       // games on a limited-time sale right now (src/sales.ts)
       sale: sale.games,
     },
@@ -803,17 +810,22 @@ api.delete('/me/library/:slug', async (c) => {
   return c.json(await removeFromLibrary(c.env.DB, u.id, p.id));
 });
 
-// A player tells the platform something is wrong with a live game: it asks for passwords or payment, behaves differently
-// than it did in review, uses someone else's work. Each report goes to the admin overview with the game's other flags.
-export const REPORT_REASONS = ['phishing', 'malicious', 'stolen', 'offensive', 'broken', 'other'] as const;
+// A player tells the platform something is wrong with a live game: it does not work, it is low effort, it asks for
+// passwords or payment, it uses someone else's work. Each report goes to the admin's report queue (Admin, Reports) and the
+// game's flags. Only players who opened the game can report it; enough reports from different players hide it from the
+// store until an admin reviews them (src/store-quality.ts).
+export { REPORT_REASONS };
 api.post('/games/:slug/report', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   const b = await c.req.json<{ reason?: string; detail?: string }>().catch(() => ({} as { reason?: string; detail?: string }));
   const reason = String(b.reason || '');
   if (!(REPORT_REASONS as readonly string[]).includes(reason)) throw bad(`reason must be one of: ${REPORT_REASONS.join(', ')}.`);
+  if (u.id === p.owner_id) throw forbidden('You cannot report your own game.');
+  if (!(await c.env.DB.prepare("SELECT 1 FROM plays WHERE project_id = ? AND user_id = ? AND env = 'live' LIMIT 1").bind(p.id, u.id).first())) throw forbidden('Play the game before reporting it. If it does not start at all, open it once and then report it as broken.');
   await rateLimit(c.env, 'report:' + u.id, 10, 86400);
   const detail = String(b.detail || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
   await logEvent(c.env, p.id, 'player_report', detail ? `${reason}: ${detail}` : reason, p.live_version, 'user:' + u.id);
+  await fileReport(c.env, await getSettings(c.env), p, u.id, reason as ReportReason, detail);
   return c.json({ ok: true });
 });
 
@@ -1217,6 +1229,8 @@ api.get('/console/projects/:id', async (c) => {
   const metadata = newest ? { version: newest.n, required: s.metadata_required, missing: missingToPublish(vm?.meta, !!vm?.compat?.declared, JSON.parse(p.tags || '[]')).map((m) => m.split(' ')[0]), age: vm?.meta?.rating?.age ?? null, declared: vm?.meta?.declared ?? [] } : null;
   return c.json({
     metadata,
+    // the New shelf, hiding by reports and the weekly cap on new games (src/store-quality.ts)
+    store: await storeStatus(c.env, s, p),
     project: { ...card(origin, { ...p, author: u.name }), regular_price_cents: p.price_cents, open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => { const g = storedGate(v); return { ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required), current: currentChecks(v, s), release: g ? gateView(g) : null }; }),
     events: events.results, daily: daily.results, errors: errors.results, sales,

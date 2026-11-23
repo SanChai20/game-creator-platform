@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { register } from 'node:module';
 
 register('./ts-hook.mjs', import.meta.url);
-const { releaseGate, gateError, gateText, currentChecks, waive, unwaive, noteWaivers, recordGate, storedGate, RULES, RULESET, REQUIRED_CHECKS } = await import('../src/release-gate.ts');
+const { releaseGate, gateError, gateText, currentChecks, waive, unwaive, noteWaivers, recordGate, storedGate, RULES, RULESET, REQUIRED_CHECKS, PLAYABILITY_CHECKS } = await import('../src/release-gate.ts');
 const { SETTING_DEFS } = await import('../src/settings.ts');
 
 const read = (f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8');
@@ -38,7 +38,7 @@ function bucket() {
 const defaults = Object.fromEntries(Object.entries(SETTING_DEFS).map(([k, d]) => [k, d.v]));
 const S = { ...defaults, metadata_required: false };
 const ok = (id) => ({ id, ok: true, label: id, detail: '' });
-const FULL = { ok: true, browser: 'cloudflare-browser-rendering', devices: [], checks: [...REQUIRED_CHECKS, 'renders', 'input', 'responds', 'original', 'is_game', 'content'].map(ok), originality: {} };
+const FULL = { ok: true, browser: 'cloudflare-browser-rendering', devices: [], checks: [...REQUIRED_CHECKS, ...PLAYABILITY_CHECKS, 'renders', 'input', 'responds', 'original', 'is_game', 'content'].map(ok), originality: {} };
 const FILES = [{ path: 'index.html', size: 5, sha: 'x' }];
 const MANIFEST = { compat: { requirements: { input: ['keyboard', 'mouse', 'touch'], devices: ['desktop', 'tablet', 'mobile'], orientation: 'landscape' } }, controls: { mode: 'auto' } };
 
@@ -286,4 +286,30 @@ test('rolling back to a never-live version that failed verification says publish
   const e = gateError(one);
   assert.equal(e.hint, undefined);
   assert.equal(e.message.split('What to do:').length - 1, 1);
+});
+
+test('store quality: the playability checks must be on every new release, and a new game over the weekly cap waits', async () => {
+  for (const id of PLAYABILITY_CHECKS) {
+    const g = await gate(world({ report: { ...FULL, checks: FULL.checks.filter((c) => c.id !== id) } }));
+    assert.equal(statusOf(g, 'current_checks'), 'fail', id);
+    const off = await gate(world({ report: { ...FULL, checks: FULL.checks.filter((c) => c.id !== id) } }), 'publish', { s: { verify_playability_required: false } });
+    assert.equal(statusOf(off, 'current_checks'), 'pass', 'not while the platform has them off');
+  }
+  const failed = world({ status: 'failed', report: { ...FULL, ok: false, checks: FULL.checks.map((c) => (c.id === 'input_handled' ? { ...c, ok: false, hint: 'Listen for keydown or pointerdown' } : c)) } });
+  const fg = await gate(failed);
+  assert.equal(statusOf(fg, 'verified'), 'fail'); assert.match(gateText(fg), /keydown/);
+  // a score or an ending is optional: a sandbox game without one (an advice check, or none at all) still goes live
+  assert.ok(!PLAYABILITY_CHECKS.includes('score_or_end'));
+  const sandbox = await gate(world({ report: { ...FULL, checks: [...FULL.checks.filter((c) => c.id !== 'score_or_end'), { id: 'score_or_end', ok: true, soft: true, label: 'Reports a score or an ending (optional)' }] } }));
+  assert.equal(statusOf(sandbox, 'verified'), 'pass'); assert.equal(statusOf(sandbox, 'current_checks'), 'pass');
+  // three other new games of this account went live in the last 7 days
+  const w = world();
+  for (let i = 0; i < 3; i++) w.DB.sql.prepare("INSERT INTO projects (id, owner_id, slug, title, status, created_at, updated_at, published_at) VALUES (?, 'u1', ?, 'x', 'live', 0, 0, ?)").run('o' + i, 'o' + i, Date.now() - 86400000);
+  const g = await gate(w);
+  assert.equal(statusOf(g, 'publish_cap'), 'fail');
+  assert.equal(g.failures[0].code, 'publish_cap_reached'); assert.match(gateText(g), /when a slot opens/);
+  const up = world({ project: { status: 'live', live_version: 2 } });
+  up.DB.sql.exec("UPDATE projects SET published_at = 1 WHERE id = 'g1'");
+  for (let i = 0; i < 3; i++) up.DB.sql.prepare("INSERT INTO projects (id, owner_id, slug, title, status, created_at, updated_at, published_at) VALUES (?, 'u1', ?, 'x', 'live', 0, 0, ?)").run('o' + i, 'o' + i, Date.now() - 86400000);
+  assert.equal(statusOf(await gate({ ...up, p: up.DB.sql.prepare("SELECT * FROM projects WHERE id = 'g1'").get() }), 'publish_cap'), 'pass', 'an update is never capped');
 });

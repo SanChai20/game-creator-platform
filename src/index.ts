@@ -52,6 +52,7 @@ import { cleanupStmts as socialCleanupStmts } from './social-rules.js';
 
 import { recentStmt, refreshCatalog } from './catalog';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
+import { engagementStmt, graduate, tuneStmts } from './store-quality';
 import { desktop } from './desktop';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
@@ -451,8 +452,12 @@ const handler = {
     // every minute: who is playing what
     job('playing', () => refreshCatalog(env, false));
     if (event.cron === MINUTE_CRON) return;
-    // every 10 minutes: trending scores, then today's picks (chosen at the first run of each UTC day, from those scores)
-    job('trending', async () => { await env.DB.batch([recentStmt(env.DB)]); await runJob(env, 'picks', () => ensurePicks(env)); });
+    // every 10 minutes: how players stick with each game and New shelf graduation (src/store-quality.ts), then trending
+    // scores (which weigh that engagement), then today's picks (chosen at the first run of each UTC day, from those scores)
+    job('trending', async () => {
+      await runJob(env, 'engagement', async () => { await env.DB.batch([engagementStmt(env.DB)]); await env.DB.batch(tuneStmts(env.DB)); await graduate(env, await getSettings(env)); });
+      await env.DB.batch([recentStmt(env.DB)]); await runJob(env, 'picks', () => ensurePicks(env));
+    });
     job('transfers', () => retryTransfers(env));
     // bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
     job('rollout', () => rolloutRuntime(env));
