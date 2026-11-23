@@ -7,7 +7,7 @@ import { balanceOf, freeSkillShared, splitSale, splitSkillSale } from '../earnin
 import { NO_CODE, setSkillPrice, skillForAgent, skillGate, storeItem, writeSkill } from '../skills';
 import { enqueue } from '../pipeline';
 import {
-  assetText, checkProject, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getVersion, listFiles, logEvent, ownedProject, publicVersion,
+  assetText, checkProject, chooseTags, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getVersion, listFiles, logEvent, ownedProject, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
   listingForStandards,
 } from '../projects';
@@ -28,8 +28,8 @@ import { DISCOVERY, NOT_PROVIDED, openPerks, platformServices } from './services
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
 import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
-import { ACCESSIBILITY, BUILD_FIELDS, CONTENT_CHOICES, MANIFEST, mergeManifest, GENRES, MODES, genresOf, matureOf, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
-import { MAX_TAGS, MIN_TAGS, missingTags, missingToPublish, normalizeStoredTags, TAG_GROUPS, tagGroup, TAGS, tagsOnly } from '../../web/src/tags';
+import { ACCESSIBILITY, BUILD_FIELDS, CONTENT_CHOICES, MANIFEST, mergeManifest, GENRES, MODES, genresOf, matureOf, normGenre, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
+import { MAX_TAGS, MIN_TAGS, missingTags, missingToPublish, normalizeStoredTags, parseTags, TAG_GROUPS, tagGroup, tagNotes, TAGS, tagsOnly } from '../../web/src/tags';
 import { baseListingLang, languageName, listingLangCode, parseLanguages, type Languages } from '../../web/src/languages';
 import { isLang } from '../../web/src/i18n/langs';
 import { listingCoverage } from '../listing';
@@ -139,8 +139,12 @@ async function versionReport(c: ToolCtx, p: Project, n: number, v: Awaited<Retur
   const cur = el.ok ? currentChecks(v, s) : { ok: true, problems: [] }, last = storedGate(v);
   // platform requirement: playable on computers, tablets and phones (src/release-gate.ts, every_device)
   const dp = running ? [] : deviceProblems(parseJson<Record<string, unknown>>(v.manifest, {}));
+  const verification = running ? 'running' : v.status === 'verified' ? 'passed' : v.status === 'failed' ? 'failed' : v.status;
   return {
-    ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}). This is normal: it takes one to two minutes. Call list_versions {project, version: ${n}}; it waits for the result. Do not deploy the same files again.` } : {}),
+    // the outcome first, in one word: "deployed" only says the files went out, never that the version works
+    verification,
+    ...(verification === 'failed' ? { verification_failed: `Version ${n} was deployed but failed verification, so it cannot be published. It stays on the preview address so debug_preview can show the failure; players never see a preview${p.status === 'live' && p.live_version ? `, and the live game stays on version ${p.live_version}` : ''}. report.checks says what failed and how to fix it.` } : {}),
+    ...(running ? { not_finished: `Version ${n} is deployed and the browser check is still running (${v.status}). This is normal: it takes one to two minutes. Call list_versions {project, version: ${n}, wait_seconds: ${MAX_WAIT_S}}; it waits for the result. Do not deploy the same files again.` } : {}),
     ...rest, can_publish: el.ok, eligibility: el.reason, compatibility: compatSummary(compat), metadata: meta ? metaSummary(p, compat, meta).build : null,
     ...(meta && compat && true ? (() => { const m = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]')); return m.length ? { metadata_missing: m, metadata_next: 'Publishing needs these. game_metadata {project} walks through each with allowed values and suggestions.' } : {}; })() : {}),
     ...(dp.length ? { platform_requirements_unmet: dp.map((d) => `[every_device] ${d.message} To fix: ${d.fix}`) } : {}),
@@ -185,13 +189,18 @@ export const RETRY_LIMIT = 3;
  * client looks like a failure the agent retries, so the answer comes back well inside that and list_versions waits for the rest.
  */
 export const DEPLOY_WAIT_MS = 45000;
+export const LIST_WAIT_MS = 40000;
+/** The longest one call waits for a verification to finish (wait_seconds), for agents that would rather block than poll. */
+export const MAX_WAIT_S = 150;
+export const waitMs = (sec: unknown, dflt: number) => sec === undefined || sec === null || !Number.isFinite(Number(sec)) ? dflt : clamp(Math.round(Number(sec)), 0, MAX_WAIT_S) * 1000;
+const WAIT_SCHEMA = (dflt: number) => ({ type: 'integer', minimum: 0, maximum: MAX_WAIT_S, description: `Optional. How long this call waits for the browser check to finish before it answers (default ${dflt / 1000}, at most ${MAX_WAIT_S}). Pass ${MAX_WAIT_S} to get the verified or failed result in one call instead of polling list_versions; 0 answers at once.` });
 
 /**
  * Runs the deploy and browser check again on the newest version when it failed, keeping its number: the files are frozen, so
  * this only helps when the failure did not come from them (a heavy game at the edge of the software GPU's frame count, a
  * deploy that was slow to settle). Limited per version so it cannot stand in for fixing a real failure.
  */
-async function retryPreview(c: ToolCtx, p: Project, n: number) {
+async function retryPreview(c: ToolCtx, p: Project, n: number, wait?: unknown) {
   if (!Number.isInteger(n) || n < 1) throw bad('retry_version must be a whole number from list_versions.');
   const v = await getVersion(c.env, p.id, n);
   if (!v) throw bad(`Version ${n} does not exist.`, 'Call list_versions to see the versions this game has.');
@@ -206,7 +215,7 @@ async function retryPreview(c: ToolCtx, p: Project, n: number) {
   if (!res.meta.changes) throw new AppError(409, `Version ${n} changed while retrying.`, 'busy', `Call list_versions {project, version: ${n}}.`);
   await logEvent(c.env, p.id, 'preview_retried', `Checked again (${(tries?.k ?? 0) + 1} of ${RETRY_LIMIT})`, n, c.client);
   await enqueue(c.env, { kind: 'preview', pid: p.id, n, origin: c.origin, actor: c.client });
-  const done = await waitVersion(c, p.id, n, DEPLOY_WAIT_MS);
+  const done = await waitVersion(c, p.id, n, waitMs(wait, DEPLOY_WAIT_MS));
   return { deployed: true, retried: true, retries_left: RETRY_LIMIT - (tries?.k ?? 0) - 1, storage: await storageLine(c.env, p), ...(await versionReport(c, p, n, done)) };
 }
 
@@ -227,7 +236,7 @@ const STEP_SCHEMA = {
 - {do: "scroll", x?, y?, dx?, dy} (mouse wheel)
 - {do: "key", key, hold_ms?} (press one key, or hold it hold_ms to move a character), {do: "key_down", key}, {do: "key_up", key}. key is one character or a name: Enter, Space, Escape, Tab, Backspace, ArrowLeft/Right/Up/Down, KeyW, ShiftLeft, F1…
 - {do: "type", text} (types characters, up to ${DEBUG_LIMITS.text_chars})
-- {do: "wait", ms} (up to 10000)
+- {do: "wait", ms} (up to 10000 per step; every wait, hold, drag and wait_for timeout in one call adds up to at most ${DEBUG_LIMITS.wait_ms / 1000} seconds, so a 60-second round takes three or more act calls in the same session)
 - {do: "wait_for", until: "ready"|"text"|"frames", text?, frames?, timeout_ms?} (until GCP.ready(), until text appears on the page, or until the game drew that many more frames; stops the call if not met)
 - {do: "screenshot", label?, clip?: {x, y, width, height}} (an extra picture in the middle of the steps, or a close-up of one area; up to ${DEBUG_LIMITS.shots - 1} per call plus the final one)
 - {do: "eval", js} (an expression or statements ending in return, evaluated in the game page; the JSON result comes back in the log. For reading the game's state, not for playing it)
@@ -246,6 +255,9 @@ function debugAnswer(r: DebugResult, next: string) {
     next,
   }, r.shots.map((s) => ({ data: s.bytes, type: 'image/jpeg' })));
 }
+
+/** A declared requirements block as agents read it: orientation "any" (an older spelling) shows as "both". */
+const bothNotAny = (r: unknown) => r && typeof r === 'object' ? { ...(r as Record<string, unknown>), ...((r as Record<string, unknown>).orientation === 'any' ? { orientation: 'both' } : {}) } : null;
 
 /** The requirements block an agent writes: only what differs from nothing, so it reads like something a person would write. */
 function requirementsBlock(r: Requirements): Record<string, unknown> {
@@ -312,6 +324,12 @@ function metaSummary(p: Project, compat: Compat | null | undefined, meta: MetaRe
     } : null,
     missing_for_publish: missingToPublish(meta, !!compat?.declared, tags),
   };
+}
+/** The genres and tags as stored, and how each word the agent sent was read (an alias, a genre), so nothing changes silently. */
+export function tagAnswer(p: Project, sent: unknown): Record<string, unknown> {
+  const stored = JSON.parse(p.tags || '[]') as string[], g = genresOf(stored);
+  const notes = sent === undefined ? [] : tagNotes(parseTags(sent).read_as, stored);
+  return { genre: g.primary, secondary_genres: g.secondary, tags: tagsOnly(normalizeStoredTags(stored)), ...(notes.length ? { tag_notes: notes } : {}) };
 }
 const tagsOffList = (tags: string[]) => tags.filter((w) => tagGroup(String(w)) === null);
 /** Tags the code and the declarations point to, as a starting point the agent completes: never a substitute for choosing. */
@@ -598,10 +616,14 @@ export const TOOLS: Tool[] = [
       tags: TAGS_SCHEMA,
     }, ['title']),
     run: async (a, c) => {
-      let p = await createProject(c.env, c.user, a as any, c.client);
-      if (a.genre !== undefined) { await updateProjectMeta(c.env, p, { genre: a.genre }); p = await ownedProject(c.env, c.user, p.id); }
+      // tags and genre are checked exactly as game_metadata and update_project check them, before the project exists, so
+      // a refused word leaves no half-made project behind; genres named among the tags become secondary genres
+      if (a.tags !== undefined) chooseTags(a.tags);
+      if (a.genre !== undefined && !normGenre(a.genre)) throw bad(`genre "${a.genre}" is not one of the platform genres.`, `Genres: ${GENRES.join(', ')}. Put anything more specific in tags.`);
+      let p = await createProject(c.env, c.user, { ...(a as any), ...(a.genre !== undefined ? { tags: undefined } : {}) }, c.client);
+      if (a.genre !== undefined) { await updateProjectMeta(c.env, p, { genre: a.genre, ...(a.tags !== undefined ? { tags: a.tags } : {}) }); p = await ownedProject(c.env, c.user, p.id); }
       return {
-        project: p.id, slug: p.slug, title: p.title, console_page: `${c.origin}/console/projects/${p.id}`, storage: await storageLine(c.env, p, []),
+        project: p.id, slug: p.slug, title: p.title, ...tagAnswer(p, a.tags), console_page: `${c.origin}/console/projects/${p.id}`, storage: await storageLine(c.env, p, []),
         tell_the_developer: `This game has ${mb(budgetOf(p, await getSettings(c.env)).bytes)} of storage for all its files. Plan assets around it: generate content from code and load large or optional content at run time (game_storage {project} explains how).`,
         next: 'Upload the game: upload_files for text files, create_upload_url for big or binary files or a whole folder. Then deploy_preview.',
         ...(JSON.parse(p.tags || '[]').length < 2 ? { before_publishing: 'Publishing needs 2 to 8 tags from the platform list (game_metadata {project} shows them). Add them with update_project {project, tags} any time before publish.' } : {}),
@@ -675,17 +697,17 @@ export const TOOLS: Tool[] = [
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
       const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
-      return { ok: true, title: q.title, price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
+      return { ok: true, title: q.title, ...(a.tags !== undefined || a.genre !== undefined || a.genres !== undefined ? tagAnswer(q, a.tags) : {}), price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
   },
   {
     name: 'upload_files', title: 'Upload, edit or delete files',
-    description: `Changes the project workspace in one call: files writes whole files, edits replaces an exact piece of text in a file already there (cheaper than resending it), delete removes paths. Paths are relative to the bundle root, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64"; for big or binary files, or a whole folder, create_upload_url is better. Only web file types are accepted, and executables or archives are refused whatever their name. The whole call is checked first: if any file or edit fails, nothing in the call is saved. Deployed versions keep their own copies, so nothing here changes a preview or the live game until the next deploy_preview and publish. Example: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}], "edits": [{"path": "src/main.js", "old_string": "speed = 4", "new_string": "speed = 5"}], "delete": ["old.js"]}.`,
+    description: `Changes the project workspace in one call: files writes whole files, edits replaces an exact piece of text in a file already there (cheaper than resending it), delete removes paths. Paths are relative to the bundle root, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64"; for big or binary files, or a whole folder, create_upload_url is better. Only web file types are accepted, and executables or archives are refused whatever their name. The whole call is checked first: if any file, edit or delete fails (a delete of a path that is not there fails), nothing in the call is saved. Deployed versions keep their own copies, so nothing here changes a preview or the live game until the next deploy_preview and publish. Example: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}], "edits": [{"path": "src/main.js", "old_string": "speed = 4", "new_string": "speed = 5"}], "delete": ["old.js"]}.`,
     inputSchema: obj({
       project: PROJECT,
       files: { type: 'array', maxItems: 40, description: 'Whole files to create or replace, as {path, content} objects. Up to 40 per call.', items: obj({ path: { type: 'string', description: 'Relative path inside the bundle.' }, content: { type: 'string', description: 'The whole file as text (or base64 when encoding is "base64").' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
       edits: { type: 'array', maxItems: 40, description: 'Exact text replacements in text files already in the workspace. old_string must match exactly (spaces and newlines included) and appear once, unless replace_all is true. Applied after files.', items: obj({ path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' }, replace_all: { type: 'boolean' } }, ['path', 'old_string', 'new_string']) },
-      delete: { type: 'array', items: { type: 'string' }, description: 'Paths to delete.' },
+      delete: { type: 'array', items: { type: 'string' }, description: 'Paths to delete. A path that is not in the workspace refuses the whole call (nothing is saved).' },
     }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
@@ -715,13 +737,17 @@ export const TOOLS: Tool[] = [
       }
       // The whole call against the game's storage, deletes included, so a call that swaps a big file for a smaller one fits.
       const before = await listFiles(c.env, p.id), s = await getSettings(c.env);
+      // a delete of a path that is not there is refused like an edit whose old_string is not found: nothing is saved
+      const have = new Set([...before.map((f) => f.path), ...pending.keys()]);
+      const missing = dels.map((d: unknown) => String(d)).filter((d: string) => { const path = cleanPath(d); return !path || !have.has(path); });
+      if (missing.length) throw bad(`delete: ${missing.map((d: string) => `"${d}"`).join(', ')} ${missing.length === 1 ? 'is' : 'are'} not in the workspace, so nothing in this call was saved.`, 'Paths are case sensitive and relative to the bundle root; list_files shows every path. Leave out what is already gone and send the call again.');
       assertFits(s, p, before, [...pending].map(([path, bytes]) => ({ path, size: bytes.byteLength })), dels.map((d: unknown) => cleanPath(String(d)) || String(d)));
       // Every part passed: write.
       const rows = new Map<string, Awaited<ReturnType<typeof putFile>>>();
       for (const [path, bytes] of pending) rows.set(path, await putFile(c.env, p, path, bytes, true));
       const written = [...new Set(files.map((f) => cleanPath(f.path)!))].map((path) => ({ path, bytes: rows.get(path)!.size, sha: rows.get(path)!.sha }));
       const deleted: string[] = [];
-      const notFound: string[] = [];
+      const notFound: string[] = [];   // only a path removed by another call in the meantime
       for (const d of dels) { const path = cleanPath(String(d)); if (path && await deleteFile(c.env, p.id, path)) deleted.push(path); else notFound.push(String(d)); }
       return {
         written, edited: edited.map((e) => ({ path: e.path, bytes: rows.get(e.path)!.size, sha: rows.get(e.path)!.sha, replaced: e.replaced })), deleted,
@@ -876,6 +902,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (!mr.declared.includes('progress')) suggest.progress = mr.detected.progress;
       return {
         ...(written.length ? { saved: written, takes_effect: written.some((f) => (BUILD_FIELDS as readonly string[]).includes(f)) ? 'listing fields at once; build fields (gcp.json) with the next deploy_preview' : 'at once' } : {}),
+        ...(action === 'declare' && a.tags !== undefined ? (() => { const t = tagAnswer(p, a.tags); return t.tag_notes ? { tag_notes: t.tag_notes } : {}; })() : {}),
         checklist: metadataChecklist(p, cp, mr),
         ...summary, detected: { online_play: mr.detected.multiplayer, multiplayer_rooms: mr.detected.multiplayer, progress: mr.detected.progress, languages: mr.languages.detected.supported.map((l) => l.code), evidence: { ...mr.detected.evidence, ...mr.languages.evidence } },
         issues, ...(Object.keys(suggest).length ? { suggested: suggest } : {}),
@@ -916,14 +943,16 @@ The whole set as one page: get_started {topic: "standards"}.`,
         const next = { ...before, ...base, ...(a.requirements || {}) };
         const check = parseRequirements(next);
         if (check.issues.some((i) => i.level === 'error')) throw bad(`requirements: ${check.issues.filter((i) => i.level === 'error').map((i) => `${i.field}: ${i.message}`).join(' · ')}`, 'Nothing was written. With replace: true the whole declaration is replaced.');
-        await putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify({ ...gcp, requirements: check.value }, null, 2) + '\n'));
+        // "both" is what agents and the store page say; the parser's internal "any" means the same and is never written
+        const written = { ...check.value, ...(check.value.orientation === 'any' ? { orientation: 'both' } : {}) };
+        await putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify({ ...gcp, requirements: written }, null, 2) + '\n'));
         await logEvent(c.env, p.id, 'requirements', 'Compatibility requirements declared', null, c.client);
       }
       const check = await checkProject(c.env, p, c.origin), cp = check.manifest.compat!;
       const issues = check.compatIssues.map((i) => `${i.level.toUpperCase()} ${i.field}: ${i.message}${i.hint ? `\n  fix: ${i.hint}` : ''}`);
       return {
         ...(action === 'declare' ? { written: 'gcp.json', takes_effect: 'with the next deploy_preview' } : {}),
-        declared: cp.declared ? (await workspaceManifest(c, p.id)).requirements ?? null : null,
+        declared: cp.declared ? bothNotAny((await workspaceManifest(c, p.id)).requirements) : null,
         detected: requirementsBlock(cp.detected), evidence: cp.evidence,
         store_page_will_show: describeRequirements(cp.requirements), download_size_bytes: cp.download_bytes,
         issues,
@@ -936,11 +965,11 @@ The whole set as one page: get_started {topic: "standards"}.`,
   },
   {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
-    description: `Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after ${DEPLOY_WAIT_MS / 1000} seconds the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile). retry_version: n runs the deploy and browser check again on the newest version when it failed (for example a heavy game that only just missed the frame count on the verifier's software GPU), without making a new version number; up to ${RETRY_LIMIT} retries per version.`,
-    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' }, retry_version: { type: 'integer', description: 'Optional. Check this failed version again (it must be the newest) instead of making a new one from the workspace.' } }, ['project']),
+    description: `Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after ${DEPLOY_WAIT_MS / 1000} seconds (wait_seconds: up to ${MAX_WAIT_S} to wait for it in this call) the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile). verification in the answer is the outcome: passed, failed or running; deployed: true only means the files went out. retry_version: n runs the deploy and browser check again on the newest version when it failed (for example a heavy game that only just missed the frame count on the verifier's software GPU), without making a new version number; up to ${RETRY_LIMIT} retries per version.`,
+    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' }, retry_version: { type: 'integer', description: 'Optional. Check this failed version again (it must be the newest) instead of making a new one from the workspace.' }, wait_seconds: WAIT_SCHEMA(DEPLOY_WAIT_MS) }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
-      if (a.retry_version !== undefined && a.retry_version !== null) return retryPreview(c, p, Number(a.retry_version));
+      if (a.retry_version !== undefined && a.retry_version !== null) return retryPreview(c, p, Number(a.retry_version), a.wait_seconds);
       const check = await checkProject(c.env, p, c.origin);
       const storage = await storageLine(c.env, p);
       if (a.dry_run) return { ok: check.ok, files: check.files, bytes: check.bytes, storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: check.ok ? 'No errors. Call deploy_preview without dry_run.' : 'Fix the errors above, then check again.' };
@@ -950,17 +979,17 @@ The whole set as one page: get_started {topic: "standards"}.`,
       const v = await snapshot(c.env, p, check.manifest, String(a.note || ''));
       await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
-      const done = await waitVersion(c, p.id, v.n, DEPLOY_WAIT_MS);
+      const done = await waitVersion(c, p.id, v.n, waitMs(a.wait_seconds, DEPLOY_WAIT_MS));
       return { deployed: true, storage, warnings: check.warnings.map(issueLine), ...(await versionReport(c, p, v.n, done)) };
     },
   },
   {
     name: 'list_versions', title: 'List versions or read one report',
-    description: 'Without version: lists the project\'s versions, newest first, with status, the one-line summary, the checks that failed, whether each can be published, and which is live and which is on preview. With version: returns that version\'s full verification report (each check with its detail and hint, uncaught errors, missing files, load time, frame rate, screenshot), waiting up to 40 seconds if it is still being checked. This is how to read any past version\'s report.',
-    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Optional. A version number to read in full.' } }, ['project']), annotations: { readOnlyHint: true },
+    description: `Without version: lists the project's versions, newest first, with status, the one-line summary, the checks that failed, whether each can be published, and which is live and which is on preview. With version: returns that version's full verification report (each check with its detail and hint, uncaught errors, missing files, load time, frame rate, screenshot), waiting up to ${LIST_WAIT_MS / 1000} seconds if it is still being checked (wait_seconds up to ${MAX_WAIT_S} waits longer, so one call returns the result). This is how to read any past version's report.`,
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Optional. A version number to read in full.' }, wait_seconds: WAIT_SCHEMA(LIST_WAIT_MS) }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
-      if (a.version) return versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), 40000));
+      if (a.version) return versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), waitMs(a.wait_seconds, LIST_WAIT_MS)));
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
       const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' }));
       const failed = versions.find((v) => v.status === 'failed');
@@ -969,7 +998,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
   },
   {
     name: 'debug_preview', title: 'Open, play and screenshot the preview in a browser',
-    description: `A real browser on the game's current preview that you drive step by step, to see what the game looks like and reproduce a bug: take screenshots, click, tap, drag, press and hold keys, type, wait, and read the game's state. action "open" starts a browser on the preview (deploy_preview first) and returns a screenshot; "act" runs steps in it and returns screenshots; "screenshot" takes one; "close" ends it. Every answer includes state: whether the game is ready, frames drawn, uncaught errors and console errors the SDK saw, missing files, and what the game's GCP.test.onState(fn) returns. The game runs as a throwaway test player (empty save, never the creator's data). One browser per account at a time; it closes after 3 idle minutes and at most a few minutes after opening. The browser has no GPU: heavy 3D runs slowly and WebGPU is not available, so judge layout, UI and logic here, not frame rate. Also read creator_feedback: the creator may already have marked what is wrong.`,
+    description: `A real browser on the game's current preview that you drive step by step, to see what the game looks like and reproduce a bug: take screenshots, click, tap, drag, press and hold keys, type, wait, and read the game's state. action "open" starts a browser on the preview (deploy_preview first) and returns a screenshot; "act" runs steps in it and returns screenshots; "screenshot" takes one; "close" ends it. Every answer includes state: whether the game is ready, frames drawn, uncaught errors, console errors and console warnings the SDK saw, the game's last calls to the platform with the answer to each (platform_calls: a GCP.leaderboard.submit shows as path "score", op "submit", with its HTTP status), missing files, and what the game's GCP.test.onState(fn) returns. Scores the game submits here are kept on the preview's leaderboards under the name "Debugger" (game_data {action: "leaderboard", env: "preview"} reads them). Limits per act call: ${DEBUG_LIMITS.steps} steps, ${DEBUG_LIMITS.shots} screenshots, waits adding up to ${DEBUG_LIMITS.wait_ms / 1000} seconds (one wait step up to 10); a session lasts a few minutes, so play a long round over several act calls. The game runs as a throwaway test player (empty save, never the creator's data; its saves are removed daily). One browser per account at a time; it closes after 3 idle minutes and at most a few minutes after opening. The browser has no GPU: heavy 3D runs slowly and WebGPU is not available, so judge layout, UI and logic here, not frame rate. Also read creator_feedback: the creator may already have marked what is wrong.`,
     inputSchema: obj({
       project: PROJECT,
       action: { type: 'string', enum: ['open', 'act', 'screenshot', 'close'], description: 'open: a new browser on the preview (replaces your open one). act: run steps. screenshot: just a picture. close: end the session.' },
@@ -1141,7 +1170,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       bots: { type: 'integer', description: 'start: how many bots (default 3).' },
       target: { type: 'string', enum: ['follow', 'invite', 'queue', 'code', 'room'], description: 'start: where the bots go. Default follow.' },
       queue: { type: 'string', description: 'start with target queue: the queue name the game uses (default "default").' },
-      players: { type: 'integer', description: 'start with target queue or code: the match size the game asks for (GCP.match.find players).' },
+      players: { type: 'integer', description: 'start with target queue (required, no default) or code: the match size the game asks for (GCP.match.find players), 2 to 64.' },
       min: { type: 'integer', description: 'start with target queue: the game\'s min.' },
       teams: { type: 'integer', description: 'start with target queue: the game\'s teams.' },
       mode: { type: 'string', description: 'start with target queue: the game\'s mode.' },

@@ -60,7 +60,7 @@ export class BotFleet extends DurableObject<Env> {
   private brain: { worker: any; desc: { think: boolean; actions: boolean; room: boolean; invite: boolean; thinkMs: number } | null; note: string } = { worker: null, desc: null, note: '' };
   private followed: BotTarget | null = null;
   private ended: { at: number; why: string } | null = null;
-  private version = 0;   // bumped on every change the panel should see
+  private version = 0;   // bumped on every change the panel should see (status: updates; game_version is the preview version the bots play)
 
   private say(line: string) {
     this.log.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
@@ -270,7 +270,7 @@ export class BotFleet extends DurableObject<Env> {
     // lost its memory (the object was restarted): the bots are gone
     if (!running && !this.ended) return { running: false, fleet: info.fleet, ended: { why: 'the fleet was restarted by the platform; start it again' } };
     return {
-      running, fleet: info.fleet, version: this.version, region: info.region, region_name: info.region === 'auto' ? BOT_REGIONS.auto : (BOT_REGIONS as Record<string, string>)[info.region], target: info.cfg.target,
+      running, fleet: info.fleet, game_version: info.version, updates: this.version, region: info.region, region_name: info.region === 'auto' ? BOT_REGIONS.auto : (BOT_REGIONS as Record<string, string>)[info.region], target: info.cfg.target,
       following: this.followed ? (this.followed.label || this.followed.kind) : null, ends_at: new Date(info.endsAt).toISOString(), seconds_left: Math.max(0, Math.round((info.endsAt - t) / 1000)),
       brain: { note: this.brain.note, kind: this.brain.desc?.think ? 'game' : this.brain.desc?.actions ? 'generic' : 'none', think_ms: this.brain.desc?.thinkMs ?? null, hooks: this.brain.desc ? { think: this.brain.desc.think, actions: this.brain.desc.actions, room: this.brain.desc.room, invite: this.brain.desc.invite } : null },
       needs: this.needs(),

@@ -109,16 +109,30 @@ export interface TagIssue { word: string; suggestions: string[] }
  * Checks tags an agent chose. Genre ids are accepted and returned separately (they become secondary genres);
  * anything not on the platform list is refused with the closest matches.
  */
-export function parseTags(raw: unknown): { tags: Tag[]; genres: Genre[]; unknown: TagIssue[] } {
-  const tags: Tag[] = [], genres: Genre[] = [], unknown: TagIssue[] = [];
+export function parseTags(raw: unknown): { tags: Tag[]; genres: Genre[]; unknown: TagIssue[]; read_as: TagReading[] } {
+  const tags: Tag[] = [], genres: Genre[] = [], unknown: TagIssue[] = [], read_as: TagReading[] = [];
   for (const w of Array.isArray(raw) ? raw : raw == null || raw === '' ? [] : [raw]) {
     const g = (GENRES as readonly string[]).includes(slug(w).replace(/ /g, '-')) ? slug(w).replace(/ /g, '-') as Genre : null;
     const tag = g ? null : normTag(w), genre = g ?? (tag ? null : normGenre(w));
-    if (tag) { if (!tags.includes(tag)) tags.push(tag); }
-    else if (genre) { if (!genres.includes(genre)) genres.push(genre); }
-    else unknown.push({ word: String(w).slice(0, 40), suggestions: suggestTags(w) });
+    const word = String(w).slice(0, 40);
+    if (tag) { if (!tags.includes(tag)) tags.push(tag); if (tag !== word) read_as.push({ word, as: tag, kind: 'tag' }); }
+    else if (genre) { if (!genres.includes(genre)) genres.push(genre); read_as.push({ word, as: genre, kind: 'genre' }); }
+    else unknown.push({ word, suggestions: suggestTags(w) });
   }
-  return { tags, genres, unknown };
+  return { tags, genres, unknown, read_as };
+}
+
+/** A word that was not stored as written: an alias of a platform tag, or a genre (which goes with the genres, not the tags). */
+export interface TagReading { word: string; as: string; kind: 'tag' | 'genre' }
+
+/**
+ * What an agent is told about the tags it sent: every word stored under another name, and every genre among them, so
+ * nothing is changed without a word. Empty when every word was a platform tag as written.
+ */
+export function tagNotes(read: TagReading[], stored: string[]): string[] {
+  return read.map((r) => r.kind === 'tag' ? `"${r.word}" was stored as the platform tag "${r.as}".`
+    : stored.includes(r.as) ? `"${r.word}" is a genre, not a tag: it was stored as ${stored[0] === r.as ? 'the primary genre' : 'a secondary genre'} "${r.as}".`
+      : `"${r.word}" is a genre, not a tag, and was not kept: a game has one primary and up to two secondary genres (genre and genres).`);
 }
 
 /**

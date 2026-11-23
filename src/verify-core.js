@@ -299,7 +299,10 @@ export async function verifyPage(page, url, opts = {}) {
           }, { a: 'data:image/png;base64,' + Buffer.from(real).toString('base64'), b: got.image }).catch((e) => ({ error: String(e && e.message || e).slice(0, 160) }));
           report.capture = { ...match, exact: !!got.exact, redrawn: got.redrawn || [], canvases: got.canvases };
           if (match.error) problems.push('the picture could not be compared: ' + match.error);
-          else if (!(match.mean <= 12 && match.same >= 0.93)) problems.push(`the picture it hands over does not match the screen (${Math.round(match.same * 100)}% alike, mean difference ${match.mean})`);
+          // page elements are left out of the handed-over frame by design, so with them on screen a difference is expected
+          else if (!(match.mean <= 12 && match.same >= 0.93)) problems.push(pageUi.elements.length
+            ? `the picture it hands over is ${Math.round(match.same * 100)}% alike the screen (mean difference ${match.mean}), which is expected while those page elements cover the game: they are not part of the handed-over frame`
+            : `the picture it hands over does not match the screen (${Math.round(match.same * 100)}% alike, mean difference ${match.mean})`);
         }
       } catch (e) { problems.push('the capture failed: ' + String(e && e.message || e).slice(0, 160)); }
       finally { await page.evaluate(() => window.__GCP.hold(false)).catch(() => {}); }
@@ -310,7 +313,7 @@ export async function verifyPage(page, url, opts = {}) {
     // exact, but how a game draws its interface (canvas or page elements) is the game's own design choice
     const soft = problems.length > 0;
     if (soft) report.notes.push('Advice (does not stop the version): the creator\'s feedback screenshots and the reserved-zone checks are exact only when the game hands over its frame: ' + problems.join('; ') + '.');
-    add('capture', true, 'Hands over its exact frame', problems.length ? 'Advice: ' + problems.join('; ') + '.' : `The picture from GCP.test.onCapture matches the screen (${Math.round(match.same * 100)}% alike)`,
+    add('capture', true, 'Hands over its exact frame', problems.length ? 'Advice, not a fault (it does not stop the version): ' + problems.join('; ') + '.' : `The picture from GCP.test.onCapture matches the screen (${Math.round(match.same * 100)}% alike)`,
       problems.length ? 'Recommended, not required: register GCP.test.onCapture(() => canvas or [canvases]) and GCP.test.onState(fn), and draw what the player sees in those canvases, so feedback screenshots and the layout checks see exactly what players see. Interface made of page elements is allowed; it is then left out of the handed-over frame. A WebGL game that does not redraw every frame keeps preserveDrawingBuffer: true or draws a frame inside onCapture. See get_started {topic: "contract"}, "Hand over the frame".' : '');
     if (soft) checks[checks.length - 1].soft = true;
   };

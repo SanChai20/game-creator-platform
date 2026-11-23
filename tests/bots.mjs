@@ -68,7 +68,8 @@ test('what a creator may ask for', () => {
   assert.ok(ok.ok); assert.equal(ok.cfg.target, 'follow'); assert.equal(ok.cfg.nets[1].profile, 'poor'); assert.equal(ok.cfg.nets[2].profile, '4g');
   assert.equal(ok.cfg.names[6], 'Test Bot 7'); assert.equal(ok.cfg.minutes, 15);
   assert.match(fleetRequest({ bots: 16 }, L).error, /between 1 and 15/);
-  assert.match(fleetRequest({ bots: 2, target: 'queue' }, L).error, /players/);
+  assert.match(fleetRequest({ bots: 2, target: 'queue' }, L).error, /needs players.*no default/);   // Haiku run 2, #4: says what is missing
+  assert.match(fleetRequest({ bots: 2, target: 'queue', players: 1 }, L).error, /between 2 and 64, not 1/);
   assert.ok(fleetRequest({ bots: 3, target: 'queue', players: 4, queue: 'duel' }, L).ok);
   assert.equal(fleetRequest({ bots: 3, target: 'invite' }, L).cfg.target, 'invite', 'bots that wait for the creator\'s invites');
   assert.match(fleetRequest({ bots: 3, target: 'nowhere' }, L).error, /follow, invite, queue/);

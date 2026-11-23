@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GENRES } from '../web/src/gamemeta.ts';
-import { missingTags, normalizeStoredTags, normTag, parseTags, suggestTags, tagGroup, TAG_GROUPS, TAGS } from '../web/src/tags.ts';
+import { missingTags, normalizeStoredTags, normTag, parseTags, suggestTags, tagGroup, tagNotes, TAG_GROUPS, TAGS } from '../web/src/tags.ts';
 
 test('the list is unique, kebab-case, and never repeats a genre', () => {
   assert.equal(new Set(TAGS).size, TAGS.length);
@@ -46,4 +46,15 @@ test('publishing needs at least two tags from the list and none off it', () => {
   assert.match(missingTags(['puzzle', 'cute']), /at least 2/);
   assert.equal(missingTags(['puzzle', 'cute', 'pixel-art']), null);
   assert.match(missingTags(['puzzle', 'cute', 'pixel-art', 'banana']), /"banana" is not on the platform list/);
+});
+
+test('words stored under another name are reported, never changed silently (Haiku run 2, #1)', () => {
+  const r = parseTags(['casual', 'relaxing', 'short']);
+  assert.deepEqual(r.unknown, []);
+  assert.deepEqual(r.read_as, [{ word: 'casual', as: 'casual', kind: 'genre' }, { word: 'short', as: 'short-sessions', kind: 'tag' }]);
+  const notes = tagNotes(r.read_as, ['arcade', 'casual', 'relaxing', 'short-sessions']);
+  assert.match(notes[0], /"casual" is a genre, not a tag: it was stored as a secondary genre "casual"/);
+  assert.match(notes[1], /"short" was stored as the platform tag "short-sessions"/);
+  assert.match(tagNotes(r.read_as, ['arcade', 'relaxing'])[0], /was not kept/);
+  assert.deepEqual(tagNotes(parseTags(['relaxing', 'cozy']).read_as, ['relaxing', 'cozy']), []);
 });

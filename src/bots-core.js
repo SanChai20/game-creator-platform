@@ -138,8 +138,9 @@ export function fleetRequest(b, limits) {
   if (!(region in BOT_REGIONS)) return { ok: false, error: `region must be one of ${Object.keys(BOT_REGIONS).join(', ')}.` };
   const cfg = { bots, target, region, skill: clampN(b.skill, 0, 1, 1), minutes: Math.round(clampN(b.minutes, 1, limits.maxMinutes || 30, Math.min(15, limits.maxMinutes || 30))) };
   if (target === 'queue') {
-    const players = Math.round(Number(b.players || 0));
-    if (!(players >= 2 && players <= 64)) return { ok: false, error: 'players (the match size the game asks the matchmaker for) must be between 2 and 64.' };
+    if (b.players == null || b.players === '') return { ok: false, error: 'target "queue" needs players: the match size the game passes to GCP.match.find({ players }), 2 to 64. It has no default, because the bots must ask for the same match size as the game or they wait in a different queue.' };
+    const players = Math.round(Number(b.players));
+    if (!(players >= 2 && players <= 64)) return { ok: false, error: `players (the match size the game asks the matchmaker for) must be between 2 and 64, not ${String(b.players).slice(0, 20)}.` };
     cfg.queue = { queue: String(b.queue || 'default'), players, min: b.min == null ? null : Math.round(Number(b.min)), teams: b.teams == null ? null : Math.round(Number(b.teams)), mode: b.mode == null ? '' : String(b.mode) };
     if (!/^[a-z0-9_-]{1,32}$/.test(cfg.queue.queue)) return { ok: false, error: 'queue must be 1 to 32 characters: a-z, 0-9, _ or -.' };
     if (!/^[a-z0-9_-]{0,32}$/.test(cfg.queue.mode)) return { ok: false, error: 'mode must be up to 32 characters: a-z, 0-9, _ or -.' };
