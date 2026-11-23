@@ -531,9 +531,9 @@ export async function verifyPage(page, url, opts = {}) {
 // viewport, high pixel density, Safari's user agent): the same browser with phone and tablet emulation, not Safari
 // itself, so what it catches is what the device's size, touch and density do to a game. Safari's own engine is covered
 // by the game runtime's fix-ins and by the deploy's static device checks (src/device-checks.js).
-// Hard problems (it does not start, it throws, it stops drawing, a finger crashes it) fail the version when the game
-// says it is made for that kind of device (requirements.devices); otherwise they are noted. Layout problems (cut off,
-// tiny, unreadable text, buttons too small for a finger) are always notes.
+// Hard problems (it does not start, it throws, it stops drawing, a finger crashes it) fail the version: being playable
+// on phones and tablets is a platform requirement for every game. Layout problems (cut off, tiny, unreadable text,
+// buttons too small for a finger) are design advice and always notes.
 const IOS_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1';
 const IPAD_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Safari/605.1.15';
 const ANDROID_UA = 'Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Mobile Safari/537.36';
@@ -784,11 +784,21 @@ export async function turnCheck(page, vp) {
   return { ...base, ok: true };
 }
 
+/** What to do about a device problem, by what went wrong: the fix the agent needs without reading a guide first. */
+export function deviceFix(problem) {
+  const p = String(problem || '');
+  if (/reloaded or navigated away when it was touched/.test(p)) return 'A tap made the browser scroll, zoom, follow a link or reload. Set touch-action: none on the game canvas (and on html and body), call preventDefault() in its pointerdown and touchstart handlers, and keep links and forms out of the play area.';
+  if (/stopped answering|stopped drawing frames when it was touched|threw/.test(p)) return 'A finger crashed or froze the game. Handle touch and pointer events (pointerType "touch", several touches at once, a touch that starts on the interface) without throwing; debug_preview with a phone viewport and a tap step shows the error.';
+  if (/GCP\.ready\(\) was not called|did not start|did not run/.test(p)) return 'It did not start on a phone. Check that nothing at start-up needs a mouse, a keyboard, a large screen or a desktop-only API, and that GCP.ready() is called after the first frame; debug_preview with a phone viewport shows how far it gets.';
+  if (/stopped drawing frames/.test(p)) return 'It stopped drawing on a phone after it started. Look for code that waits for a key or mouse event, or that fails on a small or high-density screen; debug_preview with a phone viewport shows it.';
+  return 'debug_preview with a phone or tablet viewport and touch shows what happens.';
+}
+
 /**
- * Adds the device results to a report: one check per device ("Plays on iPhone"), failing only for a device kind the game
- * says it is made for (devices from its requirements); the rest of the findings go into the report's notes.
+ * Adds the device results to a report: one check per device ("Plays on iPhone"). A hard problem fails the version on any
+ * device, since every game must be playable on phones and tablets; layout findings go into the report's notes as advice.
  */
-export function applyDeviceResults(report, results, devices = ['desktop', 'tablet', 'mobile']) {
+export function applyDeviceResults(report, results) {
   report.devices = results;
   const z = results.find((r) => r.zones && r.orientation !== 'portrait') || results.find((r) => r.zones); if (z) report.zones = z.zones;
   const up = results.find((r) => r.zones && r.orientation === 'portrait' && r !== z); if (up) report.zonesUpright = up.zones;
@@ -796,10 +806,9 @@ export function applyDeviceResults(report, results, devices = ['desktop', 'table
   for (const r of results) if (r.layout) (report.layout ||= []).push(r.layout);
   const failed = [];
   for (const r of results) {
-    const made = devices.includes(r.kind), label = `Plays on ${r.label} (touch screen, ${r.viewport})`;
+    const label = `Plays on ${r.label} (touch screen, ${r.viewport})`;
     if (r.ok) report.checks.push({ id: 'device_' + r.id, ok: true, label, detail: `Started in ${r.loadMs} ms and kept running through taps and a drag${r.runtime && r.runtime.fixes ? `; platform fixes on: ${r.runtime.fixes.join(', ') || 'none'}` : ''}.`, hint: '' });
-    else if (made) { failed.push(r); report.checks.push({ id: 'device_' + r.id, ok: false, label, detail: r.problems.join(' '), hint: `The game says it is made for ${r.kind === 'mobile' ? 'phones' : 'tablets'} (requirements.devices). Fix it there (debug_preview with a ${r.kind === 'mobile' ? 'phone' : 'tablet'} viewport and touch shows what happens), or remove ${r.kind} from requirements.devices so players are told before they start.` }); }
-    else report.notes.push(`On ${r.label}: ${r.problems.join(' ')} The game is not listed for ${r.kind === 'mobile' ? 'phones' : 'tablets'}, so this does not stop the version.`);
+    else { failed.push(r); report.checks.push({ id: 'device_' + r.id, ok: false, label, detail: r.problems.join(' '), hint: `Platform requirement: every game must be playable on ${r.kind === 'mobile' ? 'phones' : 'tablets'}. ${deviceFix(r.problems[0])} Then deploy_preview again.` }); }
     for (const n of r.notes) report.notes.push(`On ${r.label}: ${n}`);
     if (r.turn && !r.turn.ok) report.notes.push(`On ${r.label}, turned ${r.turn.to === 'portrait' ? 'upright' : 'sideways'} (${r.turn.viewport}): ${r.turn.problem}`);
   }

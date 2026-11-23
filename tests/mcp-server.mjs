@@ -86,7 +86,14 @@ test('publish never writes the title into the tagline', () => {
 test('get_started presents the game standards as advice', () => {
   const s = entry('get_started');
   assert.doesNotMatch(s, /fix every warning/);
-  assert.match(s, /Recommendations and best practice, not rules/);
+  assert.match(s, /Design recommendations and best practice, not requirements/);
+});
+
+test('get_started keeps platform requirements and design recommendations apart', () => {
+  const s = entry('get_started');
+  assert.match(s, /platform_requirements: \{/);
+  assert.match(s, /design_recommendations: SPLIT\.recommendations/);
+  assert.match(s, /Be playable on computers, tablets and phones/);
 });
 
 test('tools/list does not carry the tag list twice', () => {

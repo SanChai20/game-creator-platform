@@ -57,16 +57,17 @@ test('device viewports follow the game\'s orientation', () => {
 
 const result = (id, problems = [], notes = []) => ({ id, label: DEVICE_PROFILES[id].label, kind: DEVICE_PROFILES[id].kind, viewport: '1×1', ok: !problems.length, problems, notes, loadMs: 100, fps: 30, runtime: { version: '2.0.0', fixes: [] } });
 
-test('a device problem fails the version only for devices the game says it is made for', () => {
-  const made = applyDeviceResults({ ok: true, checks: [], notes: [], summary: 'Playable' }, [result('iphone', ['It threw an error: x']), result('ipad')], ['desktop', 'tablet', 'mobile']);
+test('a device problem fails the version whatever devices it lists: phones and tablets are a platform requirement', () => {
+  const made = applyDeviceResults({ ok: true, checks: [], notes: [], summary: 'Playable' }, [result('iphone', ['It threw an error: x']), result('ipad')]);
   assert.equal(made.ok, false);
   assert.match(made.summary, /Not playable on iPhone/);
   assert.deepEqual(made.checks.map((c) => [c.id, c.ok]), [['device_iphone', false], ['device_ipad', true]]);
+  assert.match(made.checks[0].hint, /^Platform requirement: every game must be playable on phones\./);
+  assert.doesNotMatch(made.checks[0].hint, /remove/i, 'never suggests dropping the device instead');
 
-  const desktopOnly = applyDeviceResults({ ok: true, checks: [], notes: [], summary: 'Playable' }, [result('iphone', ['It threw an error: x'])], ['desktop']);
-  assert.equal(desktopOnly.ok, true);
-  assert.equal(desktopOnly.checks.length, 0);
-  assert.match(desktopOnly.notes[0], /not listed for phones/);
+  const touched = applyDeviceResults({ ok: true, checks: [], notes: [], summary: 'Playable' }, [result('iphone', ['The page reloaded or navigated away when it was touched.'])]);
+  assert.equal(touched.ok, false);
+  assert.match(touched.checks[0].hint, /touch-action: none/, 'the hint names the usual fix');
 });
 
 test('layout findings are notes, never failures', () => {

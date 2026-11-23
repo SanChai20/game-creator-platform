@@ -53,7 +53,7 @@ export interface Requirements {
   features: Feature[];                      // must have
   optional: Feature[];                      // used when present, works without (e.g. WebGPU with a WebGL 2 fallback)
   input: Input[];                           // what the game can be played with; any one is enough
-  devices: Device[];                        // the kinds of device it is made for
+  devices: Device[];                        // the kinds of device it plays on: all of them, a platform requirement
   orientation: Orientation;
   memory_gb: number | null;                 // minimum device memory, when the game is heavy
   browsers: Partial<Record<BrowserId, number>>; // minimum major versions, when the creator knows them
@@ -90,7 +90,7 @@ const ALIASES: Record<string, string> = {
 const norm = (v: unknown) => { const s = String(v ?? '').trim().toLowerCase(); return ALIASES[s] ?? s; };
 
 export function emptyRequirements(): Requirements {
-  return { graphics: 'canvas', gpu: 'any', features: [], optional: [], input: ['keyboard', 'mouse'], devices: ['desktop'], orientation: 'any', memory_gb: null, browsers: {}, known_issues: [], notes: '' };
+  return { graphics: 'canvas', gpu: 'any', features: [], optional: [], input: ['keyboard', 'mouse'], devices: [...DEVICES], orientation: 'any', memory_gb: null, browsers: {}, known_issues: [], notes: '' };
 }
 
 /** Checks a declared requirements object (gcp.json "requirements" or the MCP tool's argument). Returns what it understood and what was wrong. */
@@ -258,7 +258,9 @@ export function detectRequirements(input: DetectInput): { requirements: Requirem
   for (const k of kits.keys()) for (const i of KITS[k].input || []) if (!r.input.includes(i)) { r.input.push(i); ev[`input:${i}`] ??= kitWhy(k); }
   r.input = INPUTS.filter((i) => r.input.includes(i));
   if (!r.input.length) { r.input = unity || godot || phaser ? ['keyboard', 'mouse'] : ['mouse']; }
-  r.devices = r.input.includes('touch') ? ['desktop', 'tablet', 'mobile'] : ['desktop'];
+  // every game plays on every kind of device (a platform requirement): keyboard and mouse games get the platform's
+  // on-screen controls and mouse events from the finger on touch screens
+  r.devices = [...DEVICES];
   if (input.orientation === 'landscape' || input.orientation === 'portrait') r.orientation = input.orientation;
   r.features = uniq(r.features); r.optional = uniq(r.optional).filter((f) => !r.features.includes(f));
   delete ev.engine;
@@ -289,7 +291,8 @@ export function mergeRequirements(declared: Partial<Requirements> | null, detect
     const extra = declared.input.filter((i) => !detected.input.includes(i));
     if (extra.length) w('input', `Declared input ${extra.join(', ')}, but no code for it was found.`, 'Make sure it really works with that input before promising it to players.');
   }
-  if (declared.devices?.includes('mobile') && !r.input.includes('touch')) w('devices', 'Phones are listed under devices, but touch is not listed under input.', 'Most phones have only a touch screen: add touch controls, or remove mobile.');
+  // devices that leave a kind out are a platform requirement, reported by deploy_preview and refused by publish
+  // (src/platform-requirements.js), not a compatibility warning
   if (r.graphics === 'webgpu' && r.optional.includes('webgpu')) r.optional = r.optional.filter((f) => f !== 'webgpu');
   r.features = uniq(r.features); r.optional = uniq(r.optional).filter((f) => !r.features.includes(f));
   return { requirements: r, issues };

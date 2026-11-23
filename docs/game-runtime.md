@@ -59,9 +59,11 @@ What no script can fix is caught before publishing:
   File System Access pickers) and sound shipped only as Ogg (silent before iOS 18.4). Warnings never block: the creator
   decides whether older iPhones matter for the game.
 - Verification plays every version that passes on the computer again on an emulated iPhone and iPad (`verify_devices`,
-  `src/verify-core.js`): it must start, keep drawing, survive taps and a drag, and throw no errors. That fails the version
-  only for the kinds of device the game lists in `requirements.devices`. Layout findings (part of the game off screen,
-  text under 9 px, buttons under 20 px) are notes in the report.
+  `src/verify-core.js`): it must start, keep drawing, survive taps and a drag, and throw no errors. Being playable on
+  computers, tablets and phones is a platform requirement, so that fails the version whatever `requirements.devices`
+  lists, and `publish` refuses a version whose `requirements.devices` leaves a kind out (rule `every_device`,
+  `src/platform-requirements.js`). Layout findings (part of the game off screen, text under 9 px, buttons under 20 px)
+  are design advice: notes in the report.
 
 ## Changing the runtime
 

@@ -12,6 +12,7 @@ import { regionBlockedRefs, regionWarning } from './region-hosts.js';
 // @ts-ignore plain JS module
 import { botContract, botIssues } from './bot-contract.js';
 import { checkStandards, findingLine } from './standards.js';
+import { deviceProblems } from './platform-requirements.js';
 // @ts-ignore plain JS module shared with the tests
 import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
@@ -475,10 +476,13 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const tc = buildControls({ texts, declared: (gcpRaw as Record<string, unknown> | null)?.controls, declaredInput: c.compat.declared ? c.compat.requirements.input : null });
   for (const i of tc.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: i.hint });
   manifest.controls = tc.controls;
+  // Platform requirement: playable on computers, tablets and phones. publish refuses a version that is not
+  // (src/release-gate.ts, rule every_device); said here first so the agent fixes it before it deploys.
+  for (const d of deviceProblems(manifest)) warn({ file: 'gcp.json', message: `REQUIRED to publish [every_device]: ${d.message}`, hint: d.fix });
   // The platform's standards (src/standards.js): the listing and the code against what the store and the player show.
-  // Warnings only for now, so live games are not blocked; game_standards {action: "check"} lists the notes too.
+  // Design recommendations: advice that never blocks; game_standards {action: "check"} lists the notes too.
   const standards = checkStandards({ listing: listingForStandards(p), texts, paths: files.map((f) => f.path), gcp: gcpRaw, brand: s.brand_name }) as StandardFinding[];
-  for (const f of standards) if (f.level === 'warning') warn({ message: `[standard ${f.standard}] ${f.message}`, hint: `${f.fix} game_standards {action: "get", id: "${f.standard}"} has the full standard.` });
+  for (const f of standards) if (f.level === 'warning') warn({ message: `RECOMMENDATION [${f.standard}] (design choice, does not block publishing): ${f.message}`, hint: `${f.fix} game_standards {action: "get", id: "${f.standard}"} has the full standard.` });
   return { ok: errors.length === 0, errors, warnings, files: files.length, bytes, manifest, compatIssues: c.issues, metaIssues: gm.issues, standards };
 }
 
