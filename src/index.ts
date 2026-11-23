@@ -337,6 +337,13 @@ function provider(origin: string, accessTtl: number, grantTtl: number): OAuthPro
 /** What an agent with no token is told, in words it can act on. The challenge header stays as the standard requires. */
 function accessHelp(origin: string, hadToken: boolean, accessTtl: number) {
   const refresh = `POST ${origin}/oauth/token with grant_type=refresh_token, refresh_token=<your refresh token> and client_id=<your client id>. The answer has a new access_token and a new refresh_token; keep both.`;
+  // an agent that sent a token only needs to refresh it: the short answer, with the full sign-in steps one request away
+  if (hadToken) return {
+    error: 'invalid_token',
+    error_description: `This access token is not valid any more (access tokens last ${Math.round(accessTtl / 60)} minutes). Refresh it and repeat the call; nothing in the project is lost.`,
+    refresh: refresh,
+    if_the_refresh_is_refused: `The user revoked access or the authorization reached its end: sign in again. ${origin}/mcp without an Authorization header answers with the sign-in steps (how_to_connect).`,
+  };
   return {
     error: 'invalid_token',
     error_description: hadToken ? `This access token is not valid any more. Access tokens last ${Math.round(accessTtl / 60)} minutes; get a new one with your refresh token (see if_you_had_a_token) and repeat the call. Nothing in the project is lost.` : 'Sign-in is required. This server uses OAuth; there are no API keys. See how_to_connect.',

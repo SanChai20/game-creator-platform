@@ -119,7 +119,8 @@ export async function openDebug(env: DebugEnv, origin: string, user: User, p: Pr
   // the game runs as a verifier: its own empty save, kept apart from the creator's and players' data, cleaned up daily
   const sid = 'vf_' + rid(12), key = await playKey(env, p.id), x = Math.floor((t + life) / 1000) + 120;
   await env.DB.prepare("INSERT INTO plays (id, project_id, version, env, user_id, kind, started_at, last_beat_at) VALUES (?, ?, ?, 'preview', ?, 'verify', ?, ?)").bind(sid, p.id, p.preview_version, p.owner_id, t, t).run();
-  const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Debugger', k: 'verify', s: sid, x }, key);
+  // dbg: the agent is testing, so what the game submits (leaderboard scores) is kept on the preview's boards, under "Debugger"
+  const token = await signPlayToken({ g: p.id, e: 'preview', u: verifierId(sid), n: 'Debugger', k: 'verify', s: sid, x, dbg: 1 }, key);
   const url = `${await gameUrl(env, origin, p.id, 'preview')}?gcp_t=${token}${o.autostart ? '&gcp_autostart=1' : ''}`;
   let opened;
   try { opened = await driverOf(env).open(url, vp, steps); }

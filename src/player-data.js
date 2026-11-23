@@ -276,4 +276,6 @@ export const verifierCleanupStmts = (db, before) => [
   // 'verify:' up to 'verify;' (the next character) is every verifier id, read through the user index instead of a scan
   db.prepare("DELETE FROM saves WHERE user_id >= 'verify:' AND user_id < 'verify;' AND updated_at < ?").bind(before),
   db.prepare("DELETE FROM player_stats WHERE user_id >= 'verify:' AND user_id < 'verify;' AND updated_at < ?").bind(before),
+  // debug_preview sessions' scores on preview boards (src/routes/rt.ts /score)
+  db.prepare("DELETE FROM scores WHERE user_id >= 'verify:' AND user_id < 'verify;' AND updated_at < ?").bind(before),
 ];

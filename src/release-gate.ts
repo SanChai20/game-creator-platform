@@ -145,7 +145,10 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
   const kind = mode === 'rollback' && !v.published_at ? `Version ${v.n} was never live, so it cannot be rolled back to.`
     : mode === 'restore' && !(p.status === 'offline' && p.live_version === v.n) ? `Only the version that was live when the game went offline can be brought back this way (version ${p.live_version ?? 'none'}${p.status === 'offline' ? '' : `; the game is ${p.status}`}).`
     : null;
-  rule('release_kind', kind ? { code: 'bad_request', http: 400, reason: kind, fix: `Publish version ${v.n} as a new release instead: it then meets every rule.` } : null);
+  // a version that never passed verification cannot be published either, so the fix says what will work
+  const el = versionEligible(v, s.verify_browser_required);
+  rule('release_kind', kind ? { code: 'bad_request', http: 400, reason: kind, fix: el.ok ? `Publish version ${v.n} as a new release instead (publish {project, version: ${v.n}}).`
+    : `Publishing version ${v.n} as a new release is refused too, because it has not passed verification (see the next item). Fix what list_versions {project, version: ${v.n}} reports, deploy_preview, and publish the new version.` } : null);
 
   const purged = (v as { purged_at?: number | null }).purged_at;
   rule('files_kept', purged ? { code: 'files_purged', http: 400, reason: `Version ${v.n} is older than the platform keeps files for.`, fix: 'Call deploy_preview to make a new version from the workspace, then publish that.' } : null);
@@ -153,7 +156,6 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
   rule('files_intact', broken ? { code: 'files_changed', http: 409, reason: `Version ${v.n}'s files are not the ones that were verified: ${broken}.`, fix: 'Call deploy_preview to make a new version from the workspace, then publish that. If this keeps happening, contact the platform.' } : null);
 
   // verification, including the review path for versions the browser could not run
-  const el = versionEligible(v, s.verify_browser_required);
   if (el.ok) rule('verified', null);
   else {
     const report = parseJson<Report>(v.report, {}), failed = (report.checks || []).filter((c) => !c.ok);
@@ -234,7 +236,8 @@ export function gateText(g: GateResult): string {
 /** The error a tool or route answers with: the first failure's code (agents already know them), every failure listed. */
 export function gateError(g: GateResult): AppError {
   const first = g.failures[0];
-  return new AppError(first?.http || 409, gateText(g), first?.code || 'requirements_unmet', g.failures.length > 1 ? 'Fix every numbered item above, then publish again. publish {project, version, dry_run: true} checks without publishing.' : first?.fix);
+  // one failure already says what to do in the text; repeating it as the hint printed it twice
+  return new AppError(first?.http || 409, gateText(g), first?.code || 'requirements_unmet', g.failures.length > 1 ? 'Fix every numbered item above, then publish again. publish {project, version, dry_run: true} checks without publishing.' : undefined);
 }
 
 /** The view an agent or the console reads: compact, with only what it needs to act. */

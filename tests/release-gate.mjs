@@ -274,3 +274,16 @@ test('a failed verification check says how to fix it, not only what failed', asy
   const v = (await gate(w)).rules.find((r) => r.id === 'verified');
   assert.match(v.reason, /reloaded or navigated away.*To fix: Set touch-action: none/);
 });
+
+test('rolling back to a never-live version that failed verification says publishing it is refused too (Haiku run 2, #10)', async () => {
+  const failed = world({ status: 'failed', report: { ok: false, summary: 'no', checks: [{ id: 'boots', ok: false, label: 'The game boots', detail: 'GCP.ready() was not called' }] }, project: { status: 'live', live_version: 4 } });
+  const g = await gate(failed, 'rollback'), kind = g.failures.find((f) => f.id === 'release_kind');
+  assert.match(kind.fix, /refused too, because it has not passed verification/);
+  assert.doesNotMatch(kind.fix, /it then meets every rule/);
+  const fine = world({ project: { status: 'live', live_version: 4 } }), one = await gate(fine, 'rollback');
+  assert.match(one.failures.find((f) => f.id === 'release_kind').fix, /Publish version 3 as a new release instead/);
+  // one failure: its fix is in the text once, not repeated as the hint
+  const e = gateError(one);
+  assert.equal(e.hint, undefined);
+  assert.equal(e.message.split('What to do:').length - 1, 1);
+});

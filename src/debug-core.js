@@ -123,7 +123,7 @@ export async function gameState(page) {
     try { state = typeof s.debugState === 'function' ? s.debugState() : null; } catch (e) { state = 'onState threw: ' + (e && e.message || e); }
     if (state !== null && typeof state !== 'string') { try { state = JSON.stringify(state); } catch { state = String(state); } }
     return { sdk: true, ready: !!s.ready, frames: s.frames, fatal: s.fatal || null, loading: s.busy ? (s.label || true) : false, label: s.label || '',
-      errors: s.errors.slice(0, 15), console_errors: s.warnings.slice(0, 10), missing_files: s.missing.slice(0, 10),
+      errors: s.errors.slice(0, 15), console_errors: s.warnings.slice(0, 10), console_warnings: (s.warns || []).slice(-10), platform_calls: (s.calls || []).slice(-10), missing_files: s.missing.slice(0, 10),
       game_state: state ? String(state).slice(0, stateChars) : null, title: document.title, url_path: location.pathname };
   }, DEBUG_LIMITS.state_chars);
 }

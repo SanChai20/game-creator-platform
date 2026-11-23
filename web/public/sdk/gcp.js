@@ -124,6 +124,14 @@
   window.addEventListener('unhandledrejection', function (e) { var r = e.reason; note(S.errors, 'Unhandled promise rejection: ' + (r && (r.stack || r.message) || r)); });
   var cerr = console.error;
   console.error = function () { try { if (S.warnings.length < 25) S.warnings.push(Array.prototype.map.call(arguments, function (a) { return a && a.stack ? a.stack : typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ').slice(0, 500)); } catch (e) { /* cyclic */ } return cerr.apply(console, arguments); };
+  // console.warn lines, kept apart from the errors (verification never reads them; debug_preview shows them)
+  S.warns = [];
+  var cwarn = console.warn;
+  console.warn = function () { try { S.warns.push(Array.prototype.map.call(arguments, function (a) { return a && a.message ? a.message : typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' ').slice(0, 300)); if (S.warns.length > 20) S.warns.shift(); } catch (e) { /* cyclic */ } return cwarn.apply(console, arguments); };
+  // The game's last calls to the platform (saves, scores, rooms) and how each was answered, so debug_preview can show
+  // whether a GCP.leaderboard.submit reached the platform without relying on the game's own logging.
+  S.calls = [];
+  function noteCall(path, body, status, err) { try { S.calls.push({ path: path, op: body && body.op || '', board: body && body.board || undefined, status: status, error: err ? String(err).slice(0, 200) : undefined, at: Math.round(performance.now()) }); if (S.calls.length > 20) S.calls.shift(); } catch (e) { /* never in the way */ } }
 
   // ---- probes for the craft review. Only under verification (?gcp_autostart) or ?gcp_probe: players never pay for them. ----
   // They count what the page draws, plays and listens to, for any engine, without the game doing anything.
@@ -470,7 +478,7 @@
     if (standalone) return Promise.reject(new Error('offline'));
     if (ended) return Promise.reject(new Error(ended.message));
     return fetch(cfg.api + '/api/rt/' + path, { method: method || 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(Object.assign({ t: cfg.token }, body || {})) })
-      .then(function (r) { return r.json().then(function (j) { if (!r.ok) { if (r.status === 401 && j.code === 'session_ended') sessionEnded(j); throw new Error(j.error || ('HTTP ' + r.status)); } return j; }); });
+      .then(function (r) { return r.json().then(function (j) { noteCall(path, body, r.status, r.ok ? (j && j.recorded === false ? 'not recorded (verification browser)' : '') : (j.error || ('HTTP ' + r.status))); if (!r.ok) { if (r.status === 401 && j.code === 'session_ended') sessionEnded(j); throw new Error(j.error || ('HTTP ' + r.status)); } return j; }); }, function (e) { noteCall(path, body, 0, e && e.message || 'network error'); throw e; });
   }
 
   // ---- the session's binding to the player's platform identity ----
@@ -3087,7 +3095,7 @@
   // state: a page cannot write frames, ready or a passing play-through into it, or swap the functions the verifier calls.
   var view = {};
   ['boot', 'ready', 'readyAt', 'frames', 'fatal', 'progress', 'label', 'stats', 'held', 'busy', 'playthrough', 'twoPlayers', 'probe', 'capture', 'stateHook', 'displayPrefs', 'captureLayers', 'layoutBoxes'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k]; }, enumerable: true }); });
-  ['errors', 'warnings', 'missing'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
+  ['errors', 'warnings', 'missing', 'warns', 'calls'].forEach(function (k) { Object.defineProperty(view, k, { get: function () { return S[k].slice(); }, enumerable: true }); });
   Object.defineProperty(view, 'runtime', { get: runtimeInfo, enumerable: true });
   ['hold', 'pauseCheck', 'step', 'captureFrame', 'pageUi', 'runPlaythrough', 'runTwoPlayers', 'roomInfo', 'matchInfo', 'debugState'].forEach(function (k) { Object.defineProperty(view, k, { value: S[k], enumerable: true }); });
   try { Object.defineProperty(window, '__GCP', { value: Object.freeze(view), writable: false, configurable: false }); } catch (e) { /* already locked */ }

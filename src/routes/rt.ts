@@ -34,7 +34,7 @@ import { isServerPath, signPlayToken } from '../runtime/game-worker.js';
 
 export const PLAY_SESSION_S = 6 * 3600;   // an account's play token; renewed while the sign-in lasts
 export const GUEST_SESSION_S = 3600;      // a guest's, short so switching "Require login to play" on ends guest play within the hour
-interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'player' | 'owner' | 'verify' | 'bot'; s: string; x: number; tr?: 1 }
+interface Tok { g: string; e: 'preview' | 'live'; u: string; n: string; k: 'player' | 'owner' | 'verify' | 'bot'; s: string; x: number; tr?: 1; dbg?: 1 }
 
 // The token names its own game and environment; the signature is checked against that game's key.
 // Every per-player read and write below takes the game, environment and player from this token, never from the request body.
@@ -186,7 +186,7 @@ rt.post('/renew', async (c) => {
   if (!p || (tok.e === 'live' && p.status !== 'live')) throw new AppError(409, 'This game is offline.', 'offline');
   if (tok.k === 'player' && p.price_cents > 0 && !(await owns(env, tok.u, tok.g))) throw new AppError(402, 'Buy the game to keep playing.', 'not_owned');
   const life = isGuestId(tok.u) ? GUEST_SESSION_S : PLAY_SESSION_S, x = Math.floor(now() / 1000) + life;
-  const token = await signPlayToken({ g: tok.g, e: tok.e, u: tok.u, n: tok.n, k: tok.k, s: tok.s, x }, await playKey(env, tok.g));
+  const token = await signPlayToken({ g: tok.g, e: tok.e, u: tok.u, n: tok.n, k: tok.k, s: tok.s, x, ...(tok.dbg ? { dbg: 1 } : {}) }, await playKey(env, tok.g));
   return c.json({ token, expires_in: life });
 });
 
@@ -223,20 +223,23 @@ rt.post('/score', async (c) => {
   // highest-wins; a game has at most MAX_BOARDS boards per environment.
   const fixed = await db.prepare('SELECT asc FROM boards WHERE project_id = ? AND board = ?').bind(scope, board).first<{ asc: number }>();
   let asc = fixed ? !!fixed.asc : b.order === 'asc';
+  // The verification browser's scores are never kept; an agent's debug_preview session (dbg) is a test the agent reads
+  // back with game_data, so its scores are kept on the preview's boards (preview only: its token names the preview).
+  const keeps = tok.k !== 'verify' || (!!tok.dbg && tok.e === 'preview');
   if (b.op === 'submit') {
     await roomForGameData(c.env);
     const score = Number(b.score);
     if (!Number.isFinite(score) || Math.abs(score) > MAX_SCORE) throw bad(`score must be a number between -${MAX_SCORE} and ${MAX_SCORE}.`);
-    if (!fixed && tok.k !== 'verify') {
+    if (!fixed && keeps) {
       await db.prepare('INSERT INTO boards (project_id, board, asc, created_at) SELECT ?1, ?2, ?3, ?4 WHERE (SELECT COUNT(*) FROM boards WHERE project_id = ?1) < ?5 ON CONFLICT DO NOTHING')
         .bind(scope, board, asc ? 1 : 0, now(), MAX_BOARDS).run();
       const row = await db.prepare('SELECT asc FROM boards WHERE project_id = ? AND board = ?').bind(scope, board).first<{ asc: number }>();
       if (!row) throw bad(`This game already has ${MAX_BOARDS} leaderboards. Reuse one of them.`);
       asc = !!row.asc;
     }
-    if (tok.k !== 'verify') await c.env.DB.prepare(`INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, board, user_id) DO UPDATE SET score = ${asc ? 'MIN' : 'MAX'}(score, excluded.score), name = excluded.name, updated_at = excluded.updated_at`).bind(scope, board, me, tok.n, score, now()).run();
+    if (keeps) await c.env.DB.prepare(`INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, board, user_id) DO UPDATE SET score = ${asc ? 'MIN' : 'MAX'}(score, excluded.score), name = excluded.name, updated_at = excluded.updated_at`).bind(scope, board, me, tok.n, score, now()).run();
     const mine = await c.env.DB.prepare('SELECT score FROM scores WHERE project_id = ? AND board = ? AND user_id = ?').bind(scope, board, me).first<{ score: number }>();
-    return c.json({ ok: true, best: mine?.score ?? score });
+    return c.json({ ok: true, best: mine?.score ?? score, ...(keeps ? {} : { recorded: false }) });
   }
   const rows = await c.env.DB.prepare(`SELECT name, score, user_id = ?4 AS me FROM scores WHERE project_id = ?1 AND board = ?2 ORDER BY score ${asc ? 'ASC' : 'DESC'} LIMIT ?3`).bind(scope, board, clamp(Number(b.limit) || 10, 1, 100), me).all();
   return c.json({ rows: rows.results });
