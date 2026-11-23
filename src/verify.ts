@@ -11,7 +11,8 @@ export interface VerifyOutcome { report: Record<string, any>; shot: Uint8Array |
 
 /** Opens the deployed preview in a real browser and runs the playability check. */
 /** guestUrl: the game with a second verifier's play token, for the guest page of the two-player check.
- *  device: what the version says about phones and tablets (requirements.devices and orientation), for the device pass.
+ *  device: the version's orientation for the device pass (and its listed devices, for the record: every game must pass
+ *  on phones and tablets, whatever it lists).
  *  live: the game is live (players have it); only then does a failed capture check fail the version. */
 export interface DeviceTarget { devices: string[]; orientation: string }
 export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: string, usesWebGPU: boolean, platformOrigin = '', guestUrl = '', device: DeviceTarget = { devices: ['desktop', 'tablet', 'mobile'], orientation: 'any' }, live = true): Promise<VerifyOutcome> {
@@ -41,7 +42,7 @@ export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: s
         await dp.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: p.deviceScaleFactor, isMobile: true, hasTouch: true, isLandscape: vp.width > vp.height });
         return dp;
       };
-      try { applyDeviceResults(report, await verifyDevices(openDevicePage, url, { profiles, orientation: device.orientation, readyTimeoutS: s.verify_ready_timeout_s }), device.devices); }
+      try { applyDeviceResults(report, await verifyDevices(openDevicePage, url, { profiles, orientation: device.orientation, readyTimeoutS: s.verify_ready_timeout_s })); }
       catch (e) { (report.notes as string[]).push('The phone and tablet check could not run: ' + String((e as Error).message || e).slice(0, 160)); }
     }
     const shot: Uint8Array | null = shots.length ? new Uint8Array(shots[0]) : null;   // the full-quality portrait when there is one, otherwise the first picture of the game in play past its loading screen

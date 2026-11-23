@@ -43,7 +43,7 @@ test('detection finds features and input', () => {
   assert.ok(r.optional.includes('pointer-lock'));
   assert.deepEqual(r.input.sort(), ['keyboard', 'mouse', 'touch']);
   assert.deepEqual(r.devices, ['desktop', 'tablet', 'mobile']);
-  assert.deepEqual(detect({ 'main.js': 'addEventListener("keydown", f)' }).devices, ['desktop']);
+  assert.deepEqual(detect({ 'main.js': 'addEventListener("keydown", f)' }).devices, ['desktop', 'tablet', 'mobile'], 'every game plays on every device: the platform controls stand in for keys');
   const sab = detectRequirements({ texts: new Map([['main.js', 'if (typeof SharedArrayBuffer !== "undefined") {}']]), paths: ['main.js'] });
   assert.equal(sab.warnings.length, 1);
   assert.ok(!sab.requirements.features.includes('wasm-threads'));
@@ -54,7 +54,7 @@ test('the declaration wins, detected required features are added, and mismatches
   const { requirements, issues } = mergeRequirements({ graphics: 'webgl', input: ['keyboard', 'gamepad'], devices: ['desktop', 'mobile'] }, det);
   assert.equal(requirements.graphics, 'webgl');
   assert.ok(requirements.features.includes('web-audio'));
-  assert.deepEqual(issues.map((i) => i.field).sort(), ['devices', 'features', 'graphics', 'input']);
+  assert.deepEqual(issues.map((i) => i.field).sort(), ['features', 'graphics', 'input'], 'a device left out is a platform requirement, reported by deploy_preview and publish');
   // listing a detected feature as optional keeps it optional
   const opt = mergeRequirements({ optional: ['web-audio'] }, det).requirements;
   assert.ok(!opt.features.includes('web-audio') && opt.optional.includes('web-audio'));
@@ -91,9 +91,9 @@ test('the verdict: works, may not, does not', () => {
   assert.equal(evaluate({ ...req, gpu: 'hardware' }, unknownGpu).verdict, 'maybe');
   // WebGPU as optional never blocks
   assert.equal(evaluate({ ...req, optional: ['webgpu'] }, desktop()).verdict, 'ok');
-  // a phone without a keyboard, for a keyboard-only desktop game
+  // a phone without a keyboard, for a keyboard-only game an older version listed for computers only
   const phone = { ...desktop(), device: 'mobile', input: { keyboard: null, mouse: false, touch: true, gamepad: null } };
-  const pv = evaluate({ ...req, input: ['keyboard'] }, phone);
+  const pv = evaluate({ ...req, input: ['keyboard'], devices: ['desktop'] }, phone);
   assert.equal(pv.verdict, 'no');
   assert.deepEqual(pv.blockers.map((r) => r.kind), ['device']);
   // minimum browser versions and known issues

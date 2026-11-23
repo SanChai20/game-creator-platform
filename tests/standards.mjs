@@ -118,7 +118,7 @@ test('the listing checks', () => {
   assert.ok(f({ title: 'x'.repeat(NUMBERS.hero.title_2_lines + 1), tagline: 'Fine.', description: 'x' }).includes('title-long'));
   // translations are checked in their own language and named
   const zh = checkStandards({ listing: { title: 'Star Garden', tagline: 'Grow little stars.', description: 'x', translations: { zh: { title: '星之庭', tagline: '星之庭' } } } });
-  assert.equal(zh.length, 1); assert.equal(zh[0].lang, 'zh'); assert.match(findingLine(zh[0]), /^WARNING \[tagline\] The tagline \(zh\) repeats the title/);
+  assert.equal(zh.length, 1); assert.equal(zh[0].lang, 'zh'); assert.match(findingLine(zh[0]), /^RECOMMENDATION \[tagline\] The tagline \(zh\) repeats the title/);
 });
 
 test('the code checks', () => {

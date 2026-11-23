@@ -18,9 +18,10 @@ import { publishGate } from './originality-check';
 import { missingToPublish } from '../web/src/tags';
 import { now, parseJson } from './util';
 import { LANG_NAMES_EN, listingCoverage } from './listing';
+import { deviceProblems } from './platform-requirements.js';
 
 /** The ruleset's version. Bump it whenever a rule is added or tightened; each stored outcome names the one it used. */
-export const RULESET = '2026-11-22.2';
+export const RULESET = '2026-11-23.1';
 
 export type GateMode = 'publish' | 'rollback' | 'restore';
 export type RuleStatus = 'pass' | 'fail' | 'waived' | 'skipped';
@@ -33,7 +34,11 @@ export interface RuleOutcome {
 }
 export interface GateResult { ok: boolean; ruleset: string; mode: GateMode; project: string; version: number; checked_at: number; rules: RuleOutcome[]; failures: RuleOutcome[]; waived: string[] }
 
-/** The requirements as a list players, creators and admins can read: the same text the console, docs and tools show. */
+/**
+ * The platform requirements as a list players, creators and admins can read: the same text the console, docs and tools
+ * show. These are mandatory. Game design (orientation, layout, cover, loading screen, sound) is never one of them: those
+ * are recommendations (src/standards.js, src/platform-requirements.js).
+ */
 export const RULES: { id: string; title: string; modes: GateMode[]; waivable: boolean; what: string }[] = [
   { id: 'game_status', title: 'The game is allowed on the platform', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'A game the platform removed cannot go live again until an admin restores it.' },
   { id: 'account', title: 'The creator\'s account is in good standing', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'A suspended account cannot put games live.' },
@@ -41,8 +46,9 @@ export const RULES: { id: string; title: string; modes: GateMode[]; waivable: bo
   { id: 'release_kind', title: 'The release is what it says it is', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'A rollback only goes back to a version that was live before, and putting a game back online only brings back its last live version. Anything else is a new release and meets every rule.' },
   { id: 'files_kept', title: 'The version\'s files are still kept', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Versions older than the platform keeps files for cannot go live.' },
   { id: 'files_intact', title: 'The files are the ones that were verified', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Every file of the version is present, the size it was frozen at, and unchanged since.' },
-  { id: 'verified', title: 'It passed verification', modes: ['publish', 'rollback', 'restore'], waivable: true, what: 'The automated browser check passed (boots with GCP.ready(), keeps rendering, a real picture, survives input, serves every file, no uncaught errors, stays on the page, hands over its frame, plays on the devices it lists), or a person approved a version the browser could not run. An admin can waive only checks a verifier can get wrong; boot, conduct, originality and content failures stand.' },
-  { id: 'current_checks', title: 'It was verified against today\'s requirements', modes: ['publish'], waivable: true, what: 'A new release must have been checked by every verification check the platform runs today: the frame hand-over (capture, advice only), the phone and tablet pass for the devices it lists, and the rest. A version verified before a check existed is deployed again first.' },
+  { id: 'verified', title: 'It passed verification', modes: ['publish', 'rollback', 'restore'], waivable: true, what: 'The automated browser check passed (boots with GCP.ready(), keeps rendering, a real picture, survives input, serves every file, no uncaught errors, stays on the page, and keeps running on an emulated iPhone and iPad through taps and a drag), or a person approved a version the browser could not run. An admin can waive only checks a verifier can get wrong; boot, conduct, originality and content failures stand.' },
+  { id: 'current_checks', title: 'It was verified against today\'s requirements', modes: ['publish'], waivable: true, what: 'A new release must have been checked by every verification check the platform runs today: the frame hand-over (capture, advice only), the phone and tablet pass, and the rest. A version verified before a check existed is deployed again first.' },
+  { id: 'every_device', title: 'It is playable on computers, tablets and phones', modes: ['publish'], waivable: false, what: 'Every game on the platform must be playable on every kind of device it supports. requirements.devices lists desktop, tablet and mobile; a computer player can play with a keyboard or a mouse; a phone or tablet player can play by touch (touch controls of the game\'s own, or the platform\'s on-screen controls standing in for its keys). Which way up the game is played (landscape, portrait or both) is the game\'s own design choice and is not part of this.' },
   { id: 'metadata', title: 'Its store metadata is complete', modes: ['publish'], waivable: true, what: 'Genre, 2 to 8 tags, requirements, languages, players and content descriptors are on record.' },
   { id: 'listing_languages', title: 'Its store listing is in every language it is played in', modes: ['publish'], waivable: true, what: 'Everything about the game outside the game follows the player\'s platform language. For every platform language (English, Simplified and Traditional Chinese, Japanese, Korean, Spanish) the version declares in languages, the store listing has the title, and the tagline and description when the game\'s own listing has them, in that language (game_metadata listing_translations; a cover per language is optional, update_project covers).' },
   { id: 'storage', title: 'It fits the game\'s storage', modes: ['publish'], waivable: false, what: 'All of its files fit the game\'s storage and file count. An admin can give the game more storage instead.' },
@@ -56,7 +62,7 @@ const WAIVABLE_CHECKS = /^(renders|picture|input|responds|files|clean|server|pla
 /** Checks every browser-verified version must carry today. Older reports that lack one are not current. */
 export const REQUIRED_CHECKS = ['deployed', 'boots', 'picture', 'files', 'conduct', 'clean', 'capture'];
 
-interface Check { id: string; ok: boolean; label?: string; detail?: string; soft?: boolean }
+interface Check { id: string; ok: boolean; label?: string; detail?: string; hint?: string; soft?: boolean }
 interface Report { ok?: boolean; checks?: Check[]; gpuLimited?: boolean; browser?: string; devices?: unknown[]; originality?: unknown }
 
 export interface GateInput {
@@ -79,13 +85,9 @@ export function currentChecks(v: Version, s: Pick<Settings, 'verify_capture_requ
   if (missing.length) problems.push(`its report has no ${missing.join(', ')} check${missing.length > 1 ? 's' : ''} (it was verified before ${missing.length > 1 ? 'they' : 'it'} existed)`);
   // the capture check is advice (the frame hand-over serves the creator's feedback screenshots; how the game draws its
   // interface is the game's choice), so a capture finding never holds a release back: only a report without the check is old
-  // the phone and tablet pass: required for the kinds of device the version lists, while the platform runs it
+  // the phone and tablet pass: every game must play on phones and tablets, so it is required while the platform runs it
   const profiles = String(s.verify_devices || '').split(',').map((x) => x.trim()).filter(Boolean);
-  const mf = parseJson<{ compat?: { requirements?: { devices?: string[] } } }>(v.manifest, {});
-  const listed = mf.compat?.requirements?.devices, devices = Array.isArray(listed) && listed.length ? listed : ['desktop', 'tablet', 'mobile'];
-  if (profiles.length && devices.some((d) => d === 'mobile' || d === 'tablet') && !Array.isArray(r.devices)) {
-    problems.push('the phone and tablet pass did not run on it, and the game lists phones or tablets');
-  }
+  if (profiles.length && !Array.isArray(r.devices)) problems.push('the phone and tablet pass did not run on it');
   return { ok: !problems.length, problems };
 }
 
@@ -164,13 +166,18 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
       : el.review === 'needed' ? 'Call publish to ask for the review; it goes live as soon as it is approved.'
       : running ? `Call list_versions {project, version: ${v.n}} again in a few seconds.`
       : `Call list_versions {project, version: ${v.n}} to read the failed checks, fix them, and deploy_preview again.`;
-    rule('verified', { code, http: 409, review: el.review, reason: failed.length && !el.review ? `${el.reason} Failed: ${failed.map((c) => `${c.label || c.id}${c.detail ? ` (${String(c.detail).slice(0, 200)})` : ''}`).join('; ')}.` : el.reason, fix }, waivable);
+    rule('verified', { code, http: 409, review: el.review, reason: failed.length && !el.review ? `${el.reason} Failed: ${failed.map((c) => `${c.label || c.id}${c.detail ? ` (${String(c.detail).slice(0, 200)})` : ''}${c.hint ? `. To fix: ${String(c.hint).slice(0, 300)}` : ''}`).join('; ')}.` : el.reason, fix }, waivable);
   }
 
   if (has('current_checks')) {
     const cur = el.ok ? currentChecks(v, s) : { ok: true, problems: [] };
     rule('current_checks', cur.ok ? null : { code: 'verification_outdated', http: 409, reason: `Version ${v.n} was not verified against today's requirements: ${cur.problems.join('; ')}.`, fix: `Call deploy_preview again (retry_version: ${v.n} checks the same files again when it is the newest version), then publish the version it makes.` });
   } else rule('current_checks', null);
+
+  if (has('every_device')) {
+    const dp = deviceProblems(parseJson<Record<string, unknown>>(v.manifest, {}));
+    rule('every_device', dp.length ? { code: 'devices_unsupported', http: 409, missing: dp.map((x) => x.id), reason: `Version ${v.n} is not playable on every kind of device: ${dp.map((x, i) => `(${i + 1}) ${x.message}`).join(' ')}`, fix: `${dp.map((x, i) => `(${i + 1}) ${x.fix}`).join(' ')} Then publish the new version. Orientation and layout stay your choice.` } : null);
+  } else rule('every_device', null);
 
   if (has('metadata') && s.metadata_required) {
     const { compat, meta } = await ensureVersionMeta(env, v), missing = missingToPublish(meta, compat.declared, JSON.parse(p.tags || '[]'));

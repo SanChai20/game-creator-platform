@@ -4,7 +4,11 @@
 
 Everything a game or its agent provides, as the platform shows it: where each thing appears, its exact sizes and limits, what to do and not do, and what the platform checks.
 
-**These are recommendations and best practice, not rules.** The platform owns its own surfaces (the store, the player, the splash, the menu button, the safe area it reports) and tells you exactly how they behave; how the game itself looks, lays out its interface and plays is the game's design decision. Every finding below is advice: `deploy_preview`, `game_standards` check and `publish` report it, and none of them stops a version. What does stop one is listed in the release requirements (it boots, renders, takes input, plays on the devices it lists, its files and store metadata, originality and content).
+## Two kinds of rule
+
+**Platform requirements (mandatory).** Platform requirements are mandatory: a version that misses one cannot go live, and publish says exactly what to fix. Every game must boot and play in the browser without errors, be playable on computers, tablets and phones (keyboard or mouse on a computer, touch on a phone or tablet), pass the content and originality checks, fit its storage, and have its store metadata on record. They are the release requirements, checked by `publish` (`publish {dry_run: true}` lists each one) and in [the contract](/guides/platform-contract.md). Where an entry below has a mandatory part, it says **Required** and names it.
+
+**Design recommendations (advice).** Design recommendations are advice: how the game looks, which way up it is played (landscape, portrait or both), how it lays out its interface, its cover, loading screen and sound are the game's own decisions. The platform says how its own surfaces behave and recommends how to fit around them; no recommendation ever stops a version. Everything else on this page is one: `deploy_preview`, `game_standards` check and `publish` report each finding as RECOMMENDATION, weigh it against the game's design, and none of them stops a version. A one-orientation game, a portrait game, a game with its own layout style are all fine.
 
 Read the entry before you make the thing. `game_standards {action: "get", id}` returns one entry; `game_standards {project, action: "check"}` checks the game and its listing against all of them and lists each finding with the fix. `deploy_preview` and `publish` report the same findings.
 
@@ -34,7 +38,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 | [Orientation: landscape, portrait or both](#orientation) | While the game plays | game_standards check |
 | [Interface scale and the player's UI size](#interface-scale) | While the game plays | platform |
 | [Quality settings](#quality) | While the game plays | by looking |
-| [Intended sound must play correctly](#intended-sound) | While the game plays | game_standards check |
+| [Intended sound plays correctly](#intended-sound) | While the game plays | game_standards check |
 | [Capture and state hooks](#capture-hooks) | While the game plays | platform |
 | [Bot hook for online games](#bot-hook) | While the game plays | platform |
 | [Friends picker and pop-ups](#friends-ui) | While the game plays | by looking |
@@ -56,7 +60,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 
 **Don't:** Close-up faces cut by the crops. Text near any edge.
 
-**Checked:** update_project answers with cover_check (size and shape); game_standards check and publish warn when there is no cover (the store then crops the verification screenshot). The composition inside the safe area is yours to check by looking at the template.
+**Recommendation, checked:** update_project answers with cover_check (size and shape); game_standards check and publish warn when there is no cover (the store then crops the verification screenshot). The composition inside the safe area is yours to check by looking at the template.
 
 ![Cover image template](/guides/cover-template.png)
 
@@ -75,7 +79,9 @@ More: [game-metadata.md#cover-image](/guides/game-metadata.md#cover-image)
 
 **Don't:** Machine-translate the game's own name when the game keeps it in one language.
 
-**Checked:** publish refuses a version played in a platform language its listing lacks (rule listing_languages).
+**Required (platform requirement, publish refuses without it):** The listing text (the title, and the tagline and description where the listing has them) in every platform language the game declares (release rule listing_languages). A cover per language is a recommendation.
+
+**Recommended, and checked:** publish refuses a version played in a platform language its listing lacks (rule listing_languages).
 
 More: [game-metadata.md#the-store-listing-in-every-language](/guides/game-metadata.md#the-store-listing-in-every-language)
 
@@ -94,7 +100,7 @@ More: [game-metadata.md#the-store-listing-in-every-language](/guides/game-metada
 
 **Don't:** Put a logo, a price, a badge or a "NEW" label of your own on the cover: the store adds its own.
 
-**Checked:** Not checked. Look at the cover cropped to 16:10 with those corners covered.
+**Recommendation, checked:** Not checked. Look at the cover cropped to 16:10 with those corners covered.
 
 More: [standards.md#card-overlays](/guides/standards.md#card-overlays)
 
@@ -112,7 +118,9 @@ More: [standards.md#card-overlays](/guides/standards.md#card-overlays)
 
 **Don't:** Rely on letter case (it is shown in capitals). Add the platform's or the operator's name. Add emoji or decorative symbols.
 
-**Checked:** Over the limit is refused. game_standards check notes a title too long for the banner.
+**Required (platform requirement, publish refuses without it):** At most 80 characters per language: a longer title is refused.
+
+**Recommended, and checked:** Over the limit is refused. game_standards check notes a title too long for the banner.
 
 More: [standards.md#title](/guides/standards.md#title)
 
@@ -130,7 +138,9 @@ More: [standards.md#title](/guides/standards.md#title)
 
 **Don't:** Repeat the title. Use the space for genre words the tags already show. Use quotes, emoji or ALL CAPS.
 
-**Checked:** Over the limit is refused. game_standards check, deploy_preview and publish warn about a repeated title and a tagline cut in the banner.
+**Required (platform requirement, publish refuses without it):** At most 140 characters per language: a longer tagline is refused.
+
+**Recommended, and checked:** Over the limit is refused. game_standards check, deploy_preview and publish warn about a repeated title and a tagline cut in the banner.
 
 More: [standards.md#tagline](/guides/standards.md#tagline)
 
@@ -148,7 +158,9 @@ More: [standards.md#tagline](/guides/standards.md#tagline)
 
 **Don't:** Markdown, HTML or links. Controls (they have their own field). Prices, sales or other games.
 
-**Checked:** Over the limit is refused. game_standards check, deploy_preview and publish warn about Markdown.
+**Required (platform requirement, publish refuses without it):** At most 5000 characters per language: a longer description is refused.
+
+**Recommended, and checked:** Over the limit is refused. game_standards check, deploy_preview and publish warn about Markdown.
 
 More: [standards.md#description](/guides/standards.md#description)
 
@@ -165,7 +177,9 @@ More: [standards.md#description](/guides/standards.md#description)
 
 **Don't:** Markdown or tables.
 
-**Checked:** game_standards check warns about Markdown and notes a game with keys but no controls text.
+**Required (platform requirement, publish refuses without it):** At most 1000 characters per language: longer controls text is refused.
+
+**Recommended, and checked:** game_standards check warns about Markdown and notes a game with keys but no controls text.
 
 More: [standards.md#controls-text](/guides/standards.md#controls-text)
 
@@ -181,7 +195,9 @@ More: [standards.md#controls-text](/guides/standards.md#controls-text)
 
 **Don't:** Invent tags; anything off the list is refused.
 
-**Checked:** publish refuses a version without genre and at least 2 tags.
+**Required (platform requirement, publish refuses without it):** One genre and 2 to 8 tags from the platform lists (release rule metadata).
+
+**Recommended, and checked:** publish refuses a version without genre and at least 2 tags.
 
 More: [game-metadata.md#tags](/guides/game-metadata.md#tags)
 
@@ -198,7 +214,7 @@ More: [game-metadata.md#tags](/guides/game-metadata.md#tags)
 
 **Don't:** Make screenshot files for the store: nothing shows them.
 
-**Checked:** Taken by the platform at every verification.
+**Recommendation, checked:** Taken by the platform at every verification.
 
 More: [platform-contract.md#the-screenshot](/guides/platform-contract.md#the-screenshot)
 
@@ -214,7 +230,7 @@ More: [platform-contract.md#the-screenshot](/guides/platform-contract.md#the-scr
 
 **Don't:** Draw badges, ratings or prices into the cover or the game.
 
-**Checked:** Generated.
+**Recommendation, checked:** Generated.
 
 More: [game-metadata.md#content-descriptors-and-the-age-rating](/guides/game-metadata.md#content-descriptors-and-the-age-rating)
 
@@ -232,7 +248,7 @@ More: [game-metadata.md#content-descriptors-and-the-age-rating](/guides/game-met
 
 **Don't:** Ship trailer files in the bundle.
 
-**Checked:** game_standards check notes video files in the bundle.
+**Recommendation, checked:** game_standards check notes video files in the bundle.
 
 More: [standards.md#no-trailer](/guides/standards.md#no-trailer)
 
@@ -250,7 +266,7 @@ More: [standards.md#no-trailer](/guides/standards.md#no-trailer)
 
 **Don't:** Ship icon sets, favicons or manifest icons for the store.
 
-**Checked:** game_standards check warns when the game draws the platform's name, and notes icon files.
+**Recommendation, checked:** game_standards check warns when the game draws the platform's name, and notes icon files.
 
 More: [standards.md#no-icons](/guides/standards.md#no-icons)
 
@@ -266,7 +282,7 @@ More: [standards.md#no-icons](/guides/standards.md#no-icons)
 
 **Don't:** Promise platform achievements in the description.
 
-**Checked:** game_standards check notes achievement code without player stats.
+**Recommendation, checked:** game_standards check notes achievement code without player stats.
 
 More: [services.md#what-the-platform-does-not-provide](/guides/services.md#what-the-platform-does-not-provide)
 
@@ -285,7 +301,9 @@ More: [services.md#what-the-platform-does-not-provide](/guides/services.md#what-
 
 **Don't:** Draw a platform logo or a second splash. Show a blank page, a stand-in font or text still being filled in.
 
-**Checked:** boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).
+**Required (platform requirement, publish refuses without it):** GCP.ready() once the first playable frame is drawn, within the time verification allows (the boots check). How the loading screen looks and how often it calls GCP.progress() are recommendations.
+
+**Recommended, and checked:** boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).
 
 More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/guides/platform-contract.md#the-platform-splash-before-your-loading-screen)
 
@@ -305,7 +323,7 @@ More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/gui
 
 **Don't:** Put a pause, score or health widget under the button. Count on hiding it: exitButton 'none' no longer does.
 
-**Checked:** Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button's square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.
+**Recommendation, checked:** Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button's square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.
 
 More: [standards.md#menu-button](/guides/standards.md#menu-button)
 
@@ -325,7 +343,7 @@ More: [standards.md#menu-button](/guides/standards.md#menu-button)
 
 **Don't:** Assume the frame is already inside the notch.
 
-**Checked:** Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.
+**Recommendation, checked:** Verification tells the game it is in fullscreen on an iPhone (insets 47 / 47 / 21 sideways, 47 / 0 / 34 upright) and reads its interface layer: interface drawn under the notch or the home bar is reported, and game_standards check and publish warn about it. game_standards check also warns when a game for phones never reads the insets in its code.
 
 ![Safe areas: notch, rounded corners, home bar template](/guides/safe-area-template.png)
 
@@ -345,7 +363,9 @@ More: [input.md#phones-and-tablets](/guides/input.md#phones-and-tablets)
 
 **Don't:** Show keyboard hints ("Space to jump") on touch screens.
 
-**Checked:** Not checked: look at the preview with debug_preview on a phone viewport.
+**Required (platform requirement, publish refuses without it):** The game is playable by touch on phones and tablets (release rule every_device): with touch controls of its own (declare touch in requirements.input), or with the platform's on-screen controls pressing its keys (leave gcp.json "controls" touch on). Which of the two, and how its own controls look and where they sit, is the game's design choice.
+
+**Recommended, and checked:** Not checked: look at the preview with debug_preview on a phone viewport.
 
 ![The platform's on-screen controls template](/guides/safe-area-template.png)
 
@@ -371,7 +391,7 @@ More: [input.md#phones-and-tablets](/guides/input.md#phones-and-tablets)
 
 **Don't:** Place interface at absolute coordinates of the reference size (x = 1180) or at a fraction of it computed once. Add the safe inset to an element that already sits inside the safe area, or move a whole edge bar up by the inset (it leaves a strip of the world under it in fullscreen). Let a corner panel and a centered or edge element share the same space on narrow screens.
 
-**Checked:** game_standards check and deploy_preview warn when the game never reads the screen size, and note a game that places interface with GCP.ui.rect but gives no element an id. Verification reads the boxes placed with an id on the computer (960x540) and on every phone and tablet pass (sideways and, for a game that plays both ways, upright) and warns about each element off the screen, under the notch or the home bar, or overlapping another on the same layer, naming the elements and the screen size.
+**Recommendation, checked:** game_standards check and deploy_preview warn when the game never reads the screen size, and note a game that places interface with GCP.ui.rect but gives no element an id. Verification reads the boxes placed with an id on the computer (960x540) and on every phone and tablet pass (sideways and, for a game that plays both ways, upright) and warns about each element off the screen, under the notch or the home bar, or overlapping another on the same layer, naming the elements and the screen size.
 
 More: [standards.md#ui-layout](/guides/standards.md#ui-layout)
 
@@ -389,7 +409,7 @@ More: [standards.md#ui-layout](/guides/standards.md#ui-layout)
 
 **Don't:** Hard-code 16:9 or the window size.
 
-**Checked:** Device checks note a canvas that does not fit the screen or covers under 30% of it.
+**Recommendation, checked:** Device checks note a canvas that does not fit the screen or covers under 30% of it.
 
 More: [standards.md#window-orientation](/guides/standards.md#window-orientation)
 
@@ -399,6 +419,7 @@ More: [standards.md#window-orientation](/guides/standards.md#window-orientation)
 
 **Where:** Phones and tablets, fullscreen and the installed app; the store page's Compatibility section.
 
+- Which way up the game is played is the game's own design decision: landscape only, portrait only and both are all fine, and the platform never requires one. What the platform requires is that the game plays on computers, tablets and phones (release rule every_device), held the way it declares.
 - Declare which way up the game is played, in gcp.json requirements.orientation (compatibility {action: "declare"}): "landscape", "portrait" or "both" ("any" means both). Declare the shapes the interface is designed for, not the ones it merely survives. Without a declaration the platform assumes both.
 - landscape or portrait (one orientation): the platform locks the screen to it where the browser allows (Android in fullscreen). Where it cannot (iPhone, iPad, a locked rotation), the platform itself covers the game with a rotate-your-device prompt while the device is held the other way, pauses the game behind it, and lifts it as soon as the device is turned. The game does not draw a prompt of its own and needs no layout for the other orientation.
 - A one-orientation game still survives the other shape without breaking: the player can dismiss the prompt ("Play this way") and the computer window is always 16:9. Then fit the game to the window whole (letterbox or pillarbox the designed shape, never crop the interface) and keep running.
@@ -411,7 +432,7 @@ More: [standards.md#window-orientation](/guides/standards.md#window-orientation)
 
 **Don't:** Draw your own "rotate your device" screen: the platform shows one, and two prompts fight. Declare "both" for a game whose portrait view is a squeezed landscape layout. Read the orientation once at start, or reload the game on a turn. Call screen.orientation.lock() yourself: in a frame it only asks the platform, which already locks to the declaration.
 
-**Checked:** game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch, home bar or menu button upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.
+**Recommendation, checked:** game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch, home bar or menu button upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.
 
 More: [standards.md#orientation](/guides/standards.md#orientation)
 
@@ -428,7 +449,7 @@ More: [standards.md#orientation](/guides/standards.md#orientation)
 
 **Don't:** Scale the interface with the window by hand in a way the player cannot change.
 
-**Checked:** device checks note text under 9 px and buttons under 20 px.
+**Recommendation, checked:** device checks note text under 9 px and buttons under 20 px.
 
 More: [services.md#interface-scale-and-the-players-ui-size](/guides/services.md#interface-scale-and-the-players-ui-size)
 
@@ -445,13 +466,13 @@ More: [services.md#interface-scale-and-the-players-ui-size](/guides/services.md#
 
 **Don't:** Start phones on the highest setting.
 
-**Checked:** Not checked.
+**Recommendation, checked:** Not checked.
 
 More: [performance.md#quality-levels](/guides/performance.md#quality-levels)
 
 <a id="intended-sound"></a>
 
-### Intended sound must play correctly
+### Intended sound plays correctly
 
 **Where:** Wherever the game is designed to have sound: the title, menus, lobby, play or results, as the game chooses. A screen meant to be quiet may stay quiet.
 
@@ -466,7 +487,7 @@ More: [performance.md#quality-levels](/guides/performance.md#quality-levels)
 
 **Don't:** Start sound only from a press on the game world or from the first key. Create the AudioContext only when play starts, or only inside a gesture listener that the interface can stop.
 
-**Checked:** game_standards check and deploy_preview warn when the game starts its sound from a window gesture listener in the bubble phase: an interface that stops presses keeps it from ever running, so sound meant for the menus never plays. Whether a screen should have sound is the game's choice and is not checked.
+**Recommendation, checked:** game_standards check and deploy_preview warn when the game starts its sound from a window gesture listener in the bubble phase: an interface that stops presses keeps it from ever running, so sound meant for the menus never plays. Whether a screen should have sound is the game's choice and is not checked.
 
 More: [standards.md#intended-sound](/guides/standards.md#intended-sound)
 
@@ -482,7 +503,7 @@ More: [standards.md#intended-sound](/guides/standards.md#intended-sound)
 
 **Don't:** Paint page elements over the game.
 
-**Checked:** Advice only: verification reports a game without the hooks, or with page elements over the game, in its capture check and notes; it never stops the version.
+**Recommendation, checked:** Advice only: verification reports a game without the hooks, or with page elements over the game, in its capture check and notes; it never stops the version.
 
 More: [platform-contract.md#hand-over-the-frame](/guides/platform-contract.md#hand-over-the-frame)
 
@@ -498,7 +519,7 @@ More: [platform-contract.md#hand-over-the-frame](/guides/platform-contract.md#ha
 
 **Don't:** Leave a hook out for a mode the game has.
 
-**Checked:** deploy_preview and publish warn when an online game has no server/bot.js or misses a hook it needs.
+**Recommendation, checked:** deploy_preview and publish warn when an online game has no server/bot.js or misses a hook it needs.
 
 More: [test-bots.md](/guides/test-bots.md)
 
@@ -516,7 +537,7 @@ More: [test-bots.md](/guides/test-bots.md)
 
 **Don't:** Build your own friends list, chat or code entry.
 
-**Checked:** Not checked.
+**Recommendation, checked:** Not checked.
 
 More: [services.md#friends-invites-and-presence](/guides/services.md#friends-invites-and-presence)
 
@@ -533,6 +554,8 @@ More: [services.md#friends-invites-and-presence](/guides/services.md#friends-inv
 
 **Don't:** Override a language the player picked in the game's own settings.
 
-**Checked:** publish refuses a version whose listing misses one of its languages; metadata warns when GCP.lang is never read.
+**Required (platform requirement, publish refuses without it):** The listing in every platform language the game declares (release rule listing_languages). Which languages the game itself offers is its own choice.
+
+**Recommended, and checked:** publish refuses a version whose listing misses one of its languages; metadata warns when GCP.lang is never read.
 
 More: [game-metadata.md#languages](/guides/game-metadata.md#languages)

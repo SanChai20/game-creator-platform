@@ -52,7 +52,7 @@ createServer(async (req, res) => {
     if (report.ok && dv.profiles && dv.profiles.length && !opts.usesWebGPU) {
       const contexts = [];
       const openDevicePage = async (p, vp) => { const c = await browser.newContext({ viewport: vp, deviceScaleFactor: p.deviceScaleFactor, isMobile: true, hasTouch: true, userAgent: p.userAgent }); contexts.push(c); return c.newPage(); };
-      try { applyDeviceResults(report, await verifyDevices(openDevicePage, url, { profiles: dv.profiles, orientation: dv.orientation, readyTimeoutS: opts.readyTimeoutS }), dv.devices); }
+      try { applyDeviceResults(report, await verifyDevices(openDevicePage, url, { profiles: dv.profiles, orientation: dv.orientation, readyTimeoutS: opts.readyTimeoutS })); }
       finally { for (const c of contexts) await c.close().catch(() => {}); }
     }
     res.writeHead(200, { 'content-type': 'application/json' });

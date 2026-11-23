@@ -40,13 +40,14 @@ const S = { ...defaults, metadata_required: false };
 const ok = (id) => ({ id, ok: true, label: id, detail: '' });
 const FULL = { ok: true, browser: 'cloudflare-browser-rendering', devices: [], checks: [...REQUIRED_CHECKS, 'renders', 'input', 'responds', 'original', 'is_game', 'content'].map(ok), originality: {} };
 const FILES = [{ path: 'index.html', size: 5, sha: 'x' }];
+const MANIFEST = { compat: { requirements: { input: ['keyboard', 'mouse', 'touch'], devices: ['desktop', 'tablet', 'mobile'], orientation: 'landscape' } }, controls: { mode: 'auto' } };
 
 function world({ report = FULL, status = 'verified', project = {}, user = {}, version = {} } = {}) {
   const DB = d1(), FILESB = bucket();
   DB.sql.prepare("INSERT INTO users (id, email, name, pw_hash, creator, creator_plan, status, created_at) VALUES ('u1', 'm@x', 'Maker', '', ?, 'lifetime', ?, 0)").run(user.creator ?? 1, user.status ?? 'active');
   const p = { id: 'g1', owner_id: 'u1', slug: 'bloom', title: 'Bloom', status: 'draft', live_version: null, open_implementation: 0, tags: '["fantasy","cozy"]', ...project };
   DB.sql.prepare('INSERT INTO projects (id, owner_id, slug, title, status, live_version, open_implementation, tags, removed_reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)').run(p.id, p.owner_id, p.slug, p.title, p.status, p.live_version, p.open_implementation, p.tags, p.removed_reason ?? null);
-  const v = { project_id: 'g1', n: 3, manifest: '{}', files: JSON.stringify(FILES), file_count: 1, bytes: 5, status, report: JSON.stringify(report), human_ok: 0, created_at: 2000, published_at: null, ...version };
+  const v = { project_id: 'g1', n: 3, manifest: JSON.stringify(MANIFEST), files: JSON.stringify(FILES), file_count: 1, bytes: 5, status, report: JSON.stringify(report), human_ok: 0, created_at: 2000, published_at: null, ...version };
   DB.sql.prepare('INSERT INTO versions (project_id, n, manifest, files, file_count, bytes, status, report, human_ok, created_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(v.project_id, v.n, v.manifest, v.files, v.file_count, v.bytes, v.status, v.report, v.human_ok, v.created_at, v.published_at);
   FILESB.put('v/g1/3/index.html', '<p>x</p>'.slice(0, 5));
   const env = { DB, FILES: FILESB };
@@ -84,11 +85,11 @@ test('capture findings are advice: they never hold a release back', async () => 
   assert.equal(currentChecks(w.v, S).ok, true);
 });
 
-test('the phone and tablet pass must have run for a game that lists phones or tablets', async () => {
+test('the phone and tablet pass must have run on every new release, whatever devices it lists', async () => {
   const report = { ...FULL }; delete report.devices;
   const w = world({ report });
   assert.equal(currentChecks(w.v, S).ok, false);
-  assert.equal(currentChecks({ ...w.v, manifest: JSON.stringify({ compat: { requirements: { devices: ['desktop'] } } }) }, S).ok, true);
+  assert.equal(currentChecks({ ...w.v, manifest: JSON.stringify({ compat: { requirements: { devices: ['desktop'] } } }) }, S).ok, false, 'listing computers only does not skip it');
   assert.equal(currentChecks(w.v, { ...S, verify_devices: '' }).ok, true, 'not while the platform has the device pass off');
 });
 
@@ -231,4 +232,45 @@ test('a game played in several platform languages lists itself in each of them b
   const one = world({ version: { manifest: manifest(['en']) } });
   assert.equal(statusOf(await gate(one, 'publish', { s: { metadata_required: true } }), 'listing_languages'), 'pass');
   assert.equal(statusOf(await gate(withListing({}, { version: { manifest: manifest(['en', 'ja']), published_at: 1 } }), 'rollback', { s: { metadata_required: true } }), 'listing_languages'), 'skipped');
+});
+
+const withManifest = (m) => world({ version: { manifest: JSON.stringify(m) } });
+const req = (r, controls = { mode: 'auto' }) => ({ compat: { requirements: { input: ['keyboard', 'mouse', 'touch'], devices: ['desktop', 'tablet', 'mobile'], orientation: 'any', ...r } }, controls });
+
+test('platform requirement: a game that leaves phones or tablets out cannot be published, and is told exactly what to fix', async () => {
+  const g = await gate(withManifest(req({ devices: ['desktop'] })));
+  assert.equal(g.ok, false);
+  const r = g.rules.find((x) => x.id === 'every_device');
+  assert.equal(r.status, 'fail'); assert.equal(r.waivable, false, 'a platform requirement cannot be waived');
+  assert.match(r.reason, /leaves out tablets \(tablet\) and phones \(mobile\)/);
+  assert.match(r.fix, /compatibility \{project, action: "declare", requirements: \{devices: \["desktop", "tablet", "mobile"\]\}\}/);
+  assert.match(r.fix, /deploy_preview again/);
+  const e = gateError(g);
+  assert.equal(e.code, 'devices_unsupported');
+  assert.match(e.message, /playable on computers, tablets and phones \[every_device\]/);
+});
+
+test('platform requirement: computers need a keyboard or a mouse, touch screens need touch or the platform controls', async () => {
+  const touchOnly = (await gate(withManifest(req({ input: ['touch'] })))).rules.find((x) => x.id === 'every_device');
+  assert.equal(touchOnly.status, 'fail'); assert.match(touchOnly.reason, /keyboard or a mouse/); assert.match(touchOnly.fix, /pointer events/);
+  const keysNoOverlay = (await gate(withManifest(req({ input: ['keyboard'] }, { mode: 'none' })))).rules.find((x) => x.id === 'every_device');
+  assert.equal(keysNoOverlay.status, 'fail'); assert.match(keysNoOverlay.reason, /"touch": "none"/);
+  // a keyboard game with the platform's on-screen controls, or a mouse game the finger drives, is playable by touch
+  assert.equal(statusOf(await gate(withManifest(req({ input: ['keyboard'] }))), 'every_device'), 'pass');
+  assert.equal(statusOf(await gate(withManifest(req({ input: ['mouse'] }))), 'every_device'), 'pass');
+});
+
+test('orientation is design, never a requirement: landscape-only and portrait-only games pass', async () => {
+  for (const orientation of ['landscape', 'portrait', 'any']) assert.equal(statusOf(await gate(withManifest(req({ orientation }))), 'every_device'), 'pass', orientation);
+});
+
+test('a live game is never pulled by a newly mandatory requirement: rollback and restore do not run it', async () => {
+  const w = world({ project: { status: 'offline', live_version: 3 }, version: { manifest: JSON.stringify(req({ devices: ['desktop'] })), published_at: 1 } });
+  for (const mode of ['rollback', 'restore']) assert.equal(statusOf(await gate(w, mode), 'every_device'), 'skipped', mode);
+});
+
+test('a failed verification check says how to fix it, not only what failed', async () => {
+  const w = world({ status: 'failed', report: { ...FULL, ok: false, checks: [...FULL.checks, { id: 'device_iphone', ok: false, label: 'Plays on iPhone', detail: 'The page reloaded or navigated away when it was touched.', hint: 'Set touch-action: none on the game canvas.' }] } });
+  const v = (await gate(w)).rules.find((r) => r.id === 'verified');
+  assert.match(v.reason, /reloaded or navigated away.*To fix: Set touch-action: none/);
 });

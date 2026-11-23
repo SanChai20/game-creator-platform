@@ -1,18 +1,23 @@
 # The platform contract
 
-This page is the whole set of rules. Everything in the other guides is advice that you can take or leave.
+This page is the whole set of rules. There are two kinds, and the line between them is kept on purpose:
 
-## The hard rules
+- **Platform requirements are mandatory.** A version that misses one cannot go live; `publish` refuses it and says exactly what to fix (`publish {dry_run: true}` lists every requirement with its status). They are the hard rules below, plus the store metadata, content and originality checks further down.
+- **Game design is yours.** Which way up the game is played (landscape only, portrait only or both), how it lays out its interface, its art, cover, loading screen and sound are design decisions. The platform's game standards and the other guides recommend how to fit around the platform's own surfaces; they are advice you can take or leave, and no recommendation ever stops a version.
+
+## The hard rules (platform requirements)
 
 1. **A game is a web page.** The platform hosts web games only: native, mobile, console and desktop builds, installers and archives are refused at upload, and a page that sends players to a download, an app store or another site fails the static checks. From an engine, upload its Web / HTML5 / WebGL export. `index.html` sits at the root of the bundle. Everything it loads from the bundle uses relative paths (`./src/main.js`, `assets/tiles.png`). There is no build step on the platform: what you upload is what is served. If you want a bundler, run it yourself and upload the output.
 2. **Call `GCP.ready()` once**, right after the first frame a player could act on is drawn. Not at script start, not when a menu is still loading.
 3. **Stay alive.** After ready the page must keep rendering frames through `requestAnimationFrame`, must not throw uncaught errors, and must survive keyboard, mouse and touch input.
 
-4. **Hand over the frame.** Draw everything the player sees (the world, the HUD, menus, dialogs, text) in your canvases, never as page elements over the game, and register `GCP.test.onCapture(fn)` and `GCP.test.onState(fn)`. Text fields (`<input>`, `<textarea>`, `<select>`) are the one exception. See "Hand over the frame" below.
+4. **Play on computers, tablets and phones.** Every game on the platform must be playable on every kind of device it supports: with a keyboard or a mouse on a computer, and by touch on a phone or tablet (touch controls of your own, or the platform's on-screen controls pressing your keys). Declare `"devices": ["desktop", "tablet", "mobile"]` in `requirements`. Verification plays every version on an emulated iPhone and iPad, and it must start, keep drawing and survive taps and a drag there. `publish` refuses a version that leaves a kind of device out (rule `every_device`). Which way up it is played is your choice (`orientation`): a landscape-only or portrait-only game meets this rule.
 
 5. **Fit the game's storage.** All of a game's files together may use the game's storage (50 MB by default, the largest file 20 MB; `get_started` shows this platform's numbers under `storage`). Uploads that would go over are refused, and a version over it cannot be deployed or published. Generate content from code, load large or optional content at run time from your own host, and tell the developer about the limit when planning. `get_started {topic: "storage"}`.
 
-That is all. Genre, art style, camera, engine, rendering technique, file layout, controls and the look of the UI are yours; the UI is drawn in your canvases.
+Recommended, not required: **hand over the frame.** Draw everything the player sees (the world, the HUD, menus, dialogs, text) in your canvases, never as page elements over the game, and register `GCP.test.onCapture(fn)` and `GCP.test.onState(fn)` (text fields are the one exception). The creator's feedback screenshots need it; the `capture` check reports it as advice and never stops a version. See "Hand over the frame" below.
+
+That is all. Genre, art style, camera, orientation, engine, rendering technique, file layout, controls and the look of the UI are yours; the UI is drawn in your canvases.
 
 ## What the platform gives the page
 
@@ -123,7 +128,7 @@ With WebGPU, create pipelines with `createRenderPipelineAsync` / `createComputeP
 | server | Only when the game calls its server code: no request made it throw. A crash in `server/index.js` is listed with its message and, in a preview, the line it came from. |
 | clean | No uncaught errors and no unhandled promise rejections. |
 | capture | The game registers `GCP.test.onCapture` and `GCP.test.onState`; no page element is painted over the game at the moments the checks look (start, after the play-through, after input), text fields aside; and with the loop held, the picture the hook hands over for one frame matches that frame on screen. |
-| device_iphone, device_ipad | Once the checks above pass: the game is opened again on an emulated iPhone and iPad (touch screen, phone and tablet size, high pixel density, Safari's user agent; held sideways unless `orientation` is `portrait`), and must start, keep drawing, survive taps and a drag and throw no errors. These fail the version only for the device kinds listed in `requirements.devices`; otherwise, and for layout findings (part of the game off screen, text under 9 px, buttons under 20 px), they are notes in the report. |
+| device_iphone, device_ipad | Once the checks above pass: the game is opened again on an emulated iPhone and iPad (touch screen, phone and tablet size, high pixel density, Safari's user agent; held sideways unless `orientation` is `portrait`), and must start, keep drawing, survive taps and a drag and throw no errors. These are platform requirements: a failure on either device fails the version, whatever `requirements.devices` lists. Layout findings (part of the game off screen, text under 9 px, buttons under 20 px) are design advice: notes in the report. |
 | original | Once the checks above pass: the game is not a copy of another creator's live game. Code everyone starts from (platform templates, kits, libraries such as three.js) is ignored, so building on them is fine. |
 | is_game | Once the checks above pass: it is a game the player acts on, not a page, a form or a link to somewhere else. |
 | content | Once the checks above pass, a vision model reviews frames taken while the game was played: no hate, scams, phishing or sexual content involving minors, sexual content and violence no greater than `content` declares, and no abusive code (miners, forms that send passwords away, background workers talking to outside servers). Adult games are allowed when declared; they are shown as 18+. |
@@ -232,7 +237,7 @@ Declare them in `gcp.json` under `requirements`, or let the `compatibility` tool
 - `graphics`: the weakest API the game still runs with: `none`, `canvas`, `webgl`, `webgl2` or `webgpu`. A WebGPU game with a WebGL 2 fallback is `webgl2` with `webgpu` under `optional`. three.js r163 and later needs `webgl2`.
 - `gpu`: `hardware` when the game is unplayable on a software renderer.
 - `features` must be present; `optional` are used when present. `wasm-threads` cannot be required: games are not served cross-origin isolated, so `SharedArrayBuffer` does not exist in the page.
-- `input` lists every way the game can be played (a player needs any one); `devices` the devices it is made for (`mobile` needs touch controls).
+- `input` lists every way the game can be played (a player needs any one); `devices` the devices it plays on, which must be all three (`desktop`, `tablet`, `mobile`): a platform requirement.
 - Everything else is optional.
 
 The platform also scans the code at every deploy. With no declaration, the store shows what it detected and says so. With one, the declaration wins; required features the code uses but the declaration never mentions are added, and anything that looks under-declared is reported as a warning.
@@ -243,7 +248,7 @@ Requirements are one part of the metadata every game declares: also its genre, l
 
 ## Game standards
 
-The game standards are recommendations and best practice, not rules: no finding ever stops a version, and how the game looks, lays out its interface and plays stays its own design decision. They describe exactly how the platform's own surfaces behave around everything a game shows or hands over: the cover and its crops, how the store renders the title, tagline, description and controls text, what the platform draws over the game (its menu button, on-screen controls, friend pop-ups), safe areas, the loading hand-off, and what the store does not take (trailers, icons, logos, achievements). Each standard gives where it appears, exact sizes and limits, and what is checked: the `standards` guide (`get_started {"topic": "standards"}`, or {{ORIGIN}}/guides/standards.md) and `game_standards`, which also checks a game against all of them.
+The game standards are design recommendations and best practice, not platform requirements: no finding ever stops a version, and how the game looks, lays out its interface and plays stays its own design decision. They describe exactly how the platform's own surfaces behave around everything a game shows or hands over: the cover and its crops, how the store renders the title, tagline, description and controls text, what the platform draws over the game (its menu button, on-screen controls, friend pop-ups), safe areas, the loading hand-off, and what the store does not take (trailers, icons, logos, achievements). Each standard gives where it appears, exact sizes and limits, and what is checked: the `standards` guide (`get_started {"topic": "standards"}`, or {{ORIGIN}}/guides/standards.md) and `game_standards`, which also checks a game against all of them.
 
 ## Who runs the platform
 

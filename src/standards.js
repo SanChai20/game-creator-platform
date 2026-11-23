@@ -11,6 +11,7 @@
 // Plain JavaScript so the Worker, scripts and node tests share it. Covers have their own module (src/cover-spec.js).
 
 import { COVER } from './cover-spec.js';
+import { SPLIT } from './platform-requirements.js';
 
 /** Numbers taken from the code that draws each surface. tests/standards.mjs reads that code and fails on a mismatch. */
 export const NUMBERS = {
@@ -36,7 +37,8 @@ const norm = (x) => String(x || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''
 /**
  * The registry. Every entry: id, area ('store' | 'game' | 'not-offered'), title, where (where it appears), spec (the
  * exact rules), do / dont, enforced (what the platform checks, and when), checks (finding ids checkStandards can raise),
- * guide (the long form). Wording is for agents: say what to make, with numbers.
+ * guide (the long form), and required: the part that is a platform requirement (publish refuses without it), only on
+ * the few entries that have one. Everything else in an entry is a design recommendation. Wording is for agents: say what to make, with numbers.
  */
 export const STANDARDS = [
   // ---- the store ---------------------------------------------------------------------------------------------------
@@ -58,6 +60,7 @@ export const STANDARDS = [
     where: 'Every place the cover appears, in the player\'s platform language.',
     spec: ['A cover that shows words (the title) needs one cover per listing language with those words in it: update_project covers {zh, zh-TW, ja, ko, es}.', 'A language without its own cover shows the main cover.'],
     do: ['Keep the cover free of words if you will not make one per language.'], dont: ['Machine-translate the game\'s own name when the game keeps it in one language.'],
+    required: `The listing text (the title, and the tagline and description where the listing has them) in every platform language the game declares (release rule listing_languages). A cover per language is a recommendation.`,
     enforced: 'publish refuses a version played in a platform language its listing lacks (rule listing_languages).',
     checks: [], guide: '/guides/game-metadata.md#the-store-listing-in-every-language',
   },
@@ -84,6 +87,7 @@ export const STANDARDS = [
     ],
     do: ['Use the name the game shows on its title screen.', 'Put a subtitle in the tagline, not the title.'],
     dont: ['Rely on letter case (it is shown in capitals).', 'Add the platform\'s or the operator\'s name.', 'Add emoji or decorative symbols.'],
+    required: `At most ${N.listing.title} characters per language: a longer title is refused.`,
     enforced: 'Over the limit is refused. game_standards check notes a title too long for the banner.',
     checks: ['title-long'], guide: '/guides/standards.md#title',
   },
@@ -97,6 +101,7 @@ export const STANDARDS = [
     ],
     do: ['Lead with the verb or the hook: "Guide a lantern through a drowned city."'],
     dont: ['Repeat the title.', 'Use the space for genre words the tags already show.', 'Use quotes, emoji or ALL CAPS.'],
+    required: `At most ${N.listing.tagline} characters per language: a longer tagline is refused.`,
     enforced: 'Over the limit is refused. game_standards check, deploy_preview and publish warn about a repeated title and a tagline cut in the banner.',
     checks: ['tagline-repeats-title', 'tagline-long', 'tagline-missing'], guide: '/guides/standards.md#tagline',
   },
@@ -110,6 +115,7 @@ export const STANDARDS = [
     ],
     do: ['Open with what makes the game worth playing, then how a session goes, then modes and length.', 'Two to five short paragraphs.'],
     dont: ['Markdown, HTML or links.', 'Controls (they have their own field).', 'Prices, sales or other games.'],
+    required: `At most ${N.listing.description} characters per language: a longer description is refused.`,
     enforced: 'Over the limit is refused. game_standards check, deploy_preview and publish warn about Markdown.',
     checks: ['description-markdown', 'description-missing'], guide: '/guides/standards.md#description',
   },
@@ -118,6 +124,7 @@ export const STANDARDS = [
     where: 'The Controls box on the game page, beside the description.',
     spec: [`At most ${N.listing.controls} characters. Plain text like the description, one control per line: "WASD or arrows · move".`, 'Cover keyboard, mouse, touch and gamepad if the game supports them.'],
     do: ['Name keys by what is printed on them.'], dont: ['Markdown or tables.'],
+    required: `At most ${N.listing.controls} characters per language: longer controls text is refused.`,
     enforced: 'game_standards check warns about Markdown and notes a game with keys but no controls text.',
     checks: ['controls-markdown', 'controls-missing'], guide: '/guides/standards.md#controls-text',
   },
@@ -126,6 +133,7 @@ export const STANDARDS = [
     where: 'Store filters, category and tag pages, search, "more like this".',
     spec: ['One genre from the fixed list, up to two secondary genres, and 2 to 8 tags from the platform list only.'],
     do: ['Pick the tags a player would filter by.'], dont: ['Invent tags; anything off the list is refused.'],
+    required: `One genre and 2 to 8 tags from the platform lists (release rule metadata).`,
     enforced: 'publish refuses a version without genre and at least 2 tags.',
     checks: [], guide: '/guides/game-metadata.md#tags',
   },
@@ -179,6 +187,7 @@ export const STANDARDS = [
       'Draw the loading screen at once, set its text, language and font before the second GCP.progress() call, then only move the bar.',
     ],
     do: ['Call GCP.progress(f, label) while loading and GCP.ready() after the first playable frame.'], dont: ['Draw a platform logo or a second splash.', 'Show a blank page, a stand-in font or text still being filled in.'],
+    required: `GCP.ready() once the first playable frame is drawn, within the time verification allows (the boots check). How the loading screen looks and how often it calls GCP.progress() are recommendations.`,
     enforced: 'boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).',
     checks: ['no-progress', 'progress-hand-off', 'platform-logo'], guide: '/guides/platform-contract.md#the-platform-splash-before-your-loading-screen',
   },
@@ -220,6 +229,7 @@ export const STANDARDS = [
     ],
     do: ['Keep the bottom-left and bottom-right corners free of HUD when they show.', 'Better: make touch controls of your own and declare touch in requirements.input.'],
     dont: ['Show keyboard hints ("Space to jump") on touch screens.'],
+    required: `The game is playable by touch on phones and tablets (release rule every_device): with touch controls of its own (declare touch in requirements.input), or with the platform's on-screen controls pressing its keys (leave gcp.json "controls" touch on). Which of the two, and how its own controls look and where they sit, is the game's design choice.`,
     enforced: 'Not checked: look at the preview with debug_preview on a phone viewport.', checks: [], guide: '/guides/input.md#phones-and-tablets', template: '/guides/safe-area-template.png',
   },
   {
@@ -264,6 +274,7 @@ export const STANDARDS = [
     id: 'orientation', area: 'game', title: 'Orientation: landscape, portrait or both',
     where: 'Phones and tablets, fullscreen and the installed app; the store page\'s Compatibility section.',
     spec: [
+      'Which way up the game is played is the game\'s own design decision: landscape only, portrait only and both are all fine, and the platform never requires one. What the platform requires is that the game plays on computers, tablets and phones (release rule every_device), held the way it declares.',
       'Declare which way up the game is played, in gcp.json requirements.orientation (compatibility {action: "declare"}): "landscape", "portrait" or "both" ("any" means both). Declare the shapes the interface is designed for, not the ones it merely survives. Without a declaration the platform assumes both.',
       'landscape or portrait (one orientation): the platform locks the screen to it where the browser allows (Android in fullscreen). Where it cannot (iPhone, iPad, a locked rotation), the platform itself covers the game with a rotate-your-device prompt while the device is held the other way, pauses the game behind it, and lifts it as soon as the device is turned. The game does not draw a prompt of its own and needs no layout for the other orientation.',
       'A one-orientation game still survives the other shape without breaking: the player can dismiss the prompt ("Play this way") and the computer window is always 16:9. Then fit the game to the window whole (letterbox or pillarbox the designed shape, never crop the interface) and keep running.',
@@ -301,7 +312,7 @@ export const STANDARDS = [
     enforced: 'Not checked.', checks: [], guide: '/guides/performance.md#quality-levels',
   },
   {
-    id: 'intended-sound', area: 'game', title: 'Intended sound must play correctly',
+    id: 'intended-sound', area: 'game', title: 'Intended sound plays correctly',
     where: 'Wherever the game is designed to have sound: the title, menus, lobby, play or results, as the game chooses. A screen meant to be quiet may stay quiet.',
     spec: [
       'Every sound the game is designed to play actually plays, at the volume intended. If the title or a menu is meant to have music, it is audible as soon as the player enters the game, or on their first interaction where the browser holds sound back (Safari, iPhone, iPad): never silent because of an unlock bug or a volume mistake.',
@@ -347,6 +358,7 @@ export const STANDARDS = [
     where: 'The game itself, and every listing surface.',
     spec: ['Read GCP.lang at start and open in it when the game has that language; GCP.onLang(fn) for a switch mid-game (the game is never restarted).', 'For every platform language the game declares, give the listing (title, tagline, description, controls) and a cover with words in that language.'],
     do: ['Use the names the game itself uses in each language.'], dont: ['Override a language the player picked in the game\'s own settings.'],
+    required: `The listing in every platform language the game declares (release rule listing_languages). Which languages the game itself offers is its own choice.`,
     enforced: 'publish refuses a version whose listing misses one of its languages; metadata warns when GCP.lang is never read.', checks: [], guide: '/guides/game-metadata.md#languages',
   },
 ];
@@ -354,8 +366,8 @@ export const STANDARDS = [
 export const AREAS = { store: 'The store', 'not-offered': 'What the platform does not take', game: 'While the game plays' };
 export const standardById = (id) => STANDARDS.find((s) => s.id === id) || null;
 
-/** One line per standard, for get_started and game_standards {action: "list"}. */
-export const standardsIndex = () => STANDARDS.map((s) => `${s.id} (${AREAS[s.area]}): ${s.title}. ${s.spec[0]}`);
+/** One line per standard, for get_started and game_standards {action: "list"}: each says whether any of it is required. */
+export const standardsIndex = () => STANDARDS.map((s) => `${s.id} (${AREAS[s.area]}; ${s.required ? 'has a required part' : 'recommendation'}): ${s.title}. ${s.spec[0]}`);
 
 // ---- the validator ----------------------------------------------------------------------------------------------------
 
@@ -503,8 +515,8 @@ export function checkStandards(input = {}) {
   return out;
 }
 
-/** A finding as one line, for deploy warnings and publish answers. */
-export const findingLine = (f) => `${f.level.toUpperCase()} [${f.standard}] ${f.message} Fix: ${f.fix}`;
+/** A finding as one line, for deploy warnings and publish answers: always advice, never a requirement. */
+export const findingLine = (f) => `${f.level === 'warning' ? 'RECOMMENDATION' : 'NOTE'} [${f.standard}] ${f.message} Suggested: ${f.fix}`;
 
 // ---- the guide ----------------------------------------------------------------------------------------------------------
 
@@ -520,7 +532,11 @@ export function renderStandards(origin = '') {
     '',
     'Everything a game or its agent provides, as the platform shows it: where each thing appears, its exact sizes and limits, what to do and not do, and what the platform checks.',
     '',
-    '**These are recommendations and best practice, not rules.** The platform owns its own surfaces (the store, the player, the splash, the menu button, the safe area it reports) and tells you exactly how they behave; how the game itself looks, lays out its interface and plays is the game\'s design decision. Every finding below is advice: `deploy_preview`, `game_standards` check and `publish` report it, and none of them stops a version. What does stop one is listed in the release requirements (it boots, renders, takes input, plays on the devices it lists, its files and store metadata, originality and content).',
+    '## Two kinds of rule',
+    '',
+    `**Platform requirements (mandatory).** ${SPLIT.requirements} They are the release requirements, checked by \`publish\` (\`publish {dry_run: true}\` lists each one) and in [the contract](${link('/guides/platform-contract.md')}). Where an entry below has a mandatory part, it says **Required** and names it.`,
+    '',
+    `**Design recommendations (advice).** ${SPLIT.recommendations} Everything else on this page is one: \`deploy_preview\`, \`game_standards\` check and \`publish\` report each finding as RECOMMENDATION, weigh it against the game\'s design, and none of them stops a version. A one-orientation game, a portrait game, a game with its own layout style are all fine.`,
     '',
     'Read the entry before you make the thing. `game_standards {action: "get", id}` returns one entry; `game_standards {project, action: "check"}` checks the game and its listing against all of them and lists each finding with the fix. `deploy_preview` and `publish` report the same findings.',
     '',
@@ -536,7 +552,8 @@ export function renderStandards(origin = '') {
       out.push('', `<a id="${s.id}"></a>`, '', `### ${s.title}`, '', `**Where:** ${s.where}`, '', ...s.spec.map((x) => `- ${x}`));
       if (s.do.length) out.push('', `**Do:** ${s.do.join(' ')}`);
       if (s.dont.length) out.push('', `**Don't:** ${s.dont.join(' ')}`);
-      out.push('', `**Checked:** ${s.enforced}`);
+      if (s.required) out.push('', `**Required (platform requirement, publish refuses without it):** ${s.required}`);
+      out.push('', `**${s.required ? 'Recommended, and checked' : 'Recommendation, checked'}:** ${s.enforced}`);
       if (s.template) out.push('', `![${s.title} template](${link(s.template)})`);
       out.push('', `More: [${s.guide.replace(/^\/guides\//, '')}](${link(s.guide)})`);
     }
