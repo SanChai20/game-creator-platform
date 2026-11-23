@@ -332,7 +332,7 @@ Every game plays on phones and tablets with no code for it. At deploy the platfo
 
 ## Verification and test hooks
 
-Every preview is opened in a real browser with no GPU. It must call `GCP.ready()` within 30 seconds (default), keep rendering, show a non-blank picture, survive keyboard, mouse and touch, load every file, throw no uncaught errors and hand over its exact frame. `deploy_preview {dry_run: true}` runs only the static checks.
+Every preview is opened in a real browser with no GPU. It must call `GCP.ready()` within 30 seconds (default), keep answering (redrawing all the time is not required), show a non-blank picture, survive keyboard, mouse and touch, load every file, throw no uncaught errors and hand over its exact frame. `deploy_preview {dry_run: true}` runs only the static checks.
 
 ```js
 GCP.test.onCapture(() => [world, ui]);                 // required: the canvases that hold everything the player sees

@@ -20,6 +20,7 @@
     "test:zones": "node tests/zones-browser.mjs",
     "test:attach": "node tests/feedback-attach-browser.mjs",
     "test:responds": "node tests/responds-browser.mjs",
+    "test:sandbox": "node tests/sandbox-browser.mjs",
     "db:local": "wrangler d1 migrations apply gcp-db --local",
     "db:remote": "wrangler d1 migrations apply gcp-db --remote",
     "deploy": "npm run build && wrangler deploy"

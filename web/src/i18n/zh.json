@@ -9,7 +9,7 @@
  "Allow new sign-ups": "开放新用户注册",
  "Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game": "对边界情况询问 Workers AI（相似但不明显是复制），并判断每个未用游戏引擎构建的上传是否是游戏",
  "Authorization lifetime before the agent must be re-approved (seconds)": "授权有效期，到期后需重新批准智能体（秒）",
- "Block publishing a copy or a non-game (off: report it as a warning only)": "阻止发布抄袭作品或非游戏内容（关闭：仅作为警告报告）",
+ "Block publishing a copy of another creator's game (off: report it as a warning only)": "阻止发布抄袭其他创作者游戏的作品（关闭：仅作为警告报告）",
  "Brand": "品牌",
  "Bundle size (bytes)": "游戏包大小（字节）",
  "Check each verified version against other creators' live games (copies) and for uploads that are not games": "将每个已验证版本与其他创作者的线上游戏比对（抄袭），并检查非游戏上传",

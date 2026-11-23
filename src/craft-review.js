@@ -212,9 +212,9 @@ export function craftReview(m) {
 
   // 7. proof: the rules were actually played
   const pt = m.playthrough, played = !!(pt && pt.ok);
-  add('proof', 'Proven playable to the end', 10, [
-    [0.5, played ? 1 : 0, 'Nothing has played the rules through. Register GCP.test.onPlaythrough with five or more steps (score, win or lose, the end screen, restart); see the platform-contract guide.'],
-    [0.3, played ? ramp(pt.steps.length, 1, 5) : 0, played ? `The play-through has ${pt.steps.length} step${pt.steps.length === 1 ? '' : 's'}; full marks from 5. Add steps for the parts it skips (scoring, winning, losing, the end screen, restart).` : ''],
+  add('proof', 'Proven playable', 10, [
+    [0.5, played ? 1 : 0, 'Nothing has played the game through its own rules. Register GCP.test.onPlaythrough with five or more steps of what a player does (for a sandbox: place, draw, undo, clear; scoring, winning or an end screen only if the game has them); see the platform-contract guide.'],
+    [0.3, played ? ramp(pt.steps.length, 1, 5) : 0, played ? `The play-through has ${pt.steps.length} step${pt.steps.length === 1 ? '' : 's'}; full marks from 5. Add steps for the parts it skips (what a player does, and scoring, winning or an end screen if the game has them).` : ''],
     [0.2, m.warnings ? 0 : 1, `${m.warnings || 0} console warnings during the run; the report lists them under warnings.`],
   ],
     `${played ? `play-through of ${pt.steps.length} steps passed` : 'no play-through registered'}; ${m.warnings || 0} console warnings`,

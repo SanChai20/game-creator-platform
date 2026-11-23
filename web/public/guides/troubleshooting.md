@@ -137,10 +137,6 @@ Every game hands the platform its frame so the creator's feedback screenshots ar
 
 The platform compares each verified version with the live games of other creators on two kinds of evidence. The code: fingerprints of your own code that survive renamed variables, reformatting and minifying, files that are identical byte for byte, and asset hashes. The identity: the same or a near title, the same tagline, the names of its characters, cards, enemies and places, and how it looks. Platform templates, kits and common libraries are left out, so two games built on the same template do not match each other. Building a game like another one is allowed; taking its identity is not, so a game rebuilt from another's description or build skill under the same names is refused too. The detail names the game it matches and lists exactly what matched. No person reviews copies: rules settle the clear cases, and a close pair goes to an AI model that sees the listings, facts about how both games are built (never code) and the measurements; its answer is final. Make the game your own (your own code, names, rules and look) and deploy again. If the other game is yours under another account, contact the platform.
 
-## is_game: the upload is not a game
-
-The platform hosts web games only. A page nothing in which responds to the player (no keyboard, mouse, touch, pointer or gamepad input and no buttons) is refused, and every upload not built with a known game engine is reviewed by an AI model that sees the screenshot, the visible text, the controls and what happened in the test browser. If it is a game, make sure the first screen shows play (or a menu that leads to it) and register `GCP.test.onPlaythrough`; a passing play-through counts in favour but on its own does not make a page a game.
-
 ## content: the version was refused for its content or code
 
 Every verified version is reviewed by an AI vision model that reads the listing, the page text and frames taken while the verification browser started the game, ran its play-through and gave it input. It refuses:
