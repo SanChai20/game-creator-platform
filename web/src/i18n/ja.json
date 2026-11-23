@@ -2367,7 +2367,7 @@
  "{n} open player reports.": "未処理のプレイヤー報告が {n} 件あります。",
  "New games you put live in the last 7 days: {used} of {cap}.": "過去 7 日間に公開した新しいゲーム：{used} / {cap}。",
  "The next slot opens {when}.": "次の枠は {when} に空きます。",
- "Require the playability checks: the game reacts to input, keeps running through bot play, and has a score or an ending (off: they are not run)": "プレイアビリティチェックを必須にする：入力に反応し、ボットプレイ中も動き続け、スコアか結末がある（オフ：実行しない）",
+ "Require the playability checks: the game reacts to input and keeps running through bot play (off: they are not run)": "プレイアビリティチェックを必須にする：入力に反応し、ボットプレイ中も動き続ける（オフ：実行しない）",
  "Seconds of bot play (random keys, clicks, drags and taps) a game must keep running through (5 to 180)": "ゲームが動き続けなければならないボットプレイの秒数（ランダムなキー、クリック、ドラッグ、タップ。5〜180）",
  "Store quality": "ストアの品質",
  "New games one creator can put live in any 7 days (updates to live games are never limited; 0: no cap)": "1 人のクリエイターが任意の 7 日間に公開できる新しいゲームの数（公開中のゲームの更新は無制限。0：上限なし）",

@@ -67,3 +67,17 @@ test('the publish job uses it, with the host the game was deployed to', () => {
   assert.match(body, /switchLive\(env, p, v, url, await onSharedHost\(env, p\.id, 'live'\), waitHealthy/);
   assert.doesNotMatch(body.slice(0, body.indexOf('\n}\n')), /UPDATE projects SET status = 'live'/);
 });
+
+test('a score or an ending is optional: the live version records it as a ranking signal, and a failed switch puts it back', async () => {
+  const s = setup();
+  const report = (soft) => JSON.stringify({ ok: true, checks: [{ id: 'score_or_end', ok: true, ...(soft ? { soft: true } : {}) }] });
+  const flag = () => s.env.DB.sql.prepare("SELECT eng_outcome FROM projects WHERE id = 'g1'").get().eng_outcome;
+  assert.equal((await switchLive(s.env, s.p, { ...s.v, report: report(false) }, 'u', true, sharedHost(s))).ok, true);
+  assert.equal(flag(), 1, 'it reported a score');
+  const s2 = setup();
+  await switchLive(s2.env, s2.p, { ...s2.v, report: report(true) }, 'u', true, sharedHost(s2));
+  assert.equal(s2.env.DB.sql.prepare("SELECT eng_outcome FROM projects WHERE id = 'g1'").get().eng_outcome, 0, 'a sandbox game goes live without one');
+  const s3 = setup();
+  await switchLive(s3.env, s3.p, { ...s3.v, report: report(false) }, 'u', true, async () => ({ ok: false, detail: 'timeout' }));
+  assert.equal(s3.env.DB.sql.prepare("SELECT eng_outcome FROM projects WHERE id = 'g1'").get().eng_outcome, 0, 'put back');
+});

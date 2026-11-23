@@ -165,7 +165,7 @@
  "Smallest discount a sale can offer (percent off the regular price)": "特价最低折扣（原价的百分比）",
  "Lowest price a game can have on sale": "特价最低价格",
  "Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)": "特价结束或原价上调后，需等待多少天才能开始下一次特价（0：无需等待）",
- "Require the playability checks: the game reacts to input, keeps running through bot play, and has a score or an ending (off: they are not run)": "要求可玩性检查：游戏会响应输入、在机器人游玩中持续运行，并有分数或结局（关闭：不运行这些检查）",
+ "Require the playability checks: the game reacts to input and keeps running through bot play (off: they are not run)": "要求可玩性检查：游戏会响应输入，并在机器人游玩中持续运行（关闭：不运行这些检查）",
  "Seconds of bot play (random keys, clicks, drags and taps) a game must keep running through (5 to 180)": "游戏必须持续运行的机器人游玩秒数（随机按键、点击、拖动和点触；5 到 180）",
  "Store quality": "商店质量",
  "New games one creator can put live in any 7 days (updates to live games are never limited; 0: no cap)": "每位创作者任意 7 天内可上线的新游戏数（已上线游戏的更新不受限；0：不设上限）",

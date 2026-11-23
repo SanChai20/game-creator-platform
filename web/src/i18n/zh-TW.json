@@ -2388,7 +2388,7 @@
  "{n} open player reports.": "{n} 則待處理的玩家檢舉。",
  "New games you put live in the last 7 days: {used} of {cap}.": "過去 7 天你上線的新遊戲：{used} / {cap}。",
  "The next slot opens {when}.": "下一個名額將於 {when} 開放。",
- "Require the playability checks: the game reacts to input, keeps running through bot play, and has a score or an ending (off: they are not run)": "要求可玩性檢查：遊戲會回應輸入、在機器人遊玩中持續執行，並有分數或結局（關閉：不執行這些檢查）",
+ "Require the playability checks: the game reacts to input and keeps running through bot play (off: they are not run)": "要求可玩性檢查：遊戲會回應輸入，並在機器人遊玩中持續執行（關閉：不執行這些檢查）",
  "Seconds of bot play (random keys, clicks, drags and taps) a game must keep running through (5 to 180)": "遊戲必須持續執行的機器人遊玩秒數（隨機按鍵、點擊、拖曳與觸控；5 到 180）",
  "Store quality": "商店品質",
  "New games one creator can put live in any 7 days (updates to live games are never limited; 0: no cap)": "每位創作者任意 7 天內可上線的新遊戲數（已上線遊戲的更新不受限；0：不設上限）",

@@ -409,13 +409,15 @@ export async function verifyPage(page, url, opts = {}) {
       : !listens ? 'The game\'s own code listens for no keyboard, mouse, touch or gamepad input, and has no controls on the page.'
       : `Pressing keys, clicking, dragging and tapping changed ${(inputMax * 100).toFixed(1)}% of the screen; with nothing pressed ${(idleMax * 100).toFixed(1)}% changed by itself, so the input made no visible difference${played ? ' (a passing play-through alone does not show that a player can play)' : ''}.`,
       reacts ? '' : 'Platform requirement: a game reacts to the player. The verifier presses arrows, WASD, Space, Enter, J, K, Z, X, clicks, drags and taps in the play area after the game starts. Listen for input (keydown, pointerdown, touchstart, or the platform\'s on-screen controls) and make each press visibly do something: move, aim, select, shoot. If the game waits on a title screen, register GCP.test.onAutostart to drop into play. When the whole screen moves by itself anyway, register GCP.test.onState(fn) returning what the player changes (position, selection), and the check reads that instead.');
-    // a score or an ending: reported through the SDK, or a play-through that played to the end
+    // a score or an ending: optional. Sandbox, idle, creative and exploration games have neither by design, so this is
+    // advice that never stops a version; a game that reports one gets a small lift in the store's ranking (eng_outcome).
     const scored = outcome.scores > 0 || outcome.submits > 0, ended = outcome.ends > 0 || outcome.matchEnds > 0;
-    const ok = scored || ended || played;
-    add('score_or_end', ok, 'Has a score or an ending', ok
-      ? [scored && `reported a score (GCP.score ${outcome.scores}×, leaderboard ${outcome.submits}×)`, ended && `reached an ending (GCP.gameOver ${outcome.ends}×${outcome.matchEnds ? `, match end ${outcome.matchEnds}×` : ''})`, played && 'its play-through played it to the end'].filter(Boolean).join('; ') + '.'
-      : 'Nothing reported a score or an ending: no GCP.score, GCP.gameOver or GCP.leaderboard.submit call while it started, was played and was played by the bot, and no play-through that played it to the end.',
-      ok ? '' : 'Platform requirement: a game has a score or an ending. Call GCP.score(n) whenever the score changes (calling it once when a run starts counts), and GCP.gameOver({ outcome: \'win\' | \'lose\' | \'done\', score }) when a run, level or match ends. GCP.leaderboard.submit counts too, and so does a GCP.test.onPlaythrough that plays the game to its ending. Then deploy_preview again.');
+    const has = scored || ended || played;
+    add('score_or_end', true, 'Reports a score or an ending (optional)', has
+      ? [scored && `reported a score (GCP.score ${outcome.scores}×, leaderboard ${outcome.submits}×)`, ended && `reached an ending (GCP.gameOver ${outcome.ends}×${outcome.matchEnds ? `, match end ${outcome.matchEnds}×` : ''})`, played && 'its play-through played it to the end'].filter(Boolean).join('; ') + '; the store ranks it a little higher for it.'
+      : 'Optional, not a fault (it does not stop the version): nothing reported a score or an ending, which is fine for a sandbox, idle, creative or exploration game.',
+      has ? '' : 'Optional: if the game has a score or an ending, call GCP.score(n) when the score changes and GCP.gameOver({ outcome: \'win\' | \'lose\' | \'done\', score }) when a run, level or match ends. The store then ranks it a little higher. A game without either is fine as it is.');
+    if (!has) checks[checks.length - 1].soft = true;
   };
   // Frames for the content review (src/content-check.js): small JPEGs taken while the game starts, plays itself through and
   // takes input, so the review judges what a player actually sees, not only the first screen.
@@ -544,7 +546,8 @@ export async function verifyPage(page, url, opts = {}) {
       responds ? '' : 'The verifier clicks the centre, presses Enter, Space, WASD and the arrows, drags and taps. A game must visibly react, or move by itself. If the game waits on a title screen, register GCP.test.onAutostart to skip it.');
   }
   // 5d. playability, a platform requirement (o.playability, on by default): the game reacts to the player's input, keeps
-  // running through a stretch of bot play (random keys, clicks, drags and taps), and has a score or an ending.
+  // running through a stretch of bot play (random keys, clicks, drags and taps). Whether it reports a score or an ending is
+  // recorded as an optional signal, never a requirement.
   if (o.playability !== false && pic1 && pic1.img && checks.every((c) => c.ok)) await playability();
   report.page = { text: (ui2 && ui2.text) || (ui1 && ui1.text) || '', controls: Math.max(ui1 ? ui1.controls : 0, ui2 ? ui2.controls : 0), domGame };
   // 5c. conduct: the page stays on its own address and does not open windows, start downloads or bury the player in dialogs

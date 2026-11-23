@@ -27,9 +27,9 @@ run(async (boot) => {
 
   update(0, 0);                                    // draw the first frame…
   if (window.GCP) GCP.ready();                     // …then tell the platform the game is playable
-  // Required to publish: a score or an ending. Call GCP.score(n) whenever the score changes (once when a run starts
-  // counts) and GCP.gameOver({ outcome: 'win' | 'lose' | 'done', score }) when a run ends. The game must also react to
-  // input and keep running through the verifier's bot play (the platform-contract guide, "Be playable").
+  // Required to publish: the game reacts to input and keeps running through the verifier's bot play (the
+  // platform-contract guide, "Be playable"). A score or an ending is optional: if the game has one, call GCP.score(n)
+  // when the score changes and GCP.gameOver({ outcome: 'win' | 'lose' | 'done', score }) when a run ends (a small ranking lift).
   boot.done();
   createLoop({ update }).start();
 });

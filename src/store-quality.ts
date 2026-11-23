@@ -1,8 +1,10 @@
 // Store quality: what keeps low-effort games from flooding the store, without blocking honest creators.
 //
 //   playability     a platform requirement checked by the verifier (src/verify-core.js, playability): the game reacts to
-//                   input, keeps running through bot play, and has a score or an ending. A version that fails one does
-//                   not go live (src/release-gate.ts, "verified").
+//                   input and keeps running through bot play. A version that fails one does not go live
+//                   (src/release-gate.ts, "verified"). A score or an ending is optional (sandbox, idle, creative and
+//                   exploration games have neither): a live version that reports one (GCP.score, GCP.gameOver,
+//                   GCP.leaderboard.submit) gets a small ranking lift, OUTCOME_LIFT (projects.eng_outcome).
 //   weekly cap      a creator can put a few new games live in any 7 days (publish_cap_base), more for each of their
 //                   well-rated live games, up to publish_cap_max. Updates to games already live are never limited.
 //                   Checked by the release gate (rule publish_cap); an admin can waive it for one version.
@@ -88,6 +90,14 @@ const RETURN_SCALE = `COALESCE((SELECT value FROM store_tuning WHERE key = 'retu
  */
 export function engagementFactor(a = 'p'): string {
   return `(CASE WHEN ${a}.eng_players >= ${ENGAGEMENT_MIN_PLAYERS} THEN (0.5 + 0.5 * MIN(1.0, ${a}.eng_avg_s * 1.0 / ${TIME_SCALE}) + 0.5 * MIN(1.0, ${a}.eng_return * 1.0 / ${RETURN_SCALE})) * (1.0 - 0.5 * ${a}.eng_quit / 100.0) ELSE ${NEUTRAL_FACTOR} END)`;
+}
+/** A live version that reports a score or an ending ranks this much higher (optional; never required). */
+export const OUTCOME_LIFT = 0.05;
+/** The trending lift for a score or an ending (an SQL fragment over projects a). */
+export function outcomeFactor(a = 'p'): string { return `(1.0 + ${OUTCOME_LIFT} * ${a}.eng_outcome)`; }
+/** 1 when a verification report shows a score or an ending (its score_or_end check passed without the advice flag). */
+export function outcomeOf(report: string | null | undefined): number {
+  try { const c = (JSON.parse(report || '{}').checks || []).find((x: { id: string }) => x.id === 'score_or_end'); return c && c.ok && !c.soft ? 1 : 0; } catch { return 0; }
 }
 /** The same in JavaScript (tests, the console). */
 export function engagementOf(g: { eng_players: number; eng_avg_s: number; eng_return: number; eng_quit: number }, scale = { time_s: DEFAULT_TIME_SCALE_S, ret: DEFAULT_RETURN_SCALE }): number {

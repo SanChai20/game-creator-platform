@@ -6,7 +6,7 @@
      GCP.progress(f, label) optional, 0..1 while loading (again after ready() while a world or level loads)
      GCP.fatal(err)         call if the game cannot start (also set automatically by nothing: uncaught
                             errors are recorded, not fatal, unless they stop frames from advancing)
-     GCP.score(n) / GCP.gameOver(result)  a game has a score or an ending: call one of them (store requirement)
+     GCP.score(n) / GCP.gameOver(result)  optional: report a score or an ending if the game has one (a small ranking lift)
    Everything else is optional help: saves, leaderboards, rooms, test hooks. */
 (function () {
   'use strict';
@@ -2004,8 +2004,9 @@
     fatal: function (err) { fontHold.release(); splash.send('fatal'); S.fatal = String(err && (err.stack || err.message) || err).slice(0, 1000); console.error('[fatal] ' + S.fatal); },
     /** Optional numbers for reports and the console (draw calls, triangles, quality, …). */
     stats: function (obj) { S.stats = obj; },
-    /** The player's current score. Every game on the store has a score or an ending: call this when the score changes
-        (once when a run starts is enough to count), or GCP.gameOver when a run, level or match ends. Returns the number. */
+    /** The player's current score. Optional: a game with a score calls this when the score changes, and GCP.gameOver
+        when a run, level or match ends; the store ranks it a little higher. Sandbox, idle, creative and exploration
+        games without a score or an ending need neither. Returns the number. */
     score: function (n) { var v = +n; if (!isFinite(v)) return null; S.outcome.scores++; S.outcome.score = v; return v; },
     /** A run, level or match ended: gameOver({ outcome: 'win' | 'lose' | 'draw' | 'done', score }). Both fields optional. */
     gameOver: function (result) {

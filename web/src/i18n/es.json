@@ -2366,7 +2366,7 @@
  "{n} open player reports.": "{n} denuncias de jugadores abiertas.",
  "New games you put live in the last 7 days: {used} of {cap}.": "Juegos nuevos que publicaste en los últimos 7 días: {used} de {cap}.",
  "The next slot opens {when}.": "El siguiente hueco se abre el {when}.",
- "Require the playability checks: the game reacts to input, keeps running through bot play, and has a score or an ending (off: they are not run)": "Exigir las comprobaciones de jugabilidad: el juego responde a la entrada, sigue funcionando durante el juego del bot y tiene puntuación o final (desactivado: no se ejecutan)",
+ "Require the playability checks: the game reacts to input and keeps running through bot play (off: they are not run)": "Exigir las comprobaciones de jugabilidad: el juego responde a la entrada y sigue funcionando durante el juego del bot (desactivado: no se ejecutan)",
  "Seconds of bot play (random keys, clicks, drags and taps) a game must keep running through (5 to 180)": "Segundos de juego del bot (teclas, clics, arrastres y toques aleatorios) durante los que un juego debe seguir funcionando (de 5 a 180)",
  "Store quality": "Calidad de la tienda",
  "New games one creator can put live in any 7 days (updates to live games are never limited; 0: no cap)": "Juegos nuevos que un creador puede publicar en cualquier periodo de 7 días (las actualizaciones de juegos publicados nunca se limitan; 0: sin límite)",

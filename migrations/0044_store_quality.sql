@@ -14,6 +14,9 @@ ALTER TABLE projects ADD COLUMN eng_avg_s INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE projects ADD COLUMN eng_quit INTEGER NOT NULL DEFAULT 0;     -- percent
 ALTER TABLE projects ADD COLUMN eng_return INTEGER NOT NULL DEFAULT 0;   -- percent
 ALTER TABLE projects ADD COLUMN eng_at INTEGER;
+-- 1 when the live version reported a score or an ending while it was verified (GCP.score, GCP.gameOver,
+-- GCP.leaderboard.submit or a play-through to the end). Optional: it only lifts the ranking a little. Set at go-live.
+ALTER TABLE projects ADD COLUMN eng_outcome INTEGER NOT NULL DEFAULT 0;
 
 -- Hidden from the store (lists, search, shelves, picks) until an admin reviews it. The game stays playable by its link,
 -- so players who bought it keep it. hidden_reason: 'reports' (player reports reached the threshold) or 'admin'.

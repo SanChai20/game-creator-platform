@@ -55,7 +55,7 @@ try {
     const a = score * 2.4, d = 6;
     beacon.position.set(player.position.x + Math.cos(a) * d, 1.2, player.position.z + Math.sin(a) * d);
   }
-  // a score or an ending is a store requirement: GCP.score when it changes, GCP.gameOver when a run ends
+  // optional score and ending (a small ranking lift): GCP.score when it changes, GCP.gameOver when a run ends
   function restart() { score = 0; player.position.set(0, 0.5, 0); placeBeacon(); if (G) G.score(0); }
   restart();
 

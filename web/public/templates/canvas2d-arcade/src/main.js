@@ -74,7 +74,7 @@ run(async (boot) => {
     G.test.onState(() => ({ score, lives, best, over, motes: motes.length, wisps: wisps.length }));
   }
   const around = (min, max) => { const a = rand() * TAU, d = min + rand() * (max - min); return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }; };
-  // a score or an ending is a store requirement: GCP.score when it changes, GCP.gameOver when a run ends
+  // optional score and ending (a small ranking lift): GCP.score when it changes, GCP.gameOver when a run ends
   function reset() { p.x = p.y = p.vx = p.vy = 0; motes = []; wisps = []; score = 0; lives = 3; over = false; spawn = 0; if (G) G.score(0); }
   async function end() {
     over = true; audio.noise({ dur: 0.6, vol: 0.3, freq: 300 });

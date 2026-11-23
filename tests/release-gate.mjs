@@ -295,9 +295,13 @@ test('store quality: the playability checks must be on every new release, and a 
     const off = await gate(world({ report: { ...FULL, checks: FULL.checks.filter((c) => c.id !== id) } }), 'publish', { s: { verify_playability_required: false } });
     assert.equal(statusOf(off, 'current_checks'), 'pass', 'not while the platform has them off');
   }
-  const failed = world({ status: 'failed', report: { ...FULL, ok: false, checks: FULL.checks.map((c) => (c.id === 'score_or_end' ? { ...c, ok: false, hint: 'Call GCP.score(n)' } : c)) } });
+  const failed = world({ status: 'failed', report: { ...FULL, ok: false, checks: FULL.checks.map((c) => (c.id === 'input_handled' ? { ...c, ok: false, hint: 'Listen for keydown or pointerdown' } : c)) } });
   const fg = await gate(failed);
-  assert.equal(statusOf(fg, 'verified'), 'fail'); assert.match(gateText(fg), /GCP\.score/);
+  assert.equal(statusOf(fg, 'verified'), 'fail'); assert.match(gateText(fg), /keydown/);
+  // a score or an ending is optional: a sandbox game without one (an advice check, or none at all) still goes live
+  assert.ok(!PLAYABILITY_CHECKS.includes('score_or_end'));
+  const sandbox = await gate(world({ report: { ...FULL, checks: [...FULL.checks.filter((c) => c.id !== 'score_or_end'), { id: 'score_or_end', ok: true, soft: true, label: 'Reports a score or an ending (optional)' }] } }));
+  assert.equal(statusOf(sandbox, 'verified'), 'pass'); assert.equal(statusOf(sandbox, 'current_checks'), 'pass');
   // three other new games of this account went live in the last 7 days
   const w = world();
   for (let i = 0; i < 3; i++) w.DB.sql.prepare("INSERT INTO projects (id, owner_id, slug, title, status, created_at, updated_at, published_at) VALUES (?, 'u1', ?, 'x', 'live', 0, 0, ?)").run('o' + i, 'o' + i, Date.now() - 86400000);

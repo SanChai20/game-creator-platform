@@ -77,6 +77,16 @@ test('trending: play time and how players stick with a game move it, not play co
   assert.ok(recent(db, long) > recent(db, spammy), 'minutes played weigh more than opens');
 });
 
+test('trending: a score or an ending is an optional signal that lifts a game a little', async () => {
+  const db = d1(); seed(db);
+  const sandbox = game(db, { days: [[0, 100, 6000]] });
+  const scored = game(db, { days: [[0, 100, 6000]] });
+  db.sql.exec(`UPDATE projects SET eng_outcome = 1 WHERE id = '${scored}'`);
+  await trendStmt(db, T).run();
+  assert.equal(recent(db, sandbox), Math.round(300 * 0.8 * 0.95), 'no penalty without one');
+  assert.equal(recent(db, scored), Math.round(300 * 0.8 * 1.05 * 0.95));
+});
+
 const C = (id, o = {}) => ({ id, featured: 0, price_cents: 0, recent: 0, plays: 10, rating_sum: 0, rating_count: 0, published_at: 0, last3: 0, prior7: 0, ...o });
 
 test('choosePicks: one slot per kind, featured first, then filled from trending', () => {

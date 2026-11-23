@@ -16,7 +16,7 @@ import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
 import { freeTrendingOrder } from './catalog';
 import { getSettings } from './settings';
-import { engagementFactor } from './store-quality';
+import { engagementFactor, outcomeFactor } from './store-quality';
 
 /** Days of activity the trending score looks at. */
 export const TREND_DAYS = 14;
@@ -41,7 +41,7 @@ const BAYES = (p = '') => `((${p}rating_sum + ${PRIOR_MEAN * PRIOR_N}) * 1.0 / (
 export function trendStmt(db: D1Database, t = now()): D1PreparedStatement {
   const today = dayOf(t);
   return db.prepare(`UPDATE projects SET recent = n.score FROM (
-      SELECT p.id, CASE WHEN p.status = 'live' THEN CAST(ROUND(COALESCE(d.s, 0) * ${engagementFactor('p')} * (0.6 + 0.1 * ${BAYES('p.')})) AS INTEGER) ELSE 0 END AS score
+      SELECT p.id, CASE WHEN p.status = 'live' THEN CAST(ROUND(COALESCE(d.s, 0) * ${engagementFactor('p')} * ${outcomeFactor('p')} * (0.6 + 0.1 * ${BAYES('p.')})) AS INTEGER) ELSE 0 END AS score
       FROM projects p LEFT JOIN (
         SELECT project_id, SUM((plays * 2 + seconds / 60.0) * 2.0 / (2 + julianday(?1) - julianday(day))) AS s
         FROM game_daily WHERE day >= ?2 AND day <= ?1 GROUP BY project_id

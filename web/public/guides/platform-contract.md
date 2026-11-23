@@ -11,10 +11,10 @@ This page is the whole set of rules. There are two kinds, and the line between t
 2. **Call `GCP.ready()` once**, right after the first frame a player could act on is drawn. Not at script start, not when a menu is still loading.
 3. **Stay alive.** After ready the page must keep rendering frames through `requestAnimationFrame`, must not throw uncaught errors, and must survive keyboard, mouse and touch input.
 
-3b. **Be playable.** A game reacts to the player, keeps running whatever the player presses, and has a score or an ending. Verification checks all three (`input_handled`, `bot_play`, `score_or_end` below), and `publish` refuses a version that fails one:
+3b. **Be playable.** A game reacts to the player and keeps running whatever the player presses. Verification checks both (`input_handled`, `bot_play` below), and `publish` refuses a version that fails one:
    - Make every press visibly do something (move, aim, select, shoot, a menu highlight). The verifier presses arrows, WASD, Space, Enter, J, K, Z, X, clicks, drags and taps in the play area and compares the screen with what changes when nothing is pressed. If the game opens on a title screen, register `GCP.test.onAutostart` to drop into play. When the whole screen moves by itself anyway, `GCP.test.onState(fn)` returning what the player changes (position, selection) is read instead.
    - Keep running through bot play: random keys, clicks, drags and taps for about 45 seconds (`get_started` shows this platform's number). No uncaught errors, no stopped loop, no leaving the page. Restarting by reloading ("Play again") is fine when it boots again.
-   - Report a score or an ending: `GCP.score(n)` whenever the score changes (once when a run starts is enough to count), or `GCP.gameOver({ outcome: 'win' | 'lose' | 'done', score })` when a run, level or match ends. `GCP.leaderboard.submit` and a `GCP.test.onPlaythrough` that plays the game to its end count too.
+   - A score or an ending is **optional**. Sandbox, idle, creative and exploration games can have neither, and nothing needs declaring. A game that has one reports it with `GCP.score(n)` when the score changes and `GCP.gameOver({ outcome: 'win' | 'lose' | 'done', score })` when a run, level or match ends (`GCP.leaderboard.submit` and a `GCP.test.onPlaythrough` that plays to the end count too); the store then ranks it a little higher (`score_or_end` below, advice only).
 
 4. **Play on computers, tablets and phones.** Every game on the platform must be playable on every kind of device it supports: with a keyboard or a mouse on a computer, and by touch on a phone or tablet (touch controls of your own, or the platform's on-screen controls pressing your keys). Declare `"devices": ["desktop", "tablet", "mobile"]` in `requirements`. Verification plays every version on an emulated iPhone and iPad, and it must start, keep drawing and survive taps and a drag there. `publish` refuses a version that leaves a kind of device out (rule `every_device`). Which way up it is played is your choice (`orientation`): a landscape-only or portrait-only game meets this rule.
 
@@ -46,8 +46,8 @@ If your `index.html` has its own `<script type="importmap">`, the platform leave
 GCP.progress(0.4, 'Building terrain');   // optional, 0..1 while loading
 GCP.ready();                              // required, once
 GCP.fatal(err);                           // if the game cannot start; shown as the failure reason
-GCP.score(120);                           // required unless gameOver is called: the score now (once at the start of a run counts)
-GCP.gameOver({ outcome: 'lose', score: 120 });   // a run, level or match ended: 'win' | 'lose' | 'draw' | 'done'
+GCP.score(120);                           // optional: the score now, for games that have one (a small ranking lift)
+GCP.gameOver({ outcome: 'lose', score: 120 });   // optional: a run, level or match ended: 'win' | 'lose' | 'draw' | 'done'
 
 await GCP.save.set('slot1', { level: 3 });       // per-player cloud save (JSON, 256 KB per key)
 const data = await GCP.save.get('slot1');        // null when nothing is saved
@@ -132,7 +132,7 @@ With WebGPU, create pipelines with `createRenderPipelineAsync` / `createComputeP
 | responds | Something on screen or in the page changes while the game runs and is played. A still picture fails. |
 | input_handled | Required. The game's own code listens for keyboard, mouse, touch or gamepad input (or has controls on the page), and pressing keys, clicking, dragging and tapping changes the screen clearly more than time alone does (or changes the page, or the state `GCP.test.onState` returns). |
 | bot_play | Required. Through about 45 s of random keys, clicks, drags and taps the game keeps drawing frames, throws no uncaught errors, does not stop with `GCP.fatal` and stays on its page (a reload that boots again is fine). |
-| score_or_end | Required. While it was checked the game called `GCP.score`, `GCP.gameOver` or `GCP.leaderboard.submit`, or its play-through played it to the end. |
+| score_or_end | Optional, advice only (never stops a version). Passes with a note when the game called `GCP.score`, `GCP.gameOver` or `GCP.leaderboard.submit`, or its play-through played it to the end; such a game ranks a little higher in the store. A game without a score or an ending is fine. |
 | conduct | The page stays on the game: it does not leave for another site, start downloads, open more than one window or pile up dialogs. |
 | files | Every file the page asked for was served. Calls to the game's own server code (`/api/*`) are not counted here. |
 | server | Only when the game calls its server code: no request made it throw. A crash in `server/index.js` is listed with its message and, in a preview, the line it came from. |
@@ -284,7 +284,7 @@ The store keeps low-effort games out of view without blocking anyone who ships f
 
 - **The New shelf.** A new game starts on the New shelf (shown on the home page and at `/browse?shelf=new`, and found by search). It moves to the main store's lists, shelves, genre pages and daily picks by itself once players stick with it: by default 15 players other than you, 2 minutes of play each on average, at most half of them leaving within their first minute and never coming back, and 3 ratings averaging 3 stars or more (with the store's prior). `publish` and `list_projects` say where a game stands and what it still needs.
 - **A weekly cap on new games.** An account can put 3 new games live in any 7 days, one more for each of its live games with 5 or more ratings averaging 4 stars, up to 10. Updates to games that are already live are never limited. `publish` refuses a new game over the cap (rule `publish_cap`) and says when the next slot opens.
-- **Ranking by play time and retention.** Trending weighs minutes played over play count, and multiplies by how players stick with the game: time per player and players who come back another day (each judged against the typical game on the store right now), and players who leave within a minute.
+- **Ranking by play time and retention.** Trending weighs minutes played over play count, and multiplies by how players stick with the game: time per player and players who come back another day (each judged against the typical game on the store right now), and players who leave within a minute. A game whose live version reports a score or an ending (`GCP.score`, `GCP.gameOver`) gets a small lift (5%); a game without one is not marked down.
 - **Player reports.** Players who played a game can report it (broken, low effort, a copy, harmful, …). When enough different players report it (5 by default, more for games with many players, never more than 25), the game is hidden from the store. It stays playable by its link, and comes back by itself when you put a new version live (that version passes every check again; reports about it count afresh). A platform admin may also review the reports, but nothing waits on that.
 - **Everything runs by itself.** Graduation, hiding, the daily picks and the ranking weights are worked out by the schedule from player data: the engagement scales follow what is typical across the store, every 10 minutes.
 
