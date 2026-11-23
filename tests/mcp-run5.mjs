@@ -40,6 +40,20 @@ test('#1 delete needs the exact address or id as confirm', () => {
   assert.equal(deleteVerdict(facts({ status: 'draft' }), undefined).confirm_with, 'mcp-run4-test-stars');
 });
 
+test('#1 a paid game taken offline less than 24 hours ago waits for open checkouts to expire', () => {
+  const H = 3_600_000, at = 100 * H;
+  const v = deleteVerdict(facts({ priceCents: 499, soldUntil: at - 5 * H, at }), 'mcp-run4-test-stars');
+  assert.equal(v.code, 'checkout'); assert.match(v.fix, /about 19 hour/);
+  assert.equal(deleteVerdict(facts({ priceCents: 499, soldUntil: at - 25 * H, at }), 'mcp-run4-test-stars').confirmed, true);
+  assert.equal(deleteVerdict(facts({ soldUntil: null, at }), 'mcp-run4-test-stars').confirmed, true);
+});
+
+test('#1 a deployment queued or running when the project is deleted leaves nothing deployed', () => {
+  const pl = read('src/pipeline.ts');
+  assert.match(pl, /if \(p\.status === 'removed'\) \{ await stage\(env, v, 'failed'/);
+  assert.match(pl, /status === 'removed'\) \{ await undeployGame\(env, p\.id, 'preview'\)/);
+});
+
 test('#1 other players and a price are said before deleting, never silently', () => {
   const v = deleteVerdict(facts({ otherPlayers: 3, priceCents: 1900 }), undefined);
   assert.equal(v.ok, true);
