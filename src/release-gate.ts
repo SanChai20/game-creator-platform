@@ -249,6 +249,23 @@ export function gateError(g: GateResult): AppError {
   return new AppError(first?.http || 409, gateText(g), first?.code || 'requirements_unmet', g.failures.length > 1 ? 'Fix every numbered item above, then publish again. publish {project, version, dry_run: true} checks without publishing.' : undefined);
 }
 
+/**
+ * A version's build fields (requirements, languages, players, content) are the ones it was deployed with. When the
+ * metadata rule fails on fields the workspace gcp.json now declares, say so: otherwise the refusal reads as if the
+ * declare had not saved. workspaceMissing is missingToPublish for the workspace. Changes the outcome in place.
+ */
+export function explainFrozenMeta(f: RuleOutcome | undefined, n: number, workspaceMissing: string[]): string[] {
+  if (!f || f.id !== 'metadata' || !f.missing?.length) return [];
+  const key = (m: string) => m.split(/[\s:(]/)[0];
+  const still = new Set(workspaceMissing.map(key));
+  const declared = f.missing.map(key).filter((k) => !still.has(k));
+  if (!declared.length) return [];
+  const left = f.missing.filter((m) => still.has(key(m)));
+  f.reason = `${f.reason} ${declared.join(', ')} ${declared.length > 1 ? 'are' : 'is'} declared now, but after version ${n} was deployed: build fields are frozen with the version they were deployed in, so they apply from the next deploy_preview. Version ${n} keeps what it went out with.`;
+  f.fix = `${left.length ? `Declare the rest first (${left.join('; ')}) with game_metadata {action: "declare", …}. Then call` : 'Call'} deploy_preview {project} (no file changes needed), wait for its verification with list_versions {project, version, wait_seconds}, and publish the version it makes.`;
+  return declared;
+}
+
 /** The view an agent or the console reads: compact, with only what it needs to act. */
 export function gateView(g: GateResult) {
   return {
