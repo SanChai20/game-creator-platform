@@ -72,6 +72,8 @@ The report has one entry per check, the errors the browser saw, any files that f
 
 Nothing on screen or in the page changed while the game ran and the verifier pressed keys, clicked and touched. A still picture or a page that ignores the player fails. Make sure input reaches the game (a canvas or element that receives clicks, listeners on `window` for keys) and that the screen updates when the player acts.
 
+A game that waits on a still title screen until the player acts is fine: the verifier takes pictures during its input as well as after it, so a click that starts the game, opens a menu or turns a card counts even when the game undoes it a moment later (two cards that do not match turning back over). It also counts a change in `GCP.test.onState` or a sound started by the input, when neither happens with nothing pressed. If none of that applies, register `GCP.test.onAutostart` to skip the title, or `GCP.test.onState(fn)` returning what the player changes (screen, selection, moves).
+
 ## conduct: the page interfered with the player's browser
 
 The page left for another site, started a download, opened two or more windows by itself or opened three or more dialogs. Games stay on their own page: put links behind a click on a credits screen and never navigate the top window away.

@@ -54,6 +54,7 @@ import { socialHub } from '../social';
 // @ts-ignore plain JS module
 import { ensureProfile } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
+import { deleteFacts, deleteProject, deleteVerdict } from '../project-delete';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
@@ -1345,6 +1346,18 @@ export async function takeOffline(env: Env, p: Project, actor: string) {
   await undeployGame(env, p.id, 'live');
   await logEvent(env, p.id, 'offline', 'Taken offline', p.live_version, actor);
 }
+
+// Delete project (src/project-delete.ts): the body's confirm is the game's address, typed by the creator.
+api.post('/console/projects/:id/delete', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ confirm?: string }>().catch(() => ({} as { confirm?: string }));
+  if (!b.confirm) throw bad('Type the game\'s address to confirm.', `Its address is ${p.slug}.`);
+  return c.json(await deleteProject(c.env, u, p, b.confirm, 'console'));
+});
+api.get('/console/projects/:id/delete', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(deleteVerdict(await deleteFacts(c.env, p), undefined));
+});
 
 api.post('/console/projects/:id/online', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id')), s = await getSettings(c.env);

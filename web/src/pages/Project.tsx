@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, bytes, dateTime, Fail, genreName, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
+import { ago, api, bytes, dateTime, Fail, genreName, navigate, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
 import { withPlayLang, type Orientation } from '../player';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
@@ -222,6 +222,12 @@ export function Project({ id }: { id: string }) {
   const p = data.project, versions = data.versions as any[], reg: number = p.regular_price_cents ?? p.price_cents;   // the regular price; p.price_cents is the sale price during a sale
   const playPreview = () => act('pv', async () => { const r = await api<{ url: string; session: string; clock?: string; orientation?: Orientation }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreviewSession(r.session); setPreviewClock(r.clock || null); setPreviewOrient(r.orientation ?? 'any'); setPreview(withPlayLang(r.url)); });
   const offline = () => { if (confirm(t('Take this game offline? Players will not be able to open it until you put it back.', '确定下线这款游戏吗？在重新上线之前，玩家将无法打开它。'))) void act('off', async () => { await api(`/console/projects/${id}/offline`, { method: 'POST' }); await reload(); }, t('The game is offline.', '游戏已下线。')); };
+  // Delete project (src/project-delete.ts): the creator types the game's address; the server refuses a live or bought game
+  const remove = () => {
+    const typed = prompt(t('Delete "{title}"? It stops counting toward your project limit and its preview stops working. Players\' saves are deleted after 30 days. Type its address ({slug}) to confirm.', '确定删除“{title}”吗？它将不再计入你的项目上限，预览也会停止。玩家存档会在 30 天后删除。请输入它的地址（{slug}）确认。', { title: p.title, slug: p.slug }));
+    if (typed === null) return;
+    void act('del', async () => { await api(`/console/projects/${id}/delete`, { method: 'POST', body: { confirm: typed.trim() } }); navigate('/console', true); }, t('Project deleted.', '项目已删除。'));
+  };
   const online = () => act('on', async () => { await api(`/console/projects/${id}/online`, { method: 'POST' }); await reload(); }, t('Going back online. This takes a moment.', '正在重新上线，请稍候。'));
   const savePrice = () => act('price', async () => {
     const cents = Math.round(parseFloat(priceText || '0') * 100);
@@ -326,6 +332,12 @@ export function Project({ id }: { id: string }) {
                 [t('Project id', '项目 ID'), p.id, 'mono'],
               ]} />
             </Card>
+            {p.status !== 'removed' && <Card title={t('Delete project', '删除项目')} pad>
+              <p className="mute fs-sm">{p.status === 'live'
+                ? t('Take the game offline before you delete it. A game someone has bought cannot be deleted; take it offline instead.', '删除前请先下线游戏。已有人购买的游戏无法删除，请改为下线。')
+                : t('Frees a place under your project limit. A game someone has bought cannot be deleted.', '释放一个项目名额。已有人购买的游戏无法删除。')}</p>
+              <Button variant="danger" size="sm" onClick={remove} disabled={p.status === 'live' || busy === 'del'}>{t('Delete project', '删除项目')}</Button>
+            </Card>}
             <Card title={t('Activity', '动态')} pad>
               {data.events.length ? <div>{data.events.slice(0, 14).map((e: any, i: number) => (
                 <div key={i} className="activity"><Badge dot={false}>{String(e.kind).replace(/_/g, ' ')}</Badge><span className="mute" style={{ wordBreak: 'break-word' }}>{e.version ? `v${e.version} ` : ''}{e.detail}</span><span className="dim" style={{ whiteSpace: 'nowrap' }}>{ago(e.created_at)}</span></div>

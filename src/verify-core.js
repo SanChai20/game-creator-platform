@@ -113,6 +113,26 @@ export function stateReaction(rounds) {
   return { stateIdle: leaves.filter((l) => changed(l.i0, l.i1).length).length, stateInput: perInput.filter((f) => f.length).length, selfFields: [...self].slice(0, 12), inputFields: inputFields.slice(0, 12) };
 }
 
+/**
+ * The "responds" verdict: is the game more than a still picture? Any one of these is enough: the screen moved (by itself
+ * or with input, including a change that input made and the game then undid, such as two memory cards turned back over),
+ * the page changed, a field of the game's own state (GCP.test.onState) changed with input and not with time alone, or
+ * input started a sound while the same game started none with nothing pressed. A game that sits still on a title screen
+ * until the player acts passes on what that first act does; a picture that ignores input never does.
+ * moved: the largest share of the screen that changed between any two pictures; dom: page changes;
+ * state: { idle: [before, after], input: [before, after] } onState strings; audio: { idle, input } sound starts.
+ */
+export function respondsBy({ moved = 0, dom = 0, state = null, audio = null } = {}) {
+  if (moved >= 0.002) return { ok: true, by: 'picture' };
+  if (dom > 0) return { ok: true, by: 'page' };
+  if (state) {
+    const r = stateReaction([state]);
+    if (r.inputFields.length ? r.stateInput > 0 : r.stateInput > 0 && r.stateInput > r.stateIdle) return { ok: true, by: 'state', fields: r.inputFields };
+  }
+  if (audio && audio.input > 0 && !audio.idle) return { ok: true, by: 'sound', starts: audio.input };
+  return { ok: false, by: '' };
+}
+
 export function pixelChange(a, b) {
   if (!a || !b || a.w !== b.w || a.h !== b.h) return 0;
   let n = 0, all = 0;
@@ -461,6 +481,11 @@ export async function verifyPage(page, url, opts = {}) {
   const frames = [];
   const snap = async () => { if (frames.length >= 8) return; try { frames.push(await page.screenshot({ type: 'jpeg', quality: 60 })); } catch { /* page busy or gone */ } };
   const shoot = async () => { try { const b = await page.screenshot({ type: 'png' }); shots.push(b); return pngStats(b); } catch { return null; } };
+  // what the game itself says while the "responds" check watches: its onState string and the sounds it has started
+  const peekGame = () => page.evaluate(() => { const g = window.__GCP; if (!g) return null; let st = null; try { st = g.debugState ? g.debugState() : null; } catch { st = null; } return { state: st, starts: g.probe && g.probe.audio ? g.probe.audio.starts || 0 : 0 }; }).catch(() => null);
+  const quickShot = async () => { try { return pngStats(await page.screenshot({ type: 'png' })); } catch { return null; } };
+  let game1 = null, gameIdle = null, gameBeforeInput = null, gameAfterInput = null;
+  const midInput = [];
   let pic1 = null, pic1Cover = '', pic2 = null, picIdle = null, f1 = 0, f2 = 0, observedS = o.observeS, inputS = 1.5, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
   if (s.ready && !s.fatal) {
     // 3. renders
@@ -476,13 +501,13 @@ export async function verifyPage(page, url, opts = {}) {
     else add('renders', f1 >= o.minFrames, 'Frames keep rendering', `${f1} frames in ${observedS}s (${(f1 / observedS).toFixed(1)} fps in the verification browser)${f1 >= o.minFrames && observedS > o.observeS ? '; slow on the software GPU, so the window was extended' : ''}`,
       f1 >= o.minFrames ? '' : f1 > 0 ? `Frames advance but too slowly in the verification browser (it has no GPU). Pick a lower quality level when the frame time is high (fewer redraws per frame, cache what does not change in an offscreen canvas), then deploy again. A version that only just missed can be checked again without a new number: deploy_preview {retry_version}.` : 'Drive the game from requestAnimationFrame and keep the loop alive even on menus. A software GPU runs this check, so heavy scenes should offer a lower quality level and pick it when the frame time is high.');
     // 4. picture
-    pic1 = await shoot(); pic1Cover = await covered(page);
+    pic1 = await shoot(); game1 = await peekGame(); pic1Cover = await covered(page);
     const blank = !pic1 || !pic1.ok || pic1.other < 200 || pic1.colors < 2; // a flat screen; a sparse one (Pong) is fine
     add('picture', !blank, 'Something is drawn', pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background` : 'No screenshot',
       blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
     // For the craft review: a second picture a moment later with nothing pressed (does anything move by itself?), and the HUD.
     await snap();
-    await sleep(700); picIdle = await shoot(); ui1 = await uiState(page); await scanUi();
+    await sleep(700); picIdle = await shoot(); gameIdle = await peekGame(); ui1 = await uiState(page); await scanUi();
     // Browsers keep sound locked until the first real press. One click in the top-left corner pixel gives the page that press, as a
     // player's first key or tap would, so sounds played during the play-through are real and can be measured.
     try { await page.mouse.click(2, 2); await sleep(120); } catch { /* no pointer */ }
@@ -529,19 +554,23 @@ export async function verifyPage(page, url, opts = {}) {
     // 5. input: click, keys, drag, touch. A marker on window tells us afterwards whether the page was reloaded.
     // The probe is read here as well: a game may restart itself by reloading when its end screen is clicked, which resets it.
     const readProbe = () => page.evaluate(() => (window.__GCP && window.__GCP.probe ? JSON.parse(JSON.stringify(window.__GCP.probe)) : null)).catch(() => null);
-    probeBeforeInput = await readProbe();
+    probeBeforeInput = await readProbe(); gameBeforeInput = await peekGame();
     const where = () => { try { const u = new URL(page.url()); return u.origin + u.pathname; } catch { return ''; } }, home = where();
     await page.evaluate(() => { window.__gcpStay = 1; }).catch(() => {});
     try {
       const vp = page.viewport ? page.viewport() : page.viewportSize(); const cx = (vp?.width || 960) / 2, cy = (vp?.height || 540) / 2;
-      await page.mouse.click(cx, cy); await sleep(150);
+      // pictures in the middle of the input too: a game may undo what a press did before the end (two memory cards that
+      // do not match turn back over, a title screen that a later Escape brings back), and that is still a response
+      await page.mouse.click(cx, cy); await sleep(150); midInput.push(await quickShot());
       for (const k of ['Enter', 'Space']) { await page.keyboard.press(k); await sleep(80); }
+      midInput.push(await quickShot());
       for (const k of ['KeyW', 'KeyD', 'ArrowUp', 'ArrowRight']) { await page.keyboard.down(k); await sleep(220); await page.keyboard.up(k); }
       await page.mouse.move(cx - 80, cy); await page.mouse.down(); await page.mouse.move(cx + 80, cy + 30, { steps: 6 }); await page.mouse.up();
-      await tap(page, cx + 40, cy + 40);
+      await tap(page, cx + 40, cy + 40); await sleep(120); midInput.push(await quickShot());
       await page.keyboard.press('Escape');
     } catch (e) { report.warnings.push('Input simulation error: ' + e.message); }
     await sleep(300);
+    if (await page.evaluate(() => window.__gcpStay === 1).catch(() => false)) gameAfterInput = await peekGame();
     let d = null;
     try { if (await page.evaluate(() => window.__gcpStay === 1)) { const c = await state(page); await sleep(1500); d = await state(page); f2 = d.frames - c.frames; } } catch { d = null; }
     if (!d && where() === home) {
@@ -574,13 +603,21 @@ export async function verifyPage(page, url, opts = {}) {
   }
   // 5b. responds: something on screen changes, by itself or when played. A picture with a frame loop behind it never does.
   if (pic1 && pic1.img && checks.every((c) => c.ok)) {
-    const moved = Math.max(pixelChange(pic1.img, picIdle && picIdle.img), pixelChange(pic1.img, pic2 && pic2.img), pixelChange(picIdle && picIdle.img, pic2 && pic2.img));
+    const before = [pic1, picIdle].filter((p) => p && p.img).map((p) => p.img), after = [...midInput, pic2].filter((p) => p && p.img).map((p) => p.img);
+    let moved = pixelChange(pic1.img, picIdle && picIdle.img);
+    for (const a of before) for (const b of after) moved = Math.max(moved, pixelChange(a, b));
     const changes = Math.max(ui1 ? ui1.changes : 0, ui2 ? ui2.changes : 0);
     const played = !!(report.playthrough && report.playthrough.ok);
-    const responds = moved >= 0.002 || changes > 0;
-    report.metrics.change = { pixels: Math.round(moved * 10000) / 10000, dom: changes };
-    add('responds', responds, 'Responds to the player', responds ? (moved >= 0.002 ? `${(moved * 100).toFixed(1)}% of the screen changed while it ran and was played` : `the page changed ${changes} time(s) while it was played`) : `Nothing on screen changed in ${o.observeS + 4} s of running, input${played ? ' and its play-through' : ''}: it looks like a still picture.`,
-      responds ? '' : 'The verifier clicks the centre, presses Enter, Space, WASD and the arrows, drags and taps. A game must visibly react, or move by itself. If the game waits on a title screen, register GCP.test.onAutostart to skip it.');
+    const state = game1 && gameIdle && gameBeforeInput && gameAfterInput && game1.state != null ? { idle: [game1.state, gameIdle.state], input: [gameBeforeInput.state, gameAfterInput.state] } : null;
+    const audio = game1 && gameIdle && gameBeforeInput && gameAfterInput ? { idle: Math.max(0, gameIdle.starts - game1.starts), input: Math.max(0, gameAfterInput.starts - gameBeforeInput.starts) } : null;
+    const r = respondsBy({ moved, dom: changes, state, audio }), responds = r.ok;
+    report.metrics.change = { pixels: Math.round(moved * 10000) / 10000, dom: changes, by: r.by };
+    const how = r.by === 'picture' ? `${(moved * 100).toFixed(1)}% of the screen changed while it ran and was played`
+      : r.by === 'page' ? `the page changed ${changes} time(s) while it was played`
+      : r.by === 'state' ? `the screen looked the same, but input changed the game's own state (GCP.test.onState${r.fields.length ? `: ${r.fields.slice(0, 4).join(', ')}` : ''})`
+      : r.by === 'sound' ? `the screen looked the same, but input started ${r.starts} sound(s) and none started with nothing pressed` : '';
+    add('responds', responds, 'Responds to the player', responds ? how : `Nothing on screen changed in ${o.observeS + 4} s of running, input${played ? ' and its play-through' : ''} (pictures were taken during the input too), no sound started with input${state ? ' and GCP.test.onState did not change' : ''}: it looks like a still picture.`,
+      responds ? '' : 'The verifier clicks the centre, presses Enter, Space, WASD and the arrows, drags and taps, and takes pictures while it does. A game must visibly react, or move by itself. A game that waits on a still title screen is fine as long as a click, tap, Enter or Space visibly does something (starts the game, opens a menu, turns a card); otherwise register GCP.test.onAutostart to skip the title, or GCP.test.onState(fn) returning what the player changes (screen, selection, moves).');
   }
   // 5d. playability, a platform requirement (o.playability, on by default): the game reacts to the player's input, keeps
   // running through a stretch of bot play (random keys, clicks, drags and taps). Whether it reports a score or an ending is

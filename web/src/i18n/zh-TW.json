@@ -2404,5 +2404,10 @@
  "Average rating it needs (with the store's prior)": "需要的平均評分（含商店的先驗）",
  "Reports from different players that hide a game from the store until a new version goes live or an admin reviews it (0: reports never hide a game)": "讓遊戲在商店中隱藏、直到新版本上線或管理員審核的不同玩家檢舉數（0：檢舉永不隱藏遊戲）",
  "For games with many players: reports must also come from this share of its players (percent)": "玩家眾多的遊戲：檢舉也必須來自這個比例的玩家（百分比）",
- "Reports that always hide a game, however many players it has": "無論玩家多少，一定會讓遊戲隱藏的檢舉數"
+ "Reports that always hide a game, however many players it has": "無論玩家多少，一定會讓遊戲隱藏的檢舉數",
+ "Delete \"{title}\"? It stops counting toward your project limit and its preview stops working. Players' saves are deleted after 30 days. Type its address ({slug}) to confirm.": "確定刪除「{title}」嗎？它將不再計入你的專案上限，預覽也會停止。玩家存檔會在 30 天後刪除。請輸入它的位址（{slug}）確認。",
+ "Project deleted.": "專案已刪除。",
+ "Delete project": "刪除專案",
+ "Take the game offline before you delete it. A game someone has bought cannot be deleted; take it offline instead.": "刪除前請先下線遊戲。已有人購買的遊戲無法刪除，請改為下線。",
+ "Frees a place under your project limit. A game someone has bought cannot be deleted.": "釋放一個專案名額。已有人購買的遊戲無法刪除。"
 }
