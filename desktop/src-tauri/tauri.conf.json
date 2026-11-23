@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "HearthCade",
+  "mainBinaryName": "HearthCade",
+  "version": "../package.json",
+  "identifier": "com.hearthcade.desktop",
+  "build": {
+    "frontendDist": "../shell"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    },
+    "withGlobalTauri": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg", "app", "appimage", "deb"],
+    "createUpdaterArtifacts": true,
+    "category": "Game",
+    "shortDescription": "Play and publish web games",
+    "longDescription": "HearthCade in its own window. It opens https://hearthcade.com, so it is always the live site.",
+    "copyright": "HearthCade",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "languages": ["English", "SimpChinese"]
+      }
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "section": "games"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI0RDdDRjdGMUNFODA2NjIKUldSaUJ1Z2NmOC9YSkU1T3IwaDhyZzUvZEtGYUpMR1dOcWk0bHNGMGZqRG9iUzV2Tkp3c2ROTUEK",
+      "endpoints": ["https://hearthcade.com/download/desktop/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

@@ -1,0 +1,153 @@
+# The desktop app (desktop/, docs/apps.md): a thin Tauri shell that opens https://hearthcade.com. Web changes never
+# need this workflow, since the app loads the live site. It runs only when the shell itself changes:
+#   - a pull request that touches desktop/ builds the installers for Windows, macOS and Linux as a check;
+#   - on main, a new version in desktop/package.json builds them and publishes the GitHub release desktop-v<version>,
+#     which the site serves at /download/desktop/... (src/desktop.ts) and installed apps update from.
+# Run it by hand (Actions, desktop, Run workflow) to publish the current version again, for example after adding the
+# updater key.
+#
+# Installers are not code-signed (no paid certificates). Shell updates are signed with the free Tauri updater key:
+# add its private key as the repository secret TAURI_SIGNING_PRIVATE_KEY (desktop/README.md). Without the secret the
+# installers are built as a check but nothing is published, so no installed app is ever left unable to update its shell.
+name: desktop
+on:
+  pull_request:
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  push:
+    branches: [main]
+    paths: ['desktop/**', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      build: ${{ steps.v.outputs.build }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          V=$(node -p "require('./desktop/package.json').version")
+          # never publish a shell that installed apps could not update: without the updater key, build but do not release
+          if [ "${{ github.event_name }}" != pull_request ] && [ "$HAS_KEY" != true ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building only, no release (desktop/README.md, Signing)"
+            echo "build=true" >> "$GITHUB_OUTPUT"; echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = workflow_dispatch ] || ! gh release view "desktop-v$V" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "desktop-v$V is already published: bump the version in desktop/package.json to publish a new shell"
+            echo "build=false" >> "$GITHUB_OUTPUT"; echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            args: --bundles nsis
+          - os: macos-latest
+            name: mac
+            args: --target universal-apple-darwin --bundles app,dmg
+          - os: ubuntu-22.04
+            name: linux
+            args: --bundles appimage,deb
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'mac' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+      - if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf file
+      - run: npm ci
+      - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          EXTRA=""
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building without shell updates"
+            echo '{"bundle":{"createUpdaterArtifacts":false}}' > no-updates.json
+            EXTRA="--config no-updates.json"
+          fi
+          npx tauri build ${{ matrix.args }} $EXTRA
+      # every release has the same file names, so /download/desktop/<os> always finds the current one
+      - name: Collect
+        run: |
+          mkdir -p out
+          V="${{ needs.plan.outputs.version }}"
+          cp_sig() { cp "$1" "out/$2"; [ -f "$1.sig" ] && cp "$1.sig" "out/$2.sig" || true; }
+          case "${{ matrix.name }}" in
+            windows) cp_sig "src-tauri/target/release/bundle/nsis/HearthCade_${V}_x64-setup.exe" HearthCade-Windows-x64-setup.exe ;;
+            mac)
+              B=src-tauri/target/universal-apple-darwin/release/bundle
+              cp "$B/dmg/HearthCade_${V}_universal.dmg" out/HearthCade-macOS.dmg
+              [ -f "$B/macos/HearthCade.app.tar.gz" ] && cp_sig "$B/macos/HearthCade.app.tar.gz" HearthCade-macOS.app.tar.gz || true ;;
+            linux)
+              cp_sig "src-tauri/target/release/bundle/appimage/HearthCade_${V}_amd64.AppImage" HearthCade-Linux-x86_64.AppImage
+              cp_sig "src-tauri/target/release/bundle/deb/HearthCade_${V}_amd64.deb" HearthCade-Linux-amd64.deb ;;
+          esac
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: desktop/out/*
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Manifests
+        run: |
+          V="${{ needs.plan.outputs.version }}" TAG="desktop-v${{ needs.plan.outputs.version }}" REPO="${{ github.repository }}" node desktop/release-manifests.mjs out
+          ls -la out
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ needs.plan.outputs.version }}"; TAG="desktop-v$V"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" out/* --clobber
+          else
+            gh release create "$TAG" out/* --target "${{ github.sha }}" --latest --title "HearthCade desktop $V" --notes "HearthCade for Windows, macOS and Linux. Download it from https://hearthcade.com/download. The app opens the live site, so it is always up to date; these files change only when the app's window itself does."
+          fi

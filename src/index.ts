@@ -52,6 +52,7 @@ import { cleanupStmts as socialCleanupStmts } from './social-rules.js';
 
 import { recentStmt, refreshCatalog } from './catalog';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
+import { desktop } from './desktop';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
 export { BotFleet } from './bots';
@@ -111,6 +112,7 @@ app.route('/api/device', deviceApi);
 app.route('/api/social', social);
 app.route('/api/push', push);
 app.route('/api', api);
+app.route('/download/desktop', desktop);   // the desktop app's installers and updater manifest (src/desktop.ts)
 app.all('/api/*', (c) => c.json({ error: 'Not found', code: 'not_found' }, 404));
 
 // Device sign-in for agents that cannot open a browser. Tokens come from the provider's own token endpoint.
@@ -241,7 +243,7 @@ app.get('/sitemap.xml', async (c) => {
   const games = await liveGames(c.env, 20000), t = now();
   const entries: SitemapEntry[] = [
     { path: '/', changefreq: 'daily', priority: 1 }, { path: '/browse', changefreq: 'daily', priority: 0.8 }, { path: '/categories', changefreq: 'weekly', priority: 0.7 },
-    { path: '/create', changefreq: 'weekly', priority: 0.9 }, { path: '/docs', changefreq: 'weekly', priority: 0.9 }, { path: '/creator-store', changefreq: 'daily', priority: 0.7 },
+    { path: '/create', changefreq: 'weekly', priority: 0.9 }, { path: '/download', changefreq: 'monthly', priority: 0.6 }, { path: '/docs', changefreq: 'weekly', priority: 0.9 }, { path: '/creator-store', changefreq: 'daily', priority: 0.7 },
     ...games.map((g) => ({ path: `/g/${encodeURIComponent(g.slug)}`, lastmod: g.updated_at || g.published_at, changefreq: 'weekly' as const, priority: 0.8 })),
     ...games.filter((g) => g.open_implementation).map((g) => ({ path: `/creator-store/${encodeURIComponent(g.slug)}`, lastmod: g.updated_at, changefreq: 'weekly' as const, priority: 0.5 })),
     ...[...GENRES, ...TAGS].map((tag) => ({ path: `/c/${encodeURIComponent(tag)}`, changefreq: 'weekly' as const, priority: 0.5 })),

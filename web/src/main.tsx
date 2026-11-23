@@ -31,6 +31,7 @@ import { Earnings } from './pages/Earnings';
 import { Admin } from './pages/Admin';
 import { Device } from './pages/Device';
 import { Docs } from './pages/Docs';
+import { Download } from './pages/Download';
 import { Browse } from './pages/Browse';
 import { Categories, Category } from './pages/Categories';
 import { Queue } from './pages/Queue';
@@ -43,6 +44,7 @@ import { SearchBox, StoreBar } from './store';
 import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 import { FriendsButton, SocialRoot } from './social';
 import { InstallAppLink, InstallPrompt } from './install-tip';
+import { desktopShell } from './desktop-app';
 import { pushLanguage, startPwa } from './pwa';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
@@ -126,6 +128,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
     { to: '/create', label: t('For creators', '创作者'), on: path === '/create' },
     { to: '/creator-store', label: t('Creator Store', '创作者商店'), on: path.startsWith('/creator-store') },
     { to: '/docs', label: t('Docs', '文档'), on: path.startsWith('/docs') },
+    ...(desktopShell() ? [] : [{ to: '/download', label: t('Get the app', '下载应用'), on: path === '/download' }]),
     ...(user?.makes_games ? [{ to: '/console', label: t('Console', '控制台'), on: path.startsWith('/console') }] : []),
     ...(user?.role === 'admin' ? [{ to: '/admin', label: t('Admin', '管理'), on: path.startsWith('/admin') }] : []),
   ];
@@ -271,6 +274,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/creator-store') return <CreatorStore />;
   if ((m = path.match(/^\/creator-store\/([^/]+)$/))) return <SkillPage key={m[1]} slug={decodeURIComponent(m[1])} />;
   if (path === '/docs') return <Docs />;
+  if (path === '/download') return <Download />;
   if (path === '/license') return <License />;
   // The console is for creators only: without a valid license every console page is the Get License page.
   if (path.startsWith('/console') && !user!.creator) return <LicenseGate />;
@@ -326,7 +330,7 @@ function App() {
             <p className="foot-tag">{state.config.settings.tagline}</p>
             <p className="foot-web">{t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</p>
           </div>
-          <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link></nav>
+          <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link><Link to="/download">{t('Get the app', '下载应用')}</Link></nav>
           <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
           <nav className="foot-col" aria-label={t('Legal', '法律信息')}><b>{t('Legal', '法律信息')}</b>{LEGAL_DOCS.map((d) => <Link key={d} to={`/legal/${d}`}>{legalTitle(d)}</Link>)}</nav>
         </div>
