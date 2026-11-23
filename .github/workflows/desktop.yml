@@ -8,7 +8,7 @@
 #
 # Installers are not code-signed (no paid certificates). Shell updates are signed with the free Tauri updater key:
 # add its private key as the repository secret TAURI_SIGNING_PRIVATE_KEY (desktop/README.md). Without the secret the
-# installers are still built and published, but installed apps cannot update their shell.
+# installers are built as a check but nothing is published, so no installed app is ever left unable to update its shell.
 name: desktop
 on:
   pull_request:
@@ -34,8 +34,14 @@ jobs:
       - id: v
         env:
           GH_TOKEN: ${{ github.token }}
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         run: |
           V=$(node -p "require('./desktop/package.json').version")
+          # never publish a shell that installed apps could not update: without the updater key, build but do not release
+          if [ "${{ github.event_name }}" != pull_request ] && [ "$HAS_KEY" != true ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set: building only, no release (desktop/README.md, Signing)"
+            echo "build=true" >> "$GITHUB_OUTPUT"; echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           if [ "${{ github.event_name }}" = pull_request ]; then
             echo "build=true" >> "$GITHUB_OUTPUT"; echo "publish=false" >> "$GITHUB_OUTPUT"

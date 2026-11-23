@@ -25,10 +25,11 @@ hours, download in the background and install when the player quits.
 - **Installers are not code-signed.** There is no Windows certificate and no Apple Developer ID, so Windows SmartScreen
   and macOS Gatekeeper ask the player to confirm the first time. `/download` explains how. The macOS app is ad-hoc
   signed (`signingIdentity: "-"`) so Apple silicon does not call it damaged.
-- **Shell updates are signed** with a free key pair made by `npx tauri signer generate`. The public key is in
+- **Shell updates are signed** with a free key pair made by `npx @tauri-apps/cli signer generate -w hearthcade-updater.key`
+  (keep the `.key` file private; the `.pub` file is the public key). The public key is in
   `tauri.conf.json`. The private key goes in the repository secret `TAURI_SIGNING_PRIVATE_KEY` (Settings, Secrets and
-  variables, Actions), with `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` only if it has a password. Without the secret, releases
-  have no `latest.json` and installed apps keep the shell they have (they still get every web change). If the private
+  variables, Actions), with `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` only if it has a password. Without the secret the
+  workflow builds the installers but publishes nothing, so no installed app is left unable to update. If the private
   key is ever lost, make a new pair, put the new public key here, and players install the next version by hand once.
 
 ## Building locally
