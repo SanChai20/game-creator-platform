@@ -2,7 +2,7 @@
 // so a slow first deploy or a long browser check never times out the agent's tool call.
 import { DurableObject } from 'cloudflare:workers';
 import type { Env, Project, Version } from './env';
-import { deployGame, onSharedHost, playKey, waitHealthy } from './deploy';
+import { deployGame, onSharedHost, playKey, undeployGame, waitHealthy } from './deploy';
 import { switchLive } from './go-live';
 import { getProject, getVersion, logEvent } from './projects';
 import { browserVerify } from './verify';
@@ -55,6 +55,8 @@ async function runJob(env: Env, job: Job): Promise<void> {
   const p = await getProject(env, job.pid);
   const v = await getVersion(env, job.pid, job.n);
   if (!p || !v) return;
+  // a deleted or removed project gets no new deployment (src/project-delete.ts); its queued jobs end here
+  if (p.status === 'removed') { await stage(env, v, 'failed', 'The project was deleted before this deployment ran.'); return; }
   if (job.kind === 'preview') await runPreview(env, job, p, v);
   else await runPublish(env, job, p, v);
 }
@@ -65,6 +67,8 @@ const stage = (env: Env, v: Version, status: string, text: string) =>
 async function runPreview(env: Env, job: Job, p: Project, v: Version): Promise<void> {
   await stage(env, v, 'deploying', 'Deploying the preview Worker');
   const url = await deployGame(env, job.origin, p, v, 'preview');
+  // deleted while this deployment ran: take down what was just deployed instead of keeping a preview nobody owns
+  if ((await getProject(env, p.id))?.status === 'removed') { await undeployGame(env, p.id, 'preview'); await stage(env, v, 'failed', 'The project was deleted while this deployment ran.'); return; }
   await env.DB.prepare('UPDATE projects SET preview_version = ?, updated_at = ? WHERE id = ?').bind(v.n, now(), p.id).run();
   await stage(env, v, 'deploying', 'Waiting for the preview Worker to answer');
   const health = await waitHealthy(env, url, v.n);

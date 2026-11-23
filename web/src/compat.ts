@@ -390,3 +390,19 @@ export function describeRequirements(r: Requirements): string[] {
     ...(r.notes ? [`Notes: ${r.notes}`] : []),
   ];
 }
+
+/**
+ * Requirements the workspace declares (gcp.json) that a version does not carry, because it was deployed before they were
+ * declared: build fields are frozen with a version, so publishing it shows the older values on the store page. Only the
+ * fields the workspace names are compared; the answer is what publish and its dry run tell the agent.
+ */
+export function requirementsDrift(declared: Partial<Requirements>, version: Requirements): { field: string; declared: string; version: string }[] {
+  const show = (k: string, v: unknown) => k === 'orientation' && v === 'any' ? 'both' : Array.isArray(v) ? [...v].map(String).sort().join(', ') || 'none' : v == null ? 'none' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+  const out: { field: string; declared: string; version: string }[] = [];
+  for (const k of ['orientation', 'devices', 'input', 'graphics', 'gpu', 'features', 'optional', 'memory_gb'] as const) {
+    if (declared[k] === undefined) continue;
+    const a = show(k, declared[k]), b = show(k, version[k]);
+    if (a !== b) out.push({ field: k, declared: a, version: b });
+  }
+  return out;
+}

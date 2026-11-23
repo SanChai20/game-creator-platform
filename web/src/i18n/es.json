@@ -2382,5 +2382,10 @@
  "Average rating it needs (with the store's prior)": "Valoración media que necesita (con la referencia de la tienda)",
  "Reports from different players that hide a game from the store until a new version goes live or an admin reviews it (0: reports never hide a game)": "Denuncias de jugadores distintos que ocultan un juego en la tienda hasta que se publica una versión nueva o lo revisa un administrador (0: las denuncias nunca ocultan un juego)",
  "For games with many players: reports must also come from this share of its players (percent)": "En juegos con muchos jugadores: las denuncias también deben venir de esta proporción de sus jugadores (porcentaje)",
- "Reports that always hide a game, however many players it has": "Denuncias que siempre ocultan un juego, tenga los jugadores que tenga"
+ "Reports that always hide a game, however many players it has": "Denuncias que siempre ocultan un juego, tenga los jugadores que tenga",
+ "Delete \"{title}\"? It stops counting toward your project limit and its preview stops working. Players' saves are deleted after 30 days. Type its address ({slug}) to confirm.": "¿Eliminar «{title}»? Dejará de contar para tu límite de proyectos y su vista previa dejará de funcionar. Las partidas guardadas de los jugadores se eliminan a los 30 días. Escribe su dirección ({slug}) para confirmar.",
+ "Project deleted.": "Proyecto eliminado.",
+ "Delete project": "Eliminar proyecto",
+ "Take the game offline before you delete it. A game someone has bought cannot be deleted; take it offline instead.": "Desconecta el juego antes de eliminarlo. Un juego que alguien ha comprado no se puede eliminar; desconéctalo en su lugar.",
+ "Frees a place under your project limit. A game someone has bought cannot be deleted.": "Libera un hueco en tu límite de proyectos. Un juego que alguien ha comprado no se puede eliminar."
 }

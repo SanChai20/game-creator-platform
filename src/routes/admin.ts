@@ -149,7 +149,7 @@ admin.patch('/games/:id', async (c) => {
   }
   // storage: a number of MB for this game, or null for the platform default
   if (b.storage_mb !== undefined) await setGameStorage(c.env, p, b.storage_mb === null || b.storage_mb === '' ? null : Math.round(Number(b.storage_mb) * MB), 'admin');
-  if (b.action === 'restore' && p.status === 'removed') await c.env.DB.prepare("UPDATE projects SET status = ?, removed_reason = NULL WHERE id = ?").bind(p.live_version ? 'offline' : 'draft', p.id).run();
+  if (b.action === 'restore' && p.status === 'removed') await c.env.DB.prepare("UPDATE projects SET status = ?, removed_reason = NULL, deleted_at = NULL WHERE id = ?").bind(p.live_version ? 'offline' : 'draft', p.id).run();
   return c.json({ ok: true });
 });
 

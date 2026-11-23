@@ -55,7 +55,7 @@ export interface Project {
   id: string; owner_id: string; slug: string; title: string; tagline: string; description: string; tags: string; controls: string;
   status: 'draft' | 'live' | 'offline' | 'removed'; live_version: number | null; preview_version: number | null; next_version: number;
   cover_key: string | null; price_cents: number; trial_minutes: number; sales: number; featured: number; plays: number; seconds: number; rating_sum: number; rating_count: number;
-  removed_reason: string | null; created_at: number; updated_at: number; published_at: number | null;
+  removed_reason: string | null; deleted_at?: number | null; created_at: number; updated_at: number; published_at: number | null;
   open_implementation: number; open_implementation_at: number | null;
   skill_price_cents: number; skill_sales: number; skill_copies: number; skill_views: number;   // the build skill (src/skills.ts)
   sale_price_cents?: number | null; sale_starts_at?: number | null; sale_ends_at?: number | null; price_raised_at?: number | null;   // limited-time sale (src/sales.ts)

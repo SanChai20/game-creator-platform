@@ -2383,5 +2383,10 @@
  "Average rating it needs (with the store's prior)": "必要な平均評価（ストアの事前分布を含む）",
  "Reports from different players that hide a game from the store until a new version goes live or an admin reviews it (0: reports never hide a game)": "新しいバージョンが公開されるか管理者が確認するまで、ゲームをストアで非表示にする、異なるプレイヤーからの報告数（0：報告で非表示にしない）",
  "For games with many players: reports must also come from this share of its players (percent)": "プレイヤーの多いゲームでは、報告がこの割合のプレイヤーからも来る必要がある（パーセント）",
- "Reports that always hide a game, however many players it has": "プレイヤー数にかかわらず必ずゲームを非表示にする報告数"
+ "Reports that always hide a game, however many players it has": "プレイヤー数にかかわらず必ずゲームを非表示にする報告数",
+ "Delete \"{title}\"? It stops counting toward your project limit and its preview stops working. Players' saves are deleted after 30 days. Type its address ({slug}) to confirm.": "「{title}」を削除しますか？プロジェクト上限に数えられなくなり、プレビューも動かなくなります。プレイヤーのセーブは30日後に削除されます。確認のためアドレス（{slug}）を入力してください。",
+ "Project deleted.": "プロジェクトを削除しました。",
+ "Delete project": "プロジェクトを削除",
+ "Take the game offline before you delete it. A game someone has bought cannot be deleted; take it offline instead.": "削除する前にゲームを非公開にしてください。誰かが購入したゲームは削除できません。代わりに非公開にしてください。",
+ "Frees a place under your project limit. A game someone has bought cannot be deleted.": "プロジェクト上限の枠を1つ空けます。誰かが購入したゲームは削除できません。"
 }

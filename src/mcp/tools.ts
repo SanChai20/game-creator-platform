@@ -27,14 +27,14 @@ import { RULES, currentChecks, explainFrozenMeta, gateError, gateText, gateView,
 import { DISCOVERY, NOT_PROVIDED, openPerks, platformServices } from './services';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
-import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, type Compat, type Requirements } from '../../web/src/compat';
+import { BROWSERS, DEVICES, FEATURE_IDS, GRAPHICS, INPUTS, ORIENTATIONS, OSES, describeRequirements, parseRequirements, requirementsDrift, type Compat, type Requirements } from '../../web/src/compat';
 import { ACCESSIBILITY, BUILD_FIELDS, CONTENT_CHOICES, MANIFEST, mergeManifest, GENRES, MODES, genresOf, matureOf, normGenre, parseAccessibility, parseContent, parsePlayers, type MetaIssue, type MetaRecord } from '../../web/src/gamemeta';
 import { MAX_TAGS, MIN_TAGS, missingTags, missingToPublish, normalizeStoredTags, parseTags, TAG_GROUPS, tagGroup, tagNotes, TAGS, tagsOnly } from '../../web/src/tags';
 import { baseListingLang, languageName, listingLangCode, parseLanguages, type Languages } from '../../web/src/languages';
 import { isLang } from '../../web/src/i18n/langs';
 import { listingCoverage } from '../listing';
 import { OPERATOR } from '../../web/src/operator';
-import type { Project } from '../env';
+import type { Project, Version } from '../env';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, parseJson, sha256, token as randomToken, unb64, usd } from '../util';
 import { actDebug, closeDebug, openDebug, type DebugResult } from '../debug';
 import { feedbackProject, pendingFeedback, takeFeedback } from '../feedback';
@@ -59,6 +59,7 @@ import { AREAS, STANDARDS, checkStandards, findingLine, renderStandards, standar
 import { SPLIT, deviceProblems } from '../platform-requirements.js';
 import { storeStatus, storeText } from '../store-quality';
 import { checkItem } from './schema';
+import { deleteProject } from '../project-delete';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
 
 /** The platform guides an agent can read: how the platform behaves, not how to make a game. */
@@ -306,6 +307,31 @@ const REQUIREMENTS_SCHEMA = obj({
   notes: { type: 'string', description: 'Anything else players should know, under 300 characters.' },
 });
 
+/**
+ * Requirements declared in the workspace that version v does not carry (it was deployed before they were declared), as
+ * the answer of publish, its dry run and the declare calls put it. Run 5: a game declared landscape after its last deploy
+ * and was published with that version, so the store page said both orientations. Empty when nothing differs.
+ */
+async function declaredNotInVersion(c: ToolCtx, p: Project, v: Version | null): Promise<Record<string, unknown>> {
+  if (!v) return {};
+  try {
+    const raw = (await workspaceManifest(c, p.id)).requirements;
+    if (!raw || typeof raw !== 'object') return {};
+    const drift = requirementsDrift(parseRequirements(raw).value, (await ensureVersionMeta(c.env, v)).compat.requirements);
+    if (!drift.length) return {};
+    return { not_in_this_version: {
+      fields: drift,
+      note: `gcp.json in the workspace declares ${drift.map((d) => `${d.field} ${d.declared}`).join(', ')}, but version ${v.n} was deployed before that and carries ${drift.map((d) => `${d.field} ${d.version}`).join(', ')}. Build fields are frozen with a version, so publishing version ${v.n} shows its values on the store page (and the platform plays it that way). Call deploy_preview {project} to make a version that carries the declaration, then publish that version.`,
+    } };
+  } catch { return {}; }
+}
+
+/** The newest verified version, else the newest: the one publish takes when no version is named. */
+async function newestVersion(c: ToolCtx, p: Project): Promise<Version | null> {
+  const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all<any>(), s = await getSettings(c.env);
+  return rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
+}
+
 /** gcp.json in the workspace, parsed, or an empty object. */
 async function workspaceManifest(c: ToolCtx, pid: string): Promise<Record<string, unknown>> {
   try { const { bytes } = await readFile(c.env, pid, 'gcp.json'); const j = JSON.parse(new TextDecoder().decode(bytes)); return j && typeof j === 'object' && !Array.isArray(j) ? j : {}; }
@@ -455,7 +481,8 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   await recordGate(c.env, gate);
   const listingFindings = checkStandards({ listing: listingForStandards(p), report: parseJson<Record<string, unknown> | null>(v.report || 'null', null) }).filter((f: { level: string }) => f.level === 'warning').map(findingLine);
   const standardsOut = listingFindings.length ? { standards: { findings: listingFindings, note: 'Design recommendations, never blocking: the design is the game\'s choice. Listing findings are fixed with game_metadata declare or update_project (no deploy needed); findings from verification (loading hand-off, reserved zones) need a code change and a new version. game_standards {project, action: "check"} checks the code too.' } } : {};
-  if (a.dry_run) return { ...standardsOut, would_go_live: gate.ok || onlyReviewNeeded(gate), ...(onlyReviewNeeded(gate) ? { review: 'needed', note: 'Everything else holds; publish asks a platform admin to review it because the verification browser could not run it.' } : {}), requirements: gateView(gate), summary: gateText(gate) };
+  const drift = rollback ? {} : await declaredNotInVersion(c, p, v);
+  if (a.dry_run) return { ...drift, ...standardsOut, would_go_live: gate.ok || onlyReviewNeeded(gate), ...(onlyReviewNeeded(gate) ? { review: 'needed', note: 'Everything else holds; publish asks a platform admin to review it because the verification browser could not run it.' } : {}), requirements: gateView(gate), summary: gateText(gate) };
   if (!gate.ok && !onlyReviewNeeded(gate)) {
     const err = gateError(gate), meta = gate.failures.find((f) => f.id === 'metadata');
     if (meta) {
@@ -497,7 +524,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   if (refused) throw new AppError(409, refused.detail, 'publish_failed', `Fix what it says, then publish again. publish {project, version: ${v.n}, dry_run: true} checks every requirement without publishing.`);
   const vm = await ensureVersionMeta(c.env, v);
   const store = storeText(await storeStatus(c.env, await getSettings(c.env), q), live);
-  return { live, version: v.n, store, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), ...(await coverAdvice(c, q, v)), ...standardsOut, next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
+  return { live, version: v.n, ...drift, store, compatibility: compatSummary(vm.compat), metadata: metaSummary(q, vm.compat, vm.meta), game_page: `${c.origin}/g/${p.slug}`, price: q.price_cents ? usd(q.price_cents) : 'free', free_trial: trialText(q, await getSettings(c.env)), open_implementation: await sharingSource(c, q, a.open_implementation), ...(await coverAdvice(c, q, v)), ...standardsOut, next: live ? 'The game is live. Share the game page with the user.' : 'Going live is taking longer than usual (a first deploy needs a minute). Call list_projects {project} in a little while to confirm.' };
 }
 
 export const TOOLS: Tool[] = [
@@ -931,6 +958,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (!mr.declared.includes('progress')) suggest.progress = mr.detected.progress;
       return {
         ...(written.length ? { saved: written, takes_effect: written.some((f) => (BUILD_FIELDS as readonly string[]).includes(f)) ? 'listing fields at once; build fields (gcp.json) with the next deploy_preview' : 'at once' } : {}),
+        ...(written.includes('requirements') ? await declaredNotInVersion(c, p, await newestVersion(c, p)) : {}),
         ...(action === 'declare' && a.tags !== undefined ? (() => { const t = tagAnswer(p, a.tags); return t.tag_notes ? { tag_notes: t.tag_notes } : {}; })() : {}),
         checklist: metadataChecklist(p, cp, mr),
         ...summary, detected: { online_play: mr.detected.multiplayer, multiplayer_rooms: mr.detected.multiplayer, progress: mr.detected.progress, languages: mr.languages.detected.supported.map((l) => l.code), evidence: { ...mr.detected.evidence, ...mr.languages.evidence } },
@@ -980,7 +1008,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       const check = await checkProject(c.env, p, c.origin), cp = check.manifest.compat!;
       const issues = check.compatIssues.map((i) => `${i.level.toUpperCase()} ${i.field}: ${i.message}${i.hint ? `\n  fix: ${i.hint}` : ''}`);
       return {
-        ...(action === 'declare' ? { written: 'gcp.json', takes_effect: 'with the next deploy_preview' } : {}),
+        ...(action === 'declare' ? { written: 'gcp.json', takes_effect: 'with the next deploy_preview', ...await declaredNotInVersion(c, p, await newestVersion(c, p)) } : {}),
         declared: cp.declared ? bothNotAny((await workspaceManifest(c, p.id)).requirements) : null,
         detected: requirementsBlock(cp.detected), evidence: cp.evidence,
         store_page_will_show: describeRequirements(cp.requirements), download_size_bytes: cp.download_bytes,
@@ -1084,6 +1112,12 @@ The whole set as one page: get_started {topic: "standards"}.`,
     description: 'Takes the live game out of the marketplace and removes its live deployment. Versions and the preview stay; publish puts it back.',
     inputSchema: obj({ project: PROJECT }, ['project']), annotations: { destructiveHint: true },
     run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); if (p.status !== 'live') throw bad('This game is not live.'); await takeOffline(c.env, p, c.client); return { ok: true, status: 'offline' }; },
+  },
+  {
+    name: 'delete_project', title: 'Delete a project',
+    description: 'Deletes one of this account\'s projects so it no longer counts toward the project limit and leaves list_projects. Ask the user first, and name the project to them. Two calls: without confirm it deletes nothing and says what deleting would mean (other players who played it, a price) and the confirm value; with confirm set to the project\'s address (slug) it deletes. A live game is refused (unpublish it first), and so is a game or build skill anyone has bought (buyers keep what they paid for: take it offline instead). The workspace and versions stop being served at once; players\' saves and scores are deleted after 30 days, and until then a platform admin can restore the project.',
+    inputSchema: obj({ project: PROJECT, confirm: { type: 'string', description: 'The project\'s slug (its address, shown by list_projects and by the first call). Leave it out to see what would be deleted.' } }, ['project']), annotations: { destructiveHint: true },
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); return deleteProject(c.env, c.user, p, a.confirm, c.client); },
   },
   {
     name: 'game_data', title: 'Game database: shared data, saves and leaderboards',
