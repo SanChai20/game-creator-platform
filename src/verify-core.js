@@ -31,6 +31,8 @@ export function pngStats(buf) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** A screenshot that is a single flat colour (or none at all). A sparse picture (Pong) is not flat. */
+export const flatPicture = (p) => !p || !p.ok || p.other < 200 || p.colors < 2;
 const state = (page) => page.evaluate(() => {
   const s = window.__GCP; if (!s) return null;
   const c = document.querySelector('canvas');
@@ -420,7 +422,7 @@ export async function verifyPage(page, url, opts = {}) {
       }
     } catch (e) { report.warnings.push('Bot play input error: ' + String(e && e.message || e).slice(0, 200)); }
     // (b) then plain bot play for the rest of the time, checking every few seconds that it is still running
-    let last = null, lastFrames = 0;
+    let last = null;
     try {
       while (Date.now() - t0 < botS * 1000 && !problem) {
         for (let i = 0; i < 3 && Date.now() - t0 < botS * 1000; i++) await burst();
@@ -437,14 +439,12 @@ export async function verifyPage(page, url, opts = {}) {
         if (!now1) { problem = 'the page stopped answering during bot play'; break; }
         if (now1.fatal) { problem = `it stopped with GCP.fatal during bot play: ${String(now1.fatal).slice(0, 200)}`; break; }
         keep(await read());
-        last = now1; lastFrames = now1.frames;
+        last = now1;
       }
-      // still running at the end: frames still advance (an event-driven page only has to still be there)
-      if (!problem && !domGame) {
-        const c = await state(page).catch(() => null); await sleep(1500); const e = await state(page).catch(() => null);
-        const n = c && e ? e.frames - c.frames : 0;
-        if (n < Math.max(3, o.minFrames / 3)) problem = `its frames stopped after bot play (${n} frames in 1.5 s)`;
-        if (e) last = e;
+      // still there at the end: the page answers (whether it still redraws is the game's own business)
+      if (!problem) {
+        const e = await state(page).catch(() => null);
+        if (!e) problem = 'the page stopped answering after bot play'; else last = e;
       }
     } catch (e) { problem = 'bot play could not continue: ' + String(e && e.message || e).slice(0, 200); }
     const { stateIdle, stateInput, selfFields, inputFields } = stateReaction(stateRounds);
@@ -458,7 +458,9 @@ export async function verifyPage(page, url, opts = {}) {
     // input handling: the game listens for the player, and the player's input visibly changes something
     const h = (first && first.heard) || {}, heardTypes = Object.keys(h).filter((k) => /^(key(down|up|press)|pointer(down|up|move)|mouse(down|up|move)|click|dblclick|touch(start|end|move)|wheel|contextmenu|gamepadconnected)$/.test(k));
     const listens = heardTypes.length > 0 || (ui1 && ui1.controls > 0) || (ui2 && ui2.controls > 0);
-    const byPicture = inputMax >= 0.004 && inputMax >= idleMax * 1.5 + 0.01, byPage = domInput > domIdle + 2, byState = inputFields.length ? stateInput > 0 : stateInput > 0 && stateInput > stateIdle;
+    // input must change the screen clearly more than time alone; when nothing moves by itself (a sandbox, a drawing toy, a
+    // board waiting for a move), a stroke or a placed piece is enough
+    const byPicture = inputMax >= Math.max(0.004, idleMax * 1.5 + Math.min(0.01, idleMax * 5)), byPage = domInput > domIdle + 2, byState = inputFields.length ? stateInput > 0 : stateInput > 0 && stateInput > stateIdle;
     const played = !!(report.playthrough && report.playthrough.ok);
     const reacts = listens && (byPicture || byPage || byState);
     add('input_handled', reacts, 'Reacts to the player\'s input', reacts
@@ -486,7 +488,7 @@ export async function verifyPage(page, url, opts = {}) {
   const quickShot = async () => { try { return pngStats(await page.screenshot({ type: 'png' })); } catch { return null; } };
   let game1 = null, gameIdle = null, gameBeforeInput = null, gameAfterInput = null;
   const midInput = [];
-  let pic1 = null, pic1Cover = '', pic2 = null, picIdle = null, f1 = 0, f2 = 0, observedS = o.observeS, inputS = 1.5, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
+  let blankAtStart = false, pic1 = null, pic1Cover = '', pic2 = null, picIdle = null, f1 = 0, f2 = 0, observedS = o.observeS, inputS = 1.5, ui1 = null, ui2 = null, probeBeforeInput = null, restarted = false, domGame = false;
   if (s.ready && !s.fatal) {
     // 3. renders
     const a = await state(page); await sleep(o.observeS * 1000); let b = await state(page);
@@ -494,17 +496,20 @@ export async function verifyPage(page, url, opts = {}) {
     // A heavy game on the verifier's software GPU can sit right at the threshold (2 fps one run, 1.7 the next). A loop that is
     // alive but slow gets up to two more windows to reach the frame count, so the check judges "frames advance", not speed.
     for (let k = 0; f1 > 0 && f1 < o.minFrames && k < 2; k++) { await sleep(o.observeS * 1000); b = await state(page); f1 = b.frames - a.frames; observedS += o.observeS; }
-    // A page that never asked for an animation frame is event driven (cards, text, a board or canvas redrawn on clicks and keys):
-    // it is alive when it responds, which the "responds" check below measures, not when it animates. A still picture fails there.
-    domGame = b.frames === 0;
-    if (domGame) add('renders', true, 'Frames keep rendering', 'No animation loop: the page changes when the player acts (see "Responds to the player").');
+    // A game that draws no frame while nothing is pressed is event driven (a sandbox or drawing toy, cards, text, a board or
+    // canvas redrawn on clicks and keys), even if it drew a few frames while it started: it is alive when it responds, which
+    // the "responds" check below measures, not when it animates. Redrawing all the time is never required. A still picture
+    // fails there.
+    domGame = f1 === 0;
+    if (domGame) add('renders', true, 'Frames keep rendering', b.frames === 0 ? 'No animation loop: the game changes when the player acts (see "Responds to the player").' : 'No frames while nothing is pressed: the game redraws when the player acts (see "Responds to the player").');
     else add('renders', f1 >= o.minFrames, 'Frames keep rendering', `${f1} frames in ${observedS}s (${(f1 / observedS).toFixed(1)} fps in the verification browser)${f1 >= o.minFrames && observedS > o.observeS ? '; slow on the software GPU, so the window was extended' : ''}`,
       f1 >= o.minFrames ? '' : f1 > 0 ? `Frames advance but too slowly in the verification browser (it has no GPU). Pick a lower quality level when the frame time is high (fewer redraws per frame, cache what does not change in an offscreen canvas), then deploy again. A version that only just missed can be checked again without a new number: deploy_preview {retry_version}.` : 'Drive the game from requestAnimationFrame and keep the loop alive even on menus. A software GPU runs this check, so heavy scenes should offer a lower quality level and pick it when the frame time is high.');
     // 4. picture
     pic1 = await shoot(); game1 = await peekGame(); pic1Cover = await covered(page);
-    const blank = !pic1 || !pic1.ok || pic1.other < 200 || pic1.colors < 2; // a flat screen; a sparse one (Pong) is fine
-    add('picture', !blank, 'Something is drawn', pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background` : 'No screenshot',
-      blank ? 'The screen is a single flat colour. Check the camera, lights, canvas size and that the render call runs each frame.' : '');
+    // a flat screen; a sparse one (Pong) is fine. A screen that is plain at the start (a reaction game waiting on a coloured
+    // screen, an empty canvas to draw on) is judged again after input below, and passes once anything appears.
+    blankAtStart = flatPicture(pic1);
+    if (!blankAtStart) add('picture', true, 'Something is drawn', `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background`, '');
     // For the craft review: a second picture a moment later with nothing pressed (does anything move by itself?), and the HUD.
     await snap();
     await sleep(700); picIdle = await shoot(); gameIdle = await peekGame(); ui1 = await uiState(page); await scanUi();
@@ -543,7 +548,7 @@ export async function verifyPage(page, url, opts = {}) {
       report.playthrough = { ok: !!play.ok, steps: play.steps, error: play.error || '', ms: play.ms, frames: play.frames };
     } else {
       report.playthrough = null;
-      report.notes.push('Only start-up, rendering and input were checked: this version registers no play-through, so nothing confirmed that it can be played to the end. Add GCP.test.onPlaythrough (see the platform-contract guide) to have the whole loop played and reported.');
+      report.notes.push('Only start-up, rendering and input were checked: this version registers no play-through (optional), so nothing played it through its own rules. GCP.test.onPlaythrough (see the platform-contract guide) has the verifier play it your way and list every step; a game without a score or an ending needs none.');
     }
     // 4c. two players: a game that registered GCP.test.onTwoPlayers is opened twice more, in one room, and both pages must agree
     if (o.openPage && await page.evaluate(() => !!(window.__GCP && window.__GCP.twoPlayers)).catch(() => false)) {
@@ -586,7 +591,7 @@ export async function verifyPage(page, url, opts = {}) {
       add('input', false, 'Survives keyboard, mouse and touch input', where() === home ? 'The page reloaded when it received input and did not boot again within 20 s.' : 'The page navigated away when it received input.',
         'Something reloads or leaves the page on a click, tap or key press. A common cause is a button or link that is invisible (opacity 0) but still clickable: hide inactive UI with display:none or visibility:hidden.');
     } else {
-      const need = Math.max(3, o.minFrames / 3);
+      const need = Math.max(3, o.minFrames / 3);   // only to report the frame count after input
       // the same allowance as "renders": a loop that still advances after input, only slowly, gets two more short windows
       for (let k = 0; !domGame && f2 > 0 && f2 < need && k < 2; k++) {
         const before = d.frames; await sleep(1500);
@@ -594,9 +599,16 @@ export async function verifyPage(page, url, opts = {}) {
         f2 += more.frames - before; inputS += 1.5; d = restarted ? { ...d, frames: more.frames } : more;
       }
       s = d;
-      const alive = domGame ? !restarted : f2 >= need;
-      add('input', alive, 'Survives keyboard, mouse and touch input', domGame ? 'The page kept running after input.' : restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in ${inputS}s` : `${f2} frames in the ${inputS}s after input`, alive ? '' : 'The loop stopped after input. An input handler probably threw; see errors.');
+      // the game survived when the page still answers on its own address; a loop that stopped (a menu, or a game that only
+      // redraws when played) is not a fault, and errors an input handler threw fail "No uncaught errors"
+      add('input', true, 'Survives keyboard, mouse and touch input', restarted ? `The game restarted itself by reloading the page, booted again and drew ${f2} frames in ${inputS}s` : domGame || f2 === 0 ? 'The page kept running after input.' : `${f2} frames in the ${inputS}s after input`, '');
       pic2 = await shoot(); ui2 = await uiState(page); await snap(); await scanUi();
+    }
+    if (blankAtStart) {
+      const later = [picIdle, ...midInput, pic2].filter((p) => p && p.ok);
+      const shown = later.find((p) => !flatPicture(p));
+      add('picture', !!shown, 'Something is drawn', shown ? `Plain at the start; after input ${shown.colors} distinct colours, ${shown.other} pixels differ from the background` : pic1 ? `${pic1.colors} distinct colours; ${pic1.other} pixels differ from the background, at the start, while idle and after input` : 'No screenshot',
+        shown ? '' : 'The screen stayed a single flat colour at the start, while idle and after input. Check the camera, lights, canvas size and that the render call runs.');
     }
     // 5a. the capture contract: the game hands over its frame, and its frame is all the player sees
     if (d && checks.every((c) => c.ok)) await captureCheck();
@@ -869,6 +881,22 @@ export function zoneNotes(z, label = 'iPhone') {
   return z.zones.map((x) => `On ${label} in fullscreen: the interface draws ${ZONE_WORDS[x.zone] || x.zone} (${Math.round(x.coverage * 100)}% of that zone, around ${x.box[0]},${x.box[1]} ${x.box[2]}×${x.box[3]} px). Keep the interface inside GCP.display.safe.`);
 }
 
+/** The device pass's picture of the screen (decoded PNG), or null when the browser cannot take one now. */
+const devicePicture = async (page) => { try { return pngStats(await page.screenshot({ type: 'png' })).img; } catch { return null; } };
+const deviceChanges = (page) => page.evaluate(() => (window.__gcpDeviceChanges ? window.__gcpDeviceChanges() : 0)).catch(() => 0);
+/**
+ * Did the game respond to a finger on a phone or tablet? Any one is enough: it drew frames, the picture changed, or the
+ * page changed. Redrawing all the time is not asked for. When no picture could be taken, the check gives the benefit of
+ * the doubt (it cannot tell), so a browser that cannot screenshot never fails a game.
+ */
+export function touchResponse({ framesBefore = 0, framesAfter = 0, picBefore = null, picAfter = null, domBefore = 0, domAfter = 0 } = {}) {
+  if (framesAfter > framesBefore) return { ok: true, by: 'frames' };
+  if (domAfter > domBefore) return { ok: true, by: 'page' };
+  if (!picBefore || !picAfter) return { ok: true, by: '' };
+  // no frame was drawn, so any change at all came from the finger (a small dot from a tap counts)
+  return pixelChange(picBefore, picAfter) > 0.0001 ? { ok: true, by: 'picture' } : { ok: false, by: '' };
+}
+
 /**
  * Plays the game on each device profile. openDevicePage(profile, viewport) -> a fresh page emulating that device (touch,
  * mobile, density, user agent). Returns [{ id, label, kind, ok, problems: [..], notes: [..], loadMs, fps, runtime }].
@@ -905,21 +933,18 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
       // "gcp-guard"). The check plays the game the way players get it.
       await inPlayer(page, way);
       await sleep(observeS * 1000);
+      // What is checked here is that the game works on the device: it starts, keeps answering, stays on its page, throws
+      // nothing and responds to a finger. Whether it redraws all the time is not checked: a sandbox, a drawing toy, a
+      // puzzle or a board game may draw only when the player acts, and a game may stop its loop on a menu.
+      await page.evaluate(() => { let n = 0; try { new MutationObserver((l) => { n += l.length; }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true }); } catch { /* no DOM */ } window.__gcpDeviceChanges = () => n; }).catch(() => {});
       const a = await state(page).catch(() => null);
       await sleep(1000);
       const b = await state(page).catch(() => null);
-      if (!a || !b || b.frames <= a.frames) {
-        // a game that draws only when something changes (turn-based, a page of elements) is not stalled: a tap must make it draw
-        if (!(b && (await page.evaluate(() => !document.querySelector('canvas')).catch(() => false)))) {
-          const f0 = b ? b.frames : 0; await tap(page, vp.width / 2, vp.height / 2); await sleep(1200);
-          const c = await state(page).catch(() => null);
-          if (!c || c.frames <= f0) res.problems.push(`It stopped drawing frames after it started (${b ? b.frames : 0} frames).`);
-        }
-      } else res.fps = Math.round(b.frames - a.frames);
-      // a finger: taps in the middle and a corner, then a drag across the screen
+      if (a && b && b.frames > a.frames) res.fps = Math.round(b.frames - a.frames);
+      // a finger: taps in the middle and a corner, then a drag across the screen, with a picture before and after
       await page.evaluate(() => { window.__gcpDeviceMark = 1; }).catch(() => {});
       const at = page.url();
-      const before = await state(page).catch(() => null);
+      const before = await state(page).catch(() => null), dom0 = await deviceChanges(page), pic0 = await devicePicture(page);
       await tap(page, vp.width / 2, vp.height / 2); await sleep(300);
       await tap(page, vp.width * 0.2, vp.height * 0.75); await sleep(300);
       await swipe(page, vp.width * 0.3, vp.height * 0.6, vp.width * 0.7, vp.height * 0.4); await sleep(1500);
@@ -927,7 +952,12 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
       const still = await page.evaluate(() => !!window.__gcpDeviceMark).catch(() => false);
       if (!still) res.problems.push(`The page reloaded or navigated away when it was touched (${leftFor(at, page.url())}).`);
       else if (!after) res.problems.push('The page stopped answering when it was touched.');
-      else if (before && after.frames <= before.frames && res.fps) res.problems.push('It stopped drawing frames when it was touched.');
+      else {
+        const pic1 = await devicePicture(page), dom1 = await deviceChanges(page);
+        const touch = touchResponse({ framesBefore: before ? before.frames : 0, framesAfter: after.frames, picBefore: pic0, picAfter: pic1, domBefore: dom0, domAfter: dom1 });
+        res.touch = touch.by || 'none';
+        if (!touch.ok) res.problems.push('Nothing changed when it was touched: two taps and a drag drew no frame and changed neither the picture nor the page.');
+      }
       const thrown = [...new Set([...(after ? after.errors : s.errors), ...errs])];
       if (thrown.length) res.problems.push(`It threw ${thrown.length === 1 ? 'an error' : thrown.length + ' errors'}: ${thrown.slice(0, 2).map((e) => e.slice(0, 160)).join(' | ')}`);
       res.runtime = await page.evaluate(() => (window.__GCP && window.__GCP.runtime) || null).catch(() => null);
@@ -972,12 +1002,8 @@ export async function turnCheck(page, vp) {
   const base = { to: to.width > to.height ? 'landscape' : 'portrait', viewport };
   const still = await page.evaluate(() => !!window.__gcpDeviceMark).catch(() => false);
   if (!still) return { ...base, ok: false, problem: 'the page reloaded: the game started again instead of carrying on.' };
-  const a = await state(page).catch(() => null); await sleep(800); const b = await state(page).catch(() => null);
-  if (a && b && b.frames <= a.frames && a.frames > 0) {
-    const t0 = b.frames; await tap(page, to.width / 2, to.height / 2); await sleep(900);
-    const c = await state(page).catch(() => null);
-    if (!c || c.frames <= t0) return { ...base, ok: false, problem: 'it stopped drawing frames.' };
-  }
+  // the game only has to keep answering after the turn; whether it redraws all the time is not checked
+  if (!(await state(page).catch(() => null))) return { ...base, ok: false, problem: 'the page stopped answering.' };
   const L = await layoutOf(page);
   if (L && L.canvas && L.canvas.onScreen < 0.9) return { ...base, ok: false, problem: `only ${Math.round(L.canvas.onScreen * 100)}% of the game's canvas (${L.canvas.w}×${L.canvas.h}) is on the screen: it kept the old shape.` };
   if (L && L.canvas && L.canvas.covers < 0.3) return { ...base, ok: false, problem: `the game's canvas covers only ${Math.round(L.canvas.covers * 100)}% of the screen: it kept the old size.` };
@@ -988,9 +1014,9 @@ export async function turnCheck(page, vp) {
 export function deviceFix(problem) {
   const p = String(problem || '');
   if (/reloaded or navigated away when it was touched/.test(p)) return 'A tap or a drag made the page reload or leave (the problem says where it went). Look for code that reloads the page or changes location on input, and keep links and forms out of the play area. If the browser itself took the drag, set touch-action: none on the game canvas (and on html and body) and call preventDefault() in its pointerdown and touchstart handlers.';
-  if (/stopped answering|stopped drawing frames when it was touched|threw/.test(p)) return 'A finger crashed or froze the game. Handle touch and pointer events (pointerType "touch", several touches at once, a touch that starts on the interface) without throwing; debug_preview with a phone viewport and a tap step shows the error.';
+  if (/stopped answering|threw/.test(p)) return 'A finger crashed or froze the game. Handle touch and pointer events (pointerType "touch", several touches at once, a touch that starts on the interface) without throwing; debug_preview with a phone viewport and a tap step shows the error.';
   if (/GCP\.ready\(\) was not called|did not start|did not run/.test(p)) return 'It did not start on a phone. Check that nothing at start-up needs a mouse, a keyboard, a large screen or a desktop-only API, and that GCP.ready() is called after the first frame; debug_preview with a phone viewport shows how far it gets.';
-  if (/stopped drawing frames/.test(p)) return 'It stopped drawing on a phone after it started. Look for code that waits for a key or mouse event, or that fails on a small or high-density screen; debug_preview with a phone viewport shows it.';
+  if (/Nothing changed when it was touched/.test(p)) return 'A finger did nothing on a phone or tablet. Listen for pointer or touch events (pointerdown, pointermove, touchstart), not only the mouse or the keyboard, and make a tap or a drag visibly do something; the platform\'s on-screen controls cover keyboard games (input guide). debug_preview with a phone viewport and tap steps shows it.';
   return 'debug_preview with a phone or tablet viewport and touch shows what happens.';
 }
 

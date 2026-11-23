@@ -6,11 +6,11 @@ import type { Env, Project, Version } from './env';
 import { ensureVersionMeta, logEvent, verKey } from './projects';
 import { getSettings } from './settings';
 import { aiDecide, type Question } from './ai';
-import { b64, dayOf, now, parseJson, sha256 } from './util';
+import { dayOf, now, parseJson, sha256 } from './util';
 // @ts-ignore plain JS modules
 import { READABLE, analyzeBundle, isVendor } from './implementation.js';
 // @ts-ignore plain JS modules
-import { GAMENESS_QUESTIONS, JUDGE_QUESTIONS, PRINTS_VERSION, bundlePrints, compare, CLEF_COPY, FLASH_SURE, contentNames, distinctFile, facts4ai, gameness, identityKeys, IDENTITY_TITLE_WEIGHT, judgeState, kinship, lookOf, sketchOf, traitsOf, visibleText } from './originality.js';
+import { JUDGE_QUESTIONS, PRINTS_VERSION, bundlePrints, compare, CLEF_COPY, FLASH_SURE, contentNames, distinctFile, facts4ai, gameness, identityKeys, IDENTITY_TITLE_WEIGHT, judgeState, kinship, lookOf, sketchOf, traitsOf } from './originality.js';
 // @ts-ignore plain JS module
 import { decodePng } from './craft-review.js';
 // @ts-ignore plain JS module
@@ -213,12 +213,10 @@ async function judgeCopy(env: Env, state: Record<string, unknown>, clefOnly = fa
   return answer;
 }
 const pct = (x: number) => `${Math.round(x * 100)}%`;
-/** Least likelihood of "it is a game" the review must give for a page that is not sure to be one. */
-const GAME_MIN = 0.5;
 
 /**
  * Runs the check for a version that passed the browser check and adds its results to the report
- * (checks "original" and "is_game"; report.ok turns false when either fails and blocking is on).
+ * (check "original", which turns report.ok false when it fails and blocking is on, and "content").
  */
 export async function originalityCheck(env: Env, p: Project, v: Version, report: Record<string, any>): Promise<void> {
   const s = await getSettings(env);
@@ -250,21 +248,10 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
     if (top && top.verdict === 'similar') report.notes = [...(report.notes || []), `Originality: this version shares ${measured} with "${top.title}". That is allowed; a version that copies most of another creator's game is not.`];
   }
 
-  // 2. is it a game at all? Only "no input" and "built with a game engine" are sure; everything else is reviewed.
-  const image = me.shot ? { images: ['data:image/png;base64,' + b64(me.shot)] } : {};
-  let g = gameness(me.facts, report, me.html), aiSaid: any = null;
-  if (!s.dup_check) g = { ...g, verdict: 'game', sure: true, reason: 'The originality check is off.' };
-  if (!g.sure && await aiBudget(env, 'dup_gameness')) {
-    const a = (await aiDecide(env, 'clef-flash', { listing, facts: facts4ai(me.facts), page: { visible_text: (report.page?.text || visibleText(me.html)).slice(0, 1500), controls: report.page?.controls ?? null, signals: g.signals } }, GAMENESS_QUESTIONS as Record<string, Question>, 15000, image))?.is_game;
-    if (a?.type === 'noul') {
-      aiSaid = { is_game: a.noul >= GAME_MIN, p: a.noul };
-      g = aiSaid.is_game ? { ...g, verdict: 'game', reason: `Reviewed as a game (${pct(a.noul)} likely).` } : { ...g, verdict: 'not_game', reason: `Reviewed as a page, tool or app rather than a game (${pct(1 - a.noul)} likely): ${g.reason.toLowerCase()}` };
-    }
-  }
-  if (g.verdict === 'not_game') {
-    flag({ id: 'is_game', ok: false, label: 'It is a game', detail: g.reason, hint: 'This platform hosts web games only: something a player plays, in this page. Landing pages, shops, link lists, articles, videos, forms and tools are refused. If it is a game, make the play obvious on its first screen and in its listing, and register a play-through with GCP.test.onPlaythrough that plays it.' });
-    await logEvent(env, p.id, 'not_game_flagged', g.reason, v.n, 'originality');
-  } else flag({ id: 'is_game', ok: true, label: 'It is a game', detail: g.verdict === 'unsure' ? 'An interactive page; nothing showed it is not a game.' : g.reason, hint: '' });
+  // 2. what kind of thing it is: recorded for the admin pages only, never a check. The platform does not decide which kinds
+  //    of game may be published (sandboxes, toys, tools-like creative games, idle and exploration games all are); what a
+  //    player meets is judged by the playability, device, content and originality checks instead.
+  const g = gameness(me.facts, report, me.html);
 
   // 3. content and conduct: content never allowed, undeclared adult content, miners, password forms, hidden servers.
   //    The review looks at frames taken while the game was played and compares what it saw with the declared content.
@@ -290,7 +277,7 @@ export async function originalityCheck(env: Env, p: Project, v: Version, report:
     report.warnings = [...(report.warnings || []), ...failed.map((c) => `${c.label}: ${c.detail}`)];
   }
   report.checks = [...(report.checks || []), ...checks];
-  report.originality = { matches: matches.slice(0, 3).map(({ listing: _l, project_id: _p, ...m }) => m), game: g.verdict, ai: { judge: judged?.verdict || null, judge_p: judged?.probabilities || null, judge_model: judged?.model || null, judge_final: judged?.final ?? null, gameness: aiSaid ? aiSaid.is_game : null, gameness_p: aiSaid ? aiSaid.p : null, content: content?.ai?.probabilities || null }, ms: Date.now() - t0 };
+  report.originality = { matches: matches.slice(0, 3).map(({ listing: _l, project_id: _p, ...m }) => m), game: g.verdict, ai: { judge: judged?.verdict || null, judge_p: judged?.probabilities || null, judge_model: judged?.model || null, judge_final: judged?.final ?? null, content: content?.ai?.probabilities || null }, ms: Date.now() - t0 };
   report.content = content ? { ok: content.ok, category: content.category, undeclared: !!content.undeclared, by: content.by, sexual: content.ai?.sexual || null, violence: content.ai?.violence || null, frames: content.ai?.frames || 0 } : null;
   if (report.checks.some((c: any) => !c.ok)) { report.ok = false; report.summary = `Not publishable: ${report.checks.filter((c: any) => !c.ok).map((c: any) => c.label.toLowerCase()).join('; ')}.`; }
 }

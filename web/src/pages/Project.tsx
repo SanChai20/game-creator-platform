@@ -68,7 +68,7 @@ function Report({ v }: { v: any }) {
   return (
     <div className="stack">
       <div>{(r.checks || []).map((c: any) => <CheckRow key={c.id} ok={c.ok} title={c.label} detail={c.detail} hint={!c.ok && c.hint} />)}</div>
-      {r.playthrough === null && (r.checks || []).some((c: any) => c.id === 'input') && <p className="mute fs-sm">{t('Only start-up, rendering and input were checked. This version has no play-through script, so nothing confirmed that it can be played to the end. Ask your agent to add one.', '仅检查了启动、渲染与输入。该版本没有试玩脚本，因此无法确认游戏能否完整玩到结束。可以让你的智能体补上。')}</p>}
+      {r.playthrough === null && (r.checks || []).some((c: any) => c.id === 'input') && <p className="mute fs-sm">{t('Only start-up, rendering and input were checked. This version has no play-through script (optional), so nothing played it through its own rules. Your agent can add one.', '仅检查了启动、渲染与输入。该版本没有试玩脚本（可选），因此没有按游戏自己的规则试玩。可以让你的智能体补上。')}</p>}
       {!!r.errors?.length && <div className="log">{r.errors.join('\n')}</div>}
       {!!r.missing?.length && <div className="log">{t('Files that failed to load', '加载失败的文件')}:{'\n'}{r.missing.join('\n')}</div>}
       {r.browser === 'unavailable' && <p className="mute fs-sm">{t('The automatic browser check could not run for this version. Play the preview yourself for a short while to verify it.', '该版本无法进行自动浏览器检查。请亲自试玩预览版一小段时间来完成验证。')}</p>}

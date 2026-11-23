@@ -85,7 +85,7 @@ export const SETTING_DEFS = {
   room_msgs_per_second: { v: 60, type: 'int', group: 'Limits', label: 'Messages a player may send to a multiplayer room per second (bursts of twice that are allowed; 5 to 240)' },
 
   dup_check: { v: true, type: 'bool', group: 'Originality', label: 'Check each verified version against other creators\' live games (copies) and for uploads that are not games' },
-  dup_block: { v: true, type: 'bool', group: 'Originality', label: 'Block publishing a copy or a non-game (off: report it as a warning only)' },
+  dup_block: { v: true, type: 'bool', group: 'Originality', label: 'Block publishing a copy of another creator\'s game (off: report it as a warning only)' },
   dup_ai: { v: true, type: 'bool', group: 'Originality', label: 'Ask Workers AI about borderline cases (similar but not clearly copied) and whether each upload that is not built with a game engine is a game' },
   dup_ai_daily: { v: 1000, type: 'int', group: 'Originality', label: 'Most Workers AI originality calls per day (Clef decision models, about $0.00002 to $0.00013 each; past the cap the rules decide)' },
 

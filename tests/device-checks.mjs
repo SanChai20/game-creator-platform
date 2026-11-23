@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from 'acorn';
 import { deviceIssues, syntaxFindings, apiFindings } from '../src/device-checks.js';
-import { applyDeviceResults, deviceViewport, DEVICE_PROFILES, verifyDevices, leftFor } from '../src/verify-core.js';
+import { applyDeviceResults, deviceViewport, DEVICE_PROFILES, verifyDevices, leftFor, touchResponse, deviceFix } from '../src/verify-core.js';
 
 const ast = (src) => parse(src, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
 const ids = (src) => syntaxFindings(ast(src)).map((f) => f.id).sort();
@@ -102,4 +102,14 @@ test('a touched page that left says where it went: a reload, another address or 
   assert.match(leftFor(from, from + '#x'), /reloaded itself/);
   assert.match(leftFor(from, 'https://g.example/other.html'), /went to \/other\.html/);
   assert.match(leftFor(from, 'https://elsewhere.example/x?token=1'), /went to https:\/\/elsewhere\.example$/);
+});
+
+test('the device pass asks whether a finger did something, not whether the game keeps redrawing', () => {
+  const pic = (v) => ({ w: 4, h: 4, bpp: 3, stride: 12, px: new Uint8Array(48).fill(v) });
+  assert.deepEqual(touchResponse({ framesBefore: 10, framesAfter: 30 }), { ok: true, by: 'frames' });
+  assert.deepEqual(touchResponse({ framesBefore: 0, framesAfter: 0, domBefore: 3, domAfter: 5 }), { ok: true, by: 'page' });
+  assert.deepEqual(touchResponse({ picBefore: pic(10), picAfter: pic(200) }), { ok: true, by: 'picture' }, 'a sandbox that draws only on input passes');
+  assert.equal(touchResponse({ picBefore: pic(10), picAfter: pic(10) }).ok, false, 'a picture nothing changes fails');
+  assert.equal(touchResponse({ picBefore: null, picAfter: null }).ok, true, 'no screenshot: never a failure');
+  assert.match(deviceFix('Nothing changed when it was touched: two taps and a drag drew no frame'), /pointer or touch events/);
 });

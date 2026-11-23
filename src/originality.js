@@ -225,12 +225,11 @@ export const IDENTITY_TITLE_WEIGHT = TITLE_WEIGHT;
 
 const ENGINE_INPUT = /^(Unity|Godot|Construct|GameMaker|Defold|Cocos Creator|PlayCanvas|Phaser|Excalibur|KAPLAY \/ Kaboom|melonJS|LittleJS|Emscripten \/ WebAssembly)$/;
 /**
- * Is it a game? From the build facts (analyzeBundle), the verification report and index.html.
+ * What kind of upload is it? Recorded in the report for the admin pages only; it never decides a publish.
+ * From the build facts (analyzeBundle), the verification report and index.html.
  *  - 'not_game' (sure) when nothing in it takes input;
  *  - 'game' (sure) when it is built with a game engine;
- *  - otherwise a lean ('game' or 'unsure') that is not sure: landing pages, shops, tools and articles also draw on canvases,
- *    run frame loops, take clicks and can register a play-through that clicks a button. Those are decided by the
- *    Workers AI decision model with the screenshot (see GAMENESS_QUESTIONS); when AI cannot answer, the lean stands.
+ *  - otherwise a lean ('game' or 'unsure') that is not sure.
  * @returns {{ verdict: 'game' | 'not_game' | 'unsure', sure: boolean, reason: string, signals: object }}
  */
 export function gameness(facts, report, html) {
@@ -287,12 +286,13 @@ export function judgeState(st) {
   return { new_game: { title: a.listing.title, tagline: a.listing.tagline, tags: a.listing.tags, built_with: f(a.facts) }, existing_game: { title: b.listing.title, tagline: b.listing.tagline, tags: b.listing.tags, built_with: f(b.facts) }, comparison: lines.join(' ') };
 }
 
-// Asked of @cf/cloudflare/clef-flash.
+// Asked of @cf/cloudflare/clef-flash by the moderation harness only (tests/moderation). It never decides a publish: the
+// platform does not choose which kinds of game may go live.
 export const GAMENESS_QUESTIONS = {
   is_game: {
     type: 'noul',
-    instructions: 'This marketplace hosts web games only, with no human review. Is this upload a game: something a person plays, with rules, goals, challenge or play? Interactive toys, puzzles, quizzes, interactive stories and simulations count, however simple, unfinished or text-based. You get the listing, facts about the build (never code), what the page showed in a test browser (its visible text, how many controls, whether its own play-through script passed) and a screenshot. A page can draw on a canvas, animate and take clicks without being a game, and its play-through can be a single button click.',
-    criteria: { true: 'A game, an interactive toy, a puzzle, a quiz or an interactive story.', false: 'A landing or promo page, an advert, an article or document, a link list, a shop, a sign-up or payment form, a video or slideshow, a calculator, tool or app: something to read, watch, buy or use rather than play.' },
+    instructions: 'This marketplace hosts web games only, with no human review. Is this upload a game: something a person plays? Sandboxes, drawing and painting toys, creative builders, idle and exploration games, interactive toys, puzzles, quizzes, interactive stories and simulations count, however simple, unfinished or text-based, and with or without a score, a goal or an ending. You get the listing, facts about the build (never code), what the page showed in a test browser (its visible text, how many controls, whether its own play-through script passed) and a screenshot. A page can draw on a canvas, animate and take clicks without being a game, and its play-through can be a single button click.',
+    criteria: { true: 'A game, a sandbox or creative toy, an interactive toy, a puzzle, a quiz or an interactive story, with or without a score or an ending.', false: 'A landing or promo page, an advert, an article or document, a link list, a shop, a sign-up or payment form, a video or slideshow, a calculator, tool or app: something to read, watch, buy or use rather than play.' },
   },
 };
 
