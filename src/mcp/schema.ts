@@ -23,6 +23,15 @@ export function checkArgs(schema: Schema, args: Record<string, unknown>): string
   return null;
 }
 
+/** The required arguments a call left out, each with its allowed values when it has a fixed set, or null. */
+export function missingArgs(schema: Schema, args: Record<string, unknown>): string | null {
+  const props = schema.properties || {};
+  const missing = (schema.required || []).filter((k) => args[k] === undefined || args[k] === null || args[k] === '');
+  if (!missing.length) return null;
+  const named = missing.map((k) => (Array.isArray(props[k]?.enum) ? `${k} (one of: ${props[k].enum.join(', ')})` : k));
+  return `Missing required argument${missing.length > 1 ? 's' : ''}: ${named.join(', ')}.`;
+}
+
 // Names models and clients use for the project argument when they do not read the schema closely.
 const PROJECT_ALIASES = ['project_id', 'projectId', 'project_slug', 'slug'];
 // Wrappers some clients and smaller models put around the arguments object.

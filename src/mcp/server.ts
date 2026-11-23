@@ -6,7 +6,7 @@ import { getSettings } from '../settings';
 import { PLATFORM_GUIDES, TOOLS, WEB_ONLY, WithImages, guideText, type ToolCtx } from './tools';
 import { b64 } from '../util';
 import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
-import { checkArgs, listed, normalizeArgs, signature } from './schema';
+import { checkArgs, listed, missingArgs, normalizeArgs, signature } from './schema';
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
@@ -55,8 +55,8 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
       try {
         // repaired where the intent is unambiguous (a JSON string, a wrapped object, "true", "3", project_id), then held to the schema
         const args = normalizeArgs(tool.inputSchema as any, params?.arguments);
-        const missing = ((tool.inputSchema.required as string[]) || []).filter((k) => args[k] === undefined || args[k] === null || args[k] === '');
-        if (missing.length) throw new AppError(400, `Missing required argument${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}. Nothing was changed.`, 'bad_request', signature(tool.inputSchema as any));
+        const missing = missingArgs(tool.inputSchema as any, args);
+        if (missing) throw new AppError(400, `${missing} Nothing was changed.`, 'bad_request', signature(tool.inputSchema as any));
         const wrong = checkArgs(tool.inputSchema as any, args);
         if (wrong) throw new AppError(400, `${wrong} Nothing was changed.`, 'bad_request', signature(tool.inputSchema as any));
         await callAllowance(c);

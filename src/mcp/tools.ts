@@ -23,7 +23,7 @@ import { gameAnalytics, onlineNow } from '../analytics';
 // @ts-ignore plain JS module
 import { DataError, serverStoreOp } from '../player-data.js';
 import { assertGameDataRoom } from '../db-guard';
-import { RULES, currentChecks, gateError, gateText, gateView, recordGate, releaseGate, storedGate, type GateResult } from '../release-gate';
+import { RULES, currentChecks, explainFrozenMeta, gateError, gateText, gateView, recordGate, releaseGate, storedGate, type GateResult } from '../release-gate';
 import { DISCOVERY, NOT_PROVIDED, openPerks, platformServices } from './services';
 import { NEVER_SHARED, findImplementations, implementationCard, setOpenImplementation } from '../implementations';
 import { THREE_VERSION } from '../generated/runtime-source';
@@ -437,6 +437,9 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   // the switch, so this answer is for the agent: every rule that fails, with what to do.
   const openAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : undefined;
   const gate = await releaseGate(c.env, p, v, { mode: rollback ? 'rollback' : 'publish', openImplementation: openAfter });
+  // build fields declared after this version was deployed: the refusal says they apply from the next deploy
+  const metaFail = gate.failures.find((f) => f.id === 'metadata');
+  const declaredSince = metaFail ? await (async () => { try { const w = (await checkProject(c.env, p, c.origin)).manifest; return explainFrozenMeta(metaFail, v!.n, missingToPublish(w.meta, !!w.compat?.declared, JSON.parse(p.tags || '[]'))); } catch { return []; } })() : [];
   await recordGate(c.env, gate);
   const listingFindings = checkStandards({ listing: listingForStandards(p), report: parseJson<Record<string, unknown> | null>(v.report || 'null', null) }).filter((f: { level: string }) => f.level === 'warning').map(findingLine);
   const standardsOut = listingFindings.length ? { standards: { findings: listingFindings, note: 'Design recommendations, never blocking: the design is the game\'s choice. Listing findings are fixed with game_metadata declare or update_project (no deploy needed); findings from verification (loading hand-off, reserved zones) need a code change and a new version. game_standards {project, action: "check"} checks the code too.' } } : {};
@@ -451,7 +454,9 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
       if (gate.failures.length === 1) {
         // Listing fields (genre, tags) take effect at once; only build fields are frozen with a version and need a new deploy.
         const needsDeploy = (meta.missing || []).some((x) => (BUILD_FIELDS as readonly string[]).includes(x.split(/[\s:]/)[0]) || /^requirements/.test(x));
-        err.hint = needsDeploy
+        err.hint = declaredSince.length
+          ? `${declaredSince.join(', ')} ${declaredSince.length > 1 ? 'are' : 'is'} already declared in the workspace: deploy_preview {project} to make a version that carries ${declaredSince.length > 1 ? 'them' : 'it'}, then publish that version.`
+          : needsDeploy
           ? 'Ask the user anything you cannot tell from the game, declare each field with game_metadata {action: "declare", …}, then deploy_preview again (build fields are frozen with a version) and publish the new version. game_metadata {project} shows the whole checklist.'
           : `Declare the missing listing fields with game_metadata {action: "declare", …} or update_project, then call publish {project, version: ${v.n}} again. No new deploy is needed.`;
       }
@@ -594,12 +599,13 @@ export const TOOLS: Tool[] = [
     run: async (a, c) => {
       if (!a.project) {
         const rows = await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, CASE WHEN price_cents > 0 THEN trial_minutes ELSE 0 END AS trial_minutes, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all<any>();
-        return { projects: rows.results.map((r) => ({ ...r, tags: JSON.parse(r.tags || '[]') })) };
+        // the genre and secondary genres are stored among the tags; split them out as every other answer does
+        return { projects: rows.results.map((r) => { const { tags, ...rest } = r; return { ...rest, ...tagAnswer({ tags } as Project, undefined) }; }) };
       }
       const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id);
       const latest = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 1').bind(p.id).first<any>();
       return {
-        project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, tags: JSON.parse(p.tags || '[]'),
+        project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, ...tagAnswer(p, undefined),
         cover: p.cover_key ? `${c.origin}/api/media/${p.cover_key}` : null,
         status: p.status, price: p.price_cents ? usd(p.price_cents) : 'free', sale: saleText(p, await getSettings(c.env)), free_trial: trialText(p, await getSettings(c.env)), live_version: p.status === 'live' ? p.live_version : null, preview_version: p.preview_version,
         workspace: { files: files.length, bytes: files.reduce((x, f) => x + f.size, 0) }, storage: await storageLine(c.env, p, files),
@@ -1066,7 +1072,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
     inputSchema: obj({
       project: PROJECT,
       action: { type: 'string', enum: ['summary', 'list', 'get', 'set', 'delete', 'leaderboard', 'clear_leaderboard'] },
-      env: { type: 'string', enum: ['preview', 'live'], description: 'Default live. Previews have their own separate data.' },
+      env: { type: 'string', enum: ['preview', 'live'], description: 'Default live, for every action: a key set with env "preview" is read, listed and deleted with env "preview" too. Previews have their own separate data.' },
       key: { type: 'string', description: 'Shared data key (1 to 120 characters), for get, set and delete.' },
       value: { description: 'Any JSON value, for set. 256 KB at most.' },
       prefix: { type: 'string', description: 'Only keys starting with this, for list.' },
@@ -1078,6 +1084,15 @@ The whole set as one page: get_started {topic: "standards"}.`,
       const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB, env = envOf(a.env);
       const scope = `${p.id}${env === 'preview' ? ':preview' : ''}`, key = String(a.key ?? ''), board = String(a.board || 'default').slice(0, 40);
       const needKey = () => { if (!key || key.length > 120) throw bad('key must be a string of 1 to 120 characters.'); };
+      // env was left out and nothing was found in live: say when the other environment has it, since previews keep their own data
+      const other = env === 'preview' ? 'live' : 'preview', otherScope = `${p.id}${other === 'preview' ? ':preview' : ''}`;
+      const otherHint = async (what: 'key' | 'keys') => {
+        if (a.env !== undefined) return {};
+        const r = what === 'key'
+          ? await db.prepare("SELECT 1 AS x FROM saves WHERE project_id = ? AND user_id = '' AND k = ?").bind(otherScope, key).first()
+          : await db.prepare("SELECT 1 AS x FROM saves WHERE project_id = ? AND user_id = '' AND k LIKE ? ESCAPE '\\' LIMIT 1").bind(otherScope, String(a.prefix || '').replace(/[\\%_]/g, '\\$&') + '%').first();
+        return r ? { hint: `env defaults to "${env}", and ${what === 'key' ? 'this key exists' : 'shared keys exist'} in ${other}. Pass env: "${other}" to ${a.action} ${what === 'key' ? 'it' : 'them'} there.` } : {};
+      };
       switch (a.action) {
         case 'summary': {
           const [shared, saves, boards, records, stats] = await Promise.all([
@@ -1096,12 +1111,12 @@ The whole set as one page: get_started {topic: "standards"}.`,
         }
         case 'list': {
           const rows = await db.prepare("SELECT k, LENGTH(v) AS bytes, updated_at FROM saves WHERE project_id = ? AND user_id = '' AND k LIKE ? ESCAPE '\\' ORDER BY k LIMIT 500").bind(scope, String(a.prefix || '').replace(/[\\%_]/g, '\\$&') + '%').all<{ k: string; bytes: number; updated_at: number }>();
-          return { env, keys: rows.results.map((r) => ({ key: r.k, bytes: r.bytes, updated_at: new Date(r.updated_at).toISOString() })) };
+          return { env, keys: rows.results.map((r) => ({ key: r.k, bytes: r.bytes, updated_at: new Date(r.updated_at).toISOString() })), ...(rows.results.length ? {} : await otherHint('keys')) };
         }
         case 'get': {
           needKey();
           const r = await db.prepare("SELECT v FROM saves WHERE project_id = ? AND user_id = '' AND k = ?").bind(scope, key).first<{ v: string }>();
-          return { env, key, value: r ? JSON.parse(r.v) : null, exists: !!r };
+          return { env, key, value: r ? JSON.parse(r.v) : null, exists: !!r, ...(r ? {} : await otherHint('key')) };
         }
         case 'set': {
           needKey();
@@ -1118,7 +1133,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
           needKey();
           const r = await db.prepare("DELETE FROM saves WHERE project_id = ? AND user_id = '' AND k = ?").bind(scope, key).run();
           if (r.meta.changes) await logEvent(c.env, p.id, 'data_deleted', `${env}: ${key}`, null, c.client);
-          return { ok: true, env, key, deleted: (r.meta.changes || 0) > 0 };
+          return { ok: true, env, key, deleted: (r.meta.changes || 0) > 0, ...(r.meta.changes ? {} : await otherHint('key')) };
         }
         case 'leaderboard': {
           const fixed = await db.prepare('SELECT asc FROM boards WHERE project_id = ? AND board = ?').bind(scope, board).first<{ asc: number }>();
