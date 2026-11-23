@@ -94,3 +94,25 @@ export const listed = (t: ListedTool) => {
     annotations: { title: t.title, readOnlyHint: ro, destructiveHint: !ro && !!t.annotations?.destructiveHint, idempotentHint: ro || !!t.annotations?.idempotentHint, openWorldHint: false },
   };
 };
+
+/**
+ * One object inside an array argument (an upload_files edit or file), held to its item schema like a whole call is:
+ * common other names for a key are renamed to the schema's name (old/new for old_string/new_string), and any key that is
+ * still unknown refuses the call, so a misnamed key never reads as missing ("old_string was not found"). Returns the
+ * item as the tool means it, or the refusal.
+ */
+export function checkItem(label: string, item: unknown, schema: Schema, aliases: Record<string, string> = {}): { item: Record<string, unknown> } | { error: string } {
+  const props = schema.properties || {};
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return { error: `${label} must be an object with ${Object.keys(props).join(', ')}.` };
+  const a: Record<string, unknown> = { ...(item as Record<string, unknown>) };
+  for (const [alias, name] of Object.entries(aliases)) {
+    if (!Object.hasOwn(a, alias) || Object.hasOwn(props, alias)) continue;
+    if (Object.hasOwn(a, name)) return { error: `${label} has both ${alias} and ${name}. Send only ${name}.` };
+    a[name] = a[alias]; delete a[alias];
+  }
+  const unknown = Object.keys(a).filter((k) => !Object.hasOwn(props, k));
+  if (unknown.length) return { error: `${label}: unknown key${unknown.length > 1 ? 's' : ''} ${unknown.join(', ')}. Each item accepts: ${Object.keys(props).join(', ')}.` };
+  const missing = (schema.required || []).filter((k) => a[k] === undefined || a[k] === null);
+  if (missing.length) return { error: `${label}: missing ${missing.join(', ')}. Each item needs: ${(schema.required || []).join(', ')}.` };
+  return { item: a };
+}

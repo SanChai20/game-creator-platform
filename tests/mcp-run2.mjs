@@ -75,7 +75,7 @@ test('#9 deploy_preview and list_versions can wait for the result in one call', 
   assert.match(entry('deploy_preview'), /wait_seconds: WAIT_SCHEMA\(DEPLOY_WAIT_MS\)/);
   assert.match(entry('list_versions'), /wait_seconds: WAIT_SCHEMA\(LIST_WAIT_MS\)/);
   assert.match(entry('list_versions'), /waitMs\(a\.wait_seconds, LIST_WAIT_MS\)/);
-  assert.match(tools, /export const MAX_WAIT_S = 150;/);
+  assert.match(tools, /export const MAX_WAIT_S = 55;/);
 });
 
 test('#11 a refused token gets the short refresh answer; no token gets the sign-in steps', () => {

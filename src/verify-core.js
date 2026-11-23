@@ -77,6 +77,42 @@ const uiState = (page) => page.evaluate(() => {
 }).catch(() => ({ texts: 0, chars: 0, controls: 0, passwords: 0, changes: 0, text: '' }));
 
 /** Share of pixels that differ clearly between two decoded pictures of the same size (0..1). */
+/** The leaves of an onState value as path -> JSON text, a few levels deep, so two readings can be compared field by field. */
+export function stateLeaves(text) {
+  // the SDK's debugState already hands over JSON text, which the verifier's read() encodes once more
+  let v; try { v = JSON.parse(text); if (typeof v === 'string') v = JSON.parse(v); } catch { return null; }
+  if (!v || typeof v !== 'object') return null;
+  const out = {};
+  const walk = (x, path, depth) => {
+    if (x && typeof x === 'object' && depth < 4) {
+      const keys = Array.isArray(x) ? x.slice(0, 64).map((_, i) => i) : Object.keys(x).slice(0, 200);
+      if (!keys.length) out[path] = JSON.stringify(x);
+      for (const k of keys) walk(x[k], path ? `${path}${Array.isArray(x) ? `[${k}]` : `.${k}`}` : String(k), depth + 1);
+    } else out[path] = JSON.stringify(x);
+  };
+  walk(v, '', 0);
+  return out;
+}
+/**
+ * The input check's reading of GCP.test.onState over its rounds ({idle: [before, after], input: [before, after]} as JSON text).
+ * A field that changed in a moment with nothing pressed changes by itself (a timer, an animation) and says nothing about
+ * input; input counts when a field that never changed by itself changed after it. State that is not an object is
+ * compared whole. Returns the round counts and the fields named in the report.
+ */
+export function stateReaction(rounds) {
+  const valid = rounds.filter((r) => r && r.idle[0] != null && r.idle[1] != null && r.input[0] != null && r.input[1] != null);
+  const leaves = valid.map((r) => ({ i0: stateLeaves(r.idle[0]), i1: stateLeaves(r.idle[1]), n0: stateLeaves(r.input[0]), n1: stateLeaves(r.input[1]) }));
+  const changed = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => a[k] !== b[k]);
+  if (!valid.length) return { stateIdle: 0, stateInput: 0, selfFields: [], inputFields: [] };
+  if (leaves.some((l) => !l.i0 || !l.i1 || !l.n0 || !l.n1)) {
+    return { stateIdle: valid.filter((r) => r.idle[0] !== r.idle[1]).length, stateInput: valid.filter((r) => r.input[0] !== r.input[1]).length, selfFields: [], inputFields: [] };
+  }
+  const self = new Set(leaves.flatMap((l) => changed(l.i0, l.i1)));
+  const perInput = leaves.map((l) => changed(l.n0, l.n1).filter((k) => !self.has(k)));
+  const inputFields = [...new Set(perInput.flat())];
+  return { stateIdle: leaves.filter((l) => changed(l.i0, l.i1).length).length, stateInput: perInput.filter((f) => f.length).length, selfFields: [...self].slice(0, 12), inputFields: inputFields.slice(0, 12) };
+}
+
 export function pixelChange(a, b) {
   if (!a || !b || a.w !== b.w || a.h !== b.h) return 0;
   let n = 0, all = 0;
@@ -322,7 +358,7 @@ export async function verifyPage(page, url, opts = {}) {
   const playability = async () => {
     const botS = Math.max(5, Math.min(180, +o.botPlayS || 45));
     const grab = async () => { try { return pngStats(await page.screenshot({ type: 'png' })); } catch { return null; } };
-    const read = () => page.evaluate(() => { const g = window.__GCP; return g ? { outcome: g.outcome || null, heard: g.inputHeard || {}, state: g.debugState ? (() => { try { return JSON.stringify(g.debugState()).slice(0, 4000); } catch { return null; } })() : null } : null; }).catch(() => null);
+    const read = () => page.evaluate(() => { const g = window.__GCP; return g ? { outcome: g.outcome || null, heard: g.inputHeard || {}, state: g.debugState ? (() => { try { return JSON.stringify(g.debugState()).slice(0, 16000); } catch { return null; } })() : null } : null; }).catch(() => null);
     const changes = () => page.evaluate(() => (window.__gcpChanges ? window.__gcpChanges() : 0)).catch(() => 0);
     const vp = (page.viewport ? page.viewport() : page.viewportSize && page.viewportSize()) || { width: 960, height: 540 };
     // the area the bot plays in: the biggest canvas when there is one (so a link beside the game is never clicked by chance)
@@ -347,7 +383,8 @@ export async function verifyPage(page, url, opts = {}) {
     const keep = (r) => { if (r && r.outcome) for (const k of ['scores', 'ends', 'submits', 'matchEnds']) outcome[k] = Math.max(outcome[k] || 0, r.outcome[k] || 0); };
     // (a) does it react? Three rounds of: a moment with nothing pressed, then a burst of input, each between two pictures.
     // Input has to change the screen (or the page, or the game's own state hook) clearly more than time alone does.
-    let idleMax = 0, inputMax = 0, domIdle = 0, domInput = 0, stateIdle = 0, stateInput = 0, rounds = 0, problem = '', reloads = 0;
+    let idleMax = 0, inputMax = 0, domIdle = 0, domInput = 0, rounds = 0, problem = '', reloads = 0;
+    const stateRounds = [];
     try {
       for (let r = 0; r < 3; r++) {
         const a = await grab(), c0 = await changes(), s0 = await read(); await sleep(1000);
@@ -358,8 +395,7 @@ export async function verifyPage(page, url, opts = {}) {
         if (!a || !b || !e) break;
         idleMax = Math.max(idleMax, pixelChange(a.img, b.img)); inputMax = Math.max(inputMax, pixelChange(b.img, e.img));
         domIdle += Math.max(0, c1 - c0); domInput += Math.max(0, c2 - c1);
-        if (s0 && s1 && s0.state !== null && s0.state !== s1.state) stateIdle++;
-        if (s1 && s2 && s1.state !== null && s1.state !== s2.state) stateInput++;
+        if (s0 && s1 && s2 && s0.state != null) stateRounds.push({ idle: [s0.state, s1.state], input: [s1.state, s2.state] });
         rounds++;
       }
     } catch (e) { report.warnings.push('Bot play input error: ' + String(e && e.message || e).slice(0, 200)); }
@@ -391,24 +427,25 @@ export async function verifyPage(page, url, opts = {}) {
         if (e) last = e;
       }
     } catch (e) { problem = 'bot play could not continue: ' + String(e && e.message || e).slice(0, 200); }
+    const { stateIdle, stateInput, selfFields, inputFields } = stateReaction(stateRounds);
     const thrown = [...new Set(pageErrors.slice(errors0))];
     if (!problem && thrown.length) problem = `it threw ${thrown.length} uncaught error(s) while it was played, first: ${String(thrown[0]).slice(0, 240)}`;
     const playedS = Math.round((Date.now() - t0) / 1000);
-    report.botPlay = { seconds: playedS, reloads, idle: Math.round(idleMax * 10000) / 10000, input: Math.round(inputMax * 10000) / 10000, domIdle, domInput, stateIdle, stateInput, rounds, outcome, problem: problem || '' };
+    report.botPlay = { seconds: playedS, reloads, idle: Math.round(idleMax * 10000) / 10000, input: Math.round(inputMax * 10000) / 10000, domIdle, domInput, stateIdle, stateInput, stateSelfFields: selfFields, stateInputFields: inputFields, rounds, outcome, problem: problem || '' };
     if (last) s = { ...s, ...last, loadMs: s.loadMs, errors: [...new Set([...(s.errors || []), ...(last.errors || [])])], warnings: s.warnings, missing: [...new Set([...(s.missing || []), ...(last.missing || [])])] };
     add('bot_play', !problem, 'Keeps running through bot play', problem ? `After ${playedS} s of random keys, clicks, drags and taps, ${problem}.` : `Kept running through ${playedS} s of random keys, clicks, drags and taps${reloads ? ` (it restarted itself ${reloads} time(s) and started again each time)` : ''}.`,
       problem ? 'Platform requirement: a game keeps running whatever the player presses. Reproduce it in the preview by mashing keys, clicking, dragging and tapping; fix what breaks (an input handler that throws, a state the game cannot leave, a button that leaves the page), then deploy_preview again.' : '');
     // input handling: the game listens for the player, and the player's input visibly changes something
     const h = (first && first.heard) || {}, heardTypes = Object.keys(h).filter((k) => /^(key(down|up|press)|pointer(down|up|move)|mouse(down|up|move)|click|dblclick|touch(start|end|move)|wheel|contextmenu|gamepadconnected)$/.test(k));
     const listens = heardTypes.length > 0 || (ui1 && ui1.controls > 0) || (ui2 && ui2.controls > 0);
-    const byPicture = inputMax >= 0.004 && inputMax >= idleMax * 1.5 + 0.01, byPage = domInput > domIdle + 2, byState = stateInput > 0 && stateInput > stateIdle;
+    const byPicture = inputMax >= 0.004 && inputMax >= idleMax * 1.5 + 0.01, byPage = domInput > domIdle + 2, byState = inputFields.length ? stateInput > 0 : stateInput > 0 && stateInput > stateIdle;
     const played = !!(report.playthrough && report.playthrough.ok);
     const reacts = listens && (byPicture || byPage || byState);
     add('input_handled', reacts, 'Reacts to the player\'s input', reacts
-      ? `${byPicture ? `input changed ${(inputMax * 100).toFixed(1)}% of the screen against ${(idleMax * 100).toFixed(1)}% with nothing pressed` : byPage ? `input changed the page ${domInput} time(s) against ${domIdle} with nothing pressed` : 'input changed the game\'s own state (GCP.test.onState) while time alone did not'}; it listens for ${heardTypes.length ? heardTypes.slice(0, 6).join(', ') : 'clicks on its controls'}.`
+      ? `${byPicture ? `input changed ${(inputMax * 100).toFixed(1)}% of the screen against ${(idleMax * 100).toFixed(1)}% with nothing pressed` : byPage ? `input changed the page ${domInput} time(s) against ${domIdle} with nothing pressed` : inputFields.length ? `input changed ${inputFields.slice(0, 4).join(', ')} in the game's own state (GCP.test.onState), which did not change with nothing pressed${selfFields.length ? ` (${selfFields.slice(0, 4).join(', ')} changed by ${selfFields.length > 1 ? 'themselves and were' : 'itself and was'} left out)` : ''}` : 'input changed the game\'s own state (GCP.test.onState) while time alone did not'}; it listens for ${heardTypes.length ? heardTypes.slice(0, 6).join(', ') : 'clicks on its controls'}.`
       : !listens ? 'The game\'s own code listens for no keyboard, mouse, touch or gamepad input, and has no controls on the page.'
-      : `Pressing keys, clicking, dragging and tapping changed ${(inputMax * 100).toFixed(1)}% of the screen; with nothing pressed ${(idleMax * 100).toFixed(1)}% changed by itself, so the input made no visible difference${played ? ' (a passing play-through alone does not show that a player can play)' : ''}.`,
-      reacts ? '' : 'Platform requirement: a game reacts to the player. The verifier presses arrows, WASD, Space, Enter, J, K, Z, X, clicks, drags and taps in the play area after the game starts. Listen for input (keydown, pointerdown, touchstart, or the platform\'s on-screen controls) and make each press visibly do something: move, aim, select, shoot. If the game waits on a title screen, register GCP.test.onAutostart to drop into play. When the whole screen moves by itself anyway, register GCP.test.onState(fn) returning what the player changes (position, selection), and the check reads that instead.');
+      : `Pressing keys, clicking, dragging and tapping changed ${(inputMax * 100).toFixed(1)}% of the screen; with nothing pressed ${(idleMax * 100).toFixed(1)}% changed by itself, so the input made no visible difference${selfFields.length ? `. In GCP.test.onState, ${selfFields.slice(0, 6).join(', ')} changed with nothing pressed${stateInput ? '' : ', and no other field changed with input'}` : ''}${played ? ' (a passing play-through alone does not show that a player can play)' : ''}.`,
+      reacts ? '' : 'Platform requirement: a game reacts to the player. The verifier presses arrows, WASD, Space, Enter, J, K, Z, X, clicks, drags and taps in the play area after the game starts. Listen for input (keydown, pointerdown, touchstart, or the platform\'s on-screen controls) and make each press visibly do something: move, aim, select, shoot. If the game waits on a title screen, register GCP.test.onAutostart to drop into play. When the whole screen moves by itself anyway, register GCP.test.onState(fn) returning what the player changes (position, selection), and the check reads that instead: fields that change by themselves (timers, animation) are left out, so at least one field must change only with input.' + (selfFields.length && !stateInput ? ` Here ${selfFields.slice(0, 6).join(', ')} changed by ${selfFields.length > 1 ? 'themselves' : 'itself'} and nothing else in onState changed with input: return the player's position or selection too.` : ''));
     // a score or an ending: optional. Sandbox, idle, creative and exploration games have neither by design, so this is
     // advice that never stops a version; a game that reports one gets a small lift in the store's ranking (eng_outcome).
     const scored = outcome.scores > 0 || outcome.submits > 0, ended = outcome.ends > 0 || outcome.matchEnds > 0;
