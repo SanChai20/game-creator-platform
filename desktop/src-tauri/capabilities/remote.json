@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "hearthcade-site",
+  "description": "The only native call the site may make: follow a game into full screen (Windows).",
+  "windows": ["main"],
+  "remote": { "urls": ["https://hearthcade.com/*", "https://*.hearthcade.com/*"] },
+  "permissions": ["allow-set-fullscreen"]
+}

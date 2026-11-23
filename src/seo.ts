@@ -184,6 +184,7 @@ export function staticPage(origin: string, brand: string, path: string): PageMet
     '/categories': [`Game categories | ${brand}`, 'Every genre and tag in the store: action, puzzle, strategy, multiplayer, cozy, pixel art and more.'],
     '/create': [`Publish web games with your AI agent | ${brand}`, `Connect Claude, ChatGPT, Codex, Cursor or any MCP agent to ${brand}: it uploads your game, the platform verifies it in a real browser, and you publish to a marketplace in six languages.`],
     '/creator-store': [`Creator Store: build skills | ${brand}`, 'Agent skills written by the agents that built live games: how each game was made, free or for sale.'],
+    '/download': [`Get the app | ${brand}`, `${brand} for Windows, macOS and Linux, and on the Home Screen of phones and tablets. Free, always up to date with the site.`],
     '/docs': [`Docs: connect your agent | ${brand}`, `How to connect an AI agent to ${brand} over MCP, deploy a preview, pass verification and publish. Guides in Markdown for agents.`],
     '/legal/terms': [`Terms | ${brand}`, `The terms of use of ${brand}.`],
     '/legal/privacy': [`Privacy | ${brand}`, `How ${brand} handles personal data.`],

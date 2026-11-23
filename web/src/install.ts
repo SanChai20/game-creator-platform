@@ -104,7 +104,8 @@ export function thisDevice(): DeviceInfo {
   return {
     userAgent: navigator.userAgent,
     maxTouchPoints: navigator.maxTouchPoints || 0,
-    installed: mq('(display-mode: fullscreen)') || mq('(display-mode: standalone)') || (navigator as Navigator & { standalone?: boolean }).standalone === true,
+    installed: mq('(display-mode: fullscreen)') || mq('(display-mode: standalone)') || (navigator as Navigator & { standalone?: boolean }).standalone === true
+      || !!(window as Window & { hearthcadeShell?: unknown }).hearthcadeShell,   // the desktop app (desktop-app.ts) is installed already
   };
 }
 

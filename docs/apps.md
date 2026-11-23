@@ -12,12 +12,31 @@ Every app is a thin shell that loads `https://hearthcade.com` (`PUBLIC_ORIGIN`).
 | Platform | What the player installs | How a web deploy reaches it |
 | --- | --- | --- |
 | iPhone, iPad, Android, desktop Chrome and Edge, Safari on Mac | The PWA: `web/public/manifest.webmanifest`, `web/public/sw.js`, `web/src/install.ts` | The next time it opens. The service worker fetches pages from the network first and caches only hashed build files (`/assets/…`), so a deploy is never held back |
-| Desktop app, if built (Tauri; deferred, no signing yet) | A shell whose window opens `https://hearthcade.com` | The same: the window loads the live site |
+| Windows, Mac, Linux desktop app (Tauri, `desktop/`, unsigned) | An installer from `/download` (the Get the app page), served from this repository's GitHub releases | The same: the window loads the live site |
 | Android APK, if built (Trusted Web Activity) | A shell that opens `https://hearthcade.com` in Chrome | The same |
 
 A shell itself changes only for a native ability the web cannot reach (a tray icon, a native fullscreen bridge). Those
 changes are rare and are installed by the shell's own updater in the background (the Tauri updater, or the APK's
 update), never by asking the player to download again. A feature that only needs web code never touches a shell.
+
+## The desktop app
+
+`desktop/` is a Tauri shell (see [desktop/README.md](../desktop/README.md)). Its window opens `https://hearthcade.com`,
+links to other sites open in the player's browser, and it tells the page it is there through `window.hearthcadeShell`
+(the web hides its install prompt and the Get the app menu entry inside it, and works without it). The one native call
+the site may make is following a game into full screen on Windows.
+
+- **Web changes, frontend or backend:** deploy the Worker as usual. Every installed app shows them on its next page load.
+  Nothing in `desktop/` changes and no installer is rebuilt.
+- **Shell changes (rare):** bump `version` in `desktop/package.json` and merge. `.github/workflows/desktop.yml` builds
+  the installers on Windows, macOS and Linux runners and publishes the release `desktop-v<version>`. Installed apps find
+  it through `/download/desktop/latest.json`, download it in the background and install it when the player quits.
+- **Signing:** the installers carry no paid certificate, so Windows SmartScreen and macOS Gatekeeper ask once (the Get
+  the app page shows the steps). Shell updates are signed with a free Tauri key pair: the public key is in
+  `tauri.conf.json` and the private key is the repository secret `TAURI_SIGNING_PRIVATE_KEY`.
+- **Downloads** have stable addresses on the site (`src/desktop.ts`): `/download/desktop/windows`, `mac`, `linux`,
+  `linux-deb`, plus `info.json` for the page and `latest.json` for the updater. GitHub releases of this repository are
+  for the desktop app only, since `releases/latest` is what they point at.
 
 ## Rules for changes
 

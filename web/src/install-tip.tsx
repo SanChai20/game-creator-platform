@@ -58,6 +58,12 @@ export function InstallPrompt() {
   return <InstallDialog kind={kind} canPrompt={!!installPrompt()} onInstall={install} onClose={close} />;
 }
 
+/** Opens the install popup (the Get the app page's phone and tablet button). False when this device has nothing to offer. */
+export function openInstallPrompt(): boolean {
+  if (!offer() || !opener) return false;
+  opener(); return true;
+}
+
 /** "Install app" in the footer, on phones, tablets and computers that can add the site. */
 export function InstallAppLink() {
   useInstallTick();
