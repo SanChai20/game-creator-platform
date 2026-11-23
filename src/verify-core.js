@@ -9,7 +9,6 @@
 //   5. keeps rendering after keyboard, mouse and touch input   (input)
 //   6. throws no uncaught errors during all of the above       (clean)
 import { craftReview, decodePng, imageMetrics, motionBetween } from './craft-review.js';
-import { NUMBERS } from './standards.js';
 
 /** Decodes an 8-bit RGB/RGBA PNG and summarises it. `img` is the decoded picture, kept for the craft review. */
 export function pngStats(buf) {
@@ -592,8 +591,8 @@ const layoutOf = (page) => page.evaluate(() => {
  * The game standards' reserved zones, checked on a phone (src/standards.js, "menu-button" and "safe-area"). The page is
  * told it is in fullscreen on a notched phone (the same message the platform's player sends, with iPhone insets), then
  * the layers GCP.test.onCapture hands over are read back right after the game draws: the world (the bottom layer) may
- * fill the screen, but the interface layers above it must leave the notch, the home bar and the platform menu button's
- * corner clear. A game that hands over one canvas cannot be checked this way, and is told so.
+ * fill the screen, but the interface layers above it must leave the notch and the home bar clear. (The platform menu
+ * button floats above the game and the player drags it out of the way, so its corner is not reserved.) A game that hands over one canvas cannot be checked this way, and is told so.
  * Returns { checked, layers, reason?, safe, corner, zones: [{ zone, coverage, box }] } or null.
  */
 export const ZONE_INSETS = { landscape: { top: 0, right: 47, bottom: 21, left: 47 }, portrait: { top: 47, right: 0, bottom: 34, left: 0 } };
@@ -619,7 +618,7 @@ export function leftFor(from, to) {
 }
 
 export async function zonesOf(page, orientation) {
-  const safe = ZONE_INSETS[orientation === 'portrait' ? 'portrait' : 'landscape'], mb = NUMBERS.menu_button;
+  const safe = ZONE_INSETS[orientation === 'portrait' ? 'portrait' : 'landscape'];
   const told = await page.evaluate(() => !!(window.__GCP && window.__GCP.captureLayers)).catch(() => false) ? await inPlayer(page, orientation) : null;
   if (!told) return null;
   await sleep(900);
@@ -629,15 +628,11 @@ export async function zonesOf(page, orientation) {
     const out = { checked: false, layers: layers ? layers.length : 0, safe: sf, corner: a.corner, edgeToEdge: a.edge, zones: [] };
     if (!layers || !layers.length) { out.reason = 'no-hook'; return out; }
     if (layers.length < 2) { out.reason = 'one-layer'; return out; }
-    const sq = a.size + 2 * a.inset, rects = [];
+    const rects = [];
     if (sf.left) rects.push({ zone: 'notch-left', x: 0, y: sf.top, w: sf.left, h: vh - sf.top - sf.bottom });
     if (sf.right) rects.push({ zone: 'notch-right', x: vw - sf.right, y: sf.top, w: sf.right, h: vh - sf.top - sf.bottom });
     if (sf.top) rects.push({ zone: 'notch-top', x: 0, y: 0, w: vw, h: sf.top });
     if (sf.bottom) rects.push({ zone: 'home-bar', x: 0, y: vh - sf.bottom, w: vw, h: sf.bottom });
-    {
-      const right = /right/.test(a.corner), bottom = /bottom/.test(a.corner);
-      rects.push({ zone: 'menu-button', x: right ? vw - sf.right - sq : sf.left, y: bottom ? vh - sf.bottom - sq : sf.top, w: sq, h: sq });
-    }
     // read the interface layers right after the game's next frame (a WebGL canvas is readable until it is composited)
     const counts = await new Promise((done) => requestAnimationFrame(() => {
       const res = rects.map(() => ({ all: 0, hits: [], lines: new Map() }));
@@ -669,7 +664,7 @@ export async function zonesOf(page, orientation) {
       // a panel or bar whose plain background runs on to the screen edge is allowed (backgrounds may bleed, content may
       // not): across the lines the interface fills right to the edge, the commonest flat colour is that background, and
       // only what differs from it (text, icons, buttons) counts
-      if (z.zone !== 'menu-button') {
+      {
         const full = (h) => { const l = o.lines.get(h[3]); return l && l.hit === l.n; };
         const n = new Map(); for (const h of hits) if (full(h)) n.set(h[2], (n.get(h[2]) || 0) + 1);
         const top = [...n].sort((p, q) => q[1] - p[1])[0];
@@ -681,14 +676,14 @@ export async function zonesOf(page, orientation) {
       out.zones.push({ zone: z.zone, coverage: Math.round(cov * 100) / 100, box: [Math.round(x0), Math.round(y0), Math.round(x1 - x0 + 1), Math.round(y1 - y0 + 1)], ...(bleed ? { bleed: true } : {}) });
     });
     return out;
-  }, { safe, edge: told.edge, corner: told.corner, size: mb.size, inset: mb.inset }).catch(() => null);
+  }, { safe, edge: told.edge, corner: told.corner }).catch(() => null);
 }
-const ZONE_WORDS = { 'notch-left': 'under the notch on the left', 'notch-right': 'under the rounded corner on the right', 'notch-top': 'under the notch at the top', 'home-bar': 'over the home bar at the bottom', 'menu-button': 'under the platform menu button' };
+const ZONE_WORDS = { 'notch-left': 'under the notch on the left', 'notch-right': 'under the rounded corner on the right', 'notch-top': 'under the notch at the top', 'home-bar': 'over the home bar at the bottom' };
 /** The zone check in words, for the report's notes. */
 export function zoneNotes(z, label = 'iPhone') {
   if (!z) return [];
-  if (!z.checked) return z.reason === 'one-layer' ? [`On ${label}: the reserved zones (notch, home bar, the platform menu button's corner) could not be checked, because GCP.test.onCapture hands over one canvas. Hand over the interface as its own layer (return [world, ui]) so the platform can check it.`] : [];
-  return z.zones.map((x) => `On ${label} in fullscreen: the interface draws ${ZONE_WORDS[x.zone] || x.zone} (${Math.round(x.coverage * 100)}% of that zone, around ${x.box[0]},${x.box[1]} ${x.box[2]}×${x.box[3]} px). ${x.zone === 'menu-button' ? `Keep the ${z.corner} corner free or move the button with GCP.setDisplay({ exitButton }).` : 'Keep the interface inside GCP.display.safe.'}`);
+  if (!z.checked) return z.reason === 'one-layer' ? [`On ${label}: the reserved zones (notch, home bar) could not be checked, because GCP.test.onCapture hands over one canvas. Hand over the interface as its own layer (return [world, ui]) so the platform can check it.`] : [];
+  return z.zones.map((x) => `On ${label} in fullscreen: the interface draws ${ZONE_WORDS[x.zone] || x.zone} (${Math.round(x.coverage * 100)}% of that zone, around ${x.box[0]},${x.box[1]} ${x.box[2]}×${x.box[3]} px). Keep the interface inside GCP.display.safe.`);
 }
 
 /**

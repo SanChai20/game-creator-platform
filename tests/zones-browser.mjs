@@ -1,5 +1,6 @@
 // The game standards' zone check (src/verify-core.js zonesOf) in a real browser: a game told it is in fullscreen on a
-// notched phone, whose interface layer does or does not keep clear of the notch, the home bar and the menu button.
+// notched phone, whose interface layer does or does not keep clear of the notch and the home bar. The menu button's
+// corner is not reserved: the button floats on top and the player drags it aside.
 // node tests/zones-browser.mjs (needs Playwright)
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
@@ -21,15 +22,15 @@ async function run(ui, setup = '', layers = '[W, U]') {
 }
 const zones = (z) => z.zones.map((x) => x.zone).sort();
 let z = await run('u.fillRect(10, 4, 140, 48); u.fillRect(0, innerHeight - 14, innerWidth, 14);');
-assert.equal(z.checked, true); assert.deepEqual(zones(z), ['home-bar', 'menu-button', 'notch-left'].sort());
+assert.equal(z.checked, true); assert.deepEqual(zones(z), ['home-bar', 'notch-left'].sort());
 z = await run('u.fillRect(s.left + 300, s.top + 8, 140, 48); u.fillRect(s.left, innerHeight - s.bottom - 30, 200, 30);');
-assert.deepEqual(zones(z), [], 'a HUD inside the safe area and out of the corner');
+assert.deepEqual(zones(z), [], 'a HUD inside the safe area');
 z = await run('u.fillRect(s.left + 8, s.top + 8, 140, 48);', "GCP.setDisplay({ exitButton: 'top-right' });");
-assert.equal(z.corner, 'top-right'); assert.deepEqual(zones(z), [], 'the button moved to a free corner');
+assert.equal(z.corner, 'top-right'); assert.deepEqual(zones(z), [], 'a HUD in the top-left corner, where the button starts by default');
 z = await run('u.fillRect(innerWidth - s.right - 60, s.top + 4, 56, 56);', "GCP.setDisplay({ exitButton: 'top-right' });");
-assert.deepEqual(zones(z), ['menu-button'], 'HUD in the corner the button moved to');
+assert.deepEqual(zones(z), [], 'a HUD in the corner the button starts in is fine');
 z = await run('u.fillRect(60, 0, 140, 48);', "GCP.setDisplay({ edgeToEdge: false, exitButton: 'none' });");
-assert.deepEqual(zones(z), [], 'kept inside the insets, the button\'s corner left free');
+assert.deepEqual(zones(z), [], 'kept inside the insets');
 z = await run("u.fillStyle = '#312'; u.fillRect(0, innerHeight - 90, innerWidth, 90); u.fillStyle = '#fff'; u.fillRect(s.left + 10, innerHeight - 80, 100, 40);");
 assert.deepEqual(zones(z), [], 'a bottom panel whose plain background runs to the edges, its content inside the safe area');
 z = await run("u.fillStyle = '#312'; u.fillRect(0, innerHeight - 90, innerWidth, 90); u.fillStyle = '#fff'; u.fillRect(300, innerHeight - 30, 200, 30);");

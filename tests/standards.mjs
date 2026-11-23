@@ -151,11 +151,8 @@ test('the code checks', () => {
   assert.ok(run("el.textContent = '请横屏游玩';", land).includes('orientation-own-prompt'));
   assert.ok(run("const m = { ja: '画面を横にしてください' };", land).includes('orientation-own-prompt'));
   assert.ok(!run('// rotate your device: the platform does it\nctx.rotate(a); turn(1);', land).includes('orientation-own-prompt'));
-  assert.ok(run('GCP.ready()').includes('menu-corner'));
-  assert.ok(!run("GCP.setDisplay({ exitButton: 'top-right' })").includes('menu-corner'));
-  assert.ok(!run('const m = GCP.display.menuButton; const x = m ? m.x + m.w : 0;').includes('menu-corner'));
-  assert.ok(run("GCP.setDisplay({ exitButton: 'none' })").includes('menu-corner'), "'none' no longer hides the button");
-  assert.ok(!run("GCP.setDisplay({ exitButton: 'none' }); const m = GCP.display.menuButton;").includes('menu-corner'));
+  // the menu button floats on top and the player drags it: its corner is not reserved, so a game is never told to keep it free
+  for (const c of ['GCP.ready()', "GCP.setDisplay({ exitButton: 'none' })", "GCP.setDisplay({ exitButton: 'top-right' })"]) assert.ok(!run(c).includes('menu-corner'), c);
   assert.ok(run('GCP.ready()').includes('no-progress'));
   assert.ok(run('ctx.fillText("Powered by HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(!run('// works on HearthCade\nGCP.ready()').includes('platform-logo'));

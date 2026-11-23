@@ -30,7 +30,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 | [Icons, logos and title art](#no-icons) | What the platform does not take | game_standards check |
 | [Achievements](#no-achievements) | What the platform does not take | game_standards check |
 | [Platform splash and the loading screen](#splash-loading) | While the game plays | game_standards check |
-| [The platform menu button](#menu-button) | While the game plays | game_standards check |
+| [The platform menu button](#menu-button) | While the game plays | by looking |
 | [Safe areas: notch, rounded corners, home bar](#safe-area) | While the game plays | game_standards check |
 | [The platform's on-screen controls](#touch-controls) | While the game plays | by looking |
 | [Interface layout: anchors, offsets and stretch](#ui-layout) | While the game plays | game_standards check |
@@ -314,16 +314,17 @@ More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/gui
 **Where:** Over the game whenever it plays: in its window on the page and in fullscreen, in the browser and the installed app.
 
 - A 40 px round button sits 8 px in from the safe edge, in the top-left corner unless the game asks for another.
-- It fades to 16% after 5 s; the player can drag it anywhere. A trial clock may sit beside it.
+- It fades to 16% after 5 s; the player can drag it anywhere, and the spot is kept per game and orientation. A trial clock may sit beside it.
 - For the first 3 plays on a device a short tip (up to 440 px wide) shows at top centre for 5 s; taps go through it.
 - It is always there and always on top: the game is a frame under it and cannot paint over it, take fullscreen for itself or hide it. exitButton: 'none' is taken as the top-left corner.
-- Move it with GCP.setDisplay({ exitButton: 'top-right' | 'bottom-left' | 'bottom-right' }).
+- Its corner is not reserved: it floats over the game, faded, and a player it is in the way of drags it aside. Lay the interface out for the game alone and use the whole safe area, top corners included.
+- GCP.setDisplay({ exitButton: 'top-right' | 'bottom-left' | 'bottom-right' }) picks the corner it starts in, if another suits the game better.
 
-**Do:** Keep a 56 px square free in the chosen corner, inside the safe area. Choose the corner where your HUD has nothing. When no corner is free, move the HUD that shares it aside by GCP.display.menuButton ({ corner, x, y, w, h } while the button shows, null otherwise), e.g. start a top-left row of buttons at menuButton.x + menuButton.w.
+**Do:** Lay out the HUD for the game itself, inside the safe area; the top corners are yours.
 
-**Don't:** Put a pause, score or health widget under the button. Count on hiding it: exitButton 'none' no longer does.
+**Don't:** Move the HUD aside for the button or leave a corner empty for it. Count on hiding it: exitButton 'none' does not.
 
-**Recommendation, checked:** Verification opens the game on a phone in fullscreen and reads the interface layer GCP.test.onCapture hands over (return [world, ui]): interface drawn in the button's square is reported, and game_standards check and publish warn about it. A game that hands over one canvas cannot be checked and is told so.
+**Recommendation, checked:** Not checked: the button never needs room from the game.
 
 More: [standards.md#menu-button](/guides/standards.md#menu-button)
 
@@ -426,13 +427,13 @@ More: [standards.md#window-orientation](/guides/standards.md#window-orientation)
 - landscape: design for aspect ratios from 4:3 (iPad, 1.33) to about 21:9 (phones, 2.17). Keep HUD on the edges and corners, controls in the bottom corners, and nothing important in the bottom 20 px on a phone (the home bar).
 - portrait: design for 9:21 (phones) to 3:4 (iPad). On a computer the 16:9 window shows a centred column: fill the sides with the world or a backdrop, never stretch.
 - both: give the interface a real layout for each shape, chosen from innerWidth > innerHeight on every resize, never once at start. Turning the device mid-game keeps all state (no restart, no reload, no lost menu) and relays out within one frame. Portrait is not landscape shrunk: stack top-bar items into rows or move secondary ones to the bottom, make primary menu buttons full-width in one column, keep thumb controls in the bottom third, and size text and buttons from the short side (GCP.ui does this).
-- In every orientation: no two interface elements overlap, no text is cut off or runs outside its box, tap targets are at least 44 CSS px, and everything stays inside the safe area (GCP.display.safe) and clear of the platform menu button's corner (GCP.display.menuButton). GCP.display.orientation tells the game what was declared, or what GCP.setDisplay({ orientation }) chose at run time.
+- In every orientation: no two interface elements overlap, no text is cut off or runs outside its box, tap targets are at least 44 CSS px, and everything stays inside the safe area (GCP.display.safe). GCP.display.orientation tells the game what was declared, or what GCP.setDisplay({ orientation }) chose at run time.
 
 **Do:** Check each declared orientation with debug_preview: phone-portrait (390x844) and phone-landscape (844x390), and an iPad shape, on every screen (title, menus, play, pause, results). For both: rotate mid-run in debug_preview and confirm the game carries on where it was. Re-anchor the HUD from GCP.ui.rect on every GCP.ui.onChange or resize.
 
 **Don't:** Draw your own "rotate your device" screen: the platform shows one, and two prompts fight. Declare "both" for a game whose portrait view is a squeezed landscape layout. Read the orientation once at start, or reload the game on a turn. Call screen.orientation.lock() yourself: in a frame it only asks the platform, which already locks to the declaration.
 
-**Recommendation, checked:** game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch, home bar or menu button upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.
+**Recommendation, checked:** game_standards check and deploy_preview warn when the game declares no orientation, when GCP.setDisplay({ orientation }) in the code disagrees with the declaration, and when the code draws its own rotate prompt. Verification plays a "both" game on the iPhone held both ways (an extra upright pass) and checks the reserved zones in each; a game for phones that breaks upright fails that pass, interface under the notch or home bar upright is reported, and so is a canvas that stops fitting the screen after the phone is turned.
 
 More: [standards.md#orientation](/guides/standards.md#orientation)
 
