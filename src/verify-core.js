@@ -597,14 +597,30 @@ const layoutOf = (page) => page.evaluate(() => {
  * Returns { checked, layers, reason?, safe, corner, zones: [{ zone, coverage, box }] } or null.
  */
 export const ZONE_INSETS = { landscape: { top: 0, right: 47, bottom: 21, left: 47 }, portrait: { top: 47, right: 0, bottom: 34, left: 0 } };
-export async function zonesOf(page, orientation) {
-  const safe = ZONE_INSETS[orientation === 'portrait' ? 'portrait' : 'landscape'], mb = NUMBERS.menu_button;
-  const told = await page.evaluate((a) => {
-    const G = window.__GCP; if (!G || !G.captureLayers) return null;
+/** Tells the game what the platform's player tells it on a phone or tablet: fullscreen, touch, the device's safe insets
+    when the game draws edge to edge. A page opened on its own is its own parent, so the SDK takes the message as the
+    player's. Returns { edge, corner } (the game's display preferences), or null without the SDK. */
+export async function inPlayer(page, orientation) {
+  const safe = ZONE_INSETS[orientation === 'portrait' ? 'portrait' : 'landscape'];
+  return page.evaluate((a) => {
+    const G = window.__GCP; if (!G) return null;
     const prefs = G.displayPrefs || {}, edge = prefs.edgeToEdge !== false;
     window.postMessage({ gcp: 'display', fullscreen: true, mode: 'fullscreen', orientation: a.orientation, touch: true, edgeToEdge: edge, safe: edge ? a.safe : { top: 0, right: 0, bottom: 0, left: 0 }, paused: false, menu: false }, '*');
     return { edge, corner: /^(top|bottom)-(left|right)$/.test(prefs.exitButton || '') ? prefs.exitButton : 'top-left' };   // 'none' no longer hides it
   }, { safe, orientation: orientation === 'portrait' ? 'portrait' : 'landscape' }).catch(() => null);
+}
+
+/** Where a touched page went, said so the agent can tell a reload from a link, a form or the browser's back gesture. */
+export function leftFor(from, to) {
+  const strip = (u) => String(u || '').split('#')[0];
+  if (!to || to === 'about:blank') return 'the browser went back to the previous page, the swipe-back gesture';
+  if (strip(to) === strip(from)) return 'the page reloaded itself';
+  try { const a = new URL(from), b = new URL(to); if (a.origin === b.origin) return `it went to ${b.pathname}${b.search ? '?…' : ''}`; return `it went to ${b.origin}`; } catch { return 'it went to another address'; }
+}
+
+export async function zonesOf(page, orientation) {
+  const safe = ZONE_INSETS[orientation === 'portrait' ? 'portrait' : 'landscape'], mb = NUMBERS.menu_button;
+  const told = await page.evaluate(() => !!(window.__GCP && window.__GCP.captureLayers)).catch(() => false) ? await inPlayer(page, orientation) : null;
   if (!told) return null;
   await sleep(900);
   return page.evaluate(async (a) => {
@@ -705,6 +721,11 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
       if (s.fatal) { res.problems.push(`It did not start: GCP.fatal: ${String(s.fatal).slice(0, 200)}`); continue; }
       if (!s.ready) { res.problems.push(`It did not start: GCP.ready() was not called within ${readyTimeoutS} s (progress ${Math.round(s.progress * 100)}%).`); continue; }
       res.loadMs = s.loadMs;
+      // On a phone or tablet the platform's player starts every game in fullscreen and tells the SDK so, which then keeps a
+      // finger's swipes inside the game: without that, a sideways drag over a canvas without touch-action is the browser's
+      // own back gesture, and the check failed games for something players never meet (src/player.tsx, web/public/sdk/gcp.js
+      // "gcp-guard"). The check plays the game the way players get it.
+      await inPlayer(page, way);
       await sleep(observeS * 1000);
       const a = await state(page).catch(() => null);
       await sleep(1000);
@@ -719,13 +740,14 @@ export async function verifyDevices(openDevicePage, url, { profiles = ['iphone',
       } else res.fps = Math.round(b.frames - a.frames);
       // a finger: taps in the middle and a corner, then a drag across the screen
       await page.evaluate(() => { window.__gcpDeviceMark = 1; }).catch(() => {});
+      const at = page.url();
       const before = await state(page).catch(() => null);
       await tap(page, vp.width / 2, vp.height / 2); await sleep(300);
       await tap(page, vp.width * 0.2, vp.height * 0.75); await sleep(300);
       await swipe(page, vp.width * 0.3, vp.height * 0.6, vp.width * 0.7, vp.height * 0.4); await sleep(1500);
       const after = await state(page).catch(() => null);
       const still = await page.evaluate(() => !!window.__gcpDeviceMark).catch(() => false);
-      if (!still) res.problems.push('The page reloaded or navigated away when it was touched.');
+      if (!still) res.problems.push(`The page reloaded or navigated away when it was touched (${leftFor(at, page.url())}).`);
       else if (!after) res.problems.push('The page stopped answering when it was touched.');
       else if (before && after.frames <= before.frames && res.fps) res.problems.push('It stopped drawing frames when it was touched.');
       const thrown = [...new Set([...(after ? after.errors : s.errors), ...errs])];
@@ -787,7 +809,7 @@ export async function turnCheck(page, vp) {
 /** What to do about a device problem, by what went wrong: the fix the agent needs without reading a guide first. */
 export function deviceFix(problem) {
   const p = String(problem || '');
-  if (/reloaded or navigated away when it was touched/.test(p)) return 'A tap made the browser scroll, zoom, follow a link or reload. Set touch-action: none on the game canvas (and on html and body), call preventDefault() in its pointerdown and touchstart handlers, and keep links and forms out of the play area.';
+  if (/reloaded or navigated away when it was touched/.test(p)) return 'A tap or a drag made the page reload or leave (the problem says where it went). Look for code that reloads the page or changes location on input, and keep links and forms out of the play area. If the browser itself took the drag, set touch-action: none on the game canvas (and on html and body) and call preventDefault() in its pointerdown and touchstart handlers.';
   if (/stopped answering|stopped drawing frames when it was touched|threw/.test(p)) return 'A finger crashed or froze the game. Handle touch and pointer events (pointerType "touch", several touches at once, a touch that starts on the interface) without throwing; debug_preview with a phone viewport and a tap step shows the error.';
   if (/GCP\.ready\(\) was not called|did not start|did not run/.test(p)) return 'It did not start on a phone. Check that nothing at start-up needs a mouse, a keyboard, a large screen or a desktop-only API, and that GCP.ready() is called after the first frame; debug_preview with a phone viewport shows how far it gets.';
   if (/stopped drawing frames/.test(p)) return 'It stopped drawing on a phone after it started. Look for code that waits for a key or mouse event, or that fails on a small or high-density screen; debug_preview with a phone viewport shows it.';
