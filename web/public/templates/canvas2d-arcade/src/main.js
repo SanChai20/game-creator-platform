@@ -74,11 +74,12 @@ run(async (boot) => {
     G.test.onState(() => ({ score, lives, best, over, motes: motes.length, wisps: wisps.length }));
   }
   const around = (min, max) => { const a = rand() * TAU, d = min + rand() * (max - min); return { x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }; };
-  function reset() { p.x = p.y = p.vx = p.vy = 0; motes = []; wisps = []; score = 0; lives = 3; over = false; spawn = 0; }
+  // a score or an ending is a store requirement: GCP.score when it changes, GCP.gameOver when a run ends
+  function reset() { p.x = p.y = p.vx = p.vy = 0; motes = []; wisps = []; score = 0; lives = 3; over = false; spawn = 0; if (G) G.score(0); }
   async function end() {
     over = true; audio.noise({ dur: 0.6, vol: 0.3, freq: 300 });
     if (score > best) { best = score; if (G) G.save.set('best', best); }
-    if (G) G.leaderboard.submit('motes', score);
+    if (G) { G.gameOver({ outcome: 'lose', score }); G.leaderboard.submit('motes', score); }
   }
 
   // ---- frame --------------------------------------------------------------------------------
@@ -89,7 +90,7 @@ run(async (boot) => {
       const drag = Math.exp(-4 * dt); p.vx *= drag; p.vy *= drag; p.x += p.vx * dt; p.y += p.vy * dt; p.flap += dt * (8 + Math.hypot(p.vx, p.vy)); p.hurt = Math.max(0, p.hurt - dt);
       spawn -= dt;
       if (spawn <= 0) { spawn = 0.5; if (motes.length < 14) motes.push({ ...around(4, 11), t: rand() * 9 }); if (wisps.length < 3 + Math.min(9, score / 6)) { const w = around(10, 14); wisps.push({ ...w, a: rand() * TAU, sp: 2 + rand() * 1.5 + score * 0.03 }); } }
-      for (let i = motes.length - 1; i >= 0; i--) { const m = motes[i]; const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < 0.8) { motes.splice(i, 1); score++; audio.tone({ freq: 620 + (score % 8) * 60, slide: 0.5, dur: 0.12, vol: 0.2, type: 'triangle' }); } else if (d > 18) motes.splice(i, 1); }
+      for (let i = motes.length - 1; i >= 0; i--) { const m = motes[i]; const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < 0.8) { motes.splice(i, 1); score++; if (G) G.score(score); audio.tone({ freq: 620 + (score % 8) * 60, slide: 0.5, dur: 0.12, vol: 0.2, type: 'triangle' }); } else if (d > 18) motes.splice(i, 1); }
       for (let i = wisps.length - 1; i >= 0; i--) {
         const w = wisps[i], want = Math.atan2(p.y - w.y, p.x - w.x); let da = want - w.a; da = Math.atan2(Math.sin(da), Math.cos(da)); w.a += clamp(da, -1.6 * dt, 1.6 * dt);   // they turn slowly, so you can out-fly them
         w.x += Math.cos(w.a) * w.sp * dt; w.y += Math.sin(w.a) * w.sp * dt;

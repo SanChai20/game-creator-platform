@@ -29,6 +29,34 @@ function StoreMetadata({ m }: { m: { version: number; required: boolean; missing
   );
 }
 
+/** Where the game stands in the store (src/store-quality.ts): the New shelf and what it still needs to reach the main
+    store, hiding by player reports, and the weekly cap on new games. */
+const NEED_LABEL = {
+  players: (have: number, need: number) => t('Players other than you: {have} of at least {need}', '除你之外的玩家：{have}（至少 {need}）', { have, need }),
+  minutes: (have: number, need: number) => t('Average play time per player: {have} min of at least {need} min', '每位玩家平均游玩时长：{have} 分钟（至少 {need} 分钟）', { have, need }),
+  quit: (have: number, need: number) => t('Players who left within a minute and never came back: {have}% (at most {need}%)', '一分钟内离开且再未回来的玩家：{have}%（至多 {need}%）', { have, need }),
+  ratings: (have: number, need: number) => t('Ratings: {have} of at least {need}', '评分数：{have}（至少 {need}）', { have, need }),
+  rating: (have: number, need: number) => t('Average rating: {have} (at least {need})', '平均评分：{have}（至少 {need}）', { have, need }),
+};
+function StoreStanding({ st, live }: { st: any; live: boolean }) {
+  const left = st.graduation ? st.graduation.needs.filter((n: any) => !n.ok) : [];
+  const cap = st.new_game_cap;
+  return (
+    <Card title={t('In the store', '在商店中')} pad>
+      <div className="stack s">
+        {st.hidden && <p className="bad">{st.hidden.reason === 'reports' ? t('Hidden from the store: enough players reported it. It stays playable by its link, and comes back by itself when you put a fixed version live.', '已在商店中隐藏：举报的玩家已达到阈值。它仍可通过链接游玩；你上线修复后的新版本后，它会自动回到商店。') : t('Hidden from the store by the platform.', '已被平台在商店中隐藏。')}</p>}
+        {!st.new_shelf_on || st.shelf === 'main' ? <p>{live ? t('On the main store.', '在主商店中。') : t('Once live, it goes straight to the main store.', '上线后直接进入主商店。')}</p> : <>
+          <p>{live ? t('On the New shelf. It moves to the main store once players stick with it:', '在新品架上。玩家愿意持续游玩后，它会进入主商店：') : t('Once live, it starts on the New shelf and moves to the main store once players stick with it:', '上线后先进入新品架，玩家愿意持续游玩后进入主商店：')}</p>
+          {st.graduation && <ul className="fs-sm">{st.graduation.needs.map((n: any) => <li key={n.id} className={n.ok ? 'mute' : ''}>{n.ok ? '✓ ' : '○ '}{NEED_LABEL[n.id as keyof typeof NEED_LABEL]?.(n.have, n.need) ?? n.id}</li>)}</ul>}
+          {live && !left.length && <p className="dim fs-sm">{t('It meets every condition and moves within 10 minutes.', '已满足所有条件，10 分钟内会移入主商店。')}</p>}
+        </>}
+        {st.reports_open > 0 && <p className="fs-sm">{t('{n} open player reports.', '{n} 条待处理的玩家举报。', { n: st.reports_open })}</p>}
+        {cap && cap.limited && <p className="dim fs-sm">{t('New games you put live in the last 7 days: {used} of {cap}.', '过去 7 天你上线的新游戏：{used} / {cap}。', { used: cap.used, cap: cap.cap })}{cap.next_at ? ' ' + t('The next slot opens {when}.', '下一个名额将于 {when} 开放。', { when: dateTime(cap.next_at) }) : ''}</p>}
+      </div>
+    </Card>
+  );
+}
+
 function VersionCompat({ c }: { c: GameCompat }) {
   const v = useCompat(c);
   return <div className="ver-compat"><CompatSection c={c} v={v} /></div>;
@@ -274,6 +302,7 @@ export function Project({ id }: { id: string }) {
 
           <div className="stack l">
             {s.feedback_enabled !== false && <FeedbackQueue projectId={id} stamp={fbStamp} />}
+            {data.store && <StoreStanding st={data.store} live={data.project.status === 'live'} />}
             {data.metadata && <StoreMetadata m={data.metadata} />}
             <Card title={t('Price', '价格')} pad>
               {priceText === null ? (

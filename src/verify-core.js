@@ -317,6 +317,106 @@ export async function verifyPage(page, url, opts = {}) {
       problems.length ? 'Recommended, not required: register GCP.test.onCapture(() => canvas or [canvases]) and GCP.test.onState(fn), and draw what the player sees in those canvases, so feedback screenshots and the layout checks see exactly what players see. Interface made of page elements is allowed; it is then left out of the handed-over frame. A WebGL game that does not redraw every frame keeps preserveDrawingBuffer: true or draws a frame inside onCapture. See get_started {topic: "contract"}, "Hand over the frame".' : '');
     if (soft) checks[checks.length - 1].soft = true;
   };
+  // The playability checks (5d). Pure measurements of the page; nothing the game says about itself counts except the
+  // score and endings it reports through the SDK and a play-through that passed.
+  const playability = async () => {
+    const botS = Math.max(5, Math.min(180, +o.botPlayS || 45));
+    const grab = async () => { try { return pngStats(await page.screenshot({ type: 'png' })); } catch { return null; } };
+    const read = () => page.evaluate(() => { const g = window.__GCP; return g ? { outcome: g.outcome || null, heard: g.inputHeard || {}, state: g.debugState ? (() => { try { return JSON.stringify(g.debugState()).slice(0, 4000); } catch { return null; } })() : null } : null; }).catch(() => null);
+    const changes = () => page.evaluate(() => (window.__gcpChanges ? window.__gcpChanges() : 0)).catch(() => 0);
+    const vp = (page.viewport ? page.viewport() : page.viewportSize && page.viewportSize()) || { width: 960, height: 540 };
+    // the area the bot plays in: the biggest canvas when there is one (so a link beside the game is never clicked by chance)
+    const area = await page.evaluate(() => { let best = null; for (const c of document.querySelectorAll('canvas')) { const r = c.getBoundingClientRect(); if (r.width * r.height > (best ? best.w * best.h : 400)) best = { x: r.left, y: r.top, w: r.width, h: r.height }; } return best; }).catch(() => null)
+      || { x: 0, y: 0, w: vp.width, h: vp.height };
+    const at = (fx, fy) => [Math.round(Math.max(1, Math.min(vp.width - 2, area.x + area.w * fx))), Math.round(Math.max(1, Math.min(vp.height - 2, area.y + area.h * fy)))];
+    let seed = 1;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'Enter', 'KeyJ', 'KeyK', 'KeyZ', 'KeyX', 'KeyE', 'ShiftLeft', 'Digit1'];
+    // one burst of play, about a second: keys held, a click, a drag and a tap in the play area
+    const burst = async () => {
+      for (let i = 0; i < 3; i++) { const k = KEYS[Math.floor(rnd() * KEYS.length)]; await page.keyboard.down(k); await sleep(120 + Math.floor(rnd() * 160)); await page.keyboard.up(k); }
+      const [x, y] = at(0.15 + rnd() * 0.7, 0.15 + rnd() * 0.7); await page.mouse.click(x, y); await sleep(60);
+      const [x1, y1] = at(0.2 + rnd() * 0.6, 0.2 + rnd() * 0.6), [x2, y2] = at(0.2 + rnd() * 0.6, 0.2 + rnd() * 0.6);
+      await page.mouse.move(x1, y1); await page.mouse.down(); await page.mouse.move(x2, y2, { steps: 5 }); await page.mouse.up();
+      const [tx, ty] = at(0.2 + rnd() * 0.6, 0.2 + rnd() * 0.6); await tap(page, tx, ty);
+    };
+    const where = () => { try { const u = new URL(page.url()); return u.origin + u.pathname; } catch { return ''; } }, home = where();
+    const errors0 = pageErrors.length, t0 = Date.now();
+    await page.evaluate(() => { window.__gcpBot = 1; }).catch(() => {});
+    let first = await read(), outcome = first && first.outcome ? { ...first.outcome } : { scores: 0, ends: 0, submits: 0, matchEnds: 0 };
+    const keep = (r) => { if (r && r.outcome) for (const k of ['scores', 'ends', 'submits', 'matchEnds']) outcome[k] = Math.max(outcome[k] || 0, r.outcome[k] || 0); };
+    // (a) does it react? Three rounds of: a moment with nothing pressed, then a burst of input, each between two pictures.
+    // Input has to change the screen (or the page, or the game's own state hook) clearly more than time alone does.
+    let idleMax = 0, inputMax = 0, domIdle = 0, domInput = 0, stateIdle = 0, stateInput = 0, rounds = 0, problem = '', reloads = 0;
+    try {
+      for (let r = 0; r < 3; r++) {
+        const a = await grab(), c0 = await changes(), s0 = await read(); await sleep(1000);
+        const b = await grab(), c1 = await changes(), s1 = await read();
+        await burst();
+        const e = await grab(), c2 = await changes(), s2 = await read();
+        keep(s0); keep(s1); keep(s2);
+        if (!a || !b || !e) break;
+        idleMax = Math.max(idleMax, pixelChange(a.img, b.img)); inputMax = Math.max(inputMax, pixelChange(b.img, e.img));
+        domIdle += Math.max(0, c1 - c0); domInput += Math.max(0, c2 - c1);
+        if (s0 && s1 && s0.state !== null && s0.state !== s1.state) stateIdle++;
+        if (s1 && s2 && s1.state !== null && s1.state !== s2.state) stateInput++;
+        rounds++;
+      }
+    } catch (e) { report.warnings.push('Bot play input error: ' + String(e && e.message || e).slice(0, 200)); }
+    // (b) then plain bot play for the rest of the time, checking every few seconds that it is still running
+    let last = null, lastFrames = 0;
+    try {
+      while (Date.now() - t0 < botS * 1000 && !problem) {
+        for (let i = 0; i < 3 && Date.now() - t0 < botS * 1000; i++) await burst();
+        const stayed = await page.evaluate(() => window.__gcpBot === 1).catch(() => false);
+        if (!stayed) {
+          if (where() !== home) { problem = `it left the page during bot play (now at ${where().slice(0, 120)})`; break; }
+          // the same address, a new page: the game reloaded itself (a "Play again"). Fine once it boots again.
+          let back = null;
+          for (let i = 0; i < 40 && !(back && back.ready); i++) { await sleep(500); back = await state(page).catch(() => null); if (back && back.fatal) break; }
+          if (!(back && back.ready && !back.fatal)) { problem = 'it reloaded itself during bot play and did not start again within 20 s'; break; }
+          reloads++; await page.evaluate(() => { window.__gcpBot = 1; }).catch(() => {});
+        }
+        const now1 = await state(page).catch(() => null);
+        if (!now1) { problem = 'the page stopped answering during bot play'; break; }
+        if (now1.fatal) { problem = `it stopped with GCP.fatal during bot play: ${String(now1.fatal).slice(0, 200)}`; break; }
+        keep(await read());
+        last = now1; lastFrames = now1.frames;
+      }
+      // still running at the end: frames still advance (an event-driven page only has to still be there)
+      if (!problem && !domGame) {
+        const c = await state(page).catch(() => null); await sleep(1500); const e = await state(page).catch(() => null);
+        const n = c && e ? e.frames - c.frames : 0;
+        if (n < Math.max(3, o.minFrames / 3)) problem = `its frames stopped after bot play (${n} frames in 1.5 s)`;
+        if (e) last = e;
+      }
+    } catch (e) { problem = 'bot play could not continue: ' + String(e && e.message || e).slice(0, 200); }
+    const thrown = [...new Set(pageErrors.slice(errors0))];
+    if (!problem && thrown.length) problem = `it threw ${thrown.length} uncaught error(s) while it was played, first: ${String(thrown[0]).slice(0, 240)}`;
+    const playedS = Math.round((Date.now() - t0) / 1000);
+    report.botPlay = { seconds: playedS, reloads, idle: Math.round(idleMax * 10000) / 10000, input: Math.round(inputMax * 10000) / 10000, domIdle, domInput, stateIdle, stateInput, rounds, outcome, problem: problem || '' };
+    if (last) s = { ...s, ...last, loadMs: s.loadMs, errors: [...new Set([...(s.errors || []), ...(last.errors || [])])], warnings: s.warnings, missing: [...new Set([...(s.missing || []), ...(last.missing || [])])] };
+    add('bot_play', !problem, 'Keeps running through bot play', problem ? `After ${playedS} s of random keys, clicks, drags and taps, ${problem}.` : `Kept running through ${playedS} s of random keys, clicks, drags and taps${reloads ? ` (it restarted itself ${reloads} time(s) and started again each time)` : ''}.`,
+      problem ? 'Platform requirement: a game keeps running whatever the player presses. Reproduce it in the preview by mashing keys, clicking, dragging and tapping; fix what breaks (an input handler that throws, a state the game cannot leave, a button that leaves the page), then deploy_preview again.' : '');
+    // input handling: the game listens for the player, and the player's input visibly changes something
+    const h = (first && first.heard) || {}, heardTypes = Object.keys(h).filter((k) => /^(key(down|up|press)|pointer(down|up|move)|mouse(down|up|move)|click|dblclick|touch(start|end|move)|wheel|contextmenu|gamepadconnected)$/.test(k));
+    const listens = heardTypes.length > 0 || (ui1 && ui1.controls > 0) || (ui2 && ui2.controls > 0);
+    const byPicture = inputMax >= 0.004 && inputMax >= idleMax * 1.5 + 0.01, byPage = domInput > domIdle + 2, byState = stateInput > 0 && stateInput > stateIdle;
+    const played = !!(report.playthrough && report.playthrough.ok);
+    const reacts = listens && (byPicture || byPage || byState);
+    add('input_handled', reacts, 'Reacts to the player\'s input', reacts
+      ? `${byPicture ? `input changed ${(inputMax * 100).toFixed(1)}% of the screen against ${(idleMax * 100).toFixed(1)}% with nothing pressed` : byPage ? `input changed the page ${domInput} time(s) against ${domIdle} with nothing pressed` : 'input changed the game\'s own state (GCP.test.onState) while time alone did not'}; it listens for ${heardTypes.length ? heardTypes.slice(0, 6).join(', ') : 'clicks on its controls'}.`
+      : !listens ? 'The game\'s own code listens for no keyboard, mouse, touch or gamepad input, and has no controls on the page.'
+      : `Pressing keys, clicking, dragging and tapping changed ${(inputMax * 100).toFixed(1)}% of the screen; with nothing pressed ${(idleMax * 100).toFixed(1)}% changed by itself, so the input made no visible difference${played ? ' (a passing play-through alone does not show that a player can play)' : ''}.`,
+      reacts ? '' : 'Platform requirement: a game reacts to the player. The verifier presses arrows, WASD, Space, Enter, J, K, Z, X, clicks, drags and taps in the play area after the game starts. Listen for input (keydown, pointerdown, touchstart, or the platform\'s on-screen controls) and make each press visibly do something: move, aim, select, shoot. If the game waits on a title screen, register GCP.test.onAutostart to drop into play. When the whole screen moves by itself anyway, register GCP.test.onState(fn) returning what the player changes (position, selection), and the check reads that instead.');
+    // a score or an ending: reported through the SDK, or a play-through that played to the end
+    const scored = outcome.scores > 0 || outcome.submits > 0, ended = outcome.ends > 0 || outcome.matchEnds > 0;
+    const ok = scored || ended || played;
+    add('score_or_end', ok, 'Has a score or an ending', ok
+      ? [scored && `reported a score (GCP.score ${outcome.scores}×, leaderboard ${outcome.submits}×)`, ended && `reached an ending (GCP.gameOver ${outcome.ends}×${outcome.matchEnds ? `, match end ${outcome.matchEnds}×` : ''})`, played && 'its play-through played it to the end'].filter(Boolean).join('; ') + '.'
+      : 'Nothing reported a score or an ending: no GCP.score, GCP.gameOver or GCP.leaderboard.submit call while it started, was played and was played by the bot, and no play-through that played it to the end.',
+      ok ? '' : 'Platform requirement: a game has a score or an ending. Call GCP.score(n) whenever the score changes (calling it once when a run starts counts), and GCP.gameOver({ outcome: \'win\' | \'lose\' | \'done\', score }) when a run, level or match ends. GCP.leaderboard.submit counts too, and so does a GCP.test.onPlaythrough that plays the game to its ending. Then deploy_preview again.');
+  };
   // Frames for the content review (src/content-check.js): small JPEGs taken while the game starts, plays itself through and
   // takes input, so the review judges what a player actually sees, not only the first screen.
   const frames = [];
@@ -443,6 +543,9 @@ export async function verifyPage(page, url, opts = {}) {
     add('responds', responds, 'Responds to the player', responds ? (moved >= 0.002 ? `${(moved * 100).toFixed(1)}% of the screen changed while it ran and was played` : `the page changed ${changes} time(s) while it was played`) : `Nothing on screen changed in ${o.observeS + 4} s of running, input${played ? ' and its play-through' : ''}: it looks like a still picture.`,
       responds ? '' : 'The verifier clicks the centre, presses Enter, Space, WASD and the arrows, drags and taps. A game must visibly react, or move by itself. If the game waits on a title screen, register GCP.test.onAutostart to skip it.');
   }
+  // 5d. playability, a platform requirement (o.playability, on by default): the game reacts to the player's input, keeps
+  // running through a stretch of bot play (random keys, clicks, drags and taps), and has a score or an ending.
+  if (o.playability !== false && pic1 && pic1.img && checks.every((c) => c.ok)) await playability();
   report.page = { text: (ui2 && ui2.text) || (ui1 && ui1.text) || '', controls: Math.max(ui1 ? ui1.controls : 0, ui2 ? ui2.controls : 0), domGame };
   // 5c. conduct: the page stays on its own address and does not open windows, start downloads or bury the player in dialogs
   if (pic1) {

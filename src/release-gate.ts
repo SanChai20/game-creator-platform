@@ -19,9 +19,10 @@ import { missingToPublish } from '../web/src/tags';
 import { now, parseJson } from './util';
 import { LANG_NAMES_EN, listingCoverage } from './listing';
 import { deviceProblems } from './platform-requirements.js';
+import { capGate } from './store-quality';
 
 /** The ruleset's version. Bump it whenever a rule is added or tightened; each stored outcome names the one it used. */
-export const RULESET = '2026-11-23.1';
+export const RULESET = '2026-11-23.2';
 
 export type GateMode = 'publish' | 'rollback' | 'restore';
 export type RuleStatus = 'pass' | 'fail' | 'waived' | 'skipped';
@@ -46,11 +47,12 @@ export const RULES: { id: string; title: string; modes: GateMode[]; waivable: bo
   { id: 'release_kind', title: 'The release is what it says it is', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'A rollback only goes back to a version that was live before, and putting a game back online only brings back its last live version. Anything else is a new release and meets every rule.' },
   { id: 'files_kept', title: 'The version\'s files are still kept', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Versions older than the platform keeps files for cannot go live.' },
   { id: 'files_intact', title: 'The files are the ones that were verified', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Every file of the version is present, the size it was frozen at, and unchanged since.' },
-  { id: 'verified', title: 'It passed verification', modes: ['publish', 'rollback', 'restore'], waivable: true, what: 'The automated browser check passed (boots with GCP.ready(), keeps rendering, a real picture, survives input, serves every file, no uncaught errors, stays on the page, and keeps running on an emulated iPhone and iPad through taps and a drag), or a person approved a version the browser could not run. An admin can waive only checks a verifier can get wrong; boot, conduct, originality and content failures stand.' },
+  { id: 'verified', title: 'It passed verification', modes: ['publish', 'rollback', 'restore'], waivable: true, what: 'The automated browser check passed (boots with GCP.ready(), keeps rendering, a real picture, survives input, serves every file, no uncaught errors, stays on the page, keeps running on an emulated iPhone and iPad through taps and a drag, and is playable: it reacts to the player\'s input, keeps running through bot play (random keys, clicks, drags and taps) and has a score or an ending (GCP.score, GCP.gameOver or a play-through that plays to the end)), or a person approved a version the browser could not run. An admin can waive only checks a verifier can get wrong; boot, conduct, originality and content failures stand.' },
   { id: 'current_checks', title: 'It was verified against today\'s requirements', modes: ['publish'], waivable: true, what: 'A new release must have been checked by every verification check the platform runs today: the frame hand-over (capture, advice only), the phone and tablet pass, and the rest. A version verified before a check existed is deployed again first.' },
   { id: 'every_device', title: 'It is playable on computers, tablets and phones', modes: ['publish'], waivable: false, what: 'Every game on the platform must be playable on every kind of device it supports. requirements.devices lists desktop, tablet and mobile; a computer player can play with a keyboard or a mouse; a phone or tablet player can play by touch (touch controls of the game\'s own, or the platform\'s on-screen controls standing in for its keys). Which way up the game is played (landscape, portrait or both) is the game\'s own design choice and is not part of this.' },
   { id: 'metadata', title: 'Its store metadata is complete', modes: ['publish'], waivable: true, what: 'Genre, 2 to 8 tags, requirements, languages, players and content descriptors are on record.' },
   { id: 'listing_languages', title: 'Its store listing is in every language it is played in', modes: ['publish'], waivable: true, what: 'Everything about the game outside the game follows the player\'s platform language. For every platform language (English, Simplified and Traditional Chinese, Japanese, Korean, Spanish) the version declares in languages, the store listing has the title, and the tagline and description when the game\'s own listing has them, in that language (game_metadata listing_translations; a cover per language is optional, update_project covers).' },
+  { id: 'publish_cap', title: 'It fits the creator\'s weekly cap on new games', modes: ['publish'], waivable: true, what: 'A creator can put a few new games live in any 7 days (3 by default), one more for each of their live games that players rate well (5 or more ratings averaging 4 stars), up to 10. Updates to games that are already live are never limited.' },
   { id: 'storage', title: 'It fits the game\'s storage', modes: ['publish'], waivable: false, what: 'All of its files fit the game\'s storage and file count. An admin can give the game more storage instead.' },
   { id: 'build_skill', title: 'Its build skill is up to date', modes: ['publish'], waivable: true, what: 'A game that shares its build skill in the Creator Store has one written for this exact version.' },
   { id: 'original', title: 'It is original work and safe for players', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Compared again with every other creator\'s live game right before it goes live, and reviewed for content when it never was. Copies and content that is never allowed are refused.' },
@@ -58,9 +60,11 @@ export const RULES: { id: string; title: string; modes: GateMode[]; waivable: bo
 const RULE = new Map(RULES.map((r) => [r.id, r]));
 
 /** Verification checks a verifier can get wrong (a slow software GPU, a flaky input pass): an admin may waive these. */
-const WAIVABLE_CHECKS = /^(renders|picture|input|responds|files|clean|server|playthrough|capture|pause|two_players|device_.+)$/;
+const WAIVABLE_CHECKS = /^(renders|picture|input|responds|files|clean|server|playthrough|capture|pause|two_players|bot_play|input_handled|score_or_end|device_.+)$/;
 /** Checks every browser-verified version must carry today. Older reports that lack one are not current. */
 export const REQUIRED_CHECKS = ['deployed', 'boots', 'picture', 'files', 'conduct', 'clean', 'capture'];
+/** The playability checks (src/verify-core.js), required while verify_playability_required is on. */
+export const PLAYABILITY_CHECKS = ['bot_play', 'input_handled', 'score_or_end'];
 
 interface Check { id: string; ok: boolean; label?: string; detail?: string; hint?: string; soft?: boolean }
 interface Report { ok?: boolean; checks?: Check[]; gpuLimited?: boolean; browser?: string; devices?: unknown[]; originality?: unknown }
@@ -70,18 +74,18 @@ export interface GateInput {
   /** Open Implementation as it will be once this release goes live (the publish tool may change it in the same call). */
   openImplementation?: boolean;
   /** Stand-ins for tests; production uses the real checks. */
-  deps?: { originality?: (env: Env, p: Project, v: Version) => Promise<string | null>; settings?: Settings };
+  deps?: { originality?: (env: Env, p: Project, v: Version) => Promise<string | null>; settings?: Settings; cap?: typeof capGate };
 }
 
 /** Whether a version's verification report is current: every check that exists today ran on it, and none only warned. */
-export function currentChecks(v: Version, s: Pick<Settings, 'verify_capture_required' | 'verify_devices'>): { ok: boolean; problems: string[] } {
+export function currentChecks(v: Version, s: Pick<Settings, 'verify_capture_required' | 'verify_devices'> & Partial<Pick<Settings, 'verify_playability_required'>>): { ok: boolean; problems: string[] } {
   const r = parseJson<Report>(v.report, {});
   // A version the verification browser could not run went through a person instead; the review is its check.
   // So does one an admin let qualify by a clean preview session alone (verify_browser_required off).
   if (!(v.status === 'verified' && r.ok)) return { ok: true, problems: [] };
   const checks = Array.isArray(r.checks) ? r.checks : [];
   const ids = new Set(checks.map((c) => c.id)), problems: string[] = [];
-  const missing = REQUIRED_CHECKS.filter((id) => !ids.has(id));
+  const missing = [...REQUIRED_CHECKS, ...(s.verify_playability_required === false ? [] : PLAYABILITY_CHECKS)].filter((id) => !ids.has(id));
   if (missing.length) problems.push(`its report has no ${missing.join(', ')} check${missing.length > 1 ? 's' : ''} (it was verified before ${missing.length > 1 ? 'they' : 'it'} existed)`);
   // the capture check is advice (the frame hand-over serves the creator's feedback screenshots; how the game draws its
   // interface is the game's choice), so a capture finding never holds a release back: only a report without the check is old
@@ -138,7 +142,7 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
 
   rule('game_status', p.status === 'removed' ? { code: 'removed', http: 403, reason: `This game was removed by the platform${p.removed_reason ? `: ${p.removed_reason}` : '.'}`, fix: 'Contact the platform. Only an admin can restore a removed game.' } : null);
 
-  const owner = await env.DB.prepare('SELECT id, status, creator, creator_plan, creator_until, creator_since FROM users WHERE id = ?').bind(p.owner_id).first<Pick<User, 'id' | 'status' | 'creator' | 'creator_plan' | 'creator_until' | 'creator_since'>>();
+  const owner = await env.DB.prepare('SELECT id, role, status, creator, creator_plan, creator_until, creator_since FROM users WHERE id = ?').bind(p.owner_id).first<Pick<User, 'id' | 'role' | 'status' | 'creator' | 'creator_plan' | 'creator_until' | 'creator_since'>>();
   rule('account', !owner || owner.status !== 'active' ? { code: 'account_suspended', http: 403, reason: 'The creator\'s account is suspended, so its games cannot go live.', fix: 'Contact the platform.' } : null);
   rule('license', s.creator_fee_required && !(owner && licenseOf(owner).active) ? { code: 'license_required', http: 403, reason: 'Publishing needs a valid creator license, and this account has none.', fix: 'Get a creator license at /license, then publish again. Preview stays available meanwhile.' } : null);
 
@@ -194,6 +198,11 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
   } else rule('listing_languages', null);
 
   const over = has('storage') ? overBudget(s, p, v.bytes, v.file_count) : null;
+  if (has('publish_cap')) {
+    const cap = await (input.deps?.cap || capGate)(env, s, p, owner?.role);
+    rule('publish_cap', cap ? { code: 'publish_cap_reached', http: 429, ...cap } : null);
+  } else rule('publish_cap', null);
+
   rule('storage', over ? { code: 'storage_full', http: 413, reason: `Version ${v.n} does not fit: ${over.message}`, fix: over.hint } : null);
 
   if (has('build_skill')) {

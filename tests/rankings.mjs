@@ -34,8 +34,9 @@ function seed(db) {
 let n = 0;
 function game(db, o = {}) {
   const id = o.id || 'g' + ++n;
-  db.sql.prepare(`INSERT INTO projects (id, owner_id, slug, title, status, price_cents, featured, plays, rating_sum, rating_count, mature, created_at, updated_at, published_at)
-    VALUES (?, 'u1', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`).run(id, id, id.toUpperCase(), o.status || 'live', o.price ?? 0, o.featured ? 1 : 0, o.plays ?? 10, o.rsum ?? 0, o.rcount ?? 0, o.mature || '', o.published ?? T - 60 * DAY);
+  db.sql.prepare(`INSERT INTO projects (id, owner_id, slug, title, status, price_cents, featured, plays, rating_sum, rating_count, mature, created_at, updated_at, published_at, shelf, hidden_at, eng_players, eng_avg_s, eng_quit, eng_return)
+    VALUES (?, 'u1', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?)`).run(id, id, id.toUpperCase(), o.status || 'live', o.price ?? 0, o.featured ? 1 : 0, o.plays ?? 10, o.rsum ?? 0, o.rcount ?? 0, o.mature || '', o.published ?? T - 60 * DAY,
+    o.shelf || 'main', o.hidden ?? null, o.eng?.players ?? 0, o.eng?.avg_s ?? 0, o.eng?.quit ?? 0, o.eng?.ret ?? 0);
   for (const [ago, plays, seconds] of o.days || []) db.sql.prepare('INSERT INTO game_daily (project_id, day, sessions, plays, seconds) VALUES (?, ?, ?, ?, ?)').run(id, day(ago), plays, plays, seconds);
   return id;
 }
@@ -51,12 +52,29 @@ test('trending: recent days count more than older ones, ratings nudge, non-live 
   const off = game(db, { status: 'offline', days: [[0, 10, 600]] });
   db.sql.exec(`UPDATE projects SET recent = 999 WHERE id = '${off}'`);
   await trendStmt(db, T).run();
-  // today: (40 + 10) * 1 * 0.95 (no ratings: the 3.5 prior)
-  assert.equal(recent(db, now), Math.round(50 * 0.95));
-  assert.equal(recent(db, old), Math.round(50 * (2 / 10) * 0.95));
+  // today: (10 plays * 2 + 10 minutes) * 1, times 0.8 (too few players to judge engagement) and 0.95 (no ratings: the 3.5 prior)
+  assert.equal(recent(db, now), Math.round(30 * 0.8 * 0.95));
+  assert.equal(recent(db, old), Math.round(30 * (2 / 10) * 0.8 * 0.95));
   assert.equal(recent(db, gone), 0);
   assert.ok(recent(db, loved) > recent(db, now) && recent(db, now) > recent(db, hated));
   assert.equal(recent(db, off), 0);
+});
+
+test('trending: play time and how players stick with a game move it, not play count alone', async () => {
+  const db = d1(); seed(db);
+  // the same plays and minutes today; players stay long and come back, or leave at once
+  const sticky = game(db, { days: [[0, 10, 1200]], eng: { players: 20, avg_s: 600, quit: 10, ret: 40 } });
+  const leave = game(db, { days: [[0, 10, 1200]], eng: { players: 20, avg_s: 40, quit: 80, ret: 0 } });
+  const unknown = game(db, { days: [[0, 10, 1200]], eng: { players: 3, avg_s: 40, quit: 80, ret: 0 } });
+  // many opens, little play beats nothing: but less than fewer opens with long play
+  const spammy = game(db, { days: [[0, 25, 300]] });   // 25 * 2 + 5 = 55
+  const long = game(db, { days: [[0, 5, 3000]] });      // 5 * 2 + 50 = 60 (it was 75 against 70 the other way)
+  await trendStmt(db, T).run();
+  assert.equal(recent(db, sticky), Math.round(40 * ((0.5 + 0.5 + 0.2) * 0.95) * 0.95));
+  assert.equal(recent(db, leave), Math.round(40 * ((0.5 + 0.5 * 40 / 600) * 0.6) * 0.95));
+  assert.equal(recent(db, unknown), Math.round(40 * 0.8 * 0.95), 'under 5 players: neutral');
+  assert.ok(recent(db, sticky) > recent(db, unknown) && recent(db, unknown) > recent(db, leave));
+  assert.ok(recent(db, long) > recent(db, spammy), 'minutes played weigh more than opens');
 });
 
 const C = (id, o = {}) => ({ id, featured: 0, price_cents: 0, recent: 0, plays: 10, rating_sum: 0, rating_count: 0, published_at: 0, last3: 0, prior7: 0, ...o });
@@ -99,6 +117,9 @@ test('ensurePicks: chosen once a day, adults-only games left out, the home page 
   for (let i = 0; i < 8; i++) game(db, { id: 'p' + i, price: 499, days: [[0, 20 - i, 600]] });
   game(db, { id: 'adult', price: 499, mature: 'sexual', days: [[0, 500, 60000]] });
   game(db, { id: 'freebie', days: [[1, 2, 60]] });
+  // the New shelf and games hidden by reports never lead the store front
+  game(db, { id: 'newbie', price: 499, shelf: 'new', days: [[0, 400, 60000]] });
+  game(db, { id: 'reported', price: 499, hidden: T - DAY, days: [[0, 400, 60000]] });
   await trendStmt(db, T).run();
   const env = { DB: db };
   assert.equal(await ensurePicks(env, T), 6);
@@ -106,6 +127,7 @@ test('ensurePicks: chosen once a day, adults-only games left out, the home page 
   const rows = await currentPicks(db, T + 3600000);
   assert.equal(rows.length, 6);
   assert.ok(!rows.some((r) => r.id === 'adult'));
+  assert.ok(!rows.some((r) => r.id === 'newbie' || r.id === 'reported'));
   assert.ok(rows.some((r) => r.id === 'freebie' && r.pick === 'free'));
   assert.equal(rows[0].author, 'Ann');
   // a picked game that goes offline drops out of the lead at once

@@ -26,7 +26,7 @@ const radio = <T extends string>(name: string, value: T, options: [T, ReactNode]
 export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pinned?: string; base?: string; genres?: Genre[]; head?: ReactNode }) {
   const loc = useLocation(), q = query(), all = useGenres(), genres = own || all;
   const sort = q.get('sort') || 'trending', priceF = q.get('price') || '', search = q.get('q') || '', since = q.get('since') || '', rating = q.get('rating') || '';
-  const by = q.get('by') || '', who = q.get('who') || '', view = q.get('view') === 'list' ? 'list' : 'grid', page = Math.max(1, Number(q.get('page')) || 1);
+  const shelf = q.get('shelf') === 'new' ? 'new' : '', by = q.get('by') || '', who = q.get('who') || '', view = q.get('view') === 'list' ? 'list' : 'grid', page = Math.max(1, Number(q.get('page')) || 1);
   const tags = (q.get('tag') || '').split(',').map((x) => x.trim()).filter(Boolean);
   const href = (patch: Record<string, string | null>, keepPage = false) => {
     const n = query(); for (const [k, v] of Object.entries(patch)) { if (v) n.set(k, v); else n.delete(k); }
@@ -39,7 +39,7 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
   const api_q = new URLSearchParams({ sort, limit: String(PAGE), offset: String((page - 1) * PAGE), facets: '0' });
   const tagParam = [pinned, ...tags].filter(Boolean).join(',');
   if (tagParam) api_q.set('tag', tagParam); if (priceF) api_q.set('price', priceF); if (search) api_q.set('q', search);
-  if (since) api_q.set('since', since); if (rating) api_q.set('rating', rating); if (by) api_q.set('by', by);
+  if (since) api_q.set('since', since); if (rating) api_q.set('rating', rating); if (by) api_q.set('by', by); if (shelf) api_q.set('shelf', shelf);
   const key = api_q.toString();
 
   const [res, setRes] = useState<Page | null>(null), [busy, setBusy] = useState(true), [error, setError] = useState<ApiError | null>(null), [drawer, setDrawer] = useState(false);
@@ -145,10 +145,11 @@ export function Catalogue({ pinned, base = '/browse', genres: own, head }: { pin
 }
 
 export function Browse() {
-  const q = query(), sort = q.get('sort') || '', tag = q.get('tag') || '', search = q.get('q') || '', since = q.get('since') || '', priceF = q.get('price') || '', who = q.get('who') || '';
+  const q = query(), sort = q.get('sort') || '', tag = q.get('tag') || '', search = q.get('q') || '', since = q.get('since') || '', priceF = q.get('price') || '', who = q.get('who') || '', shelf = q.get('shelf') === 'new';
   const tags = tag.split(',').filter(Boolean);
   const title = search ? t('Results for “{search}”', '“{search}”的搜索结果', { search })
     : who ? t('Games by {who}', '{who} 的游戏', { who })
+    : shelf ? t('New arrivals', '新上架')
     : since ? t('New since your last visit', '你上次来访后的新游戏')
     : tags.length === 1 ? t('{genre} games', '{genre}游戏', { genre: genreName(tags[0]) })
     : priceF === 'free' ? t('Free to play', '免费畅玩') : priceF === 'under5' ? t('Under $5', '5 美元以下') : priceF === 'trial' ? t('Try before you buy', '先试玩再购买') : priceF === 'sale' ? t('On sale', '限时特价')
@@ -160,6 +161,7 @@ export function Browse() {
         <header className="browse-h">
           <nav className="crumbs" aria-label={t('Breadcrumb', '导航路径')}><Link to="/">{t('Store', '商店')}</Link><i>/</i><span>{t('Browse', '浏览')}</span></nav>
           <h1>{title}</h1>
+          {shelf && <p className="mute">{t('Just released, and still earning their place in the store: a game moves to the main store once players stick with it. Play one and rate it.', '刚刚上架、仍在争取进入主商店的游戏：玩家愿意持续游玩后，它会进入主商店。玩一款并为它评分吧。')}</p>}
         </header>
       } />
     </div>

@@ -356,6 +356,7 @@ function ReportGame({ slug }: { slug: string }) {
         <option value="stolen">{t('It copies someone else\'s work', '它抄袭了别人的作品')}</option>
         <option value="offensive">{t('Its content is offensive or not as rated', '内容冒犯，或与年龄分级不符')}</option>
         <option value="broken">{t('It does not work', '无法正常运行')}</option>
+        <option value="low_effort">{t('It is low effort: barely a game, or a near copy of another', '粗制滥造：几乎算不上游戏，或与其他游戏几乎相同')}</option>
         <option value="other">{t('Something else', '其他问题')}</option>
       </Select>
       <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} maxLength={1000} placeholder={t('What happened? (optional)', '发生了什么？（选填）')} />

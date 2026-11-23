@@ -18,7 +18,7 @@ export interface DeviceTarget { devices: string[]; orientation: string }
 export async function browserVerify(env: Env & { VERIFIER_URL?: string }, url: string, usesWebGPU: boolean, platformOrigin = '', guestUrl = '', device: DeviceTarget = { devices: ['desktop', 'tablet', 'mobile'], orientation: 'any' }, live = true): Promise<VerifyOutcome> {
   const s = await getSettings(env);
   const profiles = String(s.verify_devices || '').split(',').map((x) => x.trim()).filter(Boolean);
-  const opts = { readyTimeoutS: s.verify_ready_timeout_s, minFrames: s.verify_min_frames, observeS: s.verify_observe_s, playthroughS: Math.min(45, Math.max(3, s.verify_playthrough_s)), captureRequired: s.verify_capture_required !== false && live, usesWebGPU, platformOrigin, guestUrl, devices: { profiles, ...device } };
+  const opts = { readyTimeoutS: s.verify_ready_timeout_s, minFrames: s.verify_min_frames, observeS: s.verify_observe_s, playthroughS: Math.min(45, Math.max(3, s.verify_playthrough_s)), captureRequired: s.verify_capture_required !== false && live, playability: s.verify_playability_required !== false, botPlayS: Math.min(180, Math.max(5, s.verify_bot_play_s)), usesWebGPU, platformOrigin, guestUrl, devices: { profiles, ...device } };
   if (env.VERIFIER_URL) { // local development: a Playwright process runs the same check
     const r = await fetch(env.VERIFIER_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url, opts }) });
     if (!r.ok) return { report: { ok: false, browser: 'unavailable', summary: `Local verifier error ${r.status}`, checks: [], errors: [] }, shot: null, frames: [] };

@@ -2,8 +2,10 @@
 //
 //   playing now      every minute   players whose page checked in during the last minute (src/catalog.ts)
 //   trending score   every 10 min   projects.recent: platform-measured plays and play time over 14 days, weighted toward
-//                                   the last few days, times a small rating factor. Trending, the Free shelf and the
-//                                   "Trending this week" shelf sort on it.
+//                                   the last few days, times how players stick with the game (src/store-quality.ts) and
+//                                   a small rating factor. Trending, the Free shelf and "Trending this week" sort on it.
+//   engagement, New shelf  every 10 min  players, time per player, quick quits and returns (src/store-quality.ts); games
+//                                   on the New shelf that players stuck with move to the main store
 //   today's picks    once a day     the home page's lead (daily_picks), chosen at the first run after midnight UTC
 //   top rated, most played, new     worked out from live numbers on every request, nothing to refresh
 //   game leaderboards (GCP.leaderboard)  sorted when read, nothing to refresh; guests' scores go with the daily cleanup
@@ -14,6 +16,7 @@ import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
 import { freeTrendingOrder } from './catalog';
 import { getSettings } from './settings';
+import { engagementFactor } from './store-quality';
 
 /** Days of activity the trending score looks at. */
 export const TREND_DAYS = 14;
@@ -23,10 +26,12 @@ const BAYES = (p = '') => `((${p}rating_sum + ${PRIOR_MEAN * PRIOR_N}) * 1.0 / (
 
 /**
  * The trending score of every live game, into projects.recent (runs every 10 minutes).
- * Each day counts plays * 4 + minutes played, weighted 2 / (2 + days ago): today 1, two days ago 0.5, a week ago 0.22,
+ * Each day counts plays * 2 + minutes played, weighted 2 / (2 + days ago): today 1, two days ago 0.5, a week ago 0.22,
  * two weeks ago 0.13. So a game that is being played now climbs within the hour and a burst from last week fades,
- * instead of a flat seven-day sum that drops a game off a cliff on day eight. The rating factor runs from 0.7 (1 star)
- * to 1.1 (5 stars), 0.95 with no ratings, so a well-liked game edges ahead of an equally played one.
+ * instead of a flat seven-day sum that drops a game off a cliff on day eight. Play time weighs more than play count, so
+ * a game opened often but left at once does not lead. That is multiplied by the engagement factor (0.25 to 1.5: time
+ * per player, players who come back another day, players who leave within a minute; src/store-quality.ts) and by the
+ * rating factor, 0.7 (1 star) to 1.1 (5 stars), 0.95 with no ratings, so a well-liked game edges ahead of an equally played one.
  * Games that are not live get 0.
  *
  * Only rows whose score changes are written. The score of a game nobody played in the last 14 days stays 0, and within a
@@ -36,9 +41,9 @@ const BAYES = (p = '') => `((${p}rating_sum + ${PRIOR_MEAN * PRIOR_N}) * 1.0 / (
 export function trendStmt(db: D1Database, t = now()): D1PreparedStatement {
   const today = dayOf(t);
   return db.prepare(`UPDATE projects SET recent = n.score FROM (
-      SELECT p.id, CASE WHEN p.status = 'live' THEN CAST(ROUND(COALESCE(d.s, 0) * (0.6 + 0.1 * ${BAYES('p.')})) AS INTEGER) ELSE 0 END AS score
+      SELECT p.id, CASE WHEN p.status = 'live' THEN CAST(ROUND(COALESCE(d.s, 0) * ${engagementFactor('p')} * (0.6 + 0.1 * ${BAYES('p.')})) AS INTEGER) ELSE 0 END AS score
       FROM projects p LEFT JOIN (
-        SELECT project_id, SUM((plays * 4 + seconds / 60.0) * 2.0 / (2 + julianday(?1) - julianday(day))) AS s
+        SELECT project_id, SUM((plays * 2 + seconds / 60.0) * 2.0 / (2 + julianday(?1) - julianday(day))) AS s
         FROM game_daily WHERE day >= ?2 AND day <= ?1 GROUP BY project_id
       ) d ON d.project_id = p.id
       WHERE p.recent != 0 OR d.project_id IS NOT NULL
@@ -100,12 +105,13 @@ export function choosePicks(lists: PickLists, recentlyPicked: Set<string>, day: 
 }
 
 const COLS = 'p.id, p.featured, p.price_cents, p.recent, p.plays, p.rating_sum, p.rating_count, p.published_at';
-// Adults-only games never lead the store front.
-const LIVE = "p.status = 'live' AND p.mature = ''";
+// Adults-only games never lead the store front, and neither do games on the New shelf or hidden by player reports
+// (with the New shelf turned off, every visible live game can be picked).
+const liveWhere = (newShelf = true) => `p.status = 'live' AND p.mature = '' AND p.hidden_at IS NULL${newShelf ? " AND p.shelf = 'main'" : ''}`;
 
 /** The candidate lists for choosePicks, read from the catalogue. */
-export async function pickLists(db: D1Database, t = now(), freeOrder = 'p.recent DESC, p.plays DESC'): Promise<PickLists> {
-  const today = dayOf(t);
+export async function pickLists(db: D1Database, t = now(), freeOrder = 'p.recent DESC, p.plays DESC', newShelf = true): Promise<PickLists> {
+  const today = dayOf(t), LIVE = liveWhere(newShelf);
   const q = (sql: string, ...a: unknown[]) => db.prepare(sql).bind(...a).all<PickCandidate>().then((r) => r.results);
   const [featured, trending, fresh, rated, free] = await Promise.all([
     q(`SELECT ${COLS} FROM projects p WHERE ${LIVE} AND p.featured = 1 ORDER BY p.recent DESC LIMIT 6`),
@@ -134,7 +140,7 @@ export async function ensurePicks(env: Env, t = now()): Promise<number> {
   const db = env.DB, day = dayOf(t);
   if (await db.prepare('SELECT 1 FROM daily_picks WHERE day = ? LIMIT 1').bind(day).first()) return 0;
   const [lists, recent] = await Promise.all([
-    freePickOrder(env).then((o) => pickLists(db, t, o)),
+    Promise.all([freePickOrder(env), getSettings(env)]).then(([o, s]) => pickLists(db, t, o, s.new_shelf !== false)),
     db.prepare("SELECT DISTINCT project_id FROM daily_picks WHERE day >= ? AND day < ? AND reason != 'featured'").bind(addDays(day, -REPEAT_DAYS), day).all<{ project_id: string }>(),
   ]);
   const picks = choosePicks(lists, new Set(recent.results.map((r) => r.project_id)), day);
@@ -150,7 +156,7 @@ export const oldPicksStmt = (db: D1Database, t = now()) => db.prepare('DELETE FR
 /** The latest day's picks that are still live, in page order, with the card columns (the home page). */
 export async function currentPicks(db: D1Database, t = now()) {
   const rows = await db.prepare(`SELECT p.*, u.name AS author, dp.reason AS pick FROM daily_picks dp JOIN projects p ON p.id = dp.project_id JOIN users u ON u.id = p.owner_id
-    WHERE dp.day = (SELECT MAX(day) FROM daily_picks WHERE day <= ?) AND p.status = 'live' AND p.mature = '' ORDER BY dp.slot`).bind(dayOf(t)).all<Record<string, any>>();
+    WHERE dp.day = (SELECT MAX(day) FROM daily_picks WHERE day <= ?) AND p.status = 'live' AND p.mature = '' AND p.hidden_at IS NULL ORDER BY dp.slot`).bind(dayOf(t)).all<Record<string, any>>();
   return rows.results;
 }
 
@@ -168,6 +174,7 @@ export async function runJob(env: Env, job: string, fn: () => Promise<unknown>):
 /** Every job the schedule runs, with how often (minutes) and what it does, for the admin overview. */
 export const JOBS: { job: string; every: number; what: string }[] = [
   { job: 'playing', every: 1, what: 'Playing now counts' },
+  { job: 'engagement', every: 10, what: 'Engagement numbers and New shelf graduation' },
   { job: 'trending', every: 10, what: 'Trending scores' },
   { job: 'picks', every: 10, what: 'Today\'s picks (chosen once a day)' },
   { job: 'transfers', every: 10, what: 'Stripe transfer retries' },

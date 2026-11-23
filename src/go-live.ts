@@ -1,6 +1,7 @@
 // Switching a game's live version. Kept apart from the pipeline Durable Object so it can be tested on its own.
 import type { Env, Project, Version } from './env';
 import { now } from './util';
+import { reviveStmts } from './store-quality';
 
 export type Health = { ok: boolean; detail: string };
 export type WaitHealthy = (env: Env, url: string, version: number) => Promise<Health>;
@@ -16,6 +17,8 @@ export async function switchLive(env: Env, p: Project, v: Version, url: string, 
   const set = () => env.DB.batch([
     env.DB.prepare("UPDATE projects SET status = 'live', live_version = ?, published_at = COALESCE(published_at, ?), cover_key = COALESCE(cover_key, ?), updated_at = ? WHERE id = ? AND status != 'removed'").bind(v.n, t, v.screenshot_key, t, p.id),
     env.DB.prepare('UPDATE versions SET published_at = ? WHERE project_id = ? AND n = ?').bind(t, p.id, v.n),
+    // a game hidden by player reports comes back with a new version (src/store-quality.ts)
+    ...(v.n !== p.live_version ? reviveStmts(env.DB, p.id, v.n, t) : []),
   ]);
   if (!shared) {
     const health = await wait(env, url, v.n);

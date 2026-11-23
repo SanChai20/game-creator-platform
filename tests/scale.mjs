@@ -98,10 +98,11 @@ test('hot and scheduled queries are read through indexes', () => {
 
 test('trending: the same scores as before, and only scores that change are written', async () => {
   const db = d1(); seed(db);
-  // the scores the job worked out before this change: every live game (and every game with a score) rewritten each run
+  // the scores worked out the plain way: every live game (and every game with a score) rewritten each run. Plays count
+  // twice plus minutes; these games have too few players for an engagement signal, so its neutral 0.8 applies (src/store-quality.ts)
   const BAYES = '((rating_sum + 10.5) * 1.0 / (rating_count + 3))';
   db.sql.exec('CREATE TABLE ref AS SELECT id, 0 AS recent FROM projects');
-  db.sql.prepare(`UPDATE ref SET recent = (SELECT CASE WHEN p.status = 'live' THEN CAST(ROUND(COALESCE((SELECT SUM((d.plays * 4 + d.seconds / 60.0) * 2.0 / (2 + julianday(?1) - julianday(d.day))) FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?2 AND d.day <= ?1), 0) * (0.6 + 0.1 * ${BAYES})) AS INTEGER) ELSE 0 END FROM projects p WHERE p.id = ref.id)`)
+  db.sql.prepare(`UPDATE ref SET recent = (SELECT CASE WHEN p.status = 'live' THEN CAST(ROUND(COALESCE((SELECT SUM((d.plays * 2 + d.seconds / 60.0) * 2.0 / (2 + julianday(?1) - julianday(d.day))) FROM game_daily d WHERE d.project_id = p.id AND d.day >= ?2 AND d.day <= ?1), 0) * 0.8 * (0.6 + 0.1 * ${BAYES})) AS INTEGER) ELSE 0 END FROM projects p WHERE p.id = ref.id)`)
     .run(dayOf(T), dayOf(T - 13 * DAY));
   // an offline game that still had a score, and a live one that is no longer played, go back to 0
   db.sql.exec("UPDATE projects SET recent = 77 WHERE id IN ('g3', 'g7')");

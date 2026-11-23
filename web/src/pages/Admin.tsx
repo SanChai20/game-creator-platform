@@ -118,7 +118,8 @@ function Settings() {
 
 /** A searched, paged admin list: the search waits for typing to pause, and a new search starts at page 1. */
 function useSearch(base: string) {
-  const [q, setQ] = useState(''), [applied, setApplied] = useState(''), [page, setPage] = useState(1);
+  // ?q= in the address starts the search (the report queue links a game this way)
+  const [q, setQ] = useState(() => new URLSearchParams(location.search).get('q') || ''), [applied, setApplied] = useState(q), [page, setPage] = useState(1);
   useEffect(() => { const i = setTimeout(() => { setApplied(q); setPage(1); }, 300); return () => clearTimeout(i); }, [q]);
   const d = useData<any>(`${base}?q=${encodeURIComponent(applied)}&page=${page}`);
   const pages = d.data ? Math.max(1, Math.ceil(d.data.total / d.data.per_page)) : 1;
@@ -282,7 +283,7 @@ function Games() {
           <tbody>{data.games.map((g: any) => (
             <tr key={g.id}>
               <td>{g.status === 'live' ? <Link to={`/g/${g.slug}`}><b>{g.title}</b></Link> : <b>{g.title}</b>}<div className="mute fs-sm">{g.author} · {g.author_email}</div>{g.removed_reason && <div className="bad fs-sm">{g.removed_reason}</div>}</td>
-              <td><div className="row" style={{ gap: 6 }}><StatusBadge status={g.status} />{!!g.featured && <Badge tone="accent" dot={false}>{t('featured', '精选')}</Badge>}</div><div className="dim mono fs-xs" style={{ marginTop: 4 }}>{g.live_version ? `v${g.live_version}` : '—'}</div></td>
+              <td><div className="row" style={{ gap: 6 }}><StatusBadge status={g.status} />{!!g.featured && <Badge tone="accent" dot={false}>{t('featured', '精选')}</Badge>}{g.status === 'live' && g.shelf === 'new' && <Badge dot={false}>{t('New shelf', '新品架')}</Badge>}{!!g.hidden_at && <Badge tone="bad" dot={false}>{t('hidden', '已隐藏')}</Badge>}</div><div className="dim mono fs-xs" style={{ marginTop: 4 }}>{g.live_version ? `v${g.live_version}` : '—'}</div></td>
               <td className="n">{g.price_cents > 0 ? usd(g.price_cents) : t('Free', '免费')}</td><td className="n">{num(g.plays)}</td><td className="n">{num(g.plays7)}</td><td className="n">{playTime(g.seconds)}</td>
               <td className="n">{g.rating_count ? (g.rating_sum / g.rating_count).toFixed(1) : '—'} <span className="dim">({g.rating_count})</span></td>
               <td className="n">{g.sales}</td><td className="n">{usd(g.fees)}</td><td className={'n' + (g.errors > 0 ? ' bad' : '')}>{num(g.errors)}</td>
@@ -291,6 +292,7 @@ function Games() {
                 { label: t('Release requirements', '发布要求'), onClick: () => setRelease(g) },
                 { label: t('Storage', '存储空间'), onClick: () => storage(g) },
                 g.status === 'live' && { label: g.featured ? t('Unfeature', '取消精选') : t('Feature', '设为精选'), onClick: () => patch(g.id, { featured: !g.featured }, t('Updated.', '已更新。')) },
+                g.status === 'live' && (g.shelf === 'new' ? { label: t('Move to the main store', '移到主商店'), onClick: () => patch(g.id, { shelf: 'main' }, t('Moved to the main store.', '已移到主商店。')) } : { label: t('Move to the New shelf', '移回新品架'), onClick: () => patch(g.id, { shelf: 'new' }, t('Moved to the New shelf.', '已移回新品架。')) }),
                 g.status === 'live' && { label: t('Take offline', '下线'), onClick: () => patch(g.id, { action: 'offline' }, t('Game taken offline.', '游戏已下线。')) },
                 g.status === 'removed' ? { label: t('Restore', '恢复'), onClick: () => patch(g.id, { action: 'restore' }, t('Game restored.', '游戏已恢复。')) } : { label: t('Remove', '移除'), danger: true, onClick: () => remove(g) },
               ]} /></td>
@@ -390,6 +392,37 @@ function Refunds({ rows, reload }: { rows: any[]; reload: () => Promise<unknown>
 // Players' reports of other players (the friends panel's Report). Open ones first; each shows the recent messages the
 // reporter's chat held with the player, and lets the moderator close it, or suspend the player from the Users tab.
 const REASONS = (): Record<string, string> => ({ harassment: t('Harassment or bullying', '骚扰或欺凌'), spam: t('Spam or scams', '垃圾信息或诈骗'), hate: t('Hate speech', '仇恨言论'), cheating: t('Cheating', '作弊'), name: t('Offensive name', '不当名称'), other: t('Something else', '其他') });
+/** Games players reported (broken, low effort, …) and games hidden from the store until reviewed (src/store-quality.ts). */
+const GAME_REASONS = (): Record<string, string> => ({ broken: t('Broken', '无法运行'), low_effort: t('Low effort', '粗制滥造'), phishing: t('Phishing', '钓鱼'), malicious: t('Harmful', '有害'), stolen: t('Copied', '抄袭'), offensive: t('Offensive', '冒犯'), other: t('Other', '其他') });
+function GameReports() {
+  const { busy, act } = useAct(), { data, error, loading, reload } = useData<any>('/admin/game-reports');
+  const decide = (g: any, action: string, msg: string) => act(g.id, async () => { await api(`/admin/game-reports/${g.id}`, { body: { action } }); await reload(); }, msg);
+  if (error && !data) return <Fail error={error} retry={reload} />;
+  if (loading && !data) return <AdminSkeleton tab="table" />;
+  return (
+    <section className="stack">
+      <h2 className="h3">{t('Reported games', '被举报的游戏')}</h2>
+      {!data.games.length ? <Card pad><span className="mute">{t('No game has open reports or is hidden.', '没有待处理举报或被隐藏的游戏。')}</span></Card> : data.games.map((g: any) => (
+        <Card key={g.id} pad>
+          <div className="stack s">
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <span>{g.status === 'live' ? <Link to={`/g/${g.slug}`}><b>{g.title}</b></Link> : <b>{g.title}</b>} <span className="mute fs-sm">{g.author} · {g.email}</span> <StatusBadge status={g.status} /> {g.hidden_at && <Badge tone="bad">{g.hidden_reason === 'reports' ? t('hidden by reports', '因举报隐藏') : t('hidden by an admin', '管理员隐藏')}</Badge>}</span>
+              <span className="mute fs-sm">{t('{n} open of {th} that hide it · {players} players', '{n} 条待处理（达到 {th} 条隐藏）· {players} 位玩家', { n: g.open, th: g.threshold ?? '—', players: g.players })}</span>
+            </div>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Object.entries(g.reasons).map(([k, n]) => <Badge key={k}>{(GAME_REASONS()[k] || k) + ' ' + n}</Badge>)}</div>
+            {g.reports.length > 0 && <div className="stack s fs-sm" style={{ borderLeft: '3px solid var(--line-2)', paddingLeft: 12 }}>{g.reports.map((r: any, i: number) => <div key={i}><b>{GAME_REASONS()[r.reason] || r.reason}</b> · {r.name}{r.version ? ` · v${r.version}` : ''}{r.detail ? `: ${r.detail}` : ''} <span className="dim">{ago(r.created_at)}</span></div>)}</div>}
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <Button size="sm" variant="secondary" disabled={busy === g.id} onClick={() => void decide(g, 'dismiss', t('Reports dismissed; the game is back in the store.', '已驳回举报，游戏已回到商店。'))}>{t('Dismiss reports and show it', '驳回举报并恢复显示')}</Button>
+              {!g.hidden_at || g.open > 0 ? <Button size="sm" variant="danger" disabled={busy === g.id} onClick={() => void decide(g, 'hide', t('The game stays hidden from the store.', '游戏将继续在商店中隐藏。'))}>{t('Uphold and keep it hidden', '维持举报并保持隐藏')}</Button> : null}
+              {g.hidden_at && <Button size="sm" variant="ghost" disabled={busy === g.id} onClick={() => void decide(g, 'unhide', t('Back in the store.', '已回到商店。'))}>{t('Show it again', '恢复显示')}</Button>}
+              <Link className="btn btn-ghost btn-sm" to={`/admin/games?q=${encodeURIComponent(g.slug)}`}>{t('Take offline or remove in Games', '在“游戏”中下线或移除')}</Link>
+            </div>
+          </div>
+        </Card>))}
+    </section>
+  );
+}
+
 function Reports() {
   const [closed, setClosed] = useState(false), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/admin/social-reports${closed ? '?status=closed' : ''}`);
@@ -397,6 +430,8 @@ function Reports() {
   const suspend = (r: any) => act(String(r.id), async () => { await api(`/admin/users/${r.target.id}`, { method: 'PATCH', body: { status: 'suspended' } }); await api(`/admin/social-reports/${r.id}`, { body: { status: 'actioned' } }); await reload(); }, t('Player suspended.', '已停用该玩家。'));
   return (
     <div className="stack l">
+      <GameReports />
+      <h2 className="h3">{t('Reported players', '被举报的玩家')}</h2>
       <div className="admin-tools row"><label className="row fs-sm"><Switch checked={closed} onChange={(e) => setClosed(e.target.checked)} /> {t('Show closed reports', '显示已处理的举报')}</label></div>
       {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : !data.reports.length ? <Card pad><span className="mute">{closed ? t('No closed reports.', '没有已处理的举报。') : t('No open reports.', '没有待处理的举报。')}</span></Card> : (
         <div className="stack">{data.reports.map((r: any) => (

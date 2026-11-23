@@ -164,5 +164,22 @@
  "Longest sale a creator can run (days)": "特价最长天数",
  "Smallest discount a sale can offer (percent off the regular price)": "特价最低折扣（原价的百分比）",
  "Lowest price a game can have on sale": "特价最低价格",
- "Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)": "特价结束或原价上调后，需等待多少天才能开始下一次特价（0：无需等待）"
+ "Days a game waits after a sale ends, or after its price goes up, before a new sale can start (0: no wait)": "特价结束或原价上调后，需等待多少天才能开始下一次特价（0：无需等待）",
+ "Require the playability checks: the game reacts to input, keeps running through bot play, and has a score or an ending (off: they are not run)": "要求可玩性检查：游戏会响应输入、在机器人游玩中持续运行，并有分数或结局（关闭：不运行这些检查）",
+ "Seconds of bot play (random keys, clicks, drags and taps) a game must keep running through (5 to 180)": "游戏必须持续运行的机器人游玩秒数（随机按键、点击、拖动和点触；5 到 180）",
+ "Store quality": "商店质量",
+ "New games one creator can put live in any 7 days (updates to live games are never limited; 0: no cap)": "每位创作者任意 7 天内可上线的新游戏数（已上线游戏的更新不受限；0：不设上限）",
+ "More new games per 7 days for each of the creator's well-rated live games": "创作者每有一款好评的已上线游戏，每 7 天可多上线的新游戏数",
+ "Highest weekly cap on new games, however many well-rated games a creator has": "每周新游戏上限的最高值，无论创作者有多少好评游戏",
+ "Ratings a live game needs before it can count as well rated": "已上线游戏算作好评前需要的评分数",
+ "Average rating (with the store's prior of three 3.5-star ratings) from which a live game counts as well rated": "已上线游戏算作好评的平均评分（含商店的先验：三个 3.5 星评分）",
+ "New games start on the New shelf and reach the main store once players stick with them (off: every live game is on the main store)": "新游戏先进入新品架，玩家愿意持续游玩后才进入主商店（关闭：所有已上线游戏都在主商店）",
+ "Players (other than the creator) a game on the New shelf needs before it moves to the main store": "新品架上的游戏进入主商店前需要的玩家数（不含创作者）",
+ "Average minutes each of those players has played it": "这些玩家每人平均游玩的分钟数",
+ "Most of its players (percent) who left within their first minute and never came back": "在第一分钟内离开且再也没回来的玩家最多占比（百分比）",
+ "Ratings it needs": "需要的评分数",
+ "Average rating it needs (with the store's prior)": "需要的平均评分（含商店的先验）",
+ "Reports from different players that hide a game from the store until a new version goes live or an admin reviews it (0: reports never hide a game)": "让游戏在商店中隐藏、直到新版本上线或管理员审核的不同玩家举报数（0：举报永不隐藏游戏）",
+ "For games with many players: reports must also come from this share of its players (percent)": "玩家众多的游戏：举报也必须来自这个比例的玩家（百分比）",
+ "Reports that always hide a game, however many players it has": "无论玩家多少，一定会让游戏隐藏的举报数"
 }
