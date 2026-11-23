@@ -58,6 +58,7 @@ import { COVER, checkCover, coverRules } from '../cover-spec.js';
 import { AREAS, STANDARDS, checkStandards, findingLine, renderStandards, standardById, standardsIndex } from '../standards.js';
 import { SPLIT, deviceProblems } from '../platform-requirements.js';
 import { storeStatus, storeText } from '../store-quality';
+import { checkItem } from './schema';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
 
 /** The platform guides an agent can read: how the platform behaves, not how to make a game. */
@@ -83,6 +84,13 @@ export async function guideText(env: Env, origin: string, topic: string) {
 }
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required, additionalProperties: false });
+/** The items of upload_files' files and edits, and the other names agents give their keys (read as the schema's names). */
+export const UPLOAD_ITEMS = {
+  files: obj({ path: { type: 'string', description: 'Relative path inside the bundle.' }, content: { type: 'string', description: 'The whole file as text (or base64 when encoding is "base64").' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']),
+  edits: obj({ path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' }, replace_all: { type: 'boolean' } }, ['path', 'old_string', 'new_string']),
+};
+export const EDIT_ALIASES: Record<string, string> = { old: 'old_string', new: 'new_string', old_str: 'old_string', new_str: 'new_string', old_text: 'old_string', new_text: 'new_string', oldString: 'old_string', newString: 'new_string', oldText: 'old_string', newText: 'new_string', search: 'old_string', replace: 'new_string', find: 'old_string', file: 'path', file_path: 'path', replaceAll: 'replace_all' };
+export const FILE_ALIASES: Record<string, string> = { file: 'path', file_path: 'path', name: 'path', text: 'content', data: 'content' };
 const PROJECT = { type: 'string', description: 'Project id or slug (from list_projects or create_project).' };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Unknown environments are refused, not quietly sent to live.
@@ -154,7 +162,7 @@ async function versionReport(c: ToolCtx, p: Project, n: number, v: Awaited<Retur
     preview_page: `${c.origin}/console/projects/${p.id}`,
     ...(s.creator_fee_required && !c.user.creator ? { preview_page_note: `The console, where a person plays the preview and leaves feedback, opens only with a creator license (${c.origin}/license). Without one, debug_preview is how to see the game.` } : {}),
     ...(await feedbackHint(c, p)),
-    next: running ? `Still ${v.status} (${v.stage}). Call list_versions {project, version: ${n}}; it waits up to 40 seconds for the report.`
+    next: running ? `Still ${v.status} (${v.stage}); the deploy goes on without this call. Call list_versions {project, version: ${n}, wait_seconds: ${MAX_WAIT_S}} until it is done.`
       : !el.ok ? 'Fix every failed check in report.checks (each has a hint), upload the changed files, then deploy_preview again. get_started {topic: "versions"} explains each check.'
         : dp.length ? 'Verified, but publish refuses it: it misses a platform requirement (platform_requirements_unmet says what to fix). Fix it, then deploy_preview again.'
         : !cur.ok ? `Verified, but not against today's checks. deploy_preview again before publishing.`
@@ -192,9 +200,13 @@ export const RETRY_LIMIT = 3;
 export const DEPLOY_WAIT_MS = 45000;
 export const LIST_WAIT_MS = 40000;
 /** The longest one call waits for a verification to finish (wait_seconds), for agents that would rather block than poll. */
-export const MAX_WAIT_S = 150;
+// 55, not more: a call held open past about 60 seconds can be cut by the client or a proxy on the way (Haiku run 4 lost a
+// wait_seconds: 150 call that way while the deploy itself finished), so a longer wait is many list_versions calls instead.
+export const MAX_WAIT_S = 55;
 export const waitMs = (sec: unknown, dflt: number) => sec === undefined || sec === null || !Number.isFinite(Number(sec)) ? dflt : clamp(Math.round(Number(sec)), 0, MAX_WAIT_S) * 1000;
-const WAIT_SCHEMA = (dflt: number) => ({ type: 'integer', minimum: 0, maximum: MAX_WAIT_S, description: `Optional. How long this call waits for the browser check to finish before it answers (default ${dflt / 1000}, at most ${MAX_WAIT_S}). Pass ${MAX_WAIT_S} to get the verified or failed result in one call instead of polling list_versions; 0 answers at once.` });
+const WAIT_SCHEMA = (dflt: number) => ({ type: 'integer', minimum: 0, maximum: MAX_WAIT_S, description: `Optional. How long this call waits for the browser check to finish before it answers (default ${dflt / 1000}, at most ${MAX_WAIT_S}; a larger value waits ${MAX_WAIT_S}, because a call held open longer can be cut off on the way). If the check is still running then, the answer says not_finished: call list_versions {project, version, wait_seconds: ${MAX_WAIT_S}} until it is done. 0 answers at once.` });
+/** Said in the answer when a call asked to wait longer than one call safely can. */
+const waitNote = (sec: unknown) => Number(sec) > MAX_WAIT_S ? { wait_note: `wait_seconds ${Number(sec)} was capped at ${MAX_WAIT_S}: a call held open longer can be cut off by the client or a proxy even though the work goes on. Poll list_versions {project, version, wait_seconds: ${MAX_WAIT_S}} instead.` } : {};
 
 /**
  * Runs the deploy and browser check again on the newest version when it failed, keeping its number: the files are frozen, so
@@ -217,7 +229,7 @@ async function retryPreview(c: ToolCtx, p: Project, n: number, wait?: unknown) {
   await logEvent(c.env, p.id, 'preview_retried', `Checked again (${(tries?.k ?? 0) + 1} of ${RETRY_LIMIT})`, n, c.client);
   await enqueue(c.env, { kind: 'preview', pid: p.id, n, origin: c.origin, actor: c.client });
   const done = await waitVersion(c, p.id, n, waitMs(wait, DEPLOY_WAIT_MS));
-  return { deployed: true, retried: true, retries_left: RETRY_LIMIT - (tries?.k ?? 0) - 1, storage: await storageLine(c.env, p), ...(await versionReport(c, p, n, done)) };
+  return { deployed: true, retried: true, retries_left: RETRY_LIMIT - (tries?.k ?? 0) - 1, storage: await storageLine(c.env, p), ...waitNote(wait), ...(await versionReport(c, p, n, done)) };
 }
 
 /** Tells the agent when its creator left feedback on the preview: annotated screenshots it should read and act on. */
@@ -715,13 +727,20 @@ export const TOOLS: Tool[] = [
     description: `Changes the project workspace in one call: files writes whole files, edits replaces an exact piece of text in a file already there (cheaper than resending it), delete removes paths. Paths are relative to the bundle root, e.g. "index.html", "src/game.js". Binary content must be base64 with encoding "base64"; for big or binary files, or a whole folder, create_upload_url is better. Only web file types are accepted, and executables or archives are refused whatever their name. The whole call is checked first: if any file, edit or delete fails (a delete of a path that is not there fails), nothing in the call is saved. Deployed versions keep their own copies, so nothing here changes a preview or the live game until the next deploy_preview and publish. Example: {"project": "abc123", "files": [{"path": "index.html", "content": "<!doctype html>..."}], "edits": [{"path": "src/main.js", "old_string": "speed = 4", "new_string": "speed = 5"}], "delete": ["old.js"]}.`,
     inputSchema: obj({
       project: PROJECT,
-      files: { type: 'array', maxItems: 40, description: 'Whole files to create or replace, as {path, content} objects. Up to 40 per call.', items: obj({ path: { type: 'string', description: 'Relative path inside the bundle.' }, content: { type: 'string', description: 'The whole file as text (or base64 when encoding is "base64").' }, encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'Default utf8.' } }, ['path', 'content']) },
-      edits: { type: 'array', maxItems: 40, description: 'Exact text replacements in text files already in the workspace. old_string must match exactly (spaces and newlines included) and appear once, unless replace_all is true. Applied after files.', items: obj({ path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' }, replace_all: { type: 'boolean' } }, ['path', 'old_string', 'new_string']) },
+      files: { type: 'array', maxItems: 40, description: 'Whole files to create or replace, as {path, content} objects. Up to 40 per call.', items: UPLOAD_ITEMS.files },
+      edits: { type: 'array', maxItems: 40, description: 'Exact text replacements in text files already in the workspace. old_string must match exactly (spaces and newlines included) and appear once, unless replace_all is true. Applied after files. An unknown key refuses the call.', items: UPLOAD_ITEMS.edits },
       delete: { type: 'array', items: { type: 'string' }, description: 'Paths to delete. A path that is not in the workspace refuses the whole call (nothing is saved).' },
     }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
-      const files = Array.isArray(a.files) ? a.files : [], edits = Array.isArray(a.edits) ? a.edits : [], dels = Array.isArray(a.delete) ? a.delete : [];
+      // each file and edit is held to its item schema like the call itself: old/new are read as old_string/new_string,
+      // and a key still unknown refuses the call instead of reading as a missing old_string
+      const items = (k: 'files' | 'edits', aliases: Record<string, string>) => (Array.isArray(a[k]) ? a[k] : []).map((it: unknown, i: number) => {
+        const r = checkItem(`${k}[${i}]`, it, (UPLOAD_ITEMS as any)[k], aliases);
+        if ('error' in r) throw bad(r.error, k === 'edits' ? 'An edit is {path, old_string, new_string, replace_all?}, e.g. {"path": "src/main.js", "old_string": "speed = 4", "new_string": "speed = 5"}.' : 'A file is {path, content, encoding?}.');
+        return r.item;
+      });
+      const files: any[] = items('files', FILE_ALIASES), edits: any[] = items('edits', EDIT_ALIASES), dels = Array.isArray(a.delete) ? a.delete : [];
       if (!files.length && !edits.length && !dels.length) throw bad('Nothing to do.', 'Pass files, edits or delete. files is an array of {path, content} objects, not a map of path to content.');
       // Check and compute everything in memory first: if any file or edit fails, nothing in the call is saved.
       const pending = new Map<string, Uint8Array>(), edited: { path: string; replaced: number }[] = [];
@@ -990,7 +1009,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
       const done = await waitVersion(c, p.id, v.n, waitMs(a.wait_seconds, DEPLOY_WAIT_MS));
-      return { deployed: true, storage, warnings: check.warnings.map(issueLine), ...(await versionReport(c, p, v.n, done)) };
+      return { deployed: true, storage, warnings: check.warnings.map(issueLine), ...waitNote(a.wait_seconds), ...(await versionReport(c, p, v.n, done)) };
     },
   },
   {
@@ -999,7 +1018,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Optional. A version number to read in full.' }, wait_seconds: WAIT_SCHEMA(LIST_WAIT_MS) }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
-      if (a.version) return versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), waitMs(a.wait_seconds, LIST_WAIT_MS)));
+      if (a.version) return { ...waitNote(a.wait_seconds), ...(await versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), waitMs(a.wait_seconds, LIST_WAIT_MS)))) };
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
       const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' }));
       const failed = versions.find((v) => v.status === 'failed');
