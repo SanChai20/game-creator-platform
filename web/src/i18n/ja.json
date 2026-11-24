@@ -2485,5 +2485,9 @@
  "New games from creators you follow": "フォロー中のクリエイターの新作",
  "{name} published a new game": "{name} さんが新しいゲームを公開しました",
  "View profile": "プロフィールを見る",
- "You gave {game} to {name}": "{name} さんに {game} を贈りました"
+ "You gave {game} to {name}": "{name} さんに {game} を贈りました",
+ "Buy game": "ゲームを購入",
+ "Buy for myself": "自分用に購入",
+ "{price}, goes straight to your library": "{price}、ライブラリにすぐ追加されます",
+ "Send a request to a friend": "フレンドにリクエストを送る"
 }

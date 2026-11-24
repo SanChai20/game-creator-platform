@@ -2484,5 +2484,9 @@
  "New games from creators you follow": "Juegos nuevos de creadores que sigues",
  "{name} published a new game": "{name} ha publicado un juego nuevo",
  "View profile": "Ver perfil",
- "You gave {game} to {name}": "Le regalaste {game} a {name}"
+ "You gave {game} to {name}": "Le regalaste {game} a {name}",
+ "Buy game": "Comprar juego",
+ "Buy for myself": "Comprar para mí",
+ "{price}, goes straight to your library": "{price}, va directo a tu biblioteca",
+ "Send a request to a friend": "Envía una petición a un amigo"
 }

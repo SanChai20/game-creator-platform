@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
 import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
@@ -18,8 +18,6 @@ import { OPERATOR } from '../operator';
 import { RefundBox, type RefundState } from '../refund-ui';
 import { GiftDialog, type GameGift } from '../gift-ui';
 
-/** Under the Buy button: who the seller is, and the terms a purchase falls under. */
-const SoldBy = () => <p className="dim fs-xs sold-by">{t('Sold by {op}. Payments by Stripe.', '由 {op} 销售，付款由 Stripe 处理。', { op: OPERATOR.name })} <Link to="/legal/terms">{legalTitle('terms')}</Link> · <Link to="/legal/refunds">{legalTitle('refunds')}</Link></p>;
 
 export { Stage } from '../player';
 
@@ -201,10 +199,15 @@ export function Game({ slug }: { slug: string }) {
   const tryLabel = fresh || !user ? t('Try free · {minutes} min', '免费试玩 · {minutes} 分钟', { minutes: trial?.minutes ?? 0 }) : t('Continue trial · {left} min left', '继续试玩 · 剩 {left} 分钟', { left: leftMin });
   const cont = !locked && live && user ? data.continue as { last_played: number; saved_at: number | null; resume: { label: string; detail?: string; progress?: number } | null } | null : null;
   const toStage = (c = true) => { wantCont.current = c; play(); document.querySelector('.stage')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+  // The panel beside the stage (see the aside below): one primary action, the secondary ones under it, small print last.
+  const canGift = !!user && !!data.gift && !data.is_owner && !!config.payments;
   const cta = !live ? null : locked
-    ? <><Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy', '购买')} · {price(g.price_cents)}</Button>{canTry && !url && <Button size="lg" block onClick={() => toStage()} disabled={busy === 'play'}>{tryLabel}</Button>}{config.payments && <SoldBy />}</>
+    ? (canGift ? <BuyMenu label={<>{t('Buy game', '购买游戏')} · {price(g.price_cents)}</>} price={price(g.price_cents)} disabled={busy === 'buy' || !config.payments} onBuy={buy} onAsk={() => setGiftMode({ mode: 'ask' })} />
+      : <Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy game', '购买游戏')} · {price(g.price_cents)}</Button>)
     : <><Button variant="primary" size="lg" block onClick={() => toStage()} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : <><i className="play-tri" aria-hidden="true" />{cont ? t('Continue', '继续游戏') : t('Play now', '立即游玩')}</>}</Button>
       {cont && !url && <p className="gp-resume"><span className="clip">{resumeLine(cont)}</span>{cont.resume?.progress != null && <span className="cont-bar" aria-hidden="true"><b style={{ width: `${Math.round(cont.resume.progress * 100)}%` }} /></span>}<button type="button" className="linkish" onClick={() => toStage(false)}>{t('Start from the title screen', '从标题画面开始')}</button></p>}</>;
+  const tryBtn = live && locked && canTry && !url ? <Button block onClick={() => toStage()} disabled={busy === 'play'}>{tryLabel}</Button> : null;
+  const giftBtn = live && canGift ? <Button block onClick={() => setGiftMode({ mode: 'give' })}><GiftIcon />{t('Gift to a friend', '赠送给好友')}</Button> : null;
 
   return (
     <div className="gpage" style={{ '--h': h, '--rc': R.color } as CSSProperties}>
@@ -257,17 +260,19 @@ export function Game({ slug }: { slug: string }) {
           <aside className="gp-cap">
             {live ? (
               <div className="gp-buy">
-                <span className="gp-buy-h">{locked ? t('Buy {title}', '购买 {title}', { title }) : t('Play {title}', '游玩 {title}', { title })}</span>
-                <div className="gp-price-row"><PriceTag g={g} className="gp-price" /><SaleTag g={g} />{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
+                <div className="gp-price-row"><PriceTag g={g} className="gp-price" /><SaleTag g={g} />{trial && locked && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 {locked && saleOn(g) && <p className="gp-sale-ends">{saleEnds(saleOn(g)!.ends_at)} · {t('then {price}', '之后恢复 {price}', { price: price(saleOn(g)!.regular_cents) })}</p>}
                 <div className="gp-buy-act">{cta}</div>
-                {user && data.gift && !data.is_owner && config.payments && <GiftBox gift={data.gift as GameGift} locked={locked} onOpen={setGiftMode} />}
-                {user && (inLibrary === 'bought' ? <p className="gp-buy-note gp-lib"><Link to="/library">{t('In your library', '已在你的游戏库中')} →</Link></p>
-                  : !paid ? <div className="gp-lib"><Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>{inLibrary && <Link to="/library" className="fs-sm">{t('Open library', '打开游戏库')}</Link>}</div> : null)}
-                <p className="gp-buy-note">{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
-                {data.refund && !data.is_owner && <RefundBox st={data.refund as RefundState} title={title} onDone={reload} />}
-                {data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}
-                {meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}
+                {(tryBtn || giftBtn) && <div className={'gp-more' + (tryBtn && giftBtn ? ' two' : '')}>{tryBtn}{giftBtn}</div>}
+                {canGift && <GiftRequests gift={data.gift as GameGift} locked={locked} onGive={(to) => setGiftMode({ mode: 'give', to })} />}
+                {data.refund && !data.is_owner && <RefundBox st={data.refund as RefundState} title={title} onDone={reload} compact />}
+                {user && !paid && <Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>}
+                {(data.compat || meta) && <div className="gp-pills">{data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}{meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}</div>}
+                <p className="gp-fine">
+                  <span>{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</span>
+                  {user && inLibrary && <Link to="/library">{t('In your library', '已在你的游戏库中')} →</Link>}
+                  {locked && config.payments && <span>{t('Sold by {op}. Payments by Stripe.', '由 {op} 销售，付款由 Stripe 处理。', { op: OPERATOR.name })} <Link to="/legal/terms">{legalTitle('terms')}</Link> · <Link to="/legal/refunds">{legalTitle('refunds')}</Link></span>}
+                </p>
               </div>
             ) : <div className="gp-buy"><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="gp-buy-note">{t('This game is not live right now.', '该游戏目前未上线。')}</p></div>}
             <dl className="gp-facts">
@@ -275,7 +280,7 @@ export function Game({ slug }: { slug: string }) {
               {meta?.rating && <div><dt>{t('Age rating', '年龄分级')}</dt><dd>{ageLabel(meta.rating.age)}</dd></div>}
               {meta?.players && <div><dt>{t('Players', '玩家')}</dt><dd>{playersText(meta.players)}</dd></div>}
               <div><dt>{t('Released', '发布')}</dt><dd>{date(g.published_at)}</dd></div>
-              <div><dt>{t('Creator', '创作者')}</dt><dd className="by-creator"><Link to={creatorPath(g.owner_id)} className="sig">{g.author}</Link>{!data.is_owner && <FollowButton id={g.owner_id} name={g.author} size="sm" />}</dd></div>
+              <div><dt>{t('Creator', '创作者')}</dt><dd className="by-creator"><Link to={creatorPath(g.owner_id)} className="sig">{g.author}</Link>{!data.is_owner && <FollowButton id={g.owner_id} name={g.author} size="sm" quiet />}</dd></div>
             </dl>
             {g.tags.length > 0 && <div className="gp-tags">{g.tags.map((x: string) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>}
             <div className="seal"><i aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3 5 8.6l4.5-5" /></svg></i><b>{t('Verified playable', '已验证可玩')}</b><span>{t('Every game here was run in a real browser and checked for playability before it went live.', '这里的每款游戏在上线前都在真实浏览器中运行并通过了可玩性验证。')}</span></div>
@@ -349,18 +354,49 @@ export function Game({ slug }: { slug: string }) {
   );
 }
 
-/** Under the Buy button on a paid game: gift it to a friend, or ask a friend to gift it (only while you do not own it),
-    with the requests already open either way. */
-function GiftBox({ gift, locked, onOpen }: { gift: GameGift; locked: boolean; onOpen: (m: { mode: 'give' | 'ask'; to?: string }) => void }) {
+const GiftIcon = () => <svg className="ico gp-gift-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="8" width="14" height="9" rx="1" /><path d="M2.5 5.5h15V8h-15zM10 5.5V17M10 5.5C8.5 2.5 5.5 2.8 6 4.6c.3 1 2.4.9 4 .9M10 5.5c1.5-3 4.5-2.7 4-.9-.3 1-2.4.9-4 .9" /></svg>;
+
+/**
+ * The Buy button of a paid game when gifts are on: one button that opens a short menu, "Buy for myself" or "Ask a friend
+ * to gift it". A menu button (aria-haspopup): Enter, Space or Arrow Down open it on the first item, the arrows move,
+ * Escape closes it and returns to the button, Tab or a click elsewhere closes it.
+ */
+function BuyMenu({ label, price: amount, disabled, onBuy, onAsk }: { label: ReactNode; price: string; disabled?: boolean; onBuy: () => void; onAsk: () => void }) {
+  const [open, setOpen] = useState(false), box = useRef<HTMLDivElement>(null), btn = useRef<HTMLButtonElement>(null), menu = useRef<HTMLDivElement>(null);
+  const items = () => [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role=menuitem]') || [])];
+  useEffect(() => {
+    if (!open) return;
+    items()[0]?.focus({ preventScroll: true });
+    const away = (e: Event) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', away); document.addEventListener('touchstart', away);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('touchstart', away); };
+  }, [open]);
+  const close = (refocus = true) => { setOpen(false); if (refocus) btn.current?.focus(); };
+  const keys = (e: ReactKeyboardEvent) => {
+    const all = items(), i = all.indexOf(document.activeElement as HTMLButtonElement);
+    const to = e.key === 'ArrowDown' ? (i + 1) % all.length : e.key === 'ArrowUp' ? (i - 1 + all.length) % all.length : e.key === 'Home' ? 0 : e.key === 'End' ? all.length - 1 : -1;
+    if (to >= 0) { e.preventDefault(); all[to].focus(); } else if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Tab') close(false);
+  };
+  const pick = (f: () => void) => () => { close(false); f(); };
+  return <div className="buy-menu" ref={box}>
+    <button ref={btn} type="button" className={'btn btn-primary btn-lg btn-block buy-menu-btn' + (open ? ' on' : '')} disabled={disabled} aria-haspopup="menu" aria-expanded={open}
+      onClick={() => setOpen(!open)} onKeyDown={(e) => { if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true); } }}>
+      <span>{label}</span><span className="buy-menu-caret" aria-hidden="true" />
+    </button>
+    {open && <div ref={menu} className="buy-menu-list" role="menu" aria-label={t('Buy game', '购买游戏')} onKeyDown={keys}>
+      <button type="button" role="menuitem" onClick={pick(onBuy)}><b>{t('Buy for myself', '为自己购买')}</b><span>{t('{price}, goes straight to your library', '{price}，直接加入你的游戏库', { price: amount })}</span></button>
+      <button type="button" role="menuitem" onClick={pick(onAsk)}><b>{t('Ask a friend to gift it', '请好友赠送')}</b><span>{t('Send a request to a friend', '向好友发送请求')}</span></button>
+    </div>}
+  </div>;
+}
+
+/** Gift requests open on this game, either way, in one quiet line each. */
+function GiftRequests({ gift, locked, onGive }: { gift: GameGift; locked: boolean; onGive: (to: string) => void }) {
   const names = (l: GameGift['asked']) => l.map((a) => a.friend.name).join(', ');
-  return <div className="gp-gift-box">
-    {gift.asked_by.length > 0 && <div className="gp-gift-asked"><Notice tone="info" title={gift.asked_by.length === 1 ? t('{name} asked you for this game', '{name} 请你赠送这款游戏', { name: gift.asked_by[0].friend.name }) : t('{names} asked you for this game', '{names} 请你赠送这款游戏', { names: names(gift.asked_by) })}
-      actions={<Button size="sm" variant="primary" onClick={() => onOpen({ mode: 'give', to: gift.asked_by[0].friend.id })}>{t('Gift it', '赠送')}</Button>} /></div>}
-    <div className="gp-gift">
-      <Button size="sm" variant="ghost" onClick={() => onOpen({ mode: 'give' })}>{t('Gift to a friend', '赠送给好友')}</Button>
-      {locked && <Button size="sm" variant="ghost" onClick={() => onOpen({ mode: 'ask' })}>{t('Ask a friend to gift it', '请好友赠送')}</Button>}
-    </div>
-    {locked && gift.asked.length > 0 && <p className="dim fs-xs">{t('You asked {names}.', '你已向 {names} 发出请求。', { names: names(gift.asked) })} <Link to="/gifts">{t('Gifts', '礼物')}</Link></p>}
+  if (!gift.asked_by.length && !(locked && gift.asked.length)) return null;
+  return <div className="gp-asks">
+    {gift.asked_by.length > 0 && <p className="gp-ask in"><GiftIcon /><span className="grow">{gift.asked_by.length === 1 ? t('{name} asked you for this game', '{name} 请你赠送这款游戏', { name: gift.asked_by[0].friend.name }) : t('{names} asked you for this game', '{names} 请你赠送这款游戏', { names: names(gift.asked_by) })}</span><button type="button" className="linkish" onClick={() => onGive(gift.asked_by[0].friend.id)}>{t('Gift it', '赠送')}</button></p>}
+    {locked && gift.asked.length > 0 && <p className="gp-ask"><span className="grow">{t('You asked {names}.', '你已向 {names} 发出请求。', { names: names(gift.asked) })}</span><Link to="/gifts">{t('Gifts', '礼物')}</Link></p>}
   </div>;
 }
 
