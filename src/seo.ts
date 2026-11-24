@@ -177,6 +177,20 @@ export function homePage(origin: string, brand: string, games: { slug: string; t
   };
 }
 
+/** A creator's public profile (/creator/<id>): their name, their live games and a ProfilePage for search engines. */
+export function creatorPage(origin: string, brand: string, c: { id: string; name: string; joined_at: number; followers: number; games: { slug: string; title: string }[] }): PageMeta {
+  const path = `/creator/${encodeURIComponent(c.id)}`, n = c.games.length;
+  return {
+    title: `${c.name}, game creator on ${brand}`,
+    description: n ? `Play ${n === 1 ? 'the web game' : `${n} web games`} by ${c.name} on ${brand}: ${c.games.slice(0, 5).map((g) => g.title).join(', ')}. Follow ${c.name} to hear when a new one comes out.`
+      : `${c.name} makes web games on ${brand}. Follow ${c.name} to hear when their first game comes out.`,
+    path, type: 'website',
+    jsonld: [{ '@context': 'https://schema.org', '@type': 'ProfilePage', url: origin + path, dateCreated: new Date(c.joined_at).toISOString(),
+      mainEntity: { '@type': 'Person', name: c.name, url: origin + path, interactionStatistic: { '@type': 'InteractionCounter', interactionType: 'https://schema.org/FollowAction', userInteractionCount: c.followers } } }],
+    noscript: `<h1>${h(c.name)}</h1><p>Game creator on ${h(brand)}.</p>${n ? `<h2>Games</h2><ul>${c.games.map((g) => `<li><a href="${h(origin)}/g/${h(encodeURIComponent(g.slug))}">${h(g.title)}</a></li>`).join('')}</ul>` : ''}`,
+  };
+}
+
 /** The other public pages: a title and description each, so a shared or crawled link says what it is. */
 export function staticPage(origin: string, brand: string, path: string): PageMeta | null {
   const p: Record<string, [string, string]> = {

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSPrope
 import { CountUp } from './ui/count';
 import { SkHits, SkShelf } from './skeletons';
 import { ago, api, artStyle, blurb, shown, count, CoverImg, GameTile, genreHue, genreName, lastVisit, Link, navigate, num, PriceTag, RARITY, rarity, rarityHint, recentPlays, SaleTag, seenGames, t, trialLabel, trialOf, MatureTag, useLocation, Verdict, type GameCard } from './lib';
+import { creatorPath } from './follow';
 
 export { genreHue, genreName, lastVisit };
 export interface Genre { tag: string; n: number; covers?: string[]; group?: string | null }
@@ -183,7 +184,7 @@ export function Spotlight({ games }: { games: GameCard[] }) {
         <div className="hero-tags" style={{ '--rc': R.color } as CSSProperties}>{rar !== 'common' && <span className="rar" title={rarityHint()}>{R.name()}</span>}{g.tags.slice(0, 3).map((x) => <span key={x} className="gtag" style={hue(x)}>{genreName(x)}</span>)}</div>
         <dl className="hero-facts">
           <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
-          <div><dt>{t('By', '作者')}</dt><dd>{g.author}</dd></div>
+          <div><dt>{t('By', '作者')}</dt><dd>{g.author_id ? <Link to={creatorPath(g.author_id)} className="hero-by">{g.author}</Link> : g.author}</dd></div>
           <div><dt>{t('Played', '游玩')}</dt><dd className="num">{count(g.plays, 'time', 'times', '次')}{!!g.playing && <span className="live"> · {num(g.playing)} {t('now', '人在线')}</span>}</dd></div>
         </dl>
         <div className="hero-buy">
@@ -288,7 +289,7 @@ export function TabbedLists({ n, title, tabs }: { n?: string; title: ReactNode; 
 
 // ---- shelves ------------------------------------------------------------------------------------
 /** A row of games that scrolls sideways, with a numbered head, a short note and a way to see the whole list. */
-export function Shelf({ n, title, note, to, games, live, rank, freshSince }: { n?: string; title: ReactNode; note?: ReactNode; to?: string; games: GameCard[]; live?: boolean; rank?: boolean; freshSince?: number | null }) {
+export function Shelf({ n, title, note, to, more, games, live, rank, freshSince }: { n?: string; title: ReactNode; note?: ReactNode; to?: string; more?: ReactNode; games: GameCard[]; live?: boolean; rank?: boolean; freshSince?: number | null }) {
   const row = useRef<HTMLDivElement>(null), [edge, setEdge] = useState({ l: false, r: true });
   const check = useCallback(() => { const el = row.current; if (!el) return; setEdge({ l: el.scrollLeft > 8, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 8 }); }, []);
   useEffect(() => { check(); }, [games, check]);
@@ -296,7 +297,7 @@ export function Shelf({ n, title, note, to, games, live, rank, freshSince }: { n
   const page = (d: number) => { const el = row.current; if (el) el.scrollBy({ left: d * el.clientWidth * 0.85, behavior: still() ? 'auto' : 'smooth' }); };
   return (
     <section className={'shelf' + (live ? ' is-live' : '') + (rank ? ' ranked' : '')}>
-      <SectionHead n={n} title={title} note={note} to={to} live={live}>
+      <SectionHead n={n} title={title} note={note} to={to} more={more} live={live}>
         <div className="shelf-nav" hidden={!edge.l && !edge.r}>
           <button type="button" onClick={() => page(-1)} disabled={!edge.l} aria-label={t('Scroll back', '向左滚动')}>‹</button>
           <button type="button" onClick={() => page(1)} disabled={!edge.r} aria-label={t('Scroll on', '向右滚动')}>›</button>
@@ -391,7 +392,7 @@ export function MoreFrom({ owner, author, slug, n }: { owner?: string; author: s
     api<{ games: GameCard[] }>(`/games?by=${encodeURIComponent(owner)}&limit=13&facets=0&sort=played`).then((r) => setGames(r.games.filter((g) => g.slug !== slug).slice(0, 12)), () => setGames([]));
   }, [owner, slug]);
   if (!games) return <SkShelf />;
-  return <Shelf n={n} title={t('More from {author}', '{author} 的更多作品', { author })} to={`/browse?by=${encodeURIComponent(owner || '')}&who=${encodeURIComponent(author)}`} games={games} />;
+  return <Shelf n={n} title={t('More from {author}', '{author} 的更多作品', { author })} to={owner ? creatorPath(owner) : undefined} more={t('View profile', '查看主页')} games={games} />;
 }
 
 // ---- paging -------------------------------------------------------------------------------------

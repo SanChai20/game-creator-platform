@@ -1,0 +1,150 @@
+/* Creator profiles, the Follow button and the notification bell (web/src/follow.tsx, web/src/pages/Creator.tsx).
+   The profile's lead follows the store hero: an ink block, the creator's best-known game cut in from the right along a
+   slant with a halftone band on the cut, capitals for the name and HUD readouts for the figures. */
+
+/* ---- the monogram: a letter on a slanted plate in the creator's own hue ---------------------------------------------- */
+.mono-av { --s: 44px; position: relative; display: inline-grid; place-items: center; width: var(--s); height: var(--s); flex: none; isolation: isolate; color: #fff; }
+.mono-av::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 4px; transform: skewX(var(--skew));
+  background: hsl(var(--h) 62% 46%) linear-gradient(115deg, transparent 0 54%, rgb(0 0 0 / .22) 54.2% 100%); }
+.mono-av::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 46%; height: 46%; z-index: -2; color: hsl(var(--h) 62% 46%); background: var(--dots) 0 0 / 6px 6px; transform: skewX(var(--skew)); }
+.mono-av b { font: 800 calc(var(--s) * .52)/1 var(--font-display); font-stretch: 80%; text-shadow: 0 1px 0 rgb(0 0 0 / .25); }
+.mono-av.sm { --s: 34px; }
+.mono-av.xl { --s: clamp(76px, 9vw, 116px); }
+.mono-av.xl::after { right: -7px; bottom: -7px; background-size: 8px 8px; }
+
+/* ---- the Follow button: flare until followed, then a quiet plate that offers Unfollow on hover ------------------------ */
+.follow-btn { min-width: 128px; }
+.follow-btn.btn-lg { min-width: 176px; }
+.follow-btn .fb-plus { font: 800 1.35em/1 var(--font-display); margin-top: -2px; }
+.follow-btn .fb-on { display: inline-flex; align-items: center; gap: 8px; }
+.follow-btn .fb-on svg { width: 13px; height: 13px; fill: none; stroke: var(--good); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.follow-btn .fb-off { display: none; color: var(--bad); }
+@media (hover: hover) {
+  .follow-btn.is-on:hover .fb-on { display: none; }
+  .follow-btn.is-on:hover .fb-off { display: inline; }
+  .follow-btn.is-on:hover::before { border-color: rgb(var(--bad-rgb) / .5); }
+}
+
+/* ---- the profile ------------------------------------------------------------------------------------------------------- */
+.cp > .crumbs { margin-bottom: 14px; }
+.cp-hero { --pad: clamp(22px, 3.4vw, 48px); position: relative; isolation: isolate; overflow: hidden; border-radius: var(--r-2xl);
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(20px, 2.4vw, 30px); align-content: center; padding: var(--pad); min-height: clamp(360px, 34vw, 460px); }
+/* a flat facet of the creator's hue on the shade side, behind the name */
+.cp-hero::before { content: ""; position: absolute; left: 0; top: 0; width: 46%; height: 9px; z-index: 1; background: hsl(var(--h) 70% 55%); clip-path: polygon(0 0, 100% 0, calc(100% - 9px) 100%, 0 100%); }
+.cp-art { position: absolute; inset: 0 0 0 52%; z-index: 0; clip-path: polygon(22% 0, 100% 0, 100% 100%, 0 100%); }
+.cp-art .art { display: block; width: 100%; height: 100%; transition: transform 1.2s var(--ease); }
+.cp-art img { width: 100%; height: 100%; object-fit: cover; }
+.cp-hero:hover .cp-art .art { transform: scale(1.025); }
+.cp-hero.has-art::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; color: var(--ink); background: var(--dots) 0 0 / 8px 8px; clip-path: polygon(63.4% 0, 67% 0, 55.6% 100%, 52% 100%); }
+.cp-hero > *:not(.cp-art) { position: relative; z-index: 2; }
+.cp-hero.has-art > .cp-id, .cp-hero.has-art > .cp-hud, .cp-hero.has-art > .cp-acts { max-width: 56%; }
+.cp-id { display: flex; align-items: center; gap: clamp(18px, 2.4vw, 30px); min-width: 0; }
+.cp-who { display: grid; gap: 8px; min-width: 0; }
+.cp-who h1 { font: 800 clamp(40px, 5.4vw, 82px)/.88 var(--font-display); font-stretch: 76%; letter-spacing: -.012em; text-transform: uppercase; overflow-wrap: anywhere; }
+.cp-since { display: flex; flex-wrap: wrap; gap: 4px 18px; color: var(--text-2); font-size: 14.5px; }
+.cp-since span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.cp-since span::before { content: ""; width: 7px; height: 7px; flex: none; background: hsl(var(--h) 70% 60%); transform: skewX(var(--skew)); }
+.cp-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
+.cp-hud { display: flex; flex-wrap: wrap; row-gap: 14px; }
+.cp-hud > div { position: relative; display: grid; gap: 8px; padding: 12px clamp(14px, 2vw, 26px) 2px; border-left: 1.5px solid var(--line-2); }
+.cp-hud > div:first-child { padding-left: clamp(12px, 1.4vw, 18px); }
+.cp-hud > div::before { content: ""; position: absolute; left: -1.5px; top: 0; width: 26px; height: 4px; background: var(--text); clip-path: polygon(0 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.cp-hud > div.is-hot::before { background: var(--accent); width: 44px; }
+.cp-hud dt { font: 700 11.5px/1.2 var(--font-display); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; }
+.cp-hud dd { font: 800 clamp(28px, 3vw, 42px)/.9 var(--font-display); font-stretch: 78%; letter-spacing: -.03em; min-height: 1em; display: flex; align-items: flex-end; }
+.cp-hud dd .verdict { font: 700 17px/1.1 var(--font-sans); letter-spacing: 0; }
+.cp-hud > div.is-hot dd { color: var(--accent-text); }
+.cp-live { position: absolute !important; right: 16px; top: 16px; z-index: 3; }
+.cp-self { margin-top: 18px; }
+
+/* the newest release and the most played game */
+.cp-spot { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px; margin-top: clamp(28px, 3.4vw, 44px); }
+.cp-feat { position: relative; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); min-height: 230px; border-radius: var(--r-lg); overflow: hidden; background: var(--surface); border: 1px solid var(--line); transition: border-color var(--dur-fast), transform var(--dur) var(--ease); }
+.cp-feat:hover { border-color: var(--line-3); transform: translateY(-2px); }
+.cp-feat::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; z-index: 2; background: hsl(var(--h) 70% 55%); }
+.cp-feat .art { position: relative; display: block; min-height: 100%; background: var(--sunk); clip-path: polygon(0 0, 100% 0, 88% 100%, 0 100%); }
+.cp-feat .art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cp-feat .mono-title { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; font: 800 26px/1 var(--font-display); text-transform: uppercase; color: #fff; }
+.cp-feat-b { display: grid; align-content: center; justify-items: start; gap: 10px; padding: 22px 22px 22px 14px; min-width: 0; }
+.cp-feat-t { font: 800 clamp(24px, 2.3vw, 32px)/.95 var(--font-display); font-stretch: 78%; text-transform: uppercase; overflow-wrap: anywhere; }
+.cp-feat-l { color: var(--text-2); font-size: 14.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cp-feat-m { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 13px; }
+.cp-feat-cta { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+.cp-feat-p { font: 800 20px/1 var(--font-display); font-stretch: 82%; }
+.cp-games { margin-top: clamp(36px, 4.4vw, 60px); }
+.cp-games .sh .seg { flex: none; }
+.cp-more { justify-content: center; margin-top: 24px; }
+.cp-empty { margin-top: 28px; }
+.sk-cp { min-height: 360px; }
+
+@media (max-width: 900px) {
+  .cp-hero { padding-top: calc(var(--pad) + 4px); min-height: 0; }
+  .cp-hero.has-art { padding-top: 0; }
+  /* the picture becomes a banner across the top, cut along its bottom edge */
+  .cp-art { position: relative; inset: auto; margin: 0 calc(var(--pad) * -1); height: clamp(150px, 38vw, 240px); clip-path: polygon(0 0, 100% 0, 100% 78%, 0 100%); }
+  .cp-hero.has-art::after { display: none; }
+  .cp-hero.has-art > .cp-id, .cp-hero.has-art > .cp-hud, .cp-hero.has-art > .cp-acts { max-width: none; }
+  .cp-hero.has-art .cp-id { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .cp-hero.has-art .cp-id .mono-av { margin-top: calc(clamp(76px, 9vw, 116px) * -.5); }
+  .cp-hero::before { width: 60%; }
+  .cp-feat { grid-template-columns: minmax(0, 1fr); }
+  .cp-feat .art { aspect-ratio: 16 / 9; min-height: 0; clip-path: polygon(0 0, 100% 0, 100% 86%, 0 100%); }
+  .cp-feat-b { padding: 4px 18px 20px; }
+}
+@media (max-width: 560px) {
+  .cp-id { gap: 14px; }
+  .cp-who h1 { font-size: clamp(34px, 11vw, 48px); }
+  .cp-since { font-size: 13.5px; }
+  .cp-acts { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  .cp-acts .follow-btn, .cp-acts > .btn-primary { width: 100%; min-width: 0; }
+  .cp-hud { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; }
+  .cp-hud > div, .cp-hud > div:first-child { padding: 12px 0 0 12px; }
+  .cp-hud dd { font-size: 32px; }
+  .cp-hud dd .verdict { font-size: 13.5px; }
+  .cp-games .sh { flex-wrap: wrap; }
+  .cp-games .sh > .grow { flex: 1 1 100%; }
+  .cp-live { top: 10px; right: 10px; }
+}
+
+/* ---- creator links on game pages ---------------------------------------------------------------------------------------- */
+.by-creator { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.by-creator > a { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+
+/* ---- the bell ------------------------------------------------------------------------------------------------------------ */
+.nb { margin-left: 0; }
+.nb-btn { position: relative; }
+.nb-btn.on { background: rgb(var(--text-rgb) / .08); color: var(--text); }
+.nb-btn > .fr-badge { position: absolute; top: 2px; right: 0; box-shadow: 0 0 0 2px var(--paper); }
+.pop.nb-pop { width: min(380px, calc(100vw - 24px)); padding: 0; right: -44px; z-index: var(--z-modal); overflow: hidden; }
+.nb-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.nb-head b { font: 800 15px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.pop .nb-head button { width: auto; display: inline; padding: 4px 6px; }
+.pop .nb-head button:hover { padding-left: 6px; }
+.pop .nb-head button:hover::before { display: none; }
+.nb-list { list-style: none; margin: 0; padding: 6px; max-height: min(420px, 60vh); overflow-y: auto; }
+.pop a.nb-row { display: flex; align-items: center; gap: 12px; padding: 10px; }
+.pop a.nb-row:hover { padding-left: 14px; }
+.nb-list li.unread .nb-text { font-weight: 650; }
+.nb-art { position: relative; width: 56px; height: 36px; flex: none; border-radius: 3px; overflow: hidden; background: hsl(var(--h) 30% 30%); display: grid; place-items: center; }
+.nb-art img { width: 100%; height: 100%; object-fit: cover; }
+.nb-body { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.nb-text { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
+.nb-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--accent); }
+.nb-empty { display: grid; gap: 6px; padding: 22px 18px; }
+.pop .nb-more { text-align: center; color: var(--text-2); padding: 10px; }
+.nb-foot { border-top: 1px solid var(--line); padding: 4px 6px; }
+@media (max-width: 560px) { .pop.nb-pop { position: fixed; left: 12px; right: 12px; top: 62px; width: auto; } }
+
+/* ---- creators you follow (Library) ------------------------------------------------------------------------------------------ */
+.lib-following { margin-top: clamp(36px, 4vw, 56px); scroll-margin-top: 90px; }
+.fl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.fl-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); min-width: 0; }
+.fl-card.sk { height: 74px; }
+.fl-who { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+.fl-who .grow { display: grid; gap: 2px; min-width: 0; }
+.fl-who small { font-size: 12.5px; }
+.fl-card .follow-btn { min-width: 0; }
+.fl-empty { display: grid; justify-items: start; gap: 8px; padding: 22px; border: 1.5px dashed var(--line-2); border-radius: var(--r-lg); }
+.hero-by:hover { color: var(--accent-text); }
+.cp-hero:not(.has-art) { min-height: 0; }
+.gp-facts .by-creator { justify-content: flex-end; }

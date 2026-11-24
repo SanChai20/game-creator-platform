@@ -45,6 +45,8 @@ export const PRIVACY = {
 };
 /** Who can be invited: anyone with a page open and not Invisible. Busy friends get the invite quietly (no pop-up). */
 export const INVITABLE = ['online', 'away', 'busy'];
+/** The notifications the Friends panel shows (Requests). Every other kind is under the bell (src/follows.js). */
+export const FRIEND_KINDS = ['friend_request', 'friend_accepted'];
 export const REPORT_REASONS = ['spam', 'harassment', 'hate', 'cheating', 'name', 'other'];
 /** How long an invite can be answered: a match lobby goes stale quickly, a plain "come and play" less so. */
 export const INVITE_TTL_MS = { match: 10 * 60 * 1000, game: 60 * 60 * 1000, join: 10 * 60 * 1000 };
@@ -219,7 +221,9 @@ export async function block(db, me, other, t = now()) {
   if (!(await db.prepare('SELECT 1 FROM users WHERE id = ?').bind(other).first())) throw err(404, 'not_found', 'No such player.');
   const was = await areFriends(db, me, other);
   await exec(db, [...endTies(db, me, other, t), db.prepare('INSERT INTO blocks (user_id, blocked_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING').bind(me, other, t),
-    db.prepare("UPDATE notifications SET read_at = ?3 WHERE user_id = ?1 AND actor_id = ?2 AND read_at IS NULL").bind(me, other, t)]);
+    db.prepare("UPDATE notifications SET read_at = ?3 WHERE user_id = ?1 AND actor_id = ?2 AND read_at IS NULL").bind(me, other, t),
+    // a block also ends a follow either way (src/follows.js)
+    db.prepare('DELETE FROM follows WHERE (follower_id = ?1 AND creator_id = ?2) OR (follower_id = ?2 AND creator_id = ?1)').bind(me, other)]);
   return { ok: true, was };
 }
 export async function unblock(db, me, other) {

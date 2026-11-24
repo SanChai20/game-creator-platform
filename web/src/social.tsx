@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type
 import { createPortal } from 'react-dom';
 import { ago, api, ApiError, local, navigate, t, useApp } from './lib';
 import { Button, Field, Input, RowMenu, Select, Switch, Textarea } from './ui';
+import { notesArrived } from './follow';
 import './social.css';
 
 // ---- types ------------------------------------------------------------------------------------------------------------
@@ -111,6 +112,12 @@ function onMessage(m: any) {
       toast({ kind: 'accepted', who: ev.by.name, title: t('{name} accepted your friend request', '{name} 接受了你的好友请求', { name: ev.by.name }), actions: [{ label: t('Message', '发消息'), run: () => openChat(ev.by) }] });
       break;
     case 'friends': soonFriends(); soonSummary(); break;
+    case 'new_game':
+      // a creator this player follows published a new game: the bell refreshes, and a pop-up offers it (web/src/follow.tsx)
+      notesArrived();
+      if (ev.game?.slug) toast({ kind: 'new_game', who: ev.creator?.name, title: t('{name} published a new game', '{name} 发布了新游戏', { name: ev.creator?.name || '' }), body: local(ev.game, 'title'),
+        actions: [{ label: t('Play', '游玩'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}`) }] });
+      break;
     case 'message': {
       const open = S.chat && S.chat.peer === ev.peer && S.open?.peer?.id === ev.peer;
       if (open && ev.msg && !S.chat!.messages.some((x) => x.id === ev.msg.id)) { S.chat!.messages = [...S.chat!.messages, ev.msg]; emit(); if (!ev.mine) void api(`/social/chat/${ev.peer}/read`, { method: 'POST' }).catch(() => {}); }
@@ -138,14 +145,17 @@ function onMessage(m: any) {
     case 'joining': toast({ kind: 'answer', who: ev.by.name, title: t('{name} is joining you in {game}', '{name} 正在加入你的 {game}', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) }); break;
     // gifts between friends (src/gifts.ts)
     case 'gift_request':
+      notesArrived();
       if (ev.from && ev.game) toast({ kind: 'gift', who: ev.from.name, ttl: 25000, title: t('{name} would like {game} as a gift', '{name} 想请你赠送 {game}', { name: ev.from.name, game: local(ev.game, 'title') }), actions: [
         { label: t('View', '查看'), primary: true, run: () => navigate('/gifts') }] });
       break;
     case 'gift_received':
+      notesArrived();
       if (ev.from && ev.game) toast({ kind: 'gift', who: ev.from.name, ttl: 25000, title: t('{name} gave you {game}', '{name} 送给你 {game}', { name: ev.from.name, game: local(ev.game, 'title') }), actions: [
         { label: t('Play', '开始游戏'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}`) }] });
       break;
     case 'gift_declined':
+      notesArrived();
       if (ev.by && ev.game) toast({ kind: 'gift', who: ev.by.name, title: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: ev.by.name, game: local(ev.game, 'title') }) });
       break;
     case 'invite_cancelled': case 'counts': soonSummary(); if (S.chat) void loadChat(S.chat.peer); break;

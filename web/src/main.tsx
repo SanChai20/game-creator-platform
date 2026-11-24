@@ -44,6 +44,8 @@ import { OPERATOR } from './operator';
 import { SearchBox, StoreBar } from './store';
 import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 import { FriendsButton, SocialRoot } from './social';
+import { NotificationsButton } from './follow';
+import { Creator } from './pages/Creator';
 import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
 import { pushLanguage, startPwa } from './pwa';
@@ -51,7 +53,7 @@ import { pushLanguage, startPwa } from './pwa';
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
 /** Sign in and Create account stand alone: no top bar, store bar or footer, only the panel and a way home. */
 const isBare = (path: string) => /^\/(login|signup)\/?$/.test(path);
-const isStore = (path: string) => path === '/' || path === '/browse' || path === '/categories' || path === '/queue' || path.startsWith('/c/') || path.startsWith('/g/');
+const isStore = (path: string) => path === '/' || path === '/browse' || path === '/categories' || path === '/queue' || path.startsWith('/c/') || path.startsWith('/g/') || path.startsWith('/creator/');
 
 /** The language menu: a native select (keyboard, screen readers and phones get their own picker), showing a short code in the top bar. */
 function LangPicker({ short }: { short?: boolean }) {
@@ -176,6 +178,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
             {searchOpen && <button type="button" className="icon-btn nav-search-x" onClick={() => setSearchOpen(false)} aria-label={t('Close', '关闭')}>×</button>}
           </div>
           <div className="nav-tools">
+            {user && <NotificationsButton />}
             {user && <FriendsButton />}
             <ThemeSwitch />
             <LangPicker short />
@@ -265,6 +268,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/queue') return <Queue />;
   if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
+  if ((m = path.match(/^\/creator\/([^/]+)$/))) return <Creator key={m[1]} id={decodeURIComponent(m[1])} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
   if (path === '/verify') return <Verify />;
   // passwords are gone: old reset links and bookmarks land on the sign-in page

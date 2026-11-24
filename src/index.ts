@@ -26,11 +26,14 @@ import { api, autoPayouts, retryTransfers } from './routes/api';
 import { DEVICE_GRANT, deviceApi, deviceOAuth, type TokenExchange } from './routes/device';
 import { rt } from './routes/rt';
 import { social } from './routes/social';
+import { follows } from './routes/follows';
+// @ts-ignore plain JS module
+import { creatorOf, followerCount } from './follows.js';
 import { push } from './routes/push';
 import { upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now, parseJson } from './util';
-import { GUIDES, gamePage, homePage, injectMeta, isPrivatePath, llmsTxt, robotsTxt, siteJsonLd, sitemapXml, staticPage, type PageMeta, type SitemapEntry } from './seo';
+import { GUIDES, creatorPage, gamePage, homePage, injectMeta, isPrivatePath, llmsTxt, robotsTxt, siteJsonLd, sitemapXml, staticPage, type PageMeta, type SitemapEntry } from './seo';
 import { GENRES } from '../web/src/gamemeta';
 import { TAGS, normalizeStoredTags } from '../web/src/tags';
 import { OPERATOR } from '../web/src/operator';
@@ -113,6 +116,7 @@ app.route('/api/admin', admin);
 app.route('/api/device', deviceApi);
 app.route('/api/social', social);
 app.route('/api/push', push);
+app.route('/api', follows);   // creator profiles, following, the notification bell (src/routes/follows.ts)
 app.route('/api', api);
 app.route('/download/desktop', desktop);   // the desktop app's installers and updater manifest (src/desktop.ts)
 app.all('/api/*', (c) => c.json({ error: 'Not found', code: 'not_found' }, 404));
@@ -240,6 +244,7 @@ const liveGames = (env: Env, limit: number) => env.DB.prepare(`SELECT p.slug, p.
   FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.status = 'live' ORDER BY p.plays DESC LIMIT ?`).bind(limit).all<SeoGame>().then((r) => r.results);
 const genreOf = (tags: string | null) => normalizeStoredTags(parseJson<string[]>(tags, []))[0] || null;
 
+const creatorPaths = (env: Env) => env.DB.prepare("SELECT DISTINCT owner_id AS id FROM projects WHERE status = 'live' AND hidden_at IS NULL LIMIT 20000").all<{ id: string }>().then((r) => r.results.map((x) => x.id)).catch(() => [] as string[]);
 app.get('/robots.txt', (c) => c.text(robotsTxt(c.get('origin')), 200, PUBLIC_TXT));
 app.get('/sitemap.xml', async (c) => {
   const games = await liveGames(c.env, 20000), t = now();
@@ -247,6 +252,7 @@ app.get('/sitemap.xml', async (c) => {
     { path: '/', changefreq: 'daily', priority: 1 }, { path: '/browse', changefreq: 'daily', priority: 0.8 }, { path: '/categories', changefreq: 'weekly', priority: 0.7 },
     { path: '/create', changefreq: 'weekly', priority: 0.9 }, { path: '/download', changefreq: 'monthly', priority: 0.6 }, { path: '/docs', changefreq: 'weekly', priority: 0.9 }, { path: '/creator-store', changefreq: 'daily', priority: 0.7 },
     ...games.map((g) => ({ path: `/g/${encodeURIComponent(g.slug)}`, lastmod: g.updated_at || g.published_at, changefreq: 'weekly' as const, priority: 0.8 })),
+    ...(await creatorPaths(c.env)).map((id) => ({ path: `/creator/${encodeURIComponent(id)}`, changefreq: 'weekly' as const, priority: 0.5 })),
     ...games.filter((g) => g.open_implementation).map((g) => ({ path: `/creator-store/${encodeURIComponent(g.slug)}`, lastmod: g.updated_at, changefreq: 'weekly' as const, priority: 0.5 })),
     ...[...GENRES, ...TAGS].map((tag) => ({ path: `/c/${encodeURIComponent(tag)}`, changefreq: 'weekly' as const, priority: 0.5 })),
     ...GUIDES.map(([f]) => ({ path: `/guides/${f}`, changefreq: 'monthly' as const, priority: 0.6 })),
@@ -290,6 +296,17 @@ async function pageMeta(env: Env, origin: string, path: string): Promise<PageMet
     const meta = gamePage(origin, brand, { slug: g.slug, title: g.title, tagline: g.tagline, description: g.description, genre: tags[0] || null, tags: tags.slice(1), price_cents: g.price_cents, author: g.author,
       rating_sum: g.rating_sum, rating_count: g.rating_count, cover: (g.age || 0) >= 18 || !g.cover_key ? null : `${origin}/api/media/${g.cover_key}`, age: g.age, published_at: g.published_at, updated_at: g.updated_at, plays: g.plays,
       multiplayer: tags.some((x) => ['multiplayer', 'co-op', 'pvp', 'local-multiplayer'].includes(x)) });
+    return { ...meta, jsonld: [...(meta.jsonld || []), ...site] };
+  }
+  const cm = path.match(/^\/creator\/([A-Za-z0-9_-]{2,64})$/);
+  if (cm) {
+    const u = await creatorOf(env.DB, cm[1]).catch(() => null) as { id: string; name: string; created_at: number } | null;
+    if (!u) return null;
+    const [games, followers] = await Promise.all([
+      env.DB.prepare("SELECT slug, title FROM projects WHERE owner_id = ? AND status = 'live' AND hidden_at IS NULL AND COALESCE(age, 0) < 18 ORDER BY plays DESC LIMIT 40").bind(u.id).all<{ slug: string; title: string }>().then((r) => r.results).catch(() => []),
+      followerCount(env.DB, u.id).catch(() => 0) as Promise<number>,
+    ]);
+    const meta = creatorPage(origin, brand, { id: u.id, name: u.name, joined_at: u.created_at, followers, games });
     return { ...meta, jsonld: [...(meta.jsonld || []), ...site] };
   }
   const st = staticPage(origin, brand, path);

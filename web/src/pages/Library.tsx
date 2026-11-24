@@ -8,6 +8,7 @@ import { Badge, Button, EmptyState, PageHeader, Segmented } from '../ui';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { ContinueCard, useHide, type ContinueGame } from '../continue';
 import { SectionHead } from '../store';
+import { FollowingList } from '../follow';
 import type { GameCard } from '../lib';
 
 type Filter = 'all' | 'bought' | 'added';
@@ -39,6 +40,8 @@ export function Library() {
   const remove = (g: OwnedGame) => act('rm' + g.slug, async () => { await api(`/me/library/${encodeURIComponent(g.slug)}`, { method: 'DELETE' }); setRemoved((s) => new Set(s).add(g.slug)); },
     t('Removed from your library. Your progress is kept.', '已从游戏库移除，进度会保留。'));
 
+  // the bell's "Creators you follow" link lands on its section
+  useEffect(() => { if (data && location.hash === '#following') document.getElementById('following')?.scrollIntoView({ block: 'start' }); }, [!!data]); // eslint-disable-line react-hooks/exhaustive-deps
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <div className="wrap page"><Skeleton><div className="cont-grid">{[0, 1, 2, 3].map((k) => <SkCard key={k} lines={3} />)}</div></Skeleton></div>;
   const d = data!, played = [...d.games, ...extra].filter((g) => !gone.has(g.slug)), hasMore = more ?? d.more;
@@ -83,6 +86,11 @@ export function Library() {
           )}
         </div>
       )}
+      {/* the creators this player follows: their new games show up under the bell (web/src/follow.tsx) */}
+      <section id="following" className="lib-following">
+        <SectionHead title={t('Creators you follow', '你关注的创作者')} note={t('When one of them publishes a new game, it shows up under the bell.', '他们发布新游戏时，会出现在通知中。')} />
+        <FollowingList />
+      </section>
     </div>
   );
 }

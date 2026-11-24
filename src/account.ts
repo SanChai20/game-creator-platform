@@ -7,6 +7,8 @@ import { balanceOf } from './earnings';
 import { now } from './util';
 // @ts-ignore plain JS module
 import { deleteAccountStmts as socialDeleteStmts } from './social-rules.js';
+// @ts-ignore plain JS module
+import { deleteAccountStmts as followDeleteStmts } from './follows.js';
 
 /** Why this account cannot be deleted yet, or null when it can. Each reason is something the person can do first. */
 export async function deleteBlocker(env: Env, u: { id: string; role: string }): Promise<string | null> {
@@ -46,6 +48,7 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     db.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
     // friends lose the account; its chats, requests, invites and blocks go with it (reports about it stay for admins)
     ...(socialDeleteStmts(db, userId) as D1PreparedStatement[]),
+    ...(followDeleteStmts(db, userId) as D1PreparedStatement[]),
     // gift requests to and from it (gifts already given stay: they are purchases)
     db.prepare('DELETE FROM gift_requests WHERE from_id = ?1 OR to_id = ?1').bind(userId),
     // the address is freed for a new account; the row stays so purchases and the ledger keep their owner
