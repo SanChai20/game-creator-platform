@@ -152,20 +152,31 @@ export async function gameState(page) {
  */
 export async function shoot(page, clip, quality = 72, o = {}) {
   const format = o.format === 'png' ? 'png' : 'jpeg', zoom = o.zoom > 1 ? o.zoom : 1;
-  if (!isPlaywright(page)) {
-    const vp = page.viewport() || { width: 960, height: 540 };
-    const c = clip || zoom > 1 ? { ...(clip || { x: 0, y: 0, width: vp.width, height: vp.height }), ...(zoom > 1 ? { scale: zoom } : {}) } : null;
-    const buf = await page.screenshot({ type: format, ...(format === 'jpeg' ? { quality } : {}), ...(c ? { clip: c } : {}), captureBeyondViewport: false });
-    return new Uint8Array(buf);
-  }
-  if (zoom === 1) return new Uint8Array(await page.screenshot({ type: format, ...(format === 'jpeg' ? { quality } : {}), ...(clip ? { clip } : {}) }));
-  // Playwright has no zoomed capture: the browser's debugging protocol does it (the local verifier runs Chromium)
-  const vp = page.viewportSize() || { width: 960, height: 540 };
-  const cdp = await page.context().newCDPSession(page);
+  const pw = isPlaywright(page), q = format === 'jpeg' ? { quality } : {};
+  if (zoom === 1) return new Uint8Array(await page.screenshot({ type: format, ...q, ...(clip ? { clip } : {}), ...(pw ? {} : { captureBeyondViewport: false }) }));
+  // A zoomed capture goes straight to the browser's debugging protocol: Playwright has none, and Puppeteer drops clip.scale
+  // when it fits the clip to the viewport.
+  const vp = (pw ? page.viewportSize() : page.viewport()) || { width: 960, height: 540 };
+  const cdp = pw ? await page.context().newCDPSession(page) : await page.createCDPSession();
   try {
-    const r = await cdp.send('Page.captureScreenshot', { format, ...(format === 'jpeg' ? { quality } : {}), clip: { ...(clip || { x: 0, y: 0, width: vp.width, height: vp.height }), scale: zoom }, captureBeyondViewport: false });
-    return new Uint8Array(Buffer.from(r.data, 'base64'));
+    const r = await cdp.send('Page.captureScreenshot', { format, ...q, clip: { ...(clip || { x: 0, y: 0, width: vp.width, height: vp.height }), scale: zoom }, captureBeyondViewport: false });
+    return unbase64(r.data);
   } finally { await cdp.detach().catch(() => {}); }
+}
+const unbase64 = (s) => { const b = atob(s), out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out; };
+
+/**
+ * Sets the page to the session's viewport again. On Browser Rendering each call reconnects to the browser, and Puppeteer
+ * then puts every page it finds at its default 800 × 600 without touch (the size and touch set on open belonged to the
+ * previous connection): without this, every act call after open played and pictured the game at 800 × 600.
+ */
+export async function useViewport(page, vp) {
+  if (isPlaywright(page)) return;
+  const cur = page.viewport();
+  if (cur && cur.width === vp.width && cur.height === vp.height && !!cur.hasTouch === !!vp.touch) return;
+  await page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: 1, isMobile: !!vp.touch, hasTouch: !!vp.touch });
+  // let the game see the resize and lay out again before the steps run
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 150))))).catch(() => {});
 }
 
 /**
