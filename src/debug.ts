@@ -15,7 +15,7 @@ import { logEvent } from './projects';
 import { getSettings } from './settings';
 import { b64, now, parseJson, rid, unb64 } from './util';
 // @ts-ignore plain JS module shared with the local verifier and the tests
-import { DEBUG_LIMITS, StepError, callShots, checkSteps, gameState, openGame, runSteps, viewportOf } from './debug-core.js';
+import { DEBUG_LIMITS, StepError, callShots, checkSteps, gameState, openGame, runSteps, useViewport, viewportOf } from './debug-core.js';
 // @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
 // @ts-ignore plain JS module
@@ -34,7 +34,7 @@ const wrap = <T>(fn: () => T): T => { try { return fn(); } catch (e) { if (e ins
 // ---- the browser: Browser Rendering, or the local verifier's /debug endpoint in development --------------------------
 interface Driver {
   open(url: string, vp: ReturnType<typeof viewportOf>, steps: unknown[]): Promise<{ id: string; opened: { started: boolean; ms: number }; out: Omit<DebugResult, 'session' | 'version' | 'viewport' | 'expires_at'> }>;
-  act(id: string, steps: unknown[]): Promise<Omit<DebugResult, 'session' | 'version' | 'viewport' | 'expires_at'>>;
+  act(id: string, steps: unknown[], vp: ReturnType<typeof viewportOf>): Promise<Omit<DebugResult, 'session' | 'version' | 'viewport' | 'expires_at'>>;
   close(id: string): Promise<void>;
 }
 
@@ -65,10 +65,10 @@ function browserRendering(env: DebugEnv): Driver {
         return { id, opened, out };
       } catch (e) { await browser.close().catch(() => {}); throw e; }
     },
-    async act(id, steps) {
+    async act(id, steps, vp) {
       let browser: any;
       try { browser = await puppeteer.connect(B, id); } catch { throw new AppError(410, 'The debug browser has closed (it closes after 3 idle minutes). Open a new session.', 'gone'); }
-      try { return await drive(await pageOf(browser), steps); } finally { await browser.disconnect().catch(() => {}); }
+      try { const page = await pageOf(browser); await useViewport(page, vp); return await drive(page, steps); } finally { await browser.disconnect().catch(() => {}); }
     },
     async close(id) {
       try { const browser = await puppeteer.connect(B, id); await browser.close(); } catch { /* already closed */ }
@@ -144,7 +144,7 @@ export async function actDebug(env: DebugEnv, user: User, p: Project, sid: strin
   const lock = await env.DB.prepare('UPDATE debug_sessions SET busy_until = ?, calls = calls + 1 WHERE id = ? AND (busy_until IS NULL OR busy_until < ?)').bind(t + CALL_MS, row.id, t).run();
   if (!lock.meta.changes) throw new AppError(409, 'Another call is driving this debug browser right now.', 'busy', 'Wait for it to finish, then call again. Calls on one session run one at a time.');
   try {
-    const out = await driverOf(env).act(row.browser_id, checked);
+    const out = await driverOf(env).act(row.browser_id, checked, vp);
     return { session: row.id, version: row.version, viewport: vp, expires_at: row.expires_at, ...out };
   } catch (e) {
     if (e instanceof AppError && e.status === 410) await markClosed(env, row.id);
