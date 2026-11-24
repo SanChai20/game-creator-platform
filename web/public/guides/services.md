@@ -111,7 +111,7 @@ GCP.gpu.warmup(renderer, scenes, camera); // compile shaders in small batches (a
 GCP.gpu.upload(renderer, textures);       // stagger texture uploads
 ```
 
-Before the game's own loading screen the platform shows its splash (the HearthCade logo) while it starts the session and loads the page, then fades into the game's loading screen once it is drawn and settled: after a second `GCP.progress()` call (or 1.2 s without one) and a quarter of a second with no page changes, at once on `GCP.ready()` or `GCP.fatal()`, and never past 6 s. Set the loading screen's text, language and size before that second call; draw no platform logo of your own. See "The platform splash" in the contract guide.
+Before the game's own loading screen the platform shows its splash (the HearthCade logo) while it starts the session and loads the page, then fades into the game's loading screen once it is drawn and settled: after a second `GCP.progress()` call and a quarter of a second with no page changes, at once on `GCP.ready()` or `GCP.fatal()`, and never past 6 s (a game without that second call stays under the splash until `GCP.ready()`, at most 12 s). Load title art before `GCP.ready()` and never draw a stand-in or older title while it downloads. Set the loading screen's text, language and size before that second call; draw no platform logo of your own. See "The platform splash" in the contract guide.
 
 While a game loads, the SDK warms the GPU for it. Every WebGL context gets `KHR_parallel_shader_compile`. For three.js, a draw to the screen is held back until its new materials are compiled in small batches and their textures uploaded, so a cold start does not freeze the browser (the GPU process is shared with every tab). See "GPU warm-up" in the contract guide.
 

@@ -94,11 +94,14 @@ When a player presses Play, the platform shows its own splash (the HearthCade lo
 The splash hands over at the first of these:
 
 - your page has called `GCP.progress()` a second time (the first call often comes before the game has fetched its settings and set its text) and has then stopped changing for a quarter of a second: no elements or text added or changed, no class changes, no style change on `<html>` or `<body>` (a progress bar's width on an inner element does not count);
-- 1.2 seconds have passed without that second call, and the page has stopped changing as above;
 - `GCP.ready()` or `GCP.fatal()`;
-- 6 seconds after the page started, whatever it is doing.
+- 6 seconds after the page started, whatever it is doing, once the page has called `GCP.progress()` twice; without those calls, 12 seconds.
 
-So: draw your loading screen at once, set its text, language and root font size before the second `GCP.progress()` call, and then only move the bar. The splash stays up at least 0.9 seconds after Play so the logo can be read. It only exists in the platform's player: verification, `debug_preview` and a page opened outside the platform never show it, and `GCP.runtime.fixes` lists `splash-handoff` when it is on.
+A game that never calls `GCP.progress()` twice has no loading screen the platform can recognise, so the splash stays until `GCP.ready()`. What a game draws before it is ready is often a stand-in, and players see it.
+
+So: draw your loading screen at once, set its text, language and root font size before the second `GCP.progress()` call, and then only move the bar.
+
+**Title art: never show a stand-in, or the old title, while the new one loads.** When the title screen uses a picture (a key art, a title image), load it during the loading screen and call `GCP.ready()` only once it has loaded (or failed). While it downloads, draw the loading screen or a plain backdrop, never a code-drawn version of the title or an earlier picture: a player who sees it first watches the old cover switch to the new one on every launch. When you replace a title picture, delete the code that drew the previous one (or keep it only for when the picture fails to load), and give the new file a new name (`title-v2.webp`), never the old file's name with new contents. The splash stays up at least 0.9 seconds after Play so the logo can be read. It only exists in the platform's player: verification, `debug_preview` and a page opened outside the platform never show it, and `GCP.runtime.fixes` lists `splash-handoff` when it is on.
 
 ### GPU warm-up, done for you
 

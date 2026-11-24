@@ -32,7 +32,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.11.0', fixes: {} };
+  var RT = S.runtime = { version: '2.12.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -74,16 +74,19 @@
   // click until the game's own loading screen is up in its final look, then fades into it: the player never sees a page
   // that is still blank, held for its fonts, or filling in its first text. This tells the player when ({ gcp: 'shown' }):
   // the font hold is over, the game's loading has moved on (a second GCP.progress call: the first often comes before the
-  // game has fetched its settings and filled in its text) or SPLASH_WAIT_MS has passed without that, and the page has
-  // stopped changing for SPLASH_QUIET_MS: elements and text added or changed, classes, and the style of <html> and <body>
-  // (where a game sets its root font size; a progress bar's width on an inner element does not count). GCP.ready() and
-  // GCP.fatal() send it at once, and it is never later than SPLASH_MAX_MS.
-  var SPLASH_QUIET_MS = 250, SPLASH_WAIT_MS = 1200, SPLASH_MAX_MS = 6000;
+  // game has fetched its settings and filled in its text), and the page has stopped changing for SPLASH_QUIET_MS: elements
+  // and text added or changed, classes, and the style of <html> and <body> (where a game sets its root font size; a
+  // progress bar's width on an inner element does not count). GCP.ready() and GCP.fatal() send it at once. It is never
+  // later than SPLASH_MAX_MS for a game that has shown its loading screen that way. A game that has not (no second
+  // GCP.progress call) has no loading screen the platform can recognise: what it draws before GCP.ready() is often a
+  // stand-in (a code-drawn title while the title picture downloads, which looks like the old cover), so the splash stays
+  // until GCP.ready(), at most SPLASH_READY_MAX_MS.
+  var SPLASH_QUIET_MS = 250, SPLASH_MAX_MS = 6000, SPLASH_READY_MAX_MS = 12000;
   var splash = { sent: false, spoke: 0, send: function () { }, poke: function () { } };
   (function () {
     if (standalone || window.parent === window) return;
     fix('splash-handoff', true);
-    var t0 = performance.now(), lastChange = t0, waited = false, timer = 0, mo = null;
+    var t0 = performance.now(), lastChange = t0, timer = 0, mo = null;
     var send = splash.send = function (why) {
       if (splash.sent) return; splash.sent = true; clearTimeout(timer);
       try { if (mo) mo.disconnect(); } catch (e) { /* gone */ }
@@ -91,7 +94,7 @@
     };
     // Look again once the page could have been quiet long enough.
     var poke = splash.poke = function () {
-      if (splash.sent || fontHold.on || !(splash.spoke > 1 || waited)) return;
+      if (splash.sent || fontHold.on || splash.spoke < 2) return;
       var seen = lastChange, wait = seen + SPLASH_QUIET_MS - performance.now();
       clearTimeout(timer);
       if (wait <= 0) { send('settled'); return; }
@@ -111,8 +114,9 @@
         mo.observe(document, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class', 'style'] });
       }
     } catch (e) { mo = null; }
-    setTimeout(function () { waited = true; poke(); }, SPLASH_WAIT_MS);
-    setTimeout(function () { send('cap'); }, SPLASH_MAX_MS);
+    setTimeout(function () {
+      if (splash.spoke > 1) send('cap'); else setTimeout(function () { send('cap'); }, SPLASH_READY_MAX_MS - SPLASH_MAX_MS);
+    }, SPLASH_MAX_MS);
   })();
 
   // Keep the play token out of the address bar (the game Worker also set it as a cookie).
