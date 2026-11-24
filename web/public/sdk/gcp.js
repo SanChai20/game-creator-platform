@@ -627,8 +627,10 @@
   function Room(code, opts) {
     var self = this, handlers = {}, ws = null, closed = false, tries = 0;
     this.code = code; this.id = null; this.hostId = null; this.peers = []; this.state = null; this.connected = false;
-    var seen = { messages: 0, worldOps: 0, states: 0, closes: 0 };   // what arrived, for the two-player check's report
-    (S.rooms = S.rooms || []).push(function () { return { code: code, id: self.id, host: self.hostId, isHost: self.isHost, connected: self.connected, peers: self.peers.map(function (p) { return p.id; }), messages: seen.messages, world_ops: seen.worldOps, states: seen.states, closes: seen.closes }; });
+    var seen = { messages: 0, worldOps: 0, states: 0, closes: 0, peers: {} };   // what arrived, for the two-player check's report
+    // ever_peers: every peer id this room has known, including ones that left since (peers is only who is there now)
+    var know = function (list) { (list || []).forEach(function (p) { if (p && p.id != null) seen.peers[p.id] = 1; }); };
+    (S.rooms = S.rooms || []).push(function () { return { code: code, id: self.id, host: self.hostId, isHost: self.isHost, connected: self.connected, peers: self.peers.map(function (p) { return p.id; }), ever_peers: Object.keys(seen.peers), messages: seen.messages, world_ops: seen.worldOps, states: seen.states, closes: seen.closes }; });
     Object.defineProperty(this, 'isHost', { get: function () { return self.id !== null && self.id === self.hostId; } });
     function emit(type, a, b, c) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b, c); } catch (e) { console.error(e); } }); }
     this.on = function (type, fn) { (handlers[type] = handlers[type] || []).push(fn); return self; };
@@ -675,12 +677,12 @@
         if (typeof ev.data !== 'string') return onBinary(ev.data);
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.t === 'welcome') {
-          tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true;
+          tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true; know(m.peers);
           clearInterval(pingTimer); ping(); pingTimer = setInterval(ping, 5000);
           emit('open', { id: m.id, host: self.isHost, peers: m.peers, state: m.state });
         }
         else if (m.t === 'pong') { if (m.n && pingAt[m.n]) { var r = performance.now() - pingAt[m.n]; self.rtt = self.rtt == null ? r : self.rtt * 0.7 + r * 0.3; delete pingAt[m.n]; } }
-        else if (m.t === 'join') { self.peers.push(m.peer); emit('join', m.peer); }
+        else if (m.t === 'join') { self.peers.push(m.peer); know([m.peer]); emit('join', m.peer); }
         else if (m.t === 'leave') { self.peers = self.peers.filter(function (p) { return p.id !== m.id; }); var was = self.hostId; self.hostId = m.host; emit('leave', m.id); if (was !== m.host) emit('host', m.host); }
         else if (m.t === 'msg') { seen.messages++; if (m.d && m.d.gcpWorld === 'op') seen.worldOps++; emit('message', m.d, m.from, { at: typeof m.at === 'number' ? m.at : undefined, received: performance.now() }); }
         else if (m.t === 'state') { seen.states++; self.state = m.d; emit('state', m.d); }
@@ -942,7 +944,8 @@
       /** Resolves after n more frames have been drawn. Fails if the loop has stopped. */
       frames: function (n) {
         var target = S.frames + (n || 1), label = (n || 1) + ' more frame(s)';
-        return waitFor(function () { return S.frames >= target; }, 8000, label, function (me) { return fail({ source: 'game', kind: 'no_frames', label: label, waitMs: me.waitMs, drawn: S.frames - (target - (n || 1)) }, 'Timed out waiting for ' + label + ' (8 s).'); });
+        // none drawn: the game loop stopped. Some drawn but fewer than asked: the browser is slow, and the wait is the script's
+        return waitFor(function () { return S.frames >= target; }, 8000, label, function (me) { var drawn = S.frames - (target - (n || 1)); return fail(drawn > 0 ? { source: 'script', kind: 'timeout', label: label, waitMs: me.waitMs, drawn: drawn } : { source: 'game', kind: 'no_frames', label: label, waitMs: me.waitMs, drawn: 0 }, 'Timed out waiting for ' + label + ' (8 s).'); });
       },
       until: until,
       /** Presses a key by its physical code ('KeyW', 'Space', 'ArrowLeft') the way a keyboard would, held for holdMs. */

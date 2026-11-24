@@ -13,7 +13,7 @@ import { failureOf, describeFailure, failureHint, twoPlayerCheck } from '../src/
 /** The SDK in a bare page, with real timers, so a test function can be run through window.__GCP. */
 function loadSdk() {
   const noop = () => {};
-  const win = { addEventListener: noop, parent: null, requestAnimationFrame: () => 0, location: { search: '', pathname: '/', hash: '', origin: 'https://g.example' }, history: { replaceState: noop },
+  const win = { addEventListener: noop, parent: null, requestAnimationFrame: (cb) => { setTimeout(() => cb(performance.now()), 16); return 1; }, location: { search: '', pathname: '/', hash: '', origin: 'https://g.example' }, history: { replaceState: noop },
     __GCP_CONFIG: { api: 'https://p.example', token: 'tok', gameId: 'g', version: 1, env: 'preview', base: '/play/g', player: { id: 'me', name: 'Me' }, kind: 'player', session: 's' } };
   const ctx = {
     window: win, location: win.location, history: win.history, URLSearchParams, console: { ...console, error: noop, log: noop, warn: noop }, navigator: {},
@@ -97,4 +97,27 @@ test('two players: a wrong outcome is the game\'s, and a page that never answers
   const silent = await pair(() => new Promise(() => {}), done('w'));
   assert.deepEqual([silent.failure.source, silent.failure.kind, silent.failure.side], ['harness', 'no_answer', 'host']);
   assert.match(silent.detail, /This is not a timeout in the game's script/);
+});
+
+test('t.frames that gets some frames but fewer than asked is a slow browser, not a stopped loop', async () => {
+  const w = loadSdk(); w.GCP.test.onPlaythrough(async (t) => { t.step('render'); await t.frames(60); });
+  // a slow game loop: one frame every 400 ms through the SDK's own requestAnimationFrame, which counts frames
+  let on = true, ft = 0; const loop = () => { if (on) w.requestAnimationFrame(() => { setTimeout(loop, 400); }); };
+  loop();
+  const r = await w.__GCP.runPlaythrough(9000); on = false;
+  assert.deepEqual([r.failure.source, r.failure.kind], ['script', 'timeout']);
+  assert.ok(r.failure.drawn > 0);
+});
+
+test('t.frames wording: some frames drawn reads as slow, none as stopped', () => {
+  assert.match(describeFailure({ source: 'script', kind: 'timeout', label: '60 more frame(s)', waitMs: 8000, drawn: 40, step: 'render', stepN: 1 }, "The game's", 'GCP.test.onPlaythrough'), /drew 40 in 8 s.*kept drawing, slowly/);
+  assert.match(describeFailure({ source: 'game', kind: 'no_frames', label: '2 more frame(s)', waitMs: 8000, drawn: 0, step: 'render', stepN: 1 }, "The game's", 'GCP.test.onPlaythrough'), /stopped drawing/);
+});
+
+test('two players: pages that met and then lost each other still count as having met', async () => {
+  const fail = { ran: true, ok: false, error: 'Timed out waiting for x (5 s).', steps: ['s'], result: null, failure: { source: 'script', kind: 'timeout', label: 'x', waitMs: 5000, step: 's', stepN: 1 } };
+  const left = (id, other) => [{ id, isHost: id === 'a', peers: [id], ever_peers: [id, other], world_ops: 0, states: 0, messages: 9, closes: 1 }];
+  const r = await pair(fail, fail, { roomInfo: left('a', 'b') }, { roomInfo: left('b', 'a') });
+  assert.equal(r.met, true);
+  assert.match(r.detail, /Both pages had met/);
 });

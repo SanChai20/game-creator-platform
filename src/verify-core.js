@@ -212,7 +212,9 @@ export function describeFailure(f, who, hook) {
   const after = typeof f.elapsedMs === 'number' ? `, ${secs(f.elapsedMs)} into the run` : '';
   const own = `${who} own test script (${hook})`;
   switch (f.source + ':' + f.kind) {
-    case 'script:timeout': return `${own} timed out: its t.until(..., ${f.waitMs}, "${f.label}") waited ${secs(f.waitMs)} and the condition never came true${during}${after}. The wait and its time are in the game's code; the platform did not time out.`;
+    case 'script:timeout': return typeof f.drawn === 'number'
+      ? `${own} timed out: t.frames() asked for ${f.label} and the verification browser drew ${f.drawn} in ${secs(f.waitMs)}${during}${after}. The game kept drawing, slowly; ask for fewer frames or wait on game state with t.until().`
+      : `${own} timed out: its t.until(..., ${f.waitMs}, "${f.label}") waited ${secs(f.waitMs)} and the condition never came true${during}${after}. The wait and its time are in the game's code; the platform did not time out.`;
     case 'script:assert': return `${own} failed its own t.assert: "${f.message}"${during}${after}.`;
     case 'script:error': return `${own} threw ${f.name && f.name !== 'Error' ? f.name + ': ' : ''}${f.message}${f.at ? ` (at ${f.at})` : ''}${during}${after}. The throw came from the test function or game code it called.`;
     case 'script:limit': return `${own} did not return within the verifier's ${secs(f.limitMs)} limit${during}${f.label ? `; it was still in t.until(..., "${f.label}"), ${secs(f.waitedMs || 0)} into its ${secs(f.waitMs || 0)} wait` : ''}. Shorten the run or its waits.`;
@@ -266,8 +268,10 @@ export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS
     const sides = ` · ${twoPlayerSide('Host', ra, ma)} · ${twoPlayerSide('Guest', rb, mb)}.`;
     const brief = (r) => ({ ok: !!r.ok, error: r.error || '', steps: r.steps || [], players: r.result && r.result.players, world: r.result && typeof r.result.world === 'string' ? r.result.world.slice(0, 2000) : null, failure: failureOf(r) });
     const H = brief(a), G = brief(b), saw = H.players >= 2 && G.players >= 2, same = H.world != null && H.world === G.world, ok = H.ok && G.ok && saw && same;
-    // whether the two pages found each other: each room knew the other's id, or both reached one match
-    const met = !!(ra && rb && ra.id && rb.id && (ra.peers || []).includes(rb.id) && (rb.peers || []).includes(ra.id)) || !!(ma && mb && ma.match && ma.match === mb.match);
+    // whether the two pages found each other at any time: each room knew the other's id (ever_peers keeps peers that left
+    // since; an older SDK copy has only the current peers), or both reached one match
+    const knew = (r, id) => (Array.isArray(r.ever_peers) ? r.ever_peers : r.peers || []).includes(id);
+    const met = !!(ra && rb && ra.id && rb.id && knew(ra, rb.id) && knew(rb, ra.id)) || !!(ma && mb && ma.match && ma.match === mb.match);
     // both sides' own failures are told (the host's first); with both passing, the outcome is what failed
     const outcome = ok || !H.ok || !G.ok ? null
       : !saw ? { source: 'game', kind: 'players_missing', message: `The host saw ${H.players || 0} player(s) and the guest ${G.players || 0}: each must see both.` }
@@ -276,7 +280,7 @@ export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS
     const detail = ok ? `Host and guest met in one ${(ma && !ra) || (mb && !rb) ? 'match' : 'room'}, each saw ${Math.min(H.players, G.players)} players, and their worlds agree after both changed it.`
       : outcome ? outcome.message
         : [!H.ok ? describeFailure(H.failure, "The host's", 'GCP.test.onTwoPlayers') : '', !G.ok ? describeFailure(G.failure, "The guest's", 'GCP.test.onTwoPlayers') : ''].filter(Boolean).join(' ')
-          + (met ? ' Both pages had met in the room or match.' : ' The two pages never both saw each other in one room or match.');
+          + (met ? ' Both pages had met in the room or match.' : ' The two pages were never seen to know each other in one room or match.');
     // the failure the check is filed under: the first side's own, or the outcome's
     const failure = ok ? null : outcome || (!H.ok ? { ...H.failure, side: 'host' } : { ...G.failure, side: 'guest' });
     return { ok, met, failure, detail: ok ? detail : detail + sides, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players, failure: H.failure, room: ra, match: ma }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players, failure: G.failure, room: rb, match: mb } };
