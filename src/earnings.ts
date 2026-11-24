@@ -91,7 +91,7 @@ export async function balanceOf(env: Env, userId: string): Promise<Balance> {
 }
 
 /** Records a paid purchase and credits the creator. Idempotent on providerRef. Returns false if it already existed. */
-export async function recordPurchase(env: Env, s: Settings, a: { userId: string; projectId: string; ownerId: string; title: string; priceCents: number; provider: 'stripe' | 'admin'; providerRef: string; paymentIntent?: string | null; openImplementation?: boolean; item?: Item }): Promise<boolean> {
+export async function recordPurchase(env: Env, s: Settings, a: { userId: string; projectId: string; ownerId: string; title: string; priceCents: number; provider: 'stripe' | 'admin'; providerRef: string; paymentIntent?: string | null; openImplementation?: boolean; item?: Item; giftedBy?: string | null }): Promise<boolean> {
   const it = ITEM[a.item || 'game'];
   if (await env.DB.prepare(`SELECT 1 FROM ${it.table} WHERE provider_ref = ?`).bind(a.providerRef).first()) return false;
   const { fee, net } = a.item === 'skill' ? splitSkillSale(a.priceCents, s) : splitSale(a.priceCents, s, !!a.openImplementation);
@@ -99,10 +99,14 @@ export async function recordPurchase(env: Env, s: Settings, a: { userId: string;
   const owner = await env.DB.prepare('SELECT created_at FROM users WHERE id = ?').bind(a.ownerId).first<{ created_at: number }>();
   const hold = holdMs(s, owner ? t - owner.created_at : Infinity);
   await env.DB.batch([
-    env.DB.prepare(`INSERT INTO ${it.table} (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)`)
-      .bind(id, a.userId, a.projectId, a.ownerId, a.priceCents, fee, net, a.provider, a.providerRef, a.paymentIntent || null, t),
+    // a gift (a game only) is the recipient's purchase, with the friend who paid in gifted_by
+    a.giftedBy && a.item !== 'skill'
+      ? env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at, gifted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?, ?)")
+        .bind(id, a.userId, a.projectId, a.ownerId, a.priceCents, fee, net, a.provider, a.providerRef, a.paymentIntent || null, t, a.giftedBy)
+      : env.DB.prepare(`INSERT INTO ${it.table} (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', ?)`)
+        .bind(id, a.userId, a.projectId, a.ownerId, a.priceCents, fee, net, a.provider, a.providerRef, a.paymentIntent || null, t),
     env.DB.prepare('INSERT INTO ledger (user_id, kind, amount_cents, ref, note, available_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(a.ownerId, it.kind, net, id, `${it.note} ${a.title}`, t + hold, t),
+      .bind(a.ownerId, it.kind, net, id, `${a.giftedBy && a.item !== 'skill' ? 'Gift sale of' : it.note} ${a.title}`, t + hold, t),
     env.DB.prepare(`UPDATE projects SET ${it.counter} = ${it.counter} + 1 WHERE id = ?`).bind(a.projectId),
   ]);
   return true;

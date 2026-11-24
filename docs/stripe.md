@@ -40,6 +40,18 @@ setting `refund_fee_bearer` (platform by default). Sales are separate charges an
 fee object to refund: the platform's cut lives in the purchase row. Stripe says a refund takes 5 to 10 business days to
 reach the buyer's statement, and the confirmation and emails say so. After the window a purchase is final; an admin can
 still refund from the console where the law requires it, with the same books.
+**Gifts** (`src/gifts.ts`). A player buys a paid game for a friend (`POST /api/games/:slug/gift` with `to`, optionally the
+`request` it answers) or asks a friend to (`POST /api/games/:slug/gift-request`; the friend declines with
+`POST /api/me/gifts/requests/:id/decline`, the asker cancels with `DELETE /api/me/gifts/requests/:id`, `GET /api/me/gifts`
+lists both sides). Only friends can gift: neither may have blocked the other. The Checkout Session has
+`metadata.kind = gift`, `user_id` (the payer, also `client_reference_id`) and `recipient_id`; its submit text and its
+consent checkbox say that gifts are non-refundable. Once paid, the purchase row is the recipient's (`purchases.user_id`)
+with the payer in `gifted_by`, and the creator is credited exactly as for any sale. A game the recipient already owns or
+made cannot be gifted; a second payment that lands after they got it (two friends paying at once) is refunded at once as a
+duplicate. Gifts are non-refundable: neither the recipient, the payer nor the admin console can refund one. A refund made
+in the Stripe Dashboard, or a chargeback, still takes the game and the creator's credit back like any sale. Admin setting
+`gifts_enabled` turns gifting off.
+
 Game checkouts collect a required consent checkbox (Checkout's
 `consent_collection.terms_of_service`) in which the buyer asks for immediate access and gives up the EU/UK 14-day right
 to cancel. If live mode refuses it, set the terms of service URL (`https://hearthcade.com/legal/terms`) under

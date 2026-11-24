@@ -38,6 +38,8 @@ export const SETTING_DEFS = {
   refund_auto: { v: true, type: 'bool', group: 'Paid games', label: 'Refund eligible games automatically when the buyer asks (off: every refund waits for an admin)', public: true },
   refund_fee_bearer: { v: 'platform', type: 'select', options: ['platform', 'creator'], group: 'Paid games', label: 'Who bears the payment processing fee Stripe keeps when a game is refunded (platform or creator)', public: true },
   refund_limit_count: { v: 3, type: 'int', group: 'Paid games', label: 'Refunds within the period after which an account loses self-service refunds and its refunds wait for an admin (0: no limit)', public: true },
+  // Gifts between friends (src/gifts.ts)
+  gifts_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Let players buy a paid game for a friend, and ask friends to gift them one (gifts are non-refundable)', public: true },
   // Limited-time sales (src/sales.ts)
   sales_enabled: { v: true, type: 'bool', group: 'Paid games', label: 'Allow creators to put a paid game on sale for a limited time', public: true },
   sale_max_days: { v: 30, type: 'int', group: 'Paid games', label: 'Longest sale a creator can run (days)', public: true },
