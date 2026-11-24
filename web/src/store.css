@@ -402,7 +402,7 @@ a.pg-step:hover, button.pg-step:hover { background: none; }
 .play-ico::after { content: ""; margin-left: 4px; border-left: 15px solid var(--accent); border-block: 9.5px solid transparent; }
 .gp-cap { position: sticky; top: calc(var(--nav-h) + 20px); display: grid; gap: 20px; padding: 24px 22px 22px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
 .gp-cap::before { content: ""; position: absolute; left: -1px; top: -1px; width: 72px; height: 5px; background: var(--accent); clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-.gp-buy { display: grid; gap: 12px; justify-items: start; }
+.gp-buy { display: grid; gap: 14px; }
 .gp-buy-h { font: 700 11.5px/1.2 var(--font-display); letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
 .gp-price-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .gp-price { font: 800 clamp(38px, 3.6vw, 50px)/.9 var(--font-display); font-stretch: 78%; letter-spacing: -.035em; }
@@ -635,9 +635,6 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .gift-friend.off { cursor: default; opacity: .6; }
 .gift-wants { color: var(--accent); }
 .gift-actions { justify-content: flex-end; }
-.gp-gift { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.gp-gift > * { flex: 1 1 140px; }
-.gp-gift-asked { margin-top: 10px; }
 .gift-list { list-style: none; margin: 0; padding: 0; }
 .gift-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 14px 16px; border-top: 1px solid var(--line); }
 .gift-row:first-child { border-top: 0; }
@@ -645,3 +642,26 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .gift-row .gift-note { font-style: italic; }
 .gift-row .gift-act { display: flex; flex-wrap: wrap; gap: 6px; }
 .gifts > section + section { margin-top: 36px; }
+
+/* the game page's buy panel: price, one primary action, the secondary ones, then small print */
+.gp-more { display: grid; gap: 8px; }
+.gp-more .btn { min-height: 44px; }
+.gp-gift-ico { width: 18px; height: 18px; flex: none; margin-inline-end: 8px; }
+.buy-menu { position: relative; width: 100%; }
+.buy-menu-btn { width: 100%; gap: 12px; }
+.buy-menu-caret { width: 0; height: 0; border-inline: 6px solid transparent; border-top: 7px solid currentColor; transition: transform var(--dur-fast); flex: none; }
+.buy-menu-btn.on .buy-menu-caret { transform: rotate(180deg); }
+.buy-menu-list { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 8px); display: grid; padding: 6px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md, 10px); box-shadow: var(--shadow-3); }
+.buy-menu-list button { display: grid; gap: 2px; text-align: start; padding: 11px 14px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+.buy-menu-list button b { font-weight: 700; }
+.buy-menu-list button span { font-size: 13px; color: var(--text-3); }
+.buy-menu-list button:hover, .buy-menu-list button:focus-visible { outline: none; background: rgb(var(--text-rgb) / .07); }
+.gp-asks { display: grid; gap: 6px; }
+.gp-ask { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13.5px; color: var(--text-2); }
+.gp-ask.in { padding: 10px 12px; border-radius: 8px; background: rgb(var(--accent-rgb) / .08); color: var(--text); }
+.gp-ask .gp-gift-ico { margin: 0; color: var(--accent); }
+.gp-ask .linkish, .gp-ask a { font: inherit; font-weight: 700; white-space: nowrap; background: none; border: 0; padding: 0; cursor: pointer; color: var(--accent-text); }
+.gp-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.gp-fine { display: grid; gap: 4px; margin: 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.45; color: var(--text-3); }
+.gp-fine a { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
+.gp-buy .refund-box { margin-top: 0; padding-top: 0; border-top: 0; }

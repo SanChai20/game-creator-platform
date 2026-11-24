@@ -2506,5 +2506,9 @@
  "New games from creators you follow": "追蹤的創作者發布新遊戲",
  "{name} published a new game": "{name} 發布了新遊戲",
  "View profile": "查看主頁",
- "You gave {game} to {name}": "你把 {game} 送給了 {name}"
+ "You gave {game} to {name}": "你把 {game} 送給了 {name}",
+ "Buy game": "購買遊戲",
+ "Buy for myself": "為自己購買",
+ "{price}, goes straight to your library": "{price}，直接加入你的遊戲庫",
+ "Send a request to a friend": "向好友送出請求"
 }

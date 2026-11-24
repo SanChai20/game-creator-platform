@@ -20,7 +20,7 @@ export const creatorPath = (id: string) => `/creator/${encodeURIComponent(id)}`;
  * Follow and Following. Signed out, it sends the player to sign in and back. `state` is what the page already knows
  * (from GET /api/creators/:id); without it the button asks once. onChange gets the new state and follower count.
  */
-export function FollowButton({ id, name, state, size = 'md', onChange }: { id: string; name: string; state?: boolean | null; size?: 'sm' | 'md' | 'lg'; onChange?: (following: boolean, followers: number) => void }) {
+export function FollowButton({ id, name, state, size = 'md', quiet, onChange }: { id: string; name: string; state?: boolean | null; size?: 'sm' | 'md' | 'lg'; quiet?: boolean; onChange?: (following: boolean, followers: number) => void }) {
   const { user, toast } = useApp();
   const [on, setOn] = useState<boolean | null>(state ?? null), [busy, setBusy] = useState(false);
   useEffect(() => { if (state != null) setOn(state); }, [state]);
@@ -42,7 +42,7 @@ export function FollowButton({ id, name, state, size = 'md', onChange }: { id: s
     } catch (er) { toast((er as ApiError).message, true); }
     setBusy(false);
   };
-  const cls = 'btn follow-btn btn-' + size + (on ? ' btn-secondary is-on' : ' btn-primary');
+  const cls = 'btn follow-btn btn-' + size + (on ? ' btn-secondary is-on' : quiet ? ' btn-secondary' : ' btn-primary');
   return (
     <button type="button" className={cls} onClick={go} disabled={busy || (!!user && on === null)} aria-pressed={!!on}
       aria-label={on ? t('Following {name}. Unfollow', '已关注 {name}，取消关注', { name }) : t('Follow {name}', '关注 {name}', { name })}>

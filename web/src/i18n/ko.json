@@ -2485,5 +2485,9 @@
  "New games from creators you follow": "팔로우하는 크리에이터의 새 게임",
  "{name} published a new game": "{name}님이 새 게임을 공개했습니다",
  "View profile": "프로필 보기",
- "You gave {game} to {name}": "{name}님에게 {game}을(를) 선물했습니다"
+ "You gave {game} to {name}": "{name}님에게 {game}을(를) 선물했습니다",
+ "Buy game": "게임 구매",
+ "Buy for myself": "내가 구매하기",
+ "{price}, goes straight to your library": "{price}, 내 라이브러리에 바로 추가",
+ "Send a request to a friend": "친구에게 요청 보내기"
 }
