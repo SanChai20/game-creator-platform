@@ -7,6 +7,7 @@ import { switchLive } from './go-live';
 import { getProject, getVersion, logEvent } from './projects';
 import { browserVerify } from './verify';
 import { afterPublish } from './implementations';
+import { announceFirstRelease } from './creator-news';
 import { syncMature } from './mature';
 import { originalityCheck } from './originality-check';
 import { gateText, noteWaivers, recordGate, releaseGate, type GateMode } from './release-gate';
@@ -121,4 +122,9 @@ async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<v
   await noteWaivers(env, gate, job.actor);
   await logEvent(env, p.id, 'published', `Version ${v.n} is live`, v.n, job.actor);
   await afterPublish(env, p.id);
+  // a game's first release is news for those who follow its creator (src/creator-news.ts)
+  if (!p.published_at) {
+    const news = await announceFirstRelease(env, p.id);
+    if (news.notified) await logEvent(env, p.id, 'followers_told', `${news.notified} follower${news.notified === 1 ? '' : 's'} told about the new game`, v.n, job.actor);
+  }
 }

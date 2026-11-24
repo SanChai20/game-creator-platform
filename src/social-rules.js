@@ -45,6 +45,8 @@ export const PRIVACY = {
 };
 /** Who can be invited: anyone with a page open and not Invisible. Busy friends get the invite quietly (no pop-up). */
 export const INVITABLE = ['online', 'away', 'busy'];
+/** The notifications the Friends panel shows (Requests). Every other kind is under the bell (src/follows.js). */
+export const FRIEND_KINDS = ['friend_request', 'friend_accepted'];
 export const REPORT_REASONS = ['spam', 'harassment', 'hate', 'cheating', 'name', 'other'];
 /** How long an invite can be answered: a match lobby goes stale quickly, a plain "come and play" less so. */
 export const INVITE_TTL_MS = { match: 10 * 60 * 1000, game: 60 * 60 * 1000, join: 10 * 60 * 1000 };
@@ -219,7 +221,9 @@ export async function block(db, me, other, t = now()) {
   if (!(await db.prepare('SELECT 1 FROM users WHERE id = ?').bind(other).first())) throw err(404, 'not_found', 'No such player.');
   const was = await areFriends(db, me, other);
   await exec(db, [...endTies(db, me, other, t), db.prepare('INSERT INTO blocks (user_id, blocked_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING').bind(me, other, t),
-    db.prepare("UPDATE notifications SET read_at = ?3 WHERE user_id = ?1 AND actor_id = ?2 AND read_at IS NULL").bind(me, other, t)]);
+    db.prepare("UPDATE notifications SET read_at = ?3 WHERE user_id = ?1 AND actor_id = ?2 AND read_at IS NULL").bind(me, other, t),
+    // a block also ends a follow either way (src/follows.js)
+    db.prepare('DELETE FROM follows WHERE (follower_id = ?1 AND creator_id = ?2) OR (follower_id = ?2 AND creator_id = ?1)').bind(me, other)]);
   return { ok: true, was };
 }
 export async function unblock(db, me, other) {
@@ -287,7 +291,7 @@ export async function markRead(db, me, other, t = now()) {
 export async function counts(db, me) {
   const chats = await db.prepare('SELECT from_id, COUNT(*) AS n FROM dm_messages WHERE to_id = ? AND read_at IS NULL GROUP BY from_id LIMIT 500').bind(me).all();
   const c = await db.prepare(`SELECT (SELECT COUNT(*) FROM friend_requests r JOIN users u ON u.id = r.from_id WHERE r.to_id = ?1 AND u.status = 'active') AS requests,
-      (SELECT COUNT(*) FROM notifications WHERE user_id = ?1 AND read_at IS NULL) AS notes,
+      (SELECT COUNT(*) FROM notifications WHERE user_id = ?1 AND kind IN ('friend_request', 'friend_accepted') AND read_at IS NULL) AS notes,
       (SELECT COUNT(*) FROM game_invites WHERE to_id = ?1 AND status = 'sent' AND expires_at > ?2) AS invites`).bind(me, now()).first();
   const per = {}; let messages = 0;
   for (const r of chats.results) { per[r.from_id] = r.n; messages += r.n; }
@@ -295,11 +299,11 @@ export async function counts(db, me) {
 }
 export async function notificationList(db, me, limit = 30) {
   const r = await db.prepare(`SELECT n.id, n.kind, n.actor_id, u.name AS actor_name, n.created_at, n.read_at FROM notifications n JOIN users u ON u.id = n.actor_id
-      WHERE n.user_id = ? ORDER BY n.id DESC LIMIT ?`).bind(me, Math.max(1, Math.min(100, limit))).all();
+      WHERE n.user_id = ? AND n.kind IN ('friend_request', 'friend_accepted') ORDER BY n.id DESC LIMIT ?`).bind(me, Math.max(1, Math.min(100, limit))).all();
   return r.results.map((x) => ({ id: x.id, kind: x.kind, actor: { id: x.actor_id, name: x.actor_name }, at: x.created_at, read: !!x.read_at }));
 }
 export async function markNotificationsRead(db, me, t = now()) {
-  await db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').bind(t, me).run();
+  await db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND kind IN ('friend_request', 'friend_accepted') AND read_at IS NULL").bind(t, me).run();
   return { ok: true };
 }
 

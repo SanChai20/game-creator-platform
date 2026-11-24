@@ -21,7 +21,7 @@ export function PushSettings() {
   if (st === 'unsupported') return <p className="mute">{t('This browser cannot show notifications from websites. Try Chrome, Edge, Firefox or Safari.', '此浏览器无法显示网站通知。请使用 Chrome、Edge、Firefox 或 Safari。')}</p>;
   if (st === 'blocked') return <p className="mute">{t('Notifications are blocked for HearthCade in this browser. Allow them in the browser’s site settings, then come back here.', '此浏览器已屏蔽 HearthCade 的通知。请在浏览器的网站设置中允许通知，然后回到这里。')}</p>;
   if (st === 'off') return <div className="stack">
-    <p className="mute">{t('Get a notification when a friend sends you a request, a message or an invite while HearthCade is closed.', 'HearthCade 未打开时，好友向你发送请求、消息或邀请，你也会收到通知。')}</p>
+    <p className="mute">{t('Get a notification when a friend sends you a request, a message or an invite, or a creator you follow publishes a new game, while HearthCade is closed.', 'HearthCade 未打开时，好友向你发送请求、消息或邀请，或你关注的创作者发布新游戏，你也会收到通知。')}</p>
     <div><Button variant="primary" onClick={on} disabled={busy}>{t('Turn on notifications', '开启通知')}</Button></div>
     {note}
   </div>;
@@ -29,6 +29,7 @@ export function PushSettings() {
     {row(t('Friend requests', '好友请求'), <Switch checked={!off.includes('requests')} disabled={busy} onChange={(e) => void kind('requests', e.target.checked)} />)}
     {row(t('Game invites', '游戏邀请'), <Switch checked={!off.includes('invites')} disabled={busy} onChange={(e) => void kind('invites', e.target.checked)} />)}
     {row(t('Messages', '消息'), <Switch checked={!off.includes('messages')} disabled={busy} onChange={(e) => void kind('messages', e.target.checked)} />)}
+    {row(t('New games from creators you follow', '关注的创作者发布新游戏'), <Switch checked={!off.includes('creators')} disabled={busy} onChange={(e) => void kind('creators', e.target.checked)} />)}
     <div className="row">
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(async () => { setMsg((await testPush()) ? { ok: true, text: t('A test notification is on its way.', '测试通知马上就到。') } : { ok: false, text: t('The test could not be sent. Turn notifications off and on again.', '测试通知发送失败。请关闭后重新开启通知。') }); })}>{t('Send a test', '发送测试通知')}</Button>
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(async () => { setSt(await turnPushOff()); })}>{t('Turn off on this device', '在此设备上关闭')}</Button>

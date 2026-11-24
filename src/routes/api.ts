@@ -72,7 +72,7 @@ function card(origin: string, r: Record<string, any>, at = now()) {
     sale: sale && { regular_cents: sale.regular_cents, percent_off: sale.percent_off, ends_at: sale.ends_at },
     trial_minutes: r.price_cents > 0 ? Number(r.trial_minutes) || 0 : 0,   // the web app also applies the platform's trial settings
     plays: r.plays, minutes: Math.round(r.seconds / 60), rating: r.rating_count ? Math.round((r.rating_sum / r.rating_count) * 10) / 10 : null, rating_count: r.rating_count,
-    author: r.author, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, skill_price_cents: Number(r.skill_price_cents) || 0, playing: Number(r.playing) || 0,
+    author: r.author, author_id: r.owner_id, featured: !!r.featured, published_at: r.published_at, status: r.status, open_implementation: !!r.open_implementation, skill_price_cents: Number(r.skill_price_cents) || 0, playing: Number(r.playing) || 0,
     // adults-only games: the store blurs the cover and labels it 18+ (sexual, violence, other)
     age: r.age || null, mature: matureList(r),
     // on today's picks: why the game was picked (featured, trending, rising, new, gem, free, more)
