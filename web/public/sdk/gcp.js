@@ -631,8 +631,10 @@
   function Room(code, opts) {
     var self = this, handlers = {}, ws = null, closed = false, tries = 0;
     this.code = code; this.id = null; this.hostId = null; this.peers = []; this.state = null; this.connected = false;
-    var seen = { messages: 0, worldOps: 0, states: 0, closes: 0 };   // what arrived, for the two-player check's report
-    (S.rooms = S.rooms || []).push(function () { return { code: code, id: self.id, host: self.hostId, isHost: self.isHost, connected: self.connected, peers: self.peers.map(function (p) { return p.id; }), messages: seen.messages, world_ops: seen.worldOps, states: seen.states, closes: seen.closes }; });
+    var seen = { messages: 0, worldOps: 0, states: 0, closes: 0, peers: {} };   // what arrived, for the two-player check's report
+    // ever_peers: every peer id this room has known, including ones that left since (peers is only who is there now)
+    var know = function (list) { (list || []).forEach(function (p) { if (p && p.id != null) seen.peers[p.id] = 1; }); };
+    (S.rooms = S.rooms || []).push(function () { return { code: code, id: self.id, host: self.hostId, isHost: self.isHost, connected: self.connected, peers: self.peers.map(function (p) { return p.id; }), ever_peers: Object.keys(seen.peers), messages: seen.messages, world_ops: seen.worldOps, states: seen.states, closes: seen.closes }; });
     Object.defineProperty(this, 'isHost', { get: function () { return self.id !== null && self.id === self.hostId; } });
     function emit(type, a, b, c) { (handlers[type] || []).slice().forEach(function (fn) { try { fn(a, b, c); } catch (e) { console.error(e); } }); }
     this.on = function (type, fn) { (handlers[type] = handlers[type] || []).push(fn); return self; };
@@ -679,12 +681,12 @@
         if (typeof ev.data !== 'string') return onBinary(ev.data);
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.t === 'welcome') {
-          tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true;
+          tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true; know(m.peers);
           clearInterval(pingTimer); ping(); pingTimer = setInterval(ping, 5000);
           emit('open', { id: m.id, host: self.isHost, peers: m.peers, state: m.state });
         }
         else if (m.t === 'pong') { if (m.n && pingAt[m.n]) { var r = performance.now() - pingAt[m.n]; self.rtt = self.rtt == null ? r : self.rtt * 0.7 + r * 0.3; delete pingAt[m.n]; } }
-        else if (m.t === 'join') { self.peers.push(m.peer); emit('join', m.peer); }
+        else if (m.t === 'join') { self.peers.push(m.peer); know([m.peer]); emit('join', m.peer); }
         else if (m.t === 'leave') { self.peers = self.peers.filter(function (p) { return p.id !== m.id; }); var was = self.hostId; self.hostId = m.host; emit('leave', m.id); if (was !== m.host) emit('host', m.host); }
         else if (m.t === 'msg') { seen.messages++; if (m.d && m.d.gcpWorld === 'op') seen.worldOps++; emit('message', m.d, m.from, { at: typeof m.at === 'number' ? m.at : undefined, received: performance.now() }); }
         else if (m.t === 'state') { seen.states++; self.state = m.d; emit('state', m.d); }
@@ -910,28 +912,45 @@
   S.roomInfo = function () { return (S.rooms || []).map(function (f) { try { return f(); } catch (e) { return null; } }).filter(Boolean); };
   /** Every GCP.match.find this page made: the lobby code, its phase, this player's id, who the lobby listed, the match's players. */
   S.matchInfo = function () { return (S.matches || []).map(function (f) { try { return f(); } catch (e) { return null; } }).filter(Boolean); };
+  // Runs a test function the game gave (onPlaythrough, onTwoPlayers). A failure comes back classified in result.failure,
+  // so the verifier can tell the game's own script giving up from the game breaking or the platform failing:
+  //   { source: 'script', kind: 'timeout' }  a t.until() wait ran out: label, waitMs (its timeout)
+  //   { source: 'script', kind: 'assert' }   a t.assert() was false: message
+  //   { source: 'script', kind: 'error' }    the function (or game code it called) threw: message, name, at (top stack line)
+  //   { source: 'script', kind: 'limit' }    it did not return within the verifier's limit: limitMs, and the wait then pending
+  //   { source: 'game', kind: 'no_frames' }  t.frames() waited and the game drew none: the loop stopped
+  // Every failure also carries step (the last t.step() label, '' before the first), stepN and elapsedMs.
   function runScript(fn, limitMs, what, arg) {
     if (!fn) return Promise.resolve({ ran: false });
-    var steps = [], t0 = performance.now(), frames0 = S.frames, over = false;
+    var steps = [], t0 = performance.now(), frames0 = S.frames, over = false, pending = null;
+    var fail = function (f, message) { var e = new Error(message); e.gcpFailure = f; return e; };
     var wait = function (ms) { return new Promise(function (r) { setTimeout(r, Math.max(0, +ms || 0)); }); };
-    var until = function (fn, timeoutMs, label) {
-      var end = performance.now() + (timeoutMs || 5000);
+    var waitFor = function (fn, timeoutMs, label, onTimeout) {
+      var ms = timeoutMs || 5000, end = performance.now() + ms, me = { what: label || 'a condition', waitMs: ms, since: performance.now() };
+      pending = me;
       return new Promise(function (res, rej) {
         (function poll() {
-          var v; try { v = fn(); } catch (e) { return rej(e); }
-          if (v) return res(v);
-          if (over || performance.now() > end) return rej(new Error('Timed out waiting for ' + (label || 'a condition') + ' (' + Math.round((timeoutMs || 5000) / 1000) + ' s).'));
+          var v; try { v = fn(); } catch (e) { if (pending === me) pending = null; return rej(e); }
+          if (v) { if (pending === me) pending = null; return res(v); }
+          if (over || performance.now() > end) { if (pending === me) pending = null; return rej(onTimeout(me)); }
           setTimeout(poll, 30);
         })();
       });
     };
+    var until = function (fn, timeoutMs, label) {
+      return waitFor(fn, timeoutMs, label, function (me) { return fail({ source: 'script', kind: 'timeout', label: me.what, waitMs: me.waitMs }, 'Timed out waiting for ' + me.what + ' (' + Math.round(me.waitMs / 1000) + ' s).'); });
+    };
     var t = {
       /** Names what is about to be tried. The report lists the steps, and a failure names the last one. */
       step: function (label) { if (steps.length < 60) steps.push(String(label).slice(0, 120)); },
-      assert: function (cond, message) { if (!cond) throw new Error(String(message || 'Assertion failed')); },
+      assert: function (cond, message) { if (!cond) { var m = String(message || 'Assertion failed'); throw fail({ source: 'script', kind: 'assert', message: m.slice(0, 300) }, m); } },
       wait: wait,
       /** Resolves after n more frames have been drawn. Fails if the loop has stopped. */
-      frames: function (n) { var target = S.frames + (n || 1); return until(function () { return S.frames >= target; }, 8000, (n || 1) + ' more frame(s)'); },
+      frames: function (n) {
+        var target = S.frames + (n || 1), label = (n || 1) + ' more frame(s)';
+        // none drawn: the game loop stopped. Some drawn but fewer than asked: the browser is slow, and the wait is the script's
+        return waitFor(function () { return S.frames >= target; }, 8000, label, function (me) { var drawn = S.frames - (target - (n || 1)); return fail(drawn > 0 ? { source: 'script', kind: 'timeout', label: label, waitMs: me.waitMs, drawn: drawn } : { source: 'game', kind: 'no_frames', label: label, waitMs: me.waitMs, drawn: 0 }, 'Timed out waiting for ' + label + ' (8 s).'); });
+      },
       until: until,
       /** Presses a key by its physical code ('KeyW', 'Space', 'ArrowLeft') the way a keyboard would, held for holdMs. */
       key: function (code, holdMs) {
@@ -940,10 +959,21 @@
         fire('keydown'); return wait(holdMs == null ? 120 : holdMs).then(function () { fire('keyup'); });
       },
     };
-    var out = function (ok, error, result) { over = true; return { ran: true, ok: ok, error: error || '', steps: steps, ms: Math.round(performance.now() - t0), frames: S.frames - frames0, result: result === undefined ? null : result }; };
-    var limit = new Promise(function (r) { setTimeout(function () { r(out(false, 'The ' + what + ' did not finish within ' + Math.round(limitMs / 1000) + ' s.')); }, limitMs); });
+    var where = function (f) { f.step = steps.length ? steps[steps.length - 1] : ''; f.stepN = steps.length; f.elapsedMs = Math.round(performance.now() - t0); return f; };
+    var classify = function (e) {
+      if (e && e.gcpFailure) return where(e.gcpFailure);
+      var stack = e && typeof e.stack === 'string' ? e.stack.split('\n') : [], at = '';
+      for (var i = 0; i < stack.length; i++) { var l = stack[i].trim(); if (/^at |@/.test(l) && !/\/sdk\/gcp\.js/.test(l)) { at = l.replace(/^at /, '').slice(0, 200); break; } }
+      return where({ source: 'script', kind: 'error', name: e && e.name ? String(e.name) : typeof e, message: String(e && e.message || e).slice(0, 300), at: at });
+    };
+    var out = function (ok, error, result, failure) { over = true; var o = { ran: true, ok: ok, error: error || '', steps: steps, ms: Math.round(performance.now() - t0), frames: S.frames - frames0, result: result === undefined ? null : result }; if (!ok) o.failure = failure || null; return o; };
+    var limit = new Promise(function (r) { setTimeout(function () {
+      var f = where({ source: 'script', kind: 'limit', limitMs: limitMs });
+      if (pending) { f.label = pending.what; f.waitMs = pending.waitMs; f.waitedMs = Math.round(performance.now() - pending.since); }
+      r(out(false, 'The ' + what + ' did not finish within ' + Math.round(limitMs / 1000) + ' s.', undefined, f));
+    }, limitMs); });
     var run; try { run = Promise.resolve(fn(t, arg)); } catch (e) { run = Promise.reject(e); }
-    return Promise.race([limit, run.then(function (v) { return out(true, '', v); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400)); })]);
+    return Promise.race([limit, run.then(function (v) { return out(true, '', v); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400), undefined, classify(e)); })]);
   }
   // Display state, sent by the platform page (see GCP.display). The <html> element carries gcp-fullscreen and gcp-touch classes to match.
   var coarse = false; try { coarse = matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches; } catch (e) { /* old browser */ }

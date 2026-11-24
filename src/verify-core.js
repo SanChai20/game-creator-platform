@@ -178,6 +178,64 @@ async function tap(page, x, y) {
  * @param url    game URL including the play token
  * @param opts   { readyTimeoutS, minFrames, observeS, usesWebGPU, log, openPage, guestUrl (the game URL with a second verifier's play token, for the two-player check's guest) }
  */
+// ----- failures of checks that run the game's own test code (GCP.test.onPlaythrough, GCP.test.onTwoPlayers) -----------
+// Every failure is classified, in the report as well as in words, by where it came from:
+//   source 'script'  the game's test function: a t.until() that ran out (timeout), a false t.assert() (assert), a throw
+//                    (error), or not returning within the verifier's limit (limit)
+//   source 'game'    the game itself: it stopped drawing (no_frames), or the outcome is wrong (two players: players_missing,
+//                    worlds_differ, bad_result)
+//   source 'page'    the page reloaded or closed while the function ran (closed): the game navigated away, or the browser lost it
+//   source 'harness' the verifier got no answer from the page at all (no_answer), past the limit the page itself keeps
+// with step (the last t.step() label), stepN and elapsedMs where they are known. The SDK classifies what happens inside
+// the page (web/public/sdk/gcp.js runScript); failureOf() also reads the message of a page that runs an older SDK copy.
+
+/** The classified failure of one run of a test function: the SDK's own, or one read from its message. Null when it passed. */
+export function failureOf(r) {
+  if (!r || r.ok || !r.ran) return null;
+  if (r.failure && typeof r.failure === 'object' && r.failure.source) return r.failure;
+  const steps = Array.isArray(r.steps) ? r.steps : [], e = String(r.error || '');
+  const at = { step: steps.length ? String(steps[steps.length - 1]) : '', stepN: steps.length, ...(typeof r.ms === 'number' ? { elapsedMs: r.ms } : {}) };
+  let m = /^Timed out waiting for (\d+) more frame\(s\) \((\d+) s\)\./.exec(e);
+  if (m) return { source: 'game', kind: 'no_frames', label: `${m[1]} more frame(s)`, waitMs: +m[2] * 1000, ...at };
+  m = /Timed out waiting for (.*) \((\d+) s\)\./.exec(e);
+  if (m) return { source: 'script', kind: 'timeout', label: m[1], waitMs: +m[2] * 1000, ...at };
+  m = /^The [\w -]+ did not finish within (\d+) s\./.exec(e);
+  if (m) return { source: 'script', kind: 'limit', limitMs: +m[1] * 1000, ...at };
+  return { source: 'script', kind: 'error', message: e.slice(0, 300), ...at };
+}
+
+const secs = (ms) => `${Math.round(ms / 100) / 10} s`;
+/** One sentence on a classified failure. who: "The host's", "The game's". hook: the GCP.test function that ran. */
+export function describeFailure(f, who, hook) {
+  if (!f) return '';
+  const during = f.stepN ? ` during step ${f.stepN}, "${f.step}"` : f.stepN === 0 ? ', before its first t.step()' : '';
+  const after = typeof f.elapsedMs === 'number' ? `, ${secs(f.elapsedMs)} into the run` : '';
+  const own = `${who} own test script (${hook})`;
+  switch (f.source + ':' + f.kind) {
+    case 'script:timeout': return typeof f.drawn === 'number'
+      ? `${own} timed out: t.frames() asked for ${f.label} and the verification browser drew ${f.drawn} in ${secs(f.waitMs)}${during}${after}. The game kept drawing, slowly; ask for fewer frames or wait on game state with t.until().`
+      : `${own} timed out: its t.until(..., ${f.waitMs}, "${f.label}") waited ${secs(f.waitMs)} and the condition never came true${during}${after}. The wait and its time are in the game's code; the platform did not time out.`;
+    case 'script:assert': return `${own} failed its own t.assert: "${f.message}"${during}${after}.`;
+    case 'script:error': return `${own} threw ${f.name && f.name !== 'Error' ? f.name + ': ' : ''}${f.message}${f.at ? ` (at ${f.at})` : ''}${during}${after}. The throw came from the test function or game code it called.`;
+    case 'script:limit': return `${own} did not return within the verifier's ${secs(f.limitMs)} limit${during}${f.label ? `; it was still in t.until(..., "${f.label}"), ${secs(f.waitedMs || 0)} into its ${secs(f.waitMs || 0)} wait` : ''}. Shorten the run or its waits.`;
+    case 'game:no_frames': return `${who} game stopped drawing: t.frames() waited ${secs(f.waitMs || 8000)} for ${f.label} and none came${during}${after}. The game loop stalled or stopped.`;
+    case 'page:closed': return `${who} page reloaded or closed while ${hook} ran${during}: ${f.message || 'the page went away'}.`;
+    case 'harness:no_answer': return `The verifier got no answer from ${who.replace(/'s$/, '').toLowerCase()} page within ${secs(f.limitMs || 0)} (the page's own limit should have answered first): its main thread was blocked, or the verification browser failed. This is not a timeout in the game's script.`;
+    default: return `${who} ${hook} failed: ${f.message || f.kind}${during}${after}.`;
+  }
+}
+
+/** What to do about a classified failure, by where it came from; fallback for failures of the game's behaviour. */
+export function failureHint(f, hook, fallback) {
+  if (!f) return fallback;
+  if (f.source === 'script') return `The failure is in the function given to ${hook}, at the step named above, not in the platform. `
+    + (f.kind === 'timeout' || f.kind === 'limit' ? 'The verification browser can be slow (a few frames a second with heavy graphics), and anything that crosses the network arrives a round trip late: wait on outcomes (a state that changed) rather than exact positions or timings, give each wait generous time, and name every step with t.step() so a failure points at it.'
+      : 'Fix the condition or the code at that line; t.step() names each step so a failure points at it.');
+  if (f.source === 'harness') return 'The verifier lost contact with the page. Deploy again; if it repeats, look for a long synchronous loop in the game that blocks the page.';
+  if (f.source === 'page') return 'The page reloaded or navigated away while the test ran. A game must not reload itself during play; if it does not, deploy again.';
+  return fallback;
+}
+
 /**
  * Opens the game in two more pages that meet in one room (host first, then guest) and runs the function the game gave to
  * GCP.test.onTwoPlayers in both at once. Passes when both finish, each sees at least two players and both return the same
@@ -196,8 +254,8 @@ export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS
     let host, guest;
     try { host = await boot('host'); await sleep(1200); guest = await boot('guest'); } catch (e) { return { skipped: String(e && e.message || e).slice(0, 240) }; }
     const run = (p, role) => Promise.race([
-      p.evaluate((ms) => window.__GCP.runTwoPlayers(ms), limitS * 1000).catch((e) => ({ ran: true, ok: false, error: `The ${role} page reloaded or closed: ` + String(e && e.message || e).slice(0, 160), steps: [], result: null })),
-      sleep(limitS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The ${role} did not finish within ${limitS} s.`, steps: [], result: null })),
+      p.evaluate((ms) => window.__GCP.runTwoPlayers(ms), limitS * 1000).catch((e) => ({ ran: true, ok: false, error: `The ${role} page reloaded or closed: ` + String(e && e.message || e).slice(0, 160), steps: [], result: null, failure: { source: 'page', kind: 'closed', message: String(e && e.message || e).slice(0, 160) } })),
+      sleep(limitS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The ${role} page did not answer within ${limitS + 5} s.`, steps: [], result: null, failure: { source: 'harness', kind: 'no_answer', limitMs: (limitS + 5) * 1000 } })),
     ]);
     // only one page of a browser is in front, and a page behind draws no frames: keep both awake and take turns in front
     for (const p of pages) { try { const cdp = p.createCDPSession ? await p.createCDPSession() : await p.context().newCDPSession(p); await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }); } catch { /* not every browser */ } }
@@ -208,13 +266,24 @@ export async function twoPlayerCheck(openPage, url, { limitS = 45, readyTimeoutS
     const lastOf = (p, what) => p.evaluate((w) => (window.__GCP && window.__GCP[w] ? window.__GCP[w]() : []), what).then((l) => (Array.isArray(l) && l[l.length - 1]) || null).catch(() => null);
     const [ra, rb, ma, mb] = await Promise.all([lastOf(host, 'roomInfo'), lastOf(guest, 'roomInfo'), lastOf(host, 'matchInfo'), lastOf(guest, 'matchInfo')]);
     const sides = ` · ${twoPlayerSide('Host', ra, ma)} · ${twoPlayerSide('Guest', rb, mb)}.`;
-    const brief = (r) => ({ ok: !!r.ok, error: r.error || '', steps: r.steps || [], players: r.result && r.result.players, world: r.result && typeof r.result.world === 'string' ? r.result.world.slice(0, 2000) : null });
+    const brief = (r) => ({ ok: !!r.ok, error: r.error || '', steps: r.steps || [], players: r.result && r.result.players, world: r.result && typeof r.result.world === 'string' ? r.result.world.slice(0, 2000) : null, failure: failureOf(r) });
     const H = brief(a), G = brief(b), saw = H.players >= 2 && G.players >= 2, same = H.world != null && H.world === G.world, ok = H.ok && G.ok && saw && same;
-    const last = (r) => (r.steps.length ? ` (during "${r.steps[r.steps.length - 1]}")` : '');
+    // whether the two pages found each other at any time: each room knew the other's id (ever_peers keeps peers that left
+    // since; an older SDK copy has only the current peers), or both reached one match
+    const knew = (r, id) => (Array.isArray(r.ever_peers) ? r.ever_peers : r.peers || []).includes(id);
+    const met = !!(ra && rb && ra.id && rb.id && knew(ra, rb.id) && knew(rb, ra.id)) || !!(ma && mb && ma.match && ma.match === mb.match);
+    // both sides' own failures are told (the host's first); with both passing, the outcome is what failed
+    const outcome = ok || !H.ok || !G.ok ? null
+      : !saw ? { source: 'game', kind: 'players_missing', message: `The host saw ${H.players || 0} player(s) and the guest ${G.players || 0}: each must see both.` }
+        : H.world == null || G.world == null ? { source: 'game', kind: 'bad_result', message: 'The function must return { players, world } with world a string.' }
+          : { source: 'game', kind: 'worlds_differ', message: 'The two worlds differ. Host: ' + H.world.slice(0, 200) + ' · Guest: ' + G.world.slice(0, 200) };
     const detail = ok ? `Host and guest met in one ${(ma && !ra) || (mb && !rb) ? 'match' : 'room'}, each saw ${Math.min(H.players, G.players)} players, and their worlds agree after both changed it.`
-      : !H.ok ? `The host failed: ${H.error}${last(H)}` : !G.ok ? `The guest failed: ${G.error}${last(G)}` : !saw ? `The host saw ${H.players || 0} player(s) and the guest ${G.players || 0}: each must see both.`
-        : H.world == null || G.world == null ? 'The function must return { players, world } with world a string.' : 'The two worlds differ. Host: ' + H.world.slice(0, 200) + ' · Guest: ' + G.world.slice(0, 200);
-    return { ok, detail: ok ? detail : detail + sides, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players, room: ra, match: ma }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players, room: rb, match: mb } };
+      : outcome ? outcome.message
+        : [!H.ok ? describeFailure(H.failure, "The host's", 'GCP.test.onTwoPlayers') : '', !G.ok ? describeFailure(G.failure, "The guest's", 'GCP.test.onTwoPlayers') : ''].filter(Boolean).join(' ')
+          + (met ? ' Both pages had met in the room or match.' : ' The two pages were never seen to know each other in one room or match.');
+    // the failure the check is filed under: the first side's own, or the outcome's
+    const failure = ok ? null : outcome || (!H.ok ? { ...H.failure, side: 'host' } : { ...G.failure, side: 'guest' });
+    return { ok, met, failure, detail: ok ? detail : detail + sides, host: { ok: H.ok, error: H.error, steps: H.steps, players: H.players, failure: H.failure, room: ra, match: ma }, guest: { ok: G.ok, error: G.error, steps: G.steps, players: G.players, failure: G.failure, room: rb, match: mb } };
   } finally { for (const p of pages) { try { await p.close(); } catch { /* gone */ } } }
 }
 
@@ -237,7 +306,7 @@ export function twoPlayerSide(name, r, m) {
 export async function verifyPage(page, url, opts = {}) {
   const o = { readyTimeoutS: 30, minFrames: 6, observeS: 3, playthroughS: 30, usesWebGPU: false, ...opts };
   const checks = [], pageErrors = [], badResponses = [];
-  const add = (id, ok, label, detail = '', hint = '') => checks.push({ id, ok, label, detail, hint });
+  const add = (id, ok, label, detail = '', hint = '', failure = null) => checks.push(failure ? { id, ok, label, detail, hint, failure } : { id, ok, label, detail, hint });
   page.on('pageerror', (e) => { if (pageErrors.length < 20) pageErrors.push(String(e && (e.message || e)).slice(0, 500)); });
   // Calls to the game's own server code (GCP.server, /api/* next to the game) are not files: a failure there is the server
   // code's, reported by the "server" check with what it threw, instead of as a missing file.
@@ -555,16 +624,17 @@ export async function verifyPage(page, url, opts = {}) {
     try {
       play = await Promise.race([
         page.evaluate((ms) => (window.__GCP && window.__GCP.runPlaythrough ? window.__GCP.runPlaythrough(ms) : { ran: false }), o.playthroughS * 1000),
-        sleep(o.playthroughS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The play-through did not finish within ${o.playthroughS} s.`, steps: [], ms: o.playthroughS * 1000, frames: 0 })),
+        sleep(o.playthroughS * 1000 + 5000).then(() => ({ ran: true, ok: false, error: `The page did not answer within ${o.playthroughS + 5} s of the play-through.`, steps: [], ms: o.playthroughS * 1000, frames: 0, failure: { source: 'harness', kind: 'no_answer', limitMs: (o.playthroughS + 5) * 1000 } })),
       ]);
-    } catch (e) { play = { ran: true, ok: false, error: 'The page reloaded or closed during the play-through: ' + String(e && e.message || e).slice(0, 200), steps: [], ms: 0, frames: 0 }; }
+    } catch (e) { play = { ran: true, ok: false, error: 'The page reloaded or closed during the play-through: ' + String(e && e.message || e).slice(0, 200), steps: [], ms: 0, frames: 0, failure: { source: 'page', kind: 'closed', message: String(e && e.message || e).slice(0, 200) } }; }
     // where the play-through left the game (screenshots are not taken during it: they can stall frames in a slow browser)
     if (play && play.ran) { await snap(); await scanUi(); }
     if (play && play.ran) {
       const last = play.steps.length ? play.steps[play.steps.length - 1] : '';
-      add('playthrough', !!play.ok, 'The game plays through', play.ok ? `${play.steps.length} step(s) in ${(play.ms / 1000).toFixed(1)} s: ${play.steps.join(' → ').slice(0, 600)}` : `${play.error}${last ? ` (during step ${play.steps.length}: "${last}")` : ''}`,
-        play.ok ? '' : 'The function given to GCP.test.onPlaythrough failed. Either the game has a bug on that path or the script waits for something that does not happen. The verification browser is slow, so wait on game state with t.until(...) instead of fixed times.');
-      report.playthrough = { ok: !!play.ok, steps: play.steps, error: play.error || '', ms: play.ms, frames: play.frames };
+      const pf = failureOf(play);
+      add('playthrough', !!play.ok, 'The game plays through', play.ok ? `${play.steps.length} step(s) in ${(play.ms / 1000).toFixed(1)} s: ${play.steps.join(' → ').slice(0, 600)}` : pf ? describeFailure(pf, "The game's", 'GCP.test.onPlaythrough') : `${play.error}${last ? ` (during step ${play.steps.length}: "${last}")` : ''}`,
+        play.ok ? '' : failureHint(pf, 'GCP.test.onPlaythrough', 'The function given to GCP.test.onPlaythrough failed. Either the game has a bug on that path or the script waits for something that does not happen. The verification browser is slow, so wait on game state with t.until(...) instead of fixed times.'), pf);
+      report.playthrough = { ok: !!play.ok, steps: play.steps, error: play.error || '', ms: play.ms, frames: play.frames, failure: pf };
     } else {
       report.playthrough = null;
       report.notes.push('Only start-up, rendering and input were checked: this version registers no play-through (optional), so nothing played it through its own rules. GCP.test.onPlaythrough (see the platform-contract guide) has the verifier play it your way and list every step; a game without a score or an ending needs none.');
@@ -573,7 +643,12 @@ export async function verifyPage(page, url, opts = {}) {
     if (o.openPage && await page.evaluate(() => !!(window.__GCP && window.__GCP.twoPlayers)).catch(() => false)) {
       const two = await twoPlayerCheck(o.openPage, url, { limitS: o.twoPlayersS || 45, readyTimeoutS: o.readyTimeoutS, guestUrl: o.guestUrl || '' });
       if (two.skipped) report.notes.push('The two-player check could not be run: ' + two.skipped);
-      else { add('two_players', two.ok, 'Two players share one world', two.detail, two.ok ? '' : 'The function given to GCP.test.onTwoPlayers ran in two pages, two different players, that met on GCP.test.twoPlayers.code (the first as host): a room opened with GCP.room, or a private match from GCP.match.find({ code }). Each must see the other and return the same world string. Check that the game hosts or joins that code on autostart, and that every change to the world reaches the other player.'); report.two_players = two; }
+      else {
+        const joinHint = 'The function given to GCP.test.onTwoPlayers ran in two pages, two different players, that met on GCP.test.twoPlayers.code (the first as host): a room opened with GCP.room, or a private match from GCP.match.find({ code }). Each must see the other and return the same world string. Check that the game hosts or joins that code on autostart, and that every change to the world reaches the other player.';
+        // a script failure after the pages met points at the script; one before they met may be the joining itself
+        const hint = two.ok ? '' : two.failure && two.failure.source === 'script' && !two.met ? failureHint(two.failure, 'GCP.test.onTwoPlayers', joinHint) + ' The pages also never met, so check the joining first: ' + joinHint : failureHint(two.failure, 'GCP.test.onTwoPlayers', joinHint);
+        add('two_players', two.ok, 'Two players share one world', two.detail, hint, two.failure); report.two_players = two;
+      }
     }
     // 5. input: click, keys, drag, touch. A marker on window tells us afterwards whether the page was reloaded.
     // The probe is read here as well: a game may restart itself by reloading when its end screen is clicked, which resets it.

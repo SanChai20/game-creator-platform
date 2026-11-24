@@ -50,6 +50,20 @@ GCP.test.onPlaythrough(async (t) => {
 });
 ```
 
+When a check that runs your own test function (`playthrough`, `two_players`) fails, its entry in `report.checks` carries `failure`, which says where the failure came from, so a timeout in your script is never mistaken for a platform one:
+
+| `failure.source` | `failure.kind` | meaning |
+| --- | --- | --- |
+| `script` | `timeout` | a `t.until(fn, ms, label)` in your function ran out: `label`, `waitMs` |
+| `script` | `assert` | a `t.assert` was false: `message` |
+| `script` | `error` | your function, or game code it called, threw: `name`, `message`, `at` |
+| `script` | `limit` | it did not return within the verifier's limit: `limitMs`, and the wait then running |
+| `game` | `no_frames`, `worlds_differ`, `players_missing`, `bad_result` | the game stopped drawing, or the outcome is wrong |
+| `page` | `closed` | the page reloaded or navigated away while the function ran |
+| `harness` | `no_answer` | the verifier got no answer from the page; deploy again |
+
+Every failure also has `step` (the last `t.step` label), `stepN` and `elapsedMs`; a two-player failure has `side` (`host` or `guest`), each side's own failure is in `report.two_players.host.failure` and `.guest.failure`, and `report.two_players.met` says whether the two pages found each other. So name every step with `t.step`.
+
 `t.step(label)`, `t.key(key, ms)`, `t.frames(n)`, `t.until(fn, ms, what)` and `t.assert(ok, message)`; the limits (30 seconds and 60 steps by default) and the rest of the hook are in `get_started {topic: "contract"}`, "Prove the game can be played".
 
 ### Hooks that make every test better
