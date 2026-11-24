@@ -166,6 +166,7 @@ export function Legal({ doc }: { doc: LegalDoc }) {
       <S h={t('When purchases are final', '不予退款的情形')}>
         <P>{t('Once {hours} hours have passed or you have played for {minutes} minutes, the purchase is final and is not refunded, except where the law requires a refund, for example if a game you bought does not work and cannot be fixed. If that happens, write to {email} and tell us which game and what went wrong.', '购买超过 {hours} 小时，或游玩已达 {minutes} 分钟后，购买即为最终交易，不予退款，法律要求退款的情形除外（例如你购买的游戏无法运行且无法修复）。如遇此情况，请发送邮件至 {email}，说明是哪款游戏以及出现了什么问题。', { hours, minutes, email: support })}</P>
         <P>{t('Virtual items, in-game currency and progress are not refunded on their own, unless the law requires it.', '除非法律另有规定，虚拟物品、游戏内货币和进度不单独退款。')}</P>
+        <P>{t('Games bought as a gift for a friend are non-refundable. Gifts are only possible between friends, the game goes to your friend the moment you pay, and at checkout you confirm that neither you nor your friend can refund it.', '为好友购买的礼物游戏不可退款。只有好友之间才能赠送；付款后游戏立即归好友所有，你在结账时确认你和好友都不能为其退款。')}</P>
         <P>{t('Build skills bought in the Creator Store are non-refundable. A skill shows in full the moment you pay, so the purchase is final: neither you nor support can refund it. Only games can be refunded, under the rules above.', '在创作者商店购买的构建技能不可退款。技能在付款后立即完整显示，因此购买即为最终交易：你和客服都无法为其退款。只有游戏可以按上述规则退款。')}</P>
       </S>
       <S h={t('The right to cancel (EU and UK)', '撤销权（欧盟和英国）')}>

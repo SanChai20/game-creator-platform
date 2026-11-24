@@ -136,6 +136,18 @@ function onMessage(m: any) {
       toast({ kind: 'answer', who: ev.by.name, title: ev.accepted ? t('{name} accepted your invite to {game}', '{name} 接受了你的 {game} 邀请', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) : t('{name} declined your invite', '{name} 拒绝了你的邀请', { name: ev.by.name }) });
       break;
     case 'joining': toast({ kind: 'answer', who: ev.by.name, title: t('{name} is joining you in {game}', '{name} 正在加入你的 {game}', { name: ev.by.name, game: ev.game ? local(ev.game, 'title') : '' }) }); break;
+    // gifts between friends (src/gifts.ts)
+    case 'gift_request':
+      if (ev.from && ev.game) toast({ kind: 'gift', who: ev.from.name, ttl: 25000, title: t('{name} would like {game} as a gift', '{name} 想请你赠送 {game}', { name: ev.from.name, game: local(ev.game, 'title') }), actions: [
+        { label: t('View', '查看'), primary: true, run: () => navigate('/gifts') }] });
+      break;
+    case 'gift_received':
+      if (ev.from && ev.game) toast({ kind: 'gift', who: ev.from.name, ttl: 25000, title: t('{name} gave you {game}', '{name} 送给你 {game}', { name: ev.from.name, game: local(ev.game, 'title') }), actions: [
+        { label: t('Play', '开始游戏'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}`) }] });
+      break;
+    case 'gift_declined':
+      if (ev.by && ev.game) toast({ kind: 'gift', who: ev.by.name, title: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: ev.by.name, game: local(ev.game, 'title') }) });
+      break;
     case 'invite_cancelled': case 'counts': soonSummary(); if (S.chat) void loadChat(S.chat.peer); break;
   }
 }
@@ -147,6 +159,7 @@ function toastKick(kind: string) {
     case 'request': return t('Friend request', '好友请求');
     case 'accepted': return t('New friend', '新好友');
     case 'message': return t('New message', '新消息');
+    case 'gift': return t('Gift', '礼物');
     default: return t('Friends', '好友');
   }
 }

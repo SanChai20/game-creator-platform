@@ -287,7 +287,7 @@ export async function markRead(db, me, other, t = now()) {
 export async function counts(db, me) {
   const chats = await db.prepare('SELECT from_id, COUNT(*) AS n FROM dm_messages WHERE to_id = ? AND read_at IS NULL GROUP BY from_id LIMIT 500').bind(me).all();
   const c = await db.prepare(`SELECT (SELECT COUNT(*) FROM friend_requests r JOIN users u ON u.id = r.from_id WHERE r.to_id = ?1 AND u.status = 'active') AS requests,
-      (SELECT COUNT(*) FROM notifications WHERE user_id = ?1 AND read_at IS NULL) AS notes,
+      (SELECT COUNT(*) FROM notifications WHERE user_id = ?1 AND read_at IS NULL AND kind IN ('friend_request', 'friend_accepted')) AS notes,
       (SELECT COUNT(*) FROM game_invites WHERE to_id = ?1 AND status = 'sent' AND expires_at > ?2) AS invites`).bind(me, now()).first();
   const per = {}; let messages = 0;
   for (const r of chats.results) { per[r.from_id] = r.n; messages += r.n; }
@@ -295,11 +295,12 @@ export async function counts(db, me) {
 }
 export async function notificationList(db, me, limit = 30) {
   const r = await db.prepare(`SELECT n.id, n.kind, n.actor_id, u.name AS actor_name, n.created_at, n.read_at FROM notifications n JOIN users u ON u.id = n.actor_id
-      WHERE n.user_id = ? ORDER BY n.id DESC LIMIT ?`).bind(me, Math.max(1, Math.min(100, limit))).all();
+      WHERE n.user_id = ? AND n.kind IN ('friend_request', 'friend_accepted') ORDER BY n.id DESC LIMIT ?`).bind(me, Math.max(1, Math.min(100, limit))).all();
   return r.results.map((x) => ({ id: x.id, kind: x.kind, actor: { id: x.actor_id, name: x.actor_name }, at: x.created_at, read: !!x.read_at }));
 }
 export async function markNotificationsRead(db, me, t = now()) {
-  await db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').bind(t, me).run();
+  // only the friends panel's own kinds: gift notifications (src/gifts.ts) are read where they are shown
+  await db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND kind IN ('friend_request', 'friend_accepted')").bind(t, me).run();
   return { ok: true };
 }
 

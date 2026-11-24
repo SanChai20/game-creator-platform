@@ -626,3 +626,22 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .get-app-os .dim { margin: 4px 0 0; }
 .get-app-phone { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 28px; margin-bottom: 16px; }
 .get-app-phone h3 { margin: 0 0 10px; }
+
+/* gifts between friends (web/src/gift-ui.tsx, pages/Gifts.tsx) */
+.gift-dialog h2 { font-size: var(--fs-lg, 1.25rem); }
+.gift-friends { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: min(50vh, 360px); overflow-y: auto; }
+.gift-friend { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md, 10px); cursor: pointer; min-width: 0; }
+.gift-friend:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.gift-friend.off { cursor: default; opacity: .6; }
+.gift-wants { color: var(--accent); }
+.gift-actions { justify-content: flex-end; }
+.gp-gift { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.gp-gift > * { flex: 1 1 140px; }
+.gp-gift-asked { margin-top: 10px; }
+.gift-list { list-style: none; margin: 0; padding: 0; }
+.gift-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.gift-row:first-child { border-top: 0; }
+.gift-row .gift-main { flex: 1 1 220px; min-width: 0; }
+.gift-row .gift-note { font-style: italic; }
+.gift-row .gift-act { display: flex; flex-wrap: wrap; gap: 6px; }
+.gifts > section + section { margin-top: 36px; }
