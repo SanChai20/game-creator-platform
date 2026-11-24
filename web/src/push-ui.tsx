@@ -29,6 +29,7 @@ export function PushSettings() {
     {row(t('Friend requests', '好友请求'), <Switch checked={!off.includes('requests')} disabled={busy} onChange={(e) => void kind('requests', e.target.checked)} />)}
     {row(t('Game invites', '游戏邀请'), <Switch checked={!off.includes('invites')} disabled={busy} onChange={(e) => void kind('invites', e.target.checked)} />)}
     {row(t('Messages', '消息'), <Switch checked={!off.includes('messages')} disabled={busy} onChange={(e) => void kind('messages', e.target.checked)} />)}
+    {row(t('Gifts', '礼物'), <Switch checked={!off.includes('gifts')} disabled={busy} onChange={(e) => void kind('gifts', e.target.checked)} />)}
     {row(t('New games from creators you follow', '关注的创作者发布新游戏'), <Switch checked={!off.includes('creators')} disabled={busy} onChange={(e) => void kind('creators', e.target.checked)} />)}
     <div className="row">
       <Button size="sm" variant="ghost" disabled={busy} onClick={() => run(async () => { setMsg((await testPush()) ? { ok: true, text: t('A test notification is on its way.', '测试通知马上就到。') } : { ok: false, text: t('The test could not be sent. Turn notifications off and on again.', '测试通知发送失败。请关闭后重新开启通知。') }); })}>{t('Send a test', '发送测试通知')}</Button>

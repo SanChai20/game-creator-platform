@@ -16,6 +16,7 @@ import { offeredListings } from '../languages';
 import { legalTitle } from './Legal';
 import { OPERATOR } from '../operator';
 import { RefundBox, type RefundState } from '../refund-ui';
+import { GiftDialog, type GameGift } from '../gift-ui';
 
 /** Under the Buy button: who the seller is, and the terms a purchase falls under. */
 const SoldBy = () => <p className="dim fs-xs sold-by">{t('Sold by {op}. Payments by Stripe.', '由 {op} 销售，付款由 Stripe 处理。', { op: OPERATOR.name })} <Link to="/legal/terms">{legalTitle('terms')}</Link> · <Link to="/legal/refunds">{legalTitle('refunds')}</Link></p>;
@@ -78,6 +79,7 @@ export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
   const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null), ticket = useRef<string | null>(null);
+  const [giftMode, setGiftMode] = useState<{ mode: 'give' | 'ask'; to?: string } | null>(null);
   useInstallHold(!!url || busy === 'play');   // the install popup never opens over a game that is starting or running
   // While the game is open, this page checks in with the platform every 30 seconds: the platform's own play clock, which
   // every play number comes from (plays, play time, players online, trial and refund time), not the game's heartbeats.
@@ -118,7 +120,13 @@ export function Game({ slug }: { slug: string }) {
     const paid = query().get('paid'); if (!paid) return;
     navigate(`/g/${slug}`, true);
     if (!user) return;
-    api('/billing/confirm', { body: { session_id: paid } }).then(() => { toast(t('Purchase complete. Enjoy the game.', '购买成功，祝你玩得开心。')); void reload(); }, (e) => toast((e as Error).message, true));
+    api<{ result: string }>('/billing/confirm', { body: { session_id: paid } }).then((r) => {
+      // a gift: the game went to the friend (duplicate_refunded: they had it already, so the payment was given back)
+      toast(r.result === 'gift' ? t('Gift sent. Your friend can play it now, and you both got a notification.', '礼物已送出。好友现在就能游玩，你们双方都收到了通知。')
+        : r.result === 'duplicate_refunded' ? t('Your friend already had this game, so your payment was refunded in full.', '好友已拥有这款游戏，你的付款已全额退回。')
+        : t('Purchase complete. Enjoy the game.', '购买成功，祝你玩得开心。'));
+      void reload();
+    }, (e) => toast((e as Error).message, true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { markSeen(slug); }, [slug]);
   // Opened from a game's own address (?play=1): start at once for whoever is signed in here (a visitor signs in first, unless guests may play). Only where
@@ -253,6 +261,7 @@ export function Game({ slug }: { slug: string }) {
                 <div className="gp-price-row"><PriceTag g={g} className="gp-price" /><SaleTag g={g} />{trial && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 {locked && saleOn(g) && <p className="gp-sale-ends">{saleEnds(saleOn(g)!.ends_at)} · {t('then {price}', '之后恢复 {price}', { price: price(saleOn(g)!.regular_cents) })}</p>}
                 <div className="gp-buy-act">{cta}</div>
+                {user && data.gift && !data.is_owner && config.payments && <GiftBox gift={data.gift as GameGift} locked={locked} onOpen={setGiftMode} />}
                 {user && (inLibrary === 'bought' ? <p className="gp-buy-note gp-lib"><Link to="/library">{t('In your library', '已在你的游戏库中')} →</Link></p>
                   : !paid ? <div className="gp-lib"><Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>{inLibrary && <Link to="/library" className="fs-sm">{t('Open library', '打开游戏库')}</Link>}</div> : null)}
                 <p className="gp-buy-note">{url && playingAs ? (playingAs.guest ? t('Playing as a guest on this browser.', '正在以访客身份在此浏览器游玩。') : t('Playing as {name}. Progress saves to this account.', '正在以 {name} 的身份游玩，进度保存到该账号。', { name: playingAs.name })) : t('Runs in your browser. Nothing to install.', '在浏览器中运行，无需安装。')}</p>
@@ -332,11 +341,27 @@ export function Game({ slug }: { slug: string }) {
             {g.open_implementation && <p className="dim fs-sm">{t('Open implementation: its creator shares how it is built as a build skill, never its code.', '开放实现：作者以构建技能的形式分享它的制作方式，但不包括代码。')} <Link to={`/creator-store/${g.slug}`} className="sig">{g.skill_price_cents > 0 ? t('Get the build skill', '获取构建技能') : t('Copy the build skill', '复制构建技能')} →</Link></p>}
           </aside>
         </div>
+        {giftMode && <GiftDialog mode={giftMode.mode} preselect={giftMode.to} slug={g.slug} title={title} cents={g.price_cents} gift={data.gift} onClose={() => setGiftMode(null)} onDone={reload} />}
         <MoreFrom owner={g.owner_id} author={g.author} slug={g.slug} />
         <MoreLike tag={genre} slug={g.slug} />
       </div>
     </div>
   );
+}
+
+/** Under the Buy button on a paid game: gift it to a friend, or ask a friend to gift it (only while you do not own it),
+    with the requests already open either way. */
+function GiftBox({ gift, locked, onOpen }: { gift: GameGift; locked: boolean; onOpen: (m: { mode: 'give' | 'ask'; to?: string }) => void }) {
+  const names = (l: GameGift['asked']) => l.map((a) => a.friend.name).join(', ');
+  return <div className="gp-gift-box">
+    {gift.asked_by.length > 0 && <div className="gp-gift-asked"><Notice tone="info" title={gift.asked_by.length === 1 ? t('{name} asked you for this game', '{name} 请你赠送这款游戏', { name: gift.asked_by[0].friend.name }) : t('{names} asked you for this game', '{names} 请你赠送这款游戏', { names: names(gift.asked_by) })}
+      actions={<Button size="sm" variant="primary" onClick={() => onOpen({ mode: 'give', to: gift.asked_by[0].friend.id })}>{t('Gift it', '赠送')}</Button>} /></div>}
+    <div className="gp-gift">
+      <Button size="sm" variant="ghost" onClick={() => onOpen({ mode: 'give' })}>{t('Gift to a friend', '赠送给好友')}</Button>
+      {locked && <Button size="sm" variant="ghost" onClick={() => onOpen({ mode: 'ask' })}>{t('Ask a friend to gift it', '请好友赠送')}</Button>}
+    </div>
+    {locked && gift.asked.length > 0 && <p className="dim fs-xs">{t('You asked {names}.', '你已向 {names} 发出请求。', { names: names(gift.asked) })} <Link to="/gifts">{t('Gifts', '礼物')}</Link></p>}
+  </div>;
 }
 
 /** "Report this game": something players should not be shown (a fake sign-in, a request for payment details, someone

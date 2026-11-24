@@ -50,7 +50,8 @@ import { signPlayToken } from '../runtime/game-worker.js';
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
-import { socialHub } from '../social';
+import { pushTo, socialHub } from '../social';
+import { askForGift, cancelGiftRequest, checkGift, declineGift, gameGiftState, giftDelivered, giftableFriends, giftOverview, giftsOn } from '../gifts';
 // @ts-ignore plain JS module
 import { ensureProfile } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
@@ -650,6 +651,8 @@ api.get('/games/:slug', async (c) => {
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
   // the buyer's refund: whether the Refund button is enabled, and every reason it is not (src/refunds.ts)
   const refund = u && p.price_cents > 0 && u.id !== p.owner_id ? await gameRefundState(c.env, s, u.id, p.id) : null;
+  // gifts (src/gifts.ts): the friends this player asked for this game, and the friends who asked this player for it
+  const gift = u && !isGuestId(u.id) ? await gameGiftState(c.env, s, u.id, p) : null;
   const [v, on] = await Promise.all([
     p.live_version ? getVersion(c.env, p.id, p.live_version) : null,
     s.play_clock_do ? c.env.DB.prepare('SELECT live_players AS n FROM game_online WHERE project_id = ? AND updated_at > ?').bind(p.id, now() - CLOCK_ONLINE_FRESH_MS).first<{ n: number }>()
@@ -666,6 +669,8 @@ api.get('/games/:slug', async (c) => {
     continue: resume,
     // This buyer's purchase of it: the Refund button, enabled or greyed out with every reason (null without a paid purchase).
     refund,
+    // Gifts between friends: null when gifts are off or the game is free; otherwise the open requests either way.
+    gift,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
@@ -877,9 +882,10 @@ api.get('/media/*', async (c) => {
 });
 
 // ----- purchases + billing ---------------------------------------------------------------------
-async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false, closeBy?: number) {
-  // A build skill is final once bought: it shows in full the moment the payment succeeds and is never refunded.
-  const skill = metadata.kind === 'skill';
+async function checkout(c: Ctx, u: User, name: string, amount: number, metadata: Record<string, string>, back: string, digitalGoods = false, closeBy?: number, giftFor?: string) {
+  // A build skill is final once bought: it shows in full the moment the payment succeeds and is never refunded. So is a
+  // gift (src/gifts.ts): the friend gets the game the moment the payment succeeds, and gifts are never refunded.
+  const skill = metadata.kind === 'skill', gift = metadata.kind === 'gift';
   const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || DEFAULT_BRAND;
   const session = await stripe<{ id: string; url: string }>(c.env, 'POST', '/checkout/sessions', {
     // HearthCade is the seller of record and pays creators through Connect, which Stripe's Managed Payments (Stripe as
@@ -889,10 +895,12 @@ async function checkout(c: Ctx, u: User, name: string, amount: number, metadata:
     line_items: { 0: { quantity: 1, price_data: { currency: 'usd', unit_amount: amount, product_data: { name, description: `Sold by ${OPERATOR.name} on ${brand}` } } } },
     // The seller of record, next to the Pay button, with the terms the purchase falls under.
     custom_text: {
-      submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase.${skill ? ' Build skills are non-refundable.' : ''} Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` },
+      submit: { message: `${brand} is developed and operated by ${OPERATOR.name}, the seller of this purchase.${skill ? ' Build skills are non-refundable.' : ''}${gift ? ` This is a gift for ${giftFor}: gifts are non-refundable.` : ''} Terms: ${origin}/legal/terms · Refunds: ${origin}/legal/refunds` },
       // A game is digital content delivered at once. EU and UK law gives buyers 14 days to cancel unless they ask for it
       // right away and accept losing that right, so the buyer ticks this before paying; Stripe records the consent.
-      ...(digitalGoods ? { terms_of_service_acceptance: { message: skill
+      ...(digitalGoods ? { terms_of_service_acceptance: { message: gift
+        ? `I agree to the [Terms](${origin}/legal/terms) and want ${giftFor} to get this game right away. I understand that gifts are non-refundable: neither of us can cancel or refund this purchase ([refund policy](${origin}/legal/refunds)).`
+        : skill
         ? `I agree to the [Terms](${origin}/legal/terms) and want this build skill shown to me right away. I understand that I then lose my right to cancel within 14 days, and that build skills are non-refundable ([refund policy](${origin}/legal/refunds)).`
         : `I agree to the [Terms](${origin}/legal/terms) and want access to this game right away. I understand that I then lose my right to cancel within 14 days; ${brand}'s own [refund policy](${origin}/legal/refunds) still applies.` } } : {}),
     },
@@ -956,6 +964,56 @@ api.post('/games/:slug/buy', async (c) => {
   // and what a refund gives back.
   const sale = saleOf(p), amount = sale ? sale.price_cents : p.price_cents;
   return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
+});
+
+// ----- gifts between friends (src/gifts.ts) -------------------------------------------------------------------------------
+const playerId = (v: unknown) => { const id = String(v || ''); if (!/^[A-Za-z0-9_-]{2,64}$/.test(id)) throw bad('Choose a friend.'); return id; };
+const giftEvent = (p: { id: string; slug: string; title: string }) => ({ id: p.id, slug: p.slug, title: p.title });
+
+// Buy a game for a friend: the same Checkout at the price the game sells for now, a gift's own non-refundable terms, and
+// the game lands with the friend once paid (applySession). request: the gift request this answers, if any.
+api.post('/games/:slug/gift', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env), p = await liveGame(c, c.req.param('slug'));
+  const b = await c.req.json<{ to?: string; request?: string }>().catch(() => ({} as { to?: string; request?: string }));
+  const to = playerId(b.to);
+  await rateLimit(c.env, 'gift:' + u.id, 20, 3600);
+  await checkGift(c.env, s, u.id, to, p);
+  const friend = (await c.env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(to).first<{ name: string }>())!.name;
+  const sale = saleOf(p), amount = sale ? sale.price_cents : p.price_cents;
+  const request = typeof b.request === 'string' && /^gfr_[A-Za-z0-9]+$/.test(b.request) ? b.request : undefined;
+  return checkout(c, u, `Gift: ${p.title} for ${friend}`.slice(0, 250), amount, { kind: 'gift', user_id: u.id, recipient_id: to, project_id: p.id, ...(request ? { request_id: request } : {}), ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}) }, `/g/${p.slug}?gift=1`, true, sale ? sale.ends_at : undefined, friend.slice(0, 60));
+});
+// "Gift me this game": ask a friend to buy it for you.
+api.post('/games/:slug/gift-request', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env), p = await liveGame(c, c.req.param('slug'));
+  const b = await c.req.json<{ to?: string; note?: string }>().catch(() => ({} as { to?: string; note?: string }));
+  const to = playerId(b.to);
+  await rateLimit(c.env, 'giftreq:' + u.id, 30, 86400);
+  const r = await askForGift(c.env, s, u.id, to, p, b.note);
+  if (r.created) await pushTo(c.env, to, { kind: 'gift_request', from: { id: u.id, name: u.name }, game: giftEvent(p), request: r.request.id });
+  return c.json({ ok: true, request: r.request.id, already: !r.created });
+});
+// Friends to pick from on a game page, each with whether they can receive this game.
+api.get('/games/:slug/gift-friends', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ friends: await giftableFriends(c.env, u.id, p) });
+});
+api.get('/me/gifts', async (c) => {
+  const u = requireUser(c), s = await getSettings(c.env);
+  c.header('cache-control', 'private, no-store');
+  return c.json({ enabled: giftsOn(s), ...(await giftOverview(c.env, u.id)) });
+});
+api.post('/me/gifts/requests/:id/decline', async (c) => {
+  const u = requireUser(c), r = await declineGift(c.env, u.id, c.req.param('id'));
+  const p = await c.env.DB.prepare('SELECT id, slug, title FROM projects WHERE id = ?').bind(r.project_id).first<{ id: string; slug: string; title: string }>();
+  await pushTo(c.env, r.from_id, { kind: 'gift_declined', by: { id: u.id, name: u.name }, game: p ? giftEvent(p) : null, request: r.id });
+  return c.json({ ok: true });
+});
+api.delete('/me/gifts/requests/:id', async (c) => {
+  const u = requireUser(c), r = await cancelGiftRequest(c.env, u.id, c.req.param('id'));
+  await pushTo(c.env, r.to_id, { kind: 'counts' });
+  return c.json({ ok: true });
 });
 
 // The page showing a game (the store page, or the console's preview) checks in every 30 seconds while the game is open,
@@ -1086,6 +1144,41 @@ async function applySession(env: Env, session: any): Promise<string> {
       return 'duplicate_refunded';
     }
     return 'game';
+  }
+  if (m.kind === 'gift' && m.user_id && m.recipient_id && m.project_id) {
+    // a gift: the purchase is the recipient's, the payer is gifted_by, the creator is credited as for any sale
+    const p = await getProject(env, m.project_id);
+    if (!p) return 'missing_project';
+    const sale = { userId: m.recipient_id, projectId: p.id, ownerId: p.owner_id, title: p.title, priceCents: session.amount_total || p.price_cents, provider: 'stripe' as const, providerRef: session.id, paymentIntent: pi, giftedBy: m.user_id };
+    if (m.recipient_id === p.owner_id) {
+      // the friend made the game (it changed hands while the checkout was open): nothing to give, the payment goes back
+      if (await env.DB.prepare('SELECT 1 FROM purchases WHERE provider_ref = ?').bind(session.id).first()) return 'gift';
+      if (pi) await stripe(env, 'POST', '/refunds', { payment_intent: pi, reason: 'duplicate', metadata: { session: session.id } }, 'dup:' + session.id);
+      await env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at, refunded_at, gifted_by) VALUES (?, ?, ?, ?, ?, 0, 0, 'stripe', ?, ?, 'refunded', ?, ?, ?)")
+        .bind('pur_' + rid(20), m.recipient_id, p.id, p.owner_id, sale.priceCents, session.id, pi, now(), now(), m.user_id).run();
+      return 'duplicate_refunded';
+    }
+    try { await recordPurchase(env, await getSettings(env), { ...sale, openImplementation: freeSkillShared(p) }); }
+    catch (e) {
+      // The friend already owns the game (they bought it, or another friend's gift was paid first while this checkout
+      // was open): the payment is given back to the payer at once and kept on record as refunded.
+      if (!/UNIQUE/i.test(String((e as Error).message))) throw e;
+      if (await env.DB.prepare('SELECT 1 FROM purchases WHERE provider_ref = ?').bind(session.id).first()) return 'gift';
+      if (pi) await stripe(env, 'POST', '/refunds', { payment_intent: pi, reason: 'duplicate', metadata: { session: session.id } }, 'dup:' + session.id);
+      await env.DB.prepare("INSERT INTO purchases (id, user_id, project_id, owner_id, price_cents, fee_cents, net_cents, provider, provider_ref, payment_intent, status, created_at, refunded_at, gifted_by) VALUES (?, ?, ?, ?, ?, 0, 0, 'stripe', ?, ?, 'refunded', ?, ?, ?)")
+        .bind('pur_' + rid(20), m.recipient_id, p.id, p.owner_id, sale.priceCents, session.id, pi, now(), now(), m.user_id).run();
+      return 'duplicate_refunded';
+    }
+    const row = await env.DB.prepare('SELECT id, status FROM purchases WHERE provider_ref = ?').bind(session.id).first<{ id: string; status: string }>();
+    if (row && await giftDelivered(env, { purchaseId: row.id, giver: m.user_id, recipient: m.recipient_id, project: p, requestId: m.request_id || null })) {
+      const [giver, recipient] = await Promise.all([m.user_id, m.recipient_id].map((id) => env.DB.prepare('SELECT id, name FROM users WHERE id = ?').bind(id).first<{ id: string; name: string }>()));
+      const game = giftEvent(p);
+      await Promise.all([
+        pushTo(env, m.recipient_id, { kind: 'gift_received', from: giver ? { id: giver.id, name: giver.name } : null, game }),
+        pushTo(env, m.user_id, { kind: 'gift_sent', by: recipient ? { id: recipient.id, name: recipient.name } : null, game, mine: true }),
+      ]);
+    }
+    return 'gift';
   }
   if (m.kind === 'skill' && m.user_id && m.project_id) {
     // a build skill: its own table and sales count, the skill commission (src/earnings.ts splitSkillSale)

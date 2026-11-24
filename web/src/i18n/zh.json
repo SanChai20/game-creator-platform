@@ -181,5 +181,6 @@
  "Average rating it needs (with the store's prior)": "需要的平均评分（含商店的先验）",
  "Reports from different players that hide a game from the store until a new version goes live or an admin reviews it (0: reports never hide a game)": "让游戏在商店中隐藏、直到新版本上线或管理员审核的不同玩家举报数（0：举报永不隐藏游戏）",
  "For games with many players: reports must also come from this share of its players (percent)": "玩家众多的游戏：举报也必须来自这个比例的玩家（百分比）",
- "Reports that always hide a game, however many players it has": "无论玩家多少，一定会让游戏隐藏的举报数"
+ "Reports that always hide a game, however many players it has": "无论玩家多少，一定会让游戏隐藏的举报数",
+ "Let players buy a paid game for a friend, and ask friends to gift them one (gifts are non-refundable)": "允许玩家为好友购买付费游戏，以及请好友赠送游戏（赠送的游戏不可退款）"
 }

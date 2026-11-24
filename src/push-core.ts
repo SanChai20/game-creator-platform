@@ -82,7 +82,7 @@ export async function encryptPayload(sub: Subscription, payload: string): Promis
 
 // ---- what becomes a notification ---------------------------------------------------------------------------------------
 /** The kinds a player can switch on and off (Account, Notifications on this device). All on by default. */
-export const PUSH_KINDS = ['requests', 'invites', 'messages', 'creators'] as const;
+export const PUSH_KINDS = ['requests', 'invites', 'messages', 'gifts', 'creators'] as const;
 export type PushKind = typeof PUSH_KINDS[number];
 export const PUSH_LANGS = ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es'] as const;
 type Lang = typeof PUSH_LANGS[number];
@@ -94,6 +94,9 @@ const TEXT: Record<string, Record<Lang, string>> = {
   invite: { en: '{name} invited you to play {game}', zh: '{name} 邀请你一起玩 {game}', 'zh-TW': '{name} 邀請你一起玩 {game}', ja: '{name} さんから {game} への招待が届きました', ko: '{name}님이 {game} 게임에 초대했습니다', es: '{name} te ha invitado a jugar a {game}' },
   new_game: { en: '{name} published a new game: {game}', zh: '{name} 发布了新游戏：{game}', 'zh-TW': '{name} 發布了新遊戲：{game}', ja: '{name} さんが新しいゲームを公開しました：{game}', ko: '{name}님이 새 게임을 공개했습니다: {game}', es: '{name} ha publicado un juego nuevo: {game}' },
   message: { en: 'Message from {name}', zh: '来自 {name} 的消息', 'zh-TW': '來自 {name} 的訊息', ja: '{name} さんからのメッセージ', ko: '{name}님의 메시지', es: 'Mensaje de {name}' },
+  giftRequest: { en: '{name} would like {game} as a gift', zh: '{name} 想请你赠送 {game}', 'zh-TW': '{name} 想請你贈送 {game}', ja: '{name} さんが {game} のギフトをリクエストしました', ko: '{name}님이 {game} 선물을 요청했습니다', es: '{name} quiere que le regales {game}' },
+  giftReceived: { en: '{name} gave you {game}', zh: '{name} 送给你 {game}', 'zh-TW': '{name} 送給你 {game}', ja: '{name} さんから {game} が贈られました', ko: '{name}님이 {game}을(를) 선물했습니다', es: '{name} te ha regalado {game}' },
+  giftDeclined: { en: '{name} won\'t gift you {game} this time', zh: '{name} 这次不会赠送你 {game}', 'zh-TW': '{name} 這次不會贈送你 {game}', ja: '{name} さんは今回 {game} のギフトを見送りました', ko: '{name}님이 이번에는 {game} 선물을 거절했습니다', es: '{name} no te regalará {game} esta vez' },
   test: { en: 'Notifications are on', zh: '通知已开启', 'zh-TW': '通知已開啟', ja: '通知がオンになりました', ko: '알림이 켜졌습니다', es: 'Las notificaciones están activadas' },
   testBody: { en: 'HearthCade will tell you here when friends write or invite you.', zh: '好友给你发消息或邀请你时，HearthCade 会在这里通知你。', 'zh-TW': '好友傳訊息或邀請你時，HearthCade 會在這裡通知你。', ja: 'フレンドからのメッセージや招待をここでお知らせします。', ko: '친구가 메시지를 보내거나 초대하면 여기에서 알려 드립니다.', es: 'HearthCade te avisará aquí cuando tus amigos te escriban o te inviten.' },
 };
@@ -120,6 +123,12 @@ export function noteFor(ev: Record<string, any>, lang: Lang): Note | null {
       // a creator this player follows published a new game (src/creator-news.ts)
       const g: GameLike = ev.game || {}, game = short(g.i18n?.[lang]?.title || g.title, 60), who = short(ev.creator?.name, 40);
       return who && game && g.slug ? { kind: 'creators', title: fill(TEXT.new_game[lang], { name: who, game }), body: '', url: `/g/${encodeURIComponent(g.slug)}`, tag: 'new_game:' + g.slug } : null;
+    }
+    case 'gift_request': case 'gift_received': case 'gift_declined': {
+      const g: GameLike = ev.game || {}, game = short(g.i18n?.[lang]?.title || g.title, 60);
+      if (!name || !game || !g.slug) return null;
+      const key = ev.kind === 'gift_request' ? 'giftRequest' : ev.kind === 'gift_received' ? 'giftReceived' : 'giftDeclined';
+      return { kind: 'gifts', title: fill(TEXT[key][lang], { name, game }), body: '', url: ev.kind === 'gift_request' ? '/gifts' : `/g/${encodeURIComponent(g.slug)}`, tag: `${ev.kind}:${ev.request || g.slug}` };
     }
     case 'message': {
       if (!ev.from || !ev.msg) return null;

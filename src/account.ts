@@ -49,6 +49,8 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     // friends lose the account; its chats, requests, invites and blocks go with it (reports about it stay for admins)
     ...(socialDeleteStmts(db, userId) as D1PreparedStatement[]),
     ...(followDeleteStmts(db, userId) as D1PreparedStatement[]),
+    // gift requests to and from it (gifts already given stay: they are purchases)
+    db.prepare('DELETE FROM gift_requests WHERE from_id = ?1 OR to_id = ?1').bind(userId),
     // the address is freed for a new account; the row stays so purchases and the ledger keep their owner
     db.prepare(`UPDATE users SET email = ?1, name = 'Deleted account', pw_hash = '!', email_verified_at = NULL, status = 'deleted', role = 'user', stripe_customer = NULL, totp_secret = NULL, totp_enabled_at = NULL, totp_pending = NULL, last_seen_at = ?2 WHERE id = ?3`)
       .bind(`deleted-${userId}@deleted.invalid`, t, userId),

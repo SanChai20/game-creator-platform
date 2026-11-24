@@ -187,3 +187,13 @@ test('a new game becomes a push notification in the player\'s language, switchab
   assert.match(noteFor(ev, 'ja').title, /星の番人/);
   assert.equal(noteFor({ ...ev, game: {} }, 'en'), null);
 });
+
+test('gift notifications (data.project is an object) show under the bell with their game', async () => {
+  const db = world();
+  db.sql.prepare("INSERT INTO notifications (user_id, kind, actor_id, data, created_at) VALUES ('u_ann', 'gift_received', 'u_ben', ?, 5)").run(JSON.stringify({ project: { id: 'g1', slug: 'slug-g1', title: 'Game g1' }, purchase: 'pu_1' }));
+  const page = await F.feed(db, 'u_ann');
+  assert.equal(page.items[0].kind, 'gift_received');
+  assert.equal(page.items[0].game.slug, 'slug-g1');
+  assert.equal(page.items[0].game.id, 'g1');
+  assert.equal(await F.unreadCount(db, 'u_ann'), 1);
+});

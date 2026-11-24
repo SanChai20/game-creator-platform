@@ -30,6 +30,7 @@ export type RefundReason =
   | 'played'           // played for refund_max_play_minutes or more
   | 'refunded_before'  // this buyer already had this game refunded once (bought again: final)
   | 'not_charged'      // given by an admin, nothing was paid
+  | 'gift'             // a friend bought it as a gift: gifts are non-refundable (src/gifts.ts)
   | 'off'              // refunds are switched off (refund_window_hours 0)
   | 'denied'           // a request for this purchase was declined
   | 'not_paid';        // refunded or disputed already
@@ -53,12 +54,13 @@ export interface RefundState {
   request: RefundRequestInfo | null;
 }
 
-export interface PurchaseRow { id: string; user_id: string; project_id: string; owner_id: string; price_cents: number; fee_cents: number; net_cents: number; provider: string; payment_intent: string | null; status: string; created_at: number; title?: string }
+export interface PurchaseRow { id: string; user_id: string; project_id: string; owner_id: string; price_cents: number; fee_cents: number; net_cents: number; provider: string; payment_intent: string | null; status: string; created_at: number; title?: string; gifted_by?: string | null }
 
 /** The policy itself, without the database: every reason that applies, most important first. */
-export function refundReasons(s: RS, p: Pick<PurchaseRow, 'status' | 'provider' | 'payment_intent' | 'price_cents' | 'created_at'>, playedS: number, at: number, o: { refundedBefore?: boolean; request?: Pick<RefundRequestInfo, 'status'> | null } = {}): RefundReason[] {
+export function refundReasons(s: RS, p: Pick<PurchaseRow, 'status' | 'provider' | 'payment_intent' | 'price_cents' | 'created_at'> & { gifted_by?: string | null }, playedS: number, at: number, o: { refundedBefore?: boolean; request?: Pick<RefundRequestInfo, 'status'> | null } = {}): RefundReason[] {
   if (p.status !== 'paid') return ['not_paid'];
   if (o.request?.status === 'denied') return ['denied'];
+  if (p.gifted_by) return ['gift'];
   if (p.provider !== 'stripe' || !p.payment_intent || !(p.price_cents > 0)) return ['not_charged'];
   if (!(s.refund_window_hours > 0)) return ['off'];
   const out: RefundReason[] = [];
@@ -88,7 +90,7 @@ async function accountReview(env: Env, s: Limits, userId: string, at: number): P
   const u = await env.DB.prepare('SELECT refund_review_at FROM users WHERE id = ?').bind(userId).first<{ refund_review_at: number | null }>();
   if (u?.refund_review_at) return 'account';
   if (!((s.refund_limit_count || 0) > 0)) return null;
-  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM purchases WHERE user_id = ? AND status = 'refunded' AND refunded_at > ?").bind(userId, at - Math.max(1, s.refund_limit_days || 30) * 86400000).first<{ n: number }>();
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM purchases WHERE user_id = ? AND status = 'refunded' AND gifted_by IS NULL AND refunded_at > ?").bind(userId, at - Math.max(1, s.refund_limit_days || 30) * 86400000).first<{ n: number }>();
   return overRefundLimit(s, r?.n || 0) ? 'frequent' : null;
 }
 
@@ -102,7 +104,8 @@ export async function refundStates(env: Env, s: RS & Limits, userId: string, pur
   const [times, reqs, refunded, acct] = await Promise.all([
     playTimes(env, userId, pids),
     env.DB.prepare(`SELECT ${REQ_COLS} FROM refund_requests WHERE purchase_id IN (${purchases.map(() => '?').join(',')})`).bind(...purchases.map((p) => p.id)).all<RefundRequestInfo & { purchase_id: string }>(),
-    env.DB.prepare(`SELECT id, project_id FROM purchases WHERE user_id = ? AND status = 'refunded' AND project_id IN (${pids.map(() => '?').join(',')})`).bind(userId, ...pids).all<{ id: string; project_id: string }>(),
+    // a gift that was given back (a friend's duplicate payment, a Stripe-side refund) is not this player's own refund
+    env.DB.prepare(`SELECT id, project_id FROM purchases WHERE user_id = ? AND status = 'refunded' AND gifted_by IS NULL AND project_id IN (${pids.map(() => '?').join(',')})`).bind(userId, ...pids).all<{ id: string; project_id: string }>(),
     accountReview(env, s, userId, at),
   ]);
   const reqOf = new Map(reqs.results.map(({ purchase_id, ...r }) => [purchase_id, r]));
@@ -204,6 +207,7 @@ export function reasonText(s: RS, r: RefundReason): string {
     played: `You have played it for ${s.refund_max_play_minutes} minutes or more.`,
     refunded_before: 'You already had this game refunded once, so buying it again is final.',
     not_charged: 'This game was given to you, so nothing was paid.',
+    gift: 'Gifted games are non-refundable.',
     off: 'Refunds are not available.',
     denied: 'A refund request for this purchase was declined.',
     not_paid: 'This purchase was already refunded.',
@@ -224,6 +228,7 @@ export async function requestRefund(env: Env, s: RefundSettings, userId: string,
     if (await env.DB.prepare('SELECT 1 FROM skill_purchases WHERE id = ? AND user_id = ?').bind(purchaseId, userId).first()) throw new AppError(409, 'Build skills are non-refundable.', 'skill_non_refundable');
     throw notFound('No such purchase.');
   }
+  if (p.gifted_by) throw new AppError(409, 'Gifted games are non-refundable.', 'gift_non_refundable');
   const t = now(), st = (await refundStates(env, s, userId, [p], t)).get(p.id)!;
   if (st.request) throw new AppError(409, st.request.status === 'pending' ? 'You already asked for a refund of this game. We will email you when it is decided.' : 'A refund was already made or requested for this purchase.', 'refund_requested');
   if (!st.refundable) throw new AppError(409, `This game cannot be refunded: ${st.reasons.map((r) => reasonText(s, r)).join(' ')}`, 'not_refundable', st.reasons.join(','));
@@ -283,6 +288,9 @@ export async function adminRefund(env: Env, s: RefundSettings, adminId: string, 
     throw notFound();
   }
   if (p.status !== 'paid') throw new AppError(400, 'Already refunded.', 'bad_request');
+  // gifts are final for everyone; a refund that the law requires is made in the Stripe Dashboard, whose webhook takes the
+  // game back and the creator's credit like any refund
+  if (p.gifted_by) throw new AppError(409, 'Gifted games are non-refundable. If a refund is required by law, refund the payment in the Stripe Dashboard: access and the creator\'s credit follow it.', 'gift_non_refundable');
   const open = await env.DB.prepare("SELECT id FROM refund_requests WHERE purchase_id = ? AND status = 'pending'").bind(p.id).first<{ id: string }>();
   let id = open?.id;
   if (!id) {
@@ -300,12 +308,16 @@ export async function adminRefund(env: Env, s: RefundSettings, adminId: string, 
 /** A buyer's purchase history: every game and build skill they bought, newest first, each game with its refund state. */
 export async function purchaseHistory(env: Env, s: RS & Limits, userId: string, origin: string) {
   const [games, skills] = await Promise.all([
-    env.DB.prepare('SELECT x.*, p.title, p.slug FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.user_id = ? ORDER BY x.created_at DESC LIMIT 200').bind(userId).all<PurchaseRow & { title: string; slug: string; refunded_at: number | null }>(),
+    env.DB.prepare('SELECT x.*, p.title, p.slug FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.user_id = ? AND NOT (x.gifted_by IS NOT NULL AND x.status = \'refunded\') ORDER BY x.created_at DESC LIMIT 200').bind(userId).all<PurchaseRow & { title: string; slug: string; refunded_at: number | null }>(),
     env.DB.prepare('SELECT x.id, x.price_cents, x.status, x.provider, x.created_at, p.title, p.slug FROM skill_purchases x JOIN projects p ON p.id = x.project_id WHERE x.user_id = ? ORDER BY x.created_at DESC LIMIT 200').bind(userId).all<{ id: string; price_cents: number; status: string; provider: string; created_at: number; title: string; slug: string }>(),
   ]);
   const states = await refundStates(env, s, userId, games.results);
+  // gifts: who gave each one
+  const givers = [...new Set(games.results.map((g) => g.gifted_by).filter((x): x is string => !!x))];
+  const names = new Map<string, { id: string; name: string }>();
+  if (givers.length) for (const u of (await env.DB.prepare(`SELECT id, name, status FROM users WHERE id IN (${givers.map(() => '?').join(',')})`).bind(...givers).all<{ id: string; name: string; status: string }>()).results) names.set(u.id, { id: u.id, name: u.status === 'active' ? u.name : 'Deleted account' });
   const list = [
-    ...games.results.map((g) => ({ id: g.id, item: 'game' as const, title: g.title, slug: g.slug, price_cents: g.price_cents, status: g.status, gift: g.provider !== 'stripe', created_at: g.created_at, refunded_at: g.refunded_at ?? null, refund: pub(states.get(g.id)!) })),
+    ...games.results.map((g) => ({ id: g.id, item: 'game' as const, title: g.title, slug: g.slug, price_cents: g.price_cents, status: g.status, gift: g.provider !== 'stripe' || !!g.gifted_by, gifted_by: g.gifted_by ? names.get(g.gifted_by) ?? null : null, created_at: g.created_at, refunded_at: g.refunded_at ?? null, refund: pub(states.get(g.id)!) })),
     // build skills are final: no refund state, no button
     ...skills.results.map((k) => ({ id: k.id, item: 'skill' as const, title: k.title, slug: k.slug, price_cents: k.price_cents, status: k.status, gift: k.provider !== 'stripe', created_at: k.created_at, refunded_at: null, refund: null })),
   ].sort((a, b) => b.created_at - a.created_at);

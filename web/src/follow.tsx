@@ -1,5 +1,6 @@
 // Following creators, and the notification bell in the top bar. The bell lists what is not about friends (friends'
-// requests stay in the Friends panel): today, a new game from a creator the player follows. It refreshes when the
+// requests stay in the Friends panel): a new game from a creator the player follows, and gifts
+// between friends. It refreshes when the
 // SocialHub says something arrived (web/src/social.tsx forwards 'new_game'), when the tab comes back into view, and
 // every few minutes while it is in view. The rules are src/follows.js; the routes src/routes/follows.ts.
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react';
@@ -83,6 +84,11 @@ function noteView(n: Note): { text: string; to: string } | null {
   const g = n.game ? shown(n.game as never) as Game : null;
   switch (n.kind) {
     case 'new_game': return g ? { text: t('{name} published a new game: {game}', '{name} 发布了新游戏：{game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    // gifts between friends (src/gifts.ts)
+    case 'gift_request': return g ? { text: t('{name} would like {game} as a gift', '{name} 想请你赠送 {game}', { name: n.actor.name, game: g.title }), to: '/gifts' } : null;
+    case 'gift_declined': return g ? { text: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    case 'gift_received': return g ? { text: t('{name} gave you {game}', '{name} 送给你 {game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    case 'gift_sent': return g ? { text: t('You gave {game} to {name}', '你把 {game} 送给了 {name}', { name: n.actor.name, game: g.title }), to: '/gifts' } : null;
     default: return null;
   }
 }

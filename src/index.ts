@@ -54,6 +54,7 @@ import { oldSeatsStmt } from './match-seats.js';
 import { cleanupStmts as socialCleanupStmts } from './social-rules.js';
 
 import { recentStmt, refreshCatalog } from './catalog';
+import { giftCleanupStmts } from './gifts';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
 import { engagementStmt, graduate, tuneStmts } from './store-quality';
 import { desktop } from './desktop';
@@ -521,6 +522,8 @@ const handler = {
     job('old feedback', () => purgeOldFeedback(env));
     // chat older than the setting, answered invites after a week, seen notifications after 90 days (src/social-rules.js)
     job('old chat', async () => eachStmt(socialCleanupStmts(env.DB, t, Math.max(7, Number((await getSettings(env)).dm_keep_days) || 365))));
+    // gift requests that lapsed are closed; answered ones go after a year (src/gifts.ts)
+    job('gift requests', () => eachStmt(giftCleanupStmts(env, t)));
   },
 } satisfies ExportedHandler<Env>;
 export default handler;

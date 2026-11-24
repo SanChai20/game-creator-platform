@@ -110,7 +110,8 @@ export async function announceNewGame(db, creatorId, projectId, limits = LIMITS,
 
 // ---- the bell ---------------------------------------------------------------------------------------------------------
 // Everything that is not about friends (requests and acceptances live in the Friends panel). A notification about a
-// game shows only while that game can be played: a game taken down drops out of the list and the count.
+// game shows only while that game can be played: a game taken down drops out of the list and the count. data.project is
+// the game's id (new_game) or {id, slug, title} (gifts, src/gifts.ts).
 const FEED_WHERE = `n.user_id = ?1 AND n.kind NOT IN (${friendKinds})
   AND (n.kind != 'new_game' OR EXISTS (SELECT 1 FROM projects p WHERE p.id = json_extract(n.data, '$.project') AND p.status = 'live' AND p.hidden_at IS NULL))`;
 
@@ -123,7 +124,7 @@ export async function feed(db, me, { limit = 20, before = null } = {}) {
   const n = Math.max(1, Math.min(LIMITS.feed_max, Number(limit) || 20));
   const r = await db.prepare(`SELECT n.id, n.kind, n.actor_id, n.data, n.created_at, n.read_at, a.name AS actor_name,
         p.slug, p.title, p.tagline, p.cover_key, p.status AS game_status, p.mature, p.listing_lang, p.listing_i18n, p.langs
-      FROM notifications n LEFT JOIN users a ON a.id = n.actor_id LEFT JOIN projects p ON p.id = json_extract(n.data, '$.project')
+      FROM notifications n LEFT JOIN users a ON a.id = n.actor_id LEFT JOIN projects p ON p.id = COALESCE(json_extract(n.data, '$.project.id'), json_extract(n.data, '$.project'))
       WHERE ${FEED_WHERE} ${before ? 'AND n.id < ?2' : ''} ORDER BY n.id DESC LIMIT ${before ? '?3' : '?2'}`)
     .bind(...(before ? [me, Number(before), n + 1] : [me, n + 1])).all();
   const rows = r.results.slice(0, n);
@@ -133,7 +134,7 @@ export async function feed(db, me, { limit = 20, before = null } = {}) {
       return {
         id: x.id, kind: x.kind, at: x.created_at, read: !!x.read_at,
         actor: { id: x.actor_id, name: x.actor_name || 'Deleted account' },
-        game: x.slug ? { id: data.project, slug: x.slug, title: x.title, tagline: x.tagline || '', cover_key: x.cover_key || null, live: x.game_status === 'live', mature: x.mature || '', listing_lang: x.listing_lang, listing_i18n: x.listing_i18n, langs: x.langs } : null,
+        game: x.slug ? { id: typeof data.project === 'object' && data.project ? data.project.id : data.project, slug: x.slug, title: x.title, tagline: x.tagline || '', cover_key: x.cover_key || null, live: x.game_status === 'live', mature: x.mature || '', listing_lang: x.listing_lang, listing_i18n: x.listing_i18n, langs: x.langs } : null,
         data,
       };
     }),

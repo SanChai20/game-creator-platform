@@ -5,7 +5,7 @@
 import { api, dateTime, t, useAct, useApp } from './lib';
 import { Button } from './ui';
 
-export type RefundReason = 'window' | 'played' | 'refunded_before' | 'not_charged' | 'off' | 'denied' | 'not_paid';
+export type RefundReason = 'window' | 'played' | 'refunded_before' | 'not_charged' | 'gift' | 'off' | 'denied' | 'not_paid';
 export interface RefundState {
   purchase_id: string; refundable: boolean; reasons: RefundReason[]; review: boolean; until: number;
   played_seconds: number; max_play_seconds: number; window_hours: number;
@@ -22,6 +22,7 @@ export function reasonLine(r: RefundReason, st: RefundState): string {
     case 'played': return t('You have played it for {played} minutes. Games can be refunded only with less than {minutes} minutes played.', '你已游玩 {played} 分钟。游玩时间不足 {minutes} 分钟的游戏才能退款。', { played: minutes(st.played_seconds), minutes: max });
     case 'refunded_before': return t('You refunded this game once before, so buying it again is final.', '你曾为这款游戏退款一次，再次购买后不能再退款。');
     case 'not_charged': return t('This game was given to you, so there is nothing to refund.', '这款游戏是赠送给你的，没有需要退回的款项。');
+    case 'gift': return t('A friend gave you this game. Gifted games are non-refundable.', '这款游戏是好友赠送的。赠送的游戏不可退款。');
     case 'off': return t('Refunds are turned off on this platform right now.', '平台目前已关闭退款。');
     case 'denied': return st.request?.decision_note ? t('Your refund request was declined: {note}', '你的退款申请未获批准：{note}', { note: st.request.decision_note }) : t('Your refund request was declined.', '你的退款申请未获批准。');
     case 'not_paid': return t('This purchase was already refunded.', '这笔购买已经退款。');
@@ -40,6 +41,7 @@ export function RefundBox({ st, title, onDone, compact }: { st: RefundState; tit
   const { busy, act } = useAct(), { toast } = useApp();
   const req = st.request;
   if (st.reasons.includes('not_charged') || st.reasons.includes('not_paid')) return null;
+  if (st.reasons.includes('gift')) return <p className="refund-box dim fs-sm">{reasonLine('gift', st)}</p>;
   if (req?.status === 'pending') return (
     <div className="refund-box" role="status">
       <b className="fs-sm">{t('Refund requested', '已申请退款')}</b>
