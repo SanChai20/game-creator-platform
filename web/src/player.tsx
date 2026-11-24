@@ -194,8 +194,9 @@ const sameInsets = (a: Insets, b: Insets) => a.top === b.top && a.right === b.ri
 // is up in its final look (the SDK says so with { gcp: 'shown' }: its fonts are in, it has drawn and its page has stopped
 // changing; see splash-handoff in docs/game-runtime.md), then it fades into that screen. It stays up at least
 // SPLASH_MIN_MS so the logo reads instead of flickering, and never past SPLASH_LOAD_CAP_MS after the game page has loaded
-// (or SPLASH_URL_CAP_MS in all) in case the game's page never says anything.
-const SPLASH_MIN_MS = 900, SPLASH_FADE_MS = 360, SPLASH_LOAD_CAP_MS = 8000, SPLASH_URL_CAP_MS = 20000;
+// (or SPLASH_URL_CAP_MS in all) in case the game's page never says anything. The load cap stays above the SDK's own
+// 12 s cap for a game with no loading screen (it waits for GCP.ready() so a stand-in title is never shown).
+const SPLASH_MIN_MS = 900, SPLASH_FADE_MS = 360, SPLASH_LOAD_CAP_MS = 13000, SPLASH_URL_CAP_MS = 20000;
 type SplashPhase = 'off' | 'on' | 'out';
 function useSplash(starting: boolean, url: string | null, frame: { current: HTMLIFrameElement | null }) {
   // The play URL whose page has said its loading screen is up.

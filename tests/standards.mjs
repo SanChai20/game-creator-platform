@@ -102,6 +102,7 @@ test('every standard is complete, and every check it names is one the validator 
   for (const f of checkStandards({ report: { turn: { ok: false, to: 'landscape', viewport: '844×390', problem: 'it stopped drawing frames.' } } })) raised.add(f.check);
   for (const f of checkStandards({ texts: { 'a.js': 'GCP.setDisplay({ orientation: "portrait" }); x = "Rotate your phone";' }, gcp: { requirements: { orientation: 'landscape' } } })) raised.add(f.check);
   for (const f of checkStandards({ texts: { 'a.js': 'const c = new AudioContext(); addEventListener("pointerdown", unlock);' } })) raised.add(f.check);
+  for (const f of checkStandards({ texts: { 'a.js': "img.src = 'title.png'; if (img.complete) draw(img); else drawOld();" } })) raised.add(f.check);
   for (const s of STANDARDS) for (const c of s.checks) assert.ok(raised.has(c), `${s.id} names check ${c}, which the validator never raised`);
 });
 
@@ -154,6 +155,10 @@ test('the code checks', () => {
   // the menu button floats on top and the player drags it: its corner is not reserved, so a game is never told to keep it free
   for (const c of ['GCP.ready()', "GCP.setDisplay({ exitButton: 'none' })", "GCP.setDisplay({ exitButton: 'top-right' })"]) assert.ok(!run(c).includes('menu-corner'), c);
   assert.ok(run('GCP.ready()').includes('no-progress'));
+  // Ashen Signal: the code-drawn title until assets/title.webp arrives
+  assert.ok(run("img.src = 'assets/title.webp'; const TI = img.complete && img.naturalWidth ? img : null; GCP.progress(1)").includes('title-stand-in'));
+  assert.ok(!run("img.src = 'sprites/hero.png'; if (img.complete) draw(img); GCP.progress(1)").includes('title-stand-in'));
+  assert.ok(!run("img.src = 'assets/title.webp'; img.onload = () => GCP.ready(); GCP.progress(1)").includes('title-stand-in'));
   assert.ok(run('ctx.fillText("Powered by HearthCade", 0, 0)').includes('platform-logo'));
   assert.ok(!run('// works on HearthCade\nGCP.ready()').includes('platform-logo'));
   // a comment with an apostrophe before the name (Noctelle's bot), and server-side code, are not drawn

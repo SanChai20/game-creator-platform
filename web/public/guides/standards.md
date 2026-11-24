@@ -294,16 +294,17 @@ More: [services.md#what-the-platform-does-not-provide](/guides/services.md#what-
 
 **Where:** Between Play and the first playable frame.
 
-- The platform's splash covers the page first, then fades into the game's own loading screen: after the second GCP.progress() call once the page stops changing for 0.25 s, else 1.2 s, else at GCP.ready(), at the latest 6 s.
+- The platform's splash covers the page first, then fades into the game's own loading screen: after the second GCP.progress() call once the page stops changing for 0.25 s, else at GCP.ready(), at the latest 6 s (12 s for a game that has not called GCP.progress() twice).
+- A title picture (key art, title image) is loaded before GCP.ready(); while it downloads the game draws its loading screen or a plain backdrop.
 - Draw the loading screen at once, set its text, language and font before the second GCP.progress() call, then only move the bar.
 
 **Do:** Call GCP.progress(f, label) while loading and GCP.ready() after the first playable frame.
 
-**Don't:** Draw a platform logo or a second splash. Show a blank page, a stand-in font or text still being filled in.
+**Don't:** Draw a platform logo or a second splash. Show a blank page, a stand-in font or text still being filled in. Draw a code-drawn or older title while a new title picture downloads: players see the old cover, then the new one, on every launch. Remove the old drawing when you replace the picture, and give the new file a new name.
 
 **Required (platform requirement, publish refuses without it):** GCP.ready() once the first playable frame is drawn, within the time verification allows (the boots check). How the loading screen looks and how often it calls GCP.progress() are recommendations.
 
-**Recommended, and checked:** boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).
+**Recommended, and checked:** boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits for GCP.ready(), up to 12 s). game_standards check warns when the title screen draws a code-drawn stand-in while its title picture loads.
 
 More: [platform-contract.md#the-platform-splash-before-your-loading-screen](/guides/platform-contract.md#the-platform-splash-before-your-loading-screen)
 

@@ -171,9 +171,9 @@ test('splash-handoff: the player is told once the game has spoken and its page i
   assert.ok(a.GCP.runtime.fixes.includes('splash-handoff'));
   assert.equal(shown(a.posted).length, 0);
   a.GCP.progress(0.05);   // the first word: the game may still be filling in its loading screen
-  assert.equal(a.timers.length, 2);
+  assert.equal(a.timers.length, 1);   // only the cap
   a.GCP.progress(0.1);
-  a.timers.pop()();   // the quiet wait (the timers before it are the wait for a word and the cap)
+  a.timers.pop()();   // the quiet wait (the timer before it is the cap)
   assert.equal(shown(a.posted).length, 1);
   assert.equal(shown(a.posted)[0].why, 'settled');
   a.GCP.ready(); a.GCP.progress(0.5);
@@ -182,14 +182,32 @@ test('splash-handoff: the player is told once the game has spoken and its page i
   const b = load();
   b.GCP.ready();
   assert.deepEqual(shown(b.posted).map((m) => m.why), ['ready']);
-  // a game that never speaks is shown after the wait, and fatal() shows it at once
+  // a game that never speaks is shown at the cap, and fatal() shows it at once
   const c = load(); c.flush();
-  assert.equal(shown(c.posted).length, 1);
+  assert.deepEqual(shown(c.posted).map((m) => m.why), ['cap']);
   const d = load(); d.GCP.fatal(new Error('no'));
   assert.deepEqual(shown(d.posted).map((m) => m.why), ['fatal']);
   // outside the player nothing is sent
   const e = load({ framed: false }); e.GCP.ready();
   assert.equal(e.GCP.runtime.fixes.includes('splash-handoff'), false);
+});
+
+test('splash-handoff: a game with no loading screen of its own stays under the splash until ready(), not just 1.2 s', () => {
+  // Ashen Signal's case: a canvas title drawn from code (the old cover) while the title picture downloads, one
+  // GCP.progress(1) right before GCP.ready(). Handing over early showed the stand-in, then the new picture.
+  const shown = (posted) => posted.filter((m) => m && m.gcp === 'shown');
+  const a = load();
+  a.timers.shift()();   // 6 s pass with no loading screen announced: the cap moves on to 12 s instead of sending
+  assert.equal(shown(a.posted).length, 0);
+  a.GCP.progress(1); a.GCP.ready();
+  assert.deepEqual(shown(a.posted).map((m) => m.why), ['ready']);
+  const b = load();
+  b.timers.shift()(); b.timers.shift()();   // the game never becomes ready: lifted at 12 s
+  assert.deepEqual(shown(b.posted).map((m) => m.why), ['cap']);
+  // a game that announced its loading screen (two progress calls) keeps the 6 s cap
+  const c = load(); c.GCP.progress(0.1); c.GCP.progress(0.2);
+  c.timers.shift()();
+  assert.deepEqual(shown(c.posted).map((m) => m.why), ['cap']);
 });
 
 test('splash-handoff: never while the page is held for its fonts', () => {

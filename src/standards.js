@@ -183,13 +183,14 @@ export const STANDARDS = [
     id: 'splash-loading', area: 'game', title: 'Platform splash and the loading screen',
     where: 'Between Play and the first playable frame.',
     spec: [
-      'The platform\'s splash covers the page first, then fades into the game\'s own loading screen: after the second GCP.progress() call once the page stops changing for 0.25 s, else 1.2 s, else at GCP.ready(), at the latest 6 s.',
+      'The platform\'s splash covers the page first, then fades into the game\'s own loading screen: after the second GCP.progress() call once the page stops changing for 0.25 s, else at GCP.ready(), at the latest 6 s (12 s for a game that has not called GCP.progress() twice).',
+      'A title picture (key art, title image) is loaded before GCP.ready(); while it downloads the game draws its loading screen or a plain backdrop.',
       'Draw the loading screen at once, set its text, language and font before the second GCP.progress() call, then only move the bar.',
     ],
-    do: ['Call GCP.progress(f, label) while loading and GCP.ready() after the first playable frame.'], dont: ['Draw a platform logo or a second splash.', 'Show a blank page, a stand-in font or text still being filled in.'],
+    do: ['Call GCP.progress(f, label) while loading and GCP.ready() after the first playable frame.'], dont: ['Draw a platform logo or a second splash.', 'Show a blank page, a stand-in font or text still being filled in.', 'Draw a code-drawn or older title while a new title picture downloads: players see the old cover, then the new one, on every launch. Remove the old drawing when you replace the picture, and give the new file a new name.'],
     required: `GCP.ready() once the first playable frame is drawn, within the time verification allows (the boots check). How the loading screen looks and how often it calls GCP.progress() are recommendations.`,
-    enforced: 'boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits 1.2 s and may hand over to a half-drawn screen).',
-    checks: ['no-progress', 'progress-hand-off', 'platform-logo'], guide: '/guides/platform-contract.md#the-platform-splash-before-your-loading-screen',
+    enforced: 'boots check (GCP.ready() in time). Verification counts the GCP.progress() calls before GCP.ready(); game_standards check and publish warn when there are fewer than two (the splash then waits for GCP.ready(), up to 12 s). game_standards check warns when the title screen draws a code-drawn stand-in while its title picture loads.',
+    checks: ['no-progress', 'progress-hand-off', 'title-stand-in', 'platform-logo'], guide: '/guides/platform-contract.md#the-platform-splash-before-your-loading-screen',
   },
   {
     id: 'menu-button', area: 'game', title: 'The platform menu button',
@@ -419,6 +420,8 @@ const shownCode = (texts) => [...texts].filter(([p]) => /\.(m?js|html?)$/i.test(
 /** "landscape" | "portrait" | "any" (both) from a declaration, or '' when there is none. */
 export const orientationOf = (v) => { const s = String(v ?? '').trim().toLowerCase(); return s === 'both' || s === 'any' ? 'any' : s === 'landscape' || s === 'portrait' ? s : ''; };
 /** Text of a rotate-your-device prompt, in the platform's languages. */
+/** A title picture named in the code: a key art, title or cover image the title screen draws. */
+const TITLE_PIC = /['"`][^'"`\s]*(title|cover|key-?art|splash|menu-?bg)[^'"`\s/]*\.(png|jpe?g|webp|avif)['"`]/i;
 const OWN_PROMPT = /['"`][^'"`\n]*(\b(rotate|turn) (your |the )?(device|phone|screen|tablet)\b|\bplease (rotate|turn)\b|\b(best|only) (played|playable) in (landscape|portrait)\b|请(横|竖)屏|(旋转|横过来|竖过来)(你的)?(手机|设备|屏幕)|画面を(横|縦)|(横|縦)向きにして|기기를 (가로|세로)|화면을 회전|gira (tu|el) (dispositivo|teléfono|móvil))/i;
 
 /**
@@ -458,7 +461,7 @@ export function checkStandards(input = {}) {
   const R = input.report;
   if (R) {
     const pb = R.metrics && R.metrics.progressBeforeReady;
-    if (typeof pb === 'number' && pb < 2) add('splash-loading', 'warning', `Verification saw ${pb} GCP.progress() call${pb === 1 ? '' : 's'} before GCP.ready(), so the platform splash waited 1.2 s and handed over to whatever was on screen.`, 'Draw the loading screen in its final look, then call GCP.progress(f, label) at least twice while loading.', { check: 'progress-hand-off' });
+    if (typeof pb === 'number' && pb < 2) add('splash-loading', 'warning', `Verification saw ${pb} GCP.progress() call${pb === 1 ? '' : 's'} before GCP.ready(), so the platform splash had no loading screen to hand over to and waited for GCP.ready().`, 'Draw the loading screen in its final look, then call GCP.progress(f, label) at least twice while loading.', { check: 'progress-hand-off' });
     for (const [z, way] of [[R.zones, ''], [R.zonesUpright, ' held upright']]) if (z && z.checked) for (const x of z.zones) {
       if (x.zone === 'menu-button') continue;   // an older report: the button's corner is no longer reserved
       add('safe-area', 'warning', `On a phone${way} in fullscreen the interface covers ${Math.round(x.coverage * 100)}% of ${x.zone === 'home-bar' ? 'the home bar strip' : 'the notch strip'} (around x ${x.box[0]}, y ${x.box[1]}, ${x.box[2]}×${x.box[3]} px).`, 'Anchor the HUD inside GCP.display.safe (GCP.ui.rect does it by default).', { check: 'zone-safe-area' });
@@ -493,7 +496,10 @@ export function checkStandards(input = {}) {
     if (!declared) add('orientation', desktopOnly ? 'note' : 'warning', `The game declares no orientation, so the platform treats it as playable both ways${phones ? ' and checks it upright and sideways on phones' : ''}.`, 'Declare requirements.orientation: "landscape", "portrait" or "both" (compatibility {action: "declare"}). Pick the shapes the interface is designed for; a single orientation gets the platform\'s rotate-your-device prompt.', { check: 'orientation' });
     else if (setIn.some((o) => o !== declared)) add('orientation', 'warning', `The code calls GCP.setDisplay({ orientation: '${setIn.find((o) => o !== declared)}' }) but requirements.orientation declares ${declared === 'any' ? 'both' : declared}; the store page, the device checks and the rotate prompt follow different answers.`, 'Make them agree: change the declaration or the call (or drop the call; the declaration is enough).', { check: 'orientation-conflict' });
     if (OWN_PROMPT.test(shownCode(texts))) add('orientation', 'warning', 'The game draws its own rotate-your-device prompt. The platform shows one for a one-orientation game, pauses the game behind it and lifts it when the device is turned, so the player meets two.', declared && declared !== 'any' ? 'Remove the game\'s prompt; the declaration is enough.' : 'Remove the game\'s prompt and declare the orientation it needs; or, if it plays both ways, lay out for both and drop the prompt.', { check: 'orientation-own-prompt' });
-    if (!/GCP\.progress\s*\(|\.progress\s*\(\s*[\d.]/.test(code)) add('splash-loading', 'note', 'The game never calls GCP.progress(), so the platform splash waits 1.2 s before handing over to the game.', 'Call GCP.progress(f, label) while loading (at least twice) and draw the loading screen in its final look before the second call.', { check: 'no-progress' });
+    // a title picture drawn with a fallback while it loads: the fallback (often the old, code-drawn title) is what players see first
+    const standIn = [...texts].find(([p, t]) => /\.(m?js|html?)$/i.test(p) && TITLE_PIC.test(t) && /\.complete\b|\bnaturalWidth\b/.test(t));
+    if (standIn) add('splash-loading', 'warning', `${standIn[0]} loads a title picture (${(standIn[1].match(TITLE_PIC) || [''])[0].replace(/['"`]/g, '')}) and draws something else until it has loaded, so every launch can show that stand-in (often the old title) and then switch to the picture.`, 'Load the title picture before GCP.ready() and draw only the loading screen or a plain backdrop while it downloads; remove the code that drew the previous title (keep it only for when the picture fails to load).', { check: 'title-stand-in' });
+    if (!/GCP\.progress\s*\(|\.progress\s*\(\s*[\d.]/.test(code)) add('splash-loading', 'note', 'The game never calls GCP.progress(), so the platform splash stays until GCP.ready() (at most 12 s) with no loading screen of the game\'s own.', 'Call GCP.progress(f, label) while loading (at least twice) and draw the loading screen in its final look before the second call.', { check: 'no-progress' });
     // intended sound: the unlock must hear a tap on a menu button, which a canvas interface stops at the window in the capture phase
     if (/\b(webkit)?AudioContext\b/.test(code)) {
       const re = /addEventListener\(\s*['"](pointerdown|mousedown|touchstart|pointerup|touchend|click|keydown)['"]\s*,\s*([A-Za-z_$][\w$.]*)\s*(\)|,\s*(\{[^}]*\}|true|false))/g;
