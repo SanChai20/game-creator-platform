@@ -34,7 +34,7 @@ The platform serves each version of a game from Cloudflare's network on the game
 ```js
 import * as THREE from 'three';                          // Three.js {{THREE}}
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import * as THREE_GPU from 'three/webgpu';               // WebGPU build, see rendering-pipelines
+import * as THREE_GPU from 'three/webgpu';               // WebGPU build
 import { createLoop } from '@gcp/core.js';               // optional helper modules the platform hosts
 ```
 
@@ -69,7 +69,7 @@ GCP.test.onPlaythrough(fn) // optional: fn(t) plays the game through its rules; 
 GCP.test.twoPlayers       // { role: 'host' | 'guest', code } when the verifier opened this page for the two-player check, else null
 GCP.test.onTwoPlayers(fn) // fn(t, role) runs in two pages, two different players, that meet on twoPlayers.code (GCP.room or GCP.match.find); return { players, world } (see the multiplayer and matches guides)
 GCP.test.onCapture(fn)    // recommended: fn() returns the canvas, or canvases bottom to top, that hold everything the player sees (see "Hand over the frame")
-GCP.test.onState(fn)      // required: fn() returns where the game is (level, scene, player position, open menu); attached to the creator's feedback screenshots and returned by debug_preview, never called for players
+GCP.test.onState(fn)      // recommended: fn() returns where the game is (level, scene, player position, open menu); attached to the creator's feedback screenshots and returned by debug_preview, never called for players
 GCP.lang          // the player's platform language: 'en' | 'zh' | 'zh-TW' | 'ja' | 'ko' | 'es'
 GCP.onLang(fn)    // fn(lang, previous) when the player switches the platform language mid-game; the game is never restarted for it
 GCP.display       // { fullscreen, mode: 'inline' | 'fullscreen' | 'immersive', orientation, touch, paused, menu }, kept current

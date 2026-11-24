@@ -310,7 +310,7 @@ export const STANDARDS = [
     where: 'The game\'s own settings; the platform has no quality setting.',
     spec: ['Offer low, medium and high, pick a default from the device (GCP.device), remember the choice with GCP.save or localStorage, and step down while the frame rate stays low.', 'The platform already caps devicePixelRatio at 2 on phones and tablets.'],
     do: ['Draw at full quality when GCP.portrait is true (the store screenshot).'], dont: ['Start phones on the highest setting.'],
-    enforced: 'Not checked.', checks: [], guide: '/guides/performance.md#quality-levels',
+    enforced: 'Not checked.', checks: [], guide: '/guides/services.md#display-fullscreen-and-devices',
   },
   {
     id: 'intended-sound', area: 'game', title: 'Intended sound plays correctly',

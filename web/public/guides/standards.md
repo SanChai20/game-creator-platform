@@ -469,7 +469,7 @@ More: [services.md#interface-scale-and-the-players-ui-size](/guides/services.md#
 
 **Recommendation, checked:** Not checked.
 
-More: [performance.md#quality-levels](/guides/performance.md#quality-levels)
+More: [services.md#display-fullscreen-and-devices](/guides/services.md#display-fullscreen-and-devices)
 
 <a id="intended-sound"></a>
 

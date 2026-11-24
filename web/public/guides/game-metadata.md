@@ -196,9 +196,9 @@ The game page's Languages table shows, for each language, whether the store page
 
 The cover is the game's poster: the home page banner, store cards, shelves, search, the library and the game page all show it, and each one crops it differently. Without a cover the store uses the verification screenshot, which is a frame of the game with its interface and almost never survives those crops, so design one.
 
-![Cover template: the safe area and every crop](/guides/cover-template.png)
+![Cover template: the safe area and every crop]({{ORIGIN}}/guides/cover-template.png)
 
-[Download the template](/guides/cover-template.png) and lay the cover out on it.
+[Download the template]({{ORIGIN}}/guides/cover-template.png) (or read the MCP resource `gcp://templates/cover`) and lay the cover out on it.
 
 | | |
 |---|---|
