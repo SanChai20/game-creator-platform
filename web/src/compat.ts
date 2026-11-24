@@ -276,7 +276,7 @@ export function mergeRequirements(declared: Partial<Requirements> | null, detect
   const issues: CompatIssue[] = [];
   const w = (field: string, message: string, hint?: string) => issues.push({ level: 'warning', field, message, hint });
   if (!declared || !Object.keys(declared).length) {
-    w('requirements', 'No requirements are declared, so the store page shows what the platform detected in the code.', 'Check them with the compatibility tool (action "check") and declare them (action "declare"), so players see exactly what the game needs.');
+    w('requirements', 'No requirements are declared, so the store page shows what the platform detected in the code.', 'Check them with the compatibility tool (action "check") and declare them (action "declare"), so players see exactly what the game needs. The tool writes gcp.json for you; you never need to create it.');
     return { requirements: { ...detected, features: [...detected.features], optional: [...detected.optional] }, issues };
   }
   const r: Requirements = { ...emptyRequirements(), ...detected, ...declared } as Requirements;
