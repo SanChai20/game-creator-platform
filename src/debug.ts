@@ -15,7 +15,7 @@ import { logEvent } from './projects';
 import { getSettings } from './settings';
 import { b64, now, parseJson, rid, unb64 } from './util';
 // @ts-ignore plain JS module shared with the local verifier and the tests
-import { DEBUG_LIMITS, StepError, checkSteps, gameState, openGame, runSteps, shoot, viewportOf } from './debug-core.js';
+import { DEBUG_LIMITS, StepError, callShots, checkSteps, gameState, openGame, runSteps, viewportOf } from './debug-core.js';
 // @ts-ignore plain JS module
 import { signPlayToken } from './runtime/game-worker.js';
 // @ts-ignore plain JS module
@@ -26,7 +26,7 @@ const CALL_MS = 45000;          // longest one call may hold its browser
 type DebugEnv = Env & { VERIFIER_URL?: string };
 
 interface Row { id: string; user_id: string; project_id: string; version: number; browser_id: string; play_sid: string; viewport: string; created_at: number; last_at: number; expires_at: number; busy_until: number | null; calls: number; closed_at: number | null }
-export interface Shot { label: string; bytes: Uint8Array }
+export interface Shot { label: string; bytes: Uint8Array; type?: string; zoom?: number; note?: string }
 export interface DebugResult { session: string; version: number; viewport: { width: number; height: number; touch: boolean; name: string }; log: unknown[]; shots: Shot[]; state: Record<string, unknown>; stopped?: number; expires_at: number; opened?: { started: boolean; ms: number } }
 
 const wrap = <T>(fn: () => T): T => { try { return fn(); } catch (e) { if (e instanceof StepError) throw bad(e.message); throw e; } };
@@ -41,7 +41,7 @@ interface Driver {
 async function drive(page: any, steps: unknown[]) {
   const f0 = await gameState(page).catch(() => ({ frames: 0 })), t0 = Date.now();
   const run = await runSteps(page, steps);
-  const shots: Shot[] = [...run.shots, { label: 'now', bytes: await shoot(page) }];
+  const shots: Shot[] = await callShots(page, steps, run);
   const state = await gameState(page).catch((e: Error) => ({ error: String(e.message || e) }));
   const dt = Date.now() - t0, df = (state.frames ?? 0) - (f0.frames ?? 0);
   // frames per second over the call: how the game ran on this browser (it has no GPU, so 3D games run slowly here)
@@ -84,7 +84,7 @@ function localVerifier(env: DebugEnv): Driver {
     if (!r.ok) throw new AppError(502, `Local verifier error: ${j.error || r.status}`, 'unavailable');
     return j;
   };
-  const back = (j: any) => ({ log: j.log, state: j.state, shots: (j.shots || []).map((s: any) => ({ label: s.label, bytes: unb64(s.b64) })), ...(j.stopped ? { stopped: j.stopped } : {}) });
+  const back = (j: any) => ({ log: j.log, state: j.state, shots: (j.shots || []).map((s: any) => ({ label: s.label, bytes: unb64(s.b64), type: s.type, zoom: s.zoom, note: s.note })), ...(j.stopped ? { stopped: j.stopped } : {}) });
   return {
     async open(url, vp, steps) { const j = await call({ op: 'open', url, viewport: vp, steps }); return { id: j.id, opened: j.opened, out: back(j) }; },
     async act(id, steps) { return back(await call({ op: 'act', id, steps })); },
