@@ -59,6 +59,8 @@ import { AREAS, STANDARDS, checkStandards, findingLine, renderStandards, standar
 import { SPLIT, deviceProblems } from '../platform-requirements.js';
 import { storeStatus, storeText } from '../store-quality';
 import { checkItem } from './schema';
+import { checkBase, diffFiles, diffLine, isSame, textDiff, type BaseVerdict, type FileChange, type VersionLite } from '../version-sync';
+import { checkoutVersion, parseSource, readSourceFile, sourceFiles, sourceName, versionOrThrow, workspaceLine, workspaceState, type Source } from '../version-store';
 import { SCOPE, TESTING, toolMap } from './overview';
 import { deleteProject } from '../project-delete';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
@@ -227,6 +229,34 @@ const waitNote = (sec: unknown) => Number(sec) > MAX_WAIT_S ? { wait_note: `wait
  * this only helps when the failure did not come from them (a heavy game at the edge of the software GPU's frame count, a
  * deploy that was slow to settle). Limited per version so it cannot stand in for fixing a real failure.
  */
+/** Who deployed a version: the agent app's name, plus the machine label the deploy gave (deploy_preview by). */
+const actorOf = (c: ToolCtx, by: unknown) => {
+  const label = typeof by === 'string' ? by.replace(/[\u0000-\u001f]/g, '').trim().replace(/\s+/g, ' ').slice(0, 40) : '';
+  return label ? `${c.client} (${label})` : c.client;
+};
+
+async function versionsAfter(env: Env, pid: string, base: number): Promise<VersionLite[]> {
+  return (await env.DB.prepare('SELECT n, note, actor, created_at FROM versions WHERE project_id = ? AND n > ? ORDER BY n LIMIT 20').bind(pid, Number.isFinite(base) ? base : 0).all<VersionLite>()).results;
+}
+
+/** A deploy whose base_version is no longer the newest: nothing is deployed, and the answer says what came in between. */
+async function baseConflict(c: ToolCtx, p: Project, base: number, verdict: BaseVerdict) {
+  if (verdict.ok) throw new AppError(500, 'baseConflict called without a conflict');
+  if (verdict.code === 'unknown_base') return { deployed: false, conflict: 'unknown_base', reason: verdict.message, newest_version: verdict.newest || null, next: 'Pass the version your changes start from: the one pull_version or checkout_version gave you (list_versions shows every version), or 0 before the first.' };
+  const d = diffFiles(base ? await sourceFiles(c.env, p, { version: base }) : [], await sourceFiles(c.env, p, { version: verdict.newest }));
+  return {
+    deployed: false, conflict: 'newer_version', reason: verdict.message, your_base: base, newest_version: verdict.newest,
+    newer_versions: verdict.newer.map((v) => ({ version: v.n, note: v.note || '', ...(v.actor ? { by: v.actor } : {}), ...(v.created_at ? { created_at: new Date(v.created_at).toISOString() } : {}) })),
+    changed_since_your_base: { summary: diffLine(d), changed: d.changed.map((f) => f.path), added: d.added.map((f) => f.path), removed: d.removed.map((f) => f.path) },
+    next: `Nothing was deployed. Merge first, as after a refused git push: diff_versions {project, from: ${base}, to: ${verdict.newest}} shows the line changes, pull_version {project, version: ${verdict.newest}} downloads them. Bring your changes onto version ${verdict.newest}, upload, and deploy_preview {project, base_version: ${verdict.newest}}. To deploy the workspace as it is and leave those changes out, call again with force: true.`,
+  };
+}
+
+/** The most text pull_version puts in its answer (paths), for agents without a shell. */
+export const PULL_INLINE = { files: 20, bytes: 256 * 1024 };
+/** How much line diff diff_versions returns: each text file up to file_bytes is diffed, up to total_chars of diff in all. */
+export const DIFF_LIMITS = { file_bytes: 512 * 1024, total_chars: 60_000, lines_per_file: 400 };
+
 async function retryPreview(c: ToolCtx, p: Project, n: number, wait?: unknown) {
   if (!Number.isInteger(n) || n < 1) throw bad('retry_version must be a whole number from list_versions.');
   const v = await getVersion(c.env, p.id, n);
@@ -599,6 +629,7 @@ export const TOOLS: Tool[] = [
           '4. Read the report. If a check failed, fix it, upload, and deploy_preview again. list_versions {project, version} shows any version\'s report.',
           '4b. Look at the game and listen to the creator: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game\'s state), and creator_feedback returns the annotated screenshots and notes the creator left while playing the preview. Read creator_feedback at the start of every session and whenever an answer carries creator_feedback; each item is removed once you read it.',
           '4c. If the game shares its build skill (Open Implementation on), update it before every release: build_skill {project, action: "get"}, revise it for what changed, then build_skill {project, action: "write", version, content}. publish refuses a version without one while sharing is on.',
+          '4d. Working from another machine or agent on the same account, as with git: pull_version downloads any version\'s complete files (or the workspace) and gives its base_version; checkout_version puts a version back into the workspace; diff_versions shows what changed between versions. Deploy with deploy_preview {base_version}: it is refused, and says what came in between, when someone deployed a newer version since. list_versions says who deployed each version and what it was built on.',
           '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover (and a cover per language); game_data and game_room manage the game\'s data and multiplayer rooms.',
         ],
         services: {
@@ -848,9 +879,9 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'list_files', title: 'List workspace files',
-    description: 'Lists every file in the project workspace with its size and sha (the first 32 hex characters of its SHA-256), so you can see which local files differ from what was uploaded.',
+    description: 'Lists every file in the project workspace with its size and sha (the first 32 hex characters of its SHA-256), so you can see which local files differ from what was uploaded, and which version the workspace is based on and what changed in it since. To get the files themselves, use pull_version.',
     inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0), storage: await storageLine(c.env, p, files) }; },
+    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0), workspace: await workspaceLine(c.env, p), storage: await storageLine(c.env, p, files) }; },
   },
   {
     name: 'game_storage', title: 'Check the game\'s storage or ask for more',
@@ -1038,8 +1069,13 @@ The whole set as one page: get_started {topic: "standards"}.`,
   },
   {
     name: 'deploy_preview', title: 'Deploy a preview and verify it',
-    description: `Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after ${DEPLOY_WAIT_MS / 1000} seconds (wait_seconds: up to ${MAX_WAIT_S} to wait for it in this call) the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile). verification in the answer is the outcome: passed, failed or running; deployed: true only means the files went out. retry_version: n runs the deploy and browser check again on the newest version when it failed (for example a heavy game that only just missed the frame count on the verifier's software GPU), without making a new version number; up to ${RETRY_LIMIT} retries per version.`,
-    inputSchema: obj({ project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' }, retry_version: { type: 'integer', description: 'Optional. Check this failed version again (it must be the newest) instead of making a new one from the workspace.' }, wait_seconds: WAIT_SCHEMA(DEPLOY_WAIT_MS) }, ['project']),
+    description: `Runs the static checks (JavaScript syntax with the exact line, imports that do not resolve, missing files, the GCP.ready() contract, web-only content, size limits), then freezes the workspace as a new numbered version, deploys it to its own preview address and opens it in a real browser to check that it boots, renders, survives input and throws no errors. If the game registered GCP.test.onPlaythrough, the browser also plays it. Returns the report. With dry_run: true only the static checks run and nothing is deployed. The browser check takes one to two minutes; if it is still running after ${DEPLOY_WAIT_MS / 1000} seconds (wait_seconds: up to ${MAX_WAIT_S} to wait for it in this call) the answer says not_finished and list_versions {project, version} returns the report (do not deploy again meanwhile). verification in the answer is the outcome: passed, failed or running; deployed: true only means the files went out. retry_version: n runs the deploy and browser check again on the newest version when it failed (for example a heavy game that only just missed the frame count on the verifier's software GPU), without making a new version number; up to ${RETRY_LIMIT} retries per version. base_version: the version your changes start from; when another agent or machine deployed a newer one since, nothing is deployed and the answer says which versions and what they changed (force: true deploys anyway).`,
+    inputSchema: obj({
+      project: PROJECT, note: { type: 'string', description: 'What changed in this version (shown in the version list).' }, dry_run: { type: 'boolean', description: 'Only run the static checks.' }, retry_version: { type: 'integer', description: 'Optional. Check this failed version again (it must be the newest) instead of making a new one from the workspace.' }, wait_seconds: WAIT_SCHEMA(DEPLOY_WAIT_MS),
+      base_version: { type: 'integer', description: 'The version your changes start from (the one you pulled or checked out; 0 before the first). The deploy is refused when a newer version was deployed since, by another agent or machine, so its changes are never silently left out; the answer says which versions and what they changed. Strongly recommended whenever more than one agent or machine works on the game.' },
+      force: { type: 'boolean', description: 'With base_version: deploy the workspace as it is even though newer versions exist (their changes are left out of this version unless the workspace has them).' },
+      by: { type: 'string', description: 'Optional. A short name for this machine or agent (e.g. "laptop", "ci"), shown with the agent app\'s name as who deployed the version.' },
+    }, ['project']),
     run: async (a, c) => {
       const p = await ownedProject(c.env, c.user, a.project);
       if (a.retry_version !== undefined && a.retry_version !== null) return retryPreview(c, p, Number(a.retry_version), a.wait_seconds);
@@ -1049,7 +1085,16 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (!check.ok) return { deployed: false, reason: 'Static checks failed, so nothing was deployed.', storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
       const busy = await c.env.DB.prepare("SELECT n FROM versions WHERE project_id = ? AND status IN ('queued','deploying','verifying') AND created_at > ?").bind(p.id, now() - 10 * 60000).first<{ n: number }>();
       if (busy) throw new AppError(409, `Version ${busy.n} is still being deployed.`, 'busy', `Call list_versions {project, version: ${busy.n}} and wait for it to finish first.`);
-      const v = await snapshot(c.env, p, check.manifest, String(a.note || ''));
+      const by = actorOf(c, a.by);
+      let base: number | null = p.ws_base ?? null, expectNewest: number | undefined;
+      if (a.base_version !== undefined && a.base_version !== null) {
+        base = Number(a.base_version);
+        const newest = p.next_version - 1, verdict = checkBase(base, newest, await versionsAfter(c.env, p.id, base));
+        if (!verdict.ok && (verdict.code === 'unknown_base' || a.force !== true)) return await baseConflict(c, p, base, verdict);
+        if (verdict.ok) expectNewest = newest;
+      }
+      const v = await snapshot(c.env, p, check.manifest, String(a.note || ''), { base, actor: by, expectNewest });
+      if (!v) { const q = await ownedProject(c.env, c.user, p.id); return await baseConflict(c, q, base!, checkBase(base!, q.next_version - 1, await versionsAfter(c.env, p.id, base!))); }
       await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
       const done = await waitVersion(c, p.id, v.n, waitMs(a.wait_seconds, DEPLOY_WAIT_MS));
@@ -1064,9 +1109,124 @@ The whole set as one page: get_started {topic: "standards"}.`,
       const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
       if (a.version) return { ...waitNote(a.wait_seconds), ...(await versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), waitMs(a.wait_seconds, LIST_WAIT_MS)))) };
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
-      const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), live: v.n === p.live_version && p.status === 'live' }));
+      const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), ...(v.actor ? { by: v.actor } : {}), ...(v.base ? { based_on: v.base } : {}), live: v.n === p.live_version && p.status === 'live' }));
       const failed = versions.find((v) => v.status === 'failed');
-      return { live_version: p.live_version, preview_version: p.preview_version, status: p.status, versions, next: failed ? `Call list_versions {project, version: ${failed.version}} for the full report of a version (every check with its detail and hint).` : 'Call list_versions {project, version} for the full report of one version.' };
+      return { live_version: p.live_version, preview_version: p.preview_version, newest_version: p.next_version - 1 || null, status: p.status, workspace: await workspaceLine(c.env, p), versions, next: failed ? `Call list_versions {project, version: ${failed.version}} for the full report of a version (every check with its detail and hint).` : 'Call list_versions {project, version} for the full report of one version.' };
+    },
+  },
+  {
+    name: 'pull_version', title: 'Download a version\'s files',
+    description: `Gets the complete files of a version, every file exactly as it was uploaded (server/ code and gcp.json included), so another agent or another machine signed in to this account can carry on from it, the way a git pull does. Returns a short-lived zip URL for curl, a URL per file, the file list with hashes, and the base_version to pass to deploy_preview after your changes. paths returns the text of up to ${PULL_INLINE.files} text files in the answer, for agents without a shell. Omit version for the newest one; workspace: true gets the workspace as it is now (with uploads not deployed yet) instead. Nothing in the project changes.`,
+    inputSchema: obj({
+      project: PROJECT,
+      version: { type: 'integer', description: 'Optional. The version to download. Default: the newest.' },
+      workspace: { type: 'boolean', description: 'Optional. true: the workspace as it is now instead of a version.' },
+      paths: { type: 'array', items: { type: 'string' }, description: `Optional. Text files to return in the answer itself (up to ${PULL_INLINE.files} files and ${PULL_INLINE.bytes / 1024} KB in all).` },
+    }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), newest = p.next_version - 1;
+      if (a.workspace === true && a.version !== undefined && a.version !== null) throw bad('Pass version or workspace, not both.');
+      if (a.workspace !== true && !newest) throw bad('This game has no version yet.', 'Pass workspace: true to download the workspace, or deploy_preview to make the first version.');
+      const source: Source = a.workspace === true ? { workspace: true } : { version: a.version ? Number(a.version) : newest };
+      const v = 'version' in source ? await versionOrThrow(c.env, p, source.version) : null;
+      const files = await sourceFiles(c.env, p, source);
+      // text in the answer, all checked before any is read
+      const want = Array.isArray(a.paths) ? [...new Set(a.paths.map((x: unknown) => String(x)))] as string[] : [];
+      if (want.length > PULL_INLINE.files) throw bad(`paths: at most ${PULL_INLINE.files} files per call.`, 'Use the zip URL for more.');
+      const pick = want.map((path) => {
+        const f = files.find((x) => x.path === path);
+        if (!f) throw bad(`paths: "${path}" is not in ${sourceName(source)}.`, 'The files list in an answer without paths shows every path.');
+        if (!isText(path)) throw bad(`paths: ${path} is not a text file.`, 'Download binary files with the file URL.');
+        return f;
+      });
+      const inlineBytes = pick.reduce((x, f) => x + f.size, 0);
+      if (inlineBytes > PULL_INLINE.bytes) throw bad(`paths: those files are ${mb(inlineBytes)} together; the answer holds up to ${PULL_INLINE.bytes / 1024} KB.`, 'Ask for fewer files, or use the zip URL.');
+      const contents: Record<string, string> = {};
+      for (const f of pick) { const o = await readSourceFile(c.env, p, source, f.path); if (o) contents[f.path] = await o.text(); }
+      const t = randomToken(24);
+      await c.env.DB.prepare('INSERT INTO downloads (token_hash, project_id, user_id, version, expires_at) VALUES (?, ?, ?, ?, ?)').bind(await sha256(t), p.id, c.user.id, v ? v.n : null, now() + 30 * 60000).run();
+      const url = `${c.origin}/api/download/${t}`, base = v ? v.n : (p.ws_base ?? newest);
+      const folder = v ? `${p.slug}-v${v.n}` : `${p.slug}-workspace`;
+      await logEvent(c.env, p.id, 'pulled', v ? `Version ${v.n} downloaded` : 'Workspace downloaded', v ? v.n : null, c.client);
+      return {
+        pulled: v ? `version ${v.n}` : 'the workspace',
+        ...(v ? { version: v.n, note: v.note, status: v.status, ...(v.actor ? { by: v.actor } : {}), ...(v.base ? { based_on: v.base } : {}), created_at: new Date(v.created_at).toISOString() } : { workspace: await workspaceLine(c.env, p) }),
+        newest_version: newest || null, base_version: base,
+        file_count: files.length, total_bytes: files.reduce((x, f) => x + f.size, 0), files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })),
+        expires_in_minutes: 30, zip_url: url, file_url: `${url}?path=`,
+        download: `curl -fsS -o /tmp/${folder}.zip "${url}" && mkdir -p ${folder} && unzip -oq /tmp/${folder}.zip -d ${folder}`,
+        ...(pick.length ? { contents } : {}),
+        note: 'The zip holds every file at its workspace path (index.html at the root). file_url takes a path, URL-encoded, for one file. Each file\'s sha is the first 32 hex characters of its SHA-256, as list_files shows it.',
+        next: `Change the files, upload them (create_upload_url, and its zip URL with ?clean=1 makes the workspace exactly your folder; or upload_files), then deploy_preview {project, base_version: ${base}}. If another agent deployed a newer version in the meantime, that deploy is refused and says what changed, so you can merge it first. To edit the platform's copy in place with upload_files edits instead, first checkout_version {project, version: ${base}} so the workspace matches.`,
+      };
+    },
+  },
+  {
+    name: 'checkout_version', title: 'Put a version\'s files back into the workspace',
+    description: 'Makes the workspace exactly the files of one version: files that differ are replaced, files the version does not have are deleted. Use it to carry on from a version with upload_files edits, or to go back to an older version and build on it. The live game and the preview do not change until you deploy_preview and publish. If the workspace has changes that are in no version yet (uploaded but not deployed, perhaps by another agent), nothing is changed and the answer lists them; force: true discards them.',
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'The version to check out.' }, force: { type: 'boolean', description: 'Discard workspace changes that are in no version yet.' } }, ['project', 'version']), annotations: { destructiveHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), n = Number(a.version);
+      await versionOrThrow(c.env, p, n);
+      const w = await workspaceState(c.env, p);
+      const unsaved = w.diff ? (isSame(w.diff) ? null : w.diff) : (w.files ? diffFiles([], await sourceFiles(c.env, p, { workspace: true })) : null);
+      if (unsaved && a.force !== true) {
+        return {
+          checked_out: false,
+          reason: `The workspace has changes that are in no version yet${w.base ? ` (against version ${w.base}, which it is based on)` : ''}: ${diffLine(unsaved)}. Checking out would discard them.`,
+          unsaved: { changed: unsaved.changed.map((f) => f.path), added: unsaved.added.map((f) => f.path), removed: unsaved.removed.map((f) => f.path) },
+          next: 'Keep them by deploying them first (deploy_preview) or downloading them (pull_version {project, workspace: true}). To discard them, call again with force: true.',
+        };
+      }
+      const r = await checkoutVersion(c.env, p, n);
+      await logEvent(c.env, p.id, 'checkout', `Workspace set to version ${n}${unsaved ? ' (unsaved changes discarded)' : ''}`, n, c.client);
+      const q = await ownedProject(c.env, c.user, p.id), newest = q.next_version - 1;
+      return {
+        checked_out: n, written: r.written, removed: r.removed, unchanged: r.unchanged, ...(unsaved ? { discarded: diffLine(unsaved) } : {}),
+        newest_version: newest, base_version: newest, storage: await storageLine(c.env, q),
+        next: n === newest
+          ? `The workspace is now version ${n}. Make your changes, then deploy_preview {project, base_version: ${n}}.`
+          : `The workspace is now version ${n}, older than the newest, version ${newest}. Deploying it leaves out what versions ${n + 1} to ${newest} changed (diff_versions {project, from: ${n}, to: ${newest}} shows it). Having chosen that, deploy with base_version: ${newest}, so a version someone deploys meanwhile is still caught.`,
+      };
+    },
+  },
+  {
+    name: 'diff_versions', title: 'Compare two versions, or a version with the workspace',
+    description: `What changed between two versions, or between a version and the workspace: files added, removed and changed (by content hash), with a unified line diff of each changed text file (up to ${DIFF_LIMITS.file_bytes / 1024} KB per file and ${DIFF_LIMITS.total_chars / 1000}k characters of diff per answer). Omit from and to for the newest version against the one before it. to: "workspace" compares with what is uploaded now (from then defaults to the version the workspace is based on). paths limits it to some files; text: false lists the files only.`,
+    inputSchema: obj({
+      project: PROJECT,
+      from: { type: ['integer', 'string'], description: 'A version number, or "workspace". Default: the version before to (for the workspace, the version it is based on).' },
+      to: { type: ['integer', 'string'], description: 'A version number, or "workspace". Default: the newest version.' },
+      paths: { type: 'array', items: { type: 'string' }, description: 'Optional. Only these files.' },
+      text: { type: 'boolean', description: 'Default true: include line diffs of changed text files.' },
+    }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await ownedProject(c.env, c.user, a.project), newest = p.next_version - 1;
+      const to: Source = parseSource(a.to, 'to') ?? (newest ? { version: newest } : { workspace: true });
+      const fromDefault: Source | null = 'workspace' in to ? ((p.ws_base ?? newest) ? { version: (p.ws_base ?? newest)! } : null) : (to.version > 1 ? { version: to.version - 1 } : null);
+      const from = parseSource(a.from, 'from') ?? fromDefault;
+      if (!from) throw bad('There is no earlier version to compare with.', 'Pass from and to, e.g. {from: 1, to: "workspace"}.');
+      const [A, B] = await Promise.all([sourceFiles(c.env, p, from), sourceFiles(c.env, p, to)]);
+      const only = Array.isArray(a.paths) && a.paths.length ? new Set(a.paths.map((x: unknown) => String(x))) : null;
+      const d = diffFiles(only ? A.filter((f) => only.has(f.path)) : A, only ? B.filter((f) => only.has(f.path)) : B);
+      const changed: (FileChange & { diff?: string; truncated?: boolean })[] = d.changed.map((f) => ({ ...f }));
+      const left: string[] = [];
+      let budget = DIFF_LIMITS.total_chars;
+      if (a.text !== false) for (const f of changed) {
+        if (!isText(f.path)) continue;
+        if ((f.bytes_before || 0) > DIFF_LIMITS.file_bytes || (f.bytes_after || 0) > DIFF_LIMITS.file_bytes || budget <= 0) { left.push(f.path); continue; }
+        const [x, y] = await Promise.all([readSourceFile(c.env, p, from, f.path), readSourceFile(c.env, p, to, f.path)]);
+        const r = x && y ? textDiff(await x.text(), await y.text(), f.path, { maxLines: DIFF_LIMITS.lines_per_file }) : null;
+        if (!r || r.diff.length > budget) { left.push(f.path); continue; }
+        f.diff = r.diff; if (r.truncated) f.truncated = true;
+        budget -= r.diff.length;
+      }
+      return {
+        from: sourceName(from), to: sourceName(to), summary: diffLine(d),
+        changed, added: d.added, removed: d.removed, unchanged: d.unchanged,
+        ...(left.length ? { diffs_left_out: left, why: `Too big for this answer (over ${DIFF_LIMITS.file_bytes / 1024} KB, or past ${DIFF_LIMITS.total_chars / 1000}k characters of diff in all). Pass paths to see them one at a time, or pull_version both versions and diff them locally.` } : {}),
+        next: 'pull_version downloads either side; checkout_version puts a version back into the workspace.',
+      };
     },
   },
   {

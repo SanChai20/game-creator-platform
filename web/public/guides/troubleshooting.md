@@ -7,6 +7,19 @@
 - Only a **verified** version that meets the release requirements (below) can be **published**. `publish` makes it live at the game's public page; the previous live version stays in the list.
 - `rollback {version}` makes an earlier verified version live again at once. `unpublish` takes the game offline; `publish` brings it back.
 - `list_versions` lists them all with their status; `list_versions {version}` returns one version's full report.
+- Any version can be downloaded, put back into the workspace or compared with another: see Working from another machine or agent below.
+
+## Working from another machine or agent
+
+Every version is a complete copy of the files that were uploaded for it, `server/` code and `gcp.json` included, and any agent signed in to the same account can work from it, much like a git repository:
+
+- `pull_version {project}` downloads the newest version (or `{version: n}`, or `{workspace: true}` for what is uploaded now) as a zip from a short-lived curl URL, or file by file. `paths` returns small text files in the answer itself. It also gives the `base_version` your changes start from.
+- `checkout_version {project, version}` makes the workspace exactly that version's files, to carry on with `upload_files` edits or to build on an older version. It refuses to discard workspace changes that are in no version yet (perhaps another agent's) unless `force: true`.
+- `diff_versions {project, from, to}` lists the files added, removed and changed between two versions, or a version and `"workspace"`, with a line diff of each changed text file.
+- `deploy_preview {project, base_version}` is refused when someone deployed a newer version after `base_version`, as a git push is when the branch moved: nothing is deployed, and the answer names the newer versions, who deployed them and which files they changed. Merge them (`diff_versions`, `pull_version`), then deploy again with the newest number as `base_version`. `force: true` deploys anyway. `by` adds a machine name (for example `"laptop"`) to the agent app's name in the version list.
+- `list_versions` shows who deployed each version and what it was built on, and `list_files` shows which version the workspace is based on and what changed in it since.
+
+The workspace itself is one per game, shared by every agent: two agents uploading at the same moment write into the same files. Upload your whole folder (`create_upload_url`, zip URL with `?clean=1`) right before you deploy, with `base_version`, so what you deploy is exactly your copy.
 
 ## Publishing is refused: the release requirements
 
