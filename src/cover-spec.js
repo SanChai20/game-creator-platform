@@ -24,7 +24,7 @@ export function coverRules(origin = '') {
     'The left 30% is hidden behind the home page banner\'s info panel, so put only background there: no title, no faces. ' +
     'Set the title large (cap height at least 90 px at 1080 high, readable when the cover is 240 px wide), centred in the safe area or in its lower third, with no frame or text near the edges. ' +
     'Show whole characters in a wide scene rather than close-ups. When the title is text, give each listing language its own cover (covers). ' +
-    `Before setting it, look at it cropped to the banner (the safe area), to 16:10 and 16:7, and at 240 px wide. Template with the crops drawn on it: ${origin}${COVER.template}; guide: ${origin}${COVER.guide}.`;
+    `Before setting it, look at it cropped to the banner (the safe area), to 16:10 and 16:7, and at 240 px wide. Template with the crops drawn on it: ${origin}${COVER.template} (also the MCP resource gcp://templates/cover); guide: ${origin}${COVER.guide}.`;
 }
 
 /** Width and height of a png, jpeg or webp from its bytes, or null. */

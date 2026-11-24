@@ -126,7 +126,7 @@ export function buildLanguages(declaredRaw: unknown, texts: Map<string, string> 
   const parsed = parseLanguages(declaredRaw), det = detectLanguages(texts, paths), issues: LangIssue[] = [...parsed.issues];
   const w = (field: string, message: string, hint?: string) => issues.push({ level: 'warning', field, message, hint });
   if (declaredRaw === undefined || declaredRaw === null) {
-    w('languages', `No languages are declared, so the store page shows what the platform detected: ${det.languages.supported.map((l) => l.code).join(', ')}.`, 'Declare them with game_metadata {action: "declare", languages}, so players see exactly which languages the game offers.');
+    w('languages', `No languages are declared, so the store page shows what the platform detected: ${det.languages.supported.map((l) => l.code).join(', ')}.`, 'Declare them with game_metadata {action: "declare", languages}, so players see exactly which languages the game offers. The tool writes gcp.json for you; you never need to create it.');
   } else if (parsed.value) {
     const declared = new Set(parsed.value.supported.map((l) => l.code));
     const missing = det.languages.supported.filter((l) => !declared.has(l.code) && !declared.has(l.code.split('-')[0]));

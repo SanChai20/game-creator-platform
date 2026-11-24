@@ -74,6 +74,39 @@ Nothing on screen or in the page changed while the game ran and the verifier pre
 
 A game that waits on a still title screen until the player acts is fine: the verifier takes pictures during its input as well as after it, so a click that starts the game, opens a menu or turns a card counts even when the game undoes it a moment later (two cards that do not match turning back over). It also counts a change in `GCP.test.onState` or a sound started by the input, when neither happens with nothing pressed. If none of that applies, register `GCP.test.onAutostart` to skip the title, or `GCP.test.onState(fn)` returning what the player changes (screen, selection, moves).
 
+## input_handled: the input made no visible difference
+
+The game listens for input, but pressing keys, clicking, dragging and tapping changed the screen no more than time alone did. The verifier takes three rounds of a still moment, then a burst of input, comparing a picture before and after each. A platform requirement: a player's input must visibly do something.
+
+Any one of these passes it:
+
+- **The picture**: input changes the screen clearly more than it changes by itself. A game whose whole screen moves anyway (a swinging block, a scrolling background) can still fail here, because the input adds little on top.
+- **The game's own state**: register `GCP.test.onState(fn)` returning what the player changes (position, selection, a press counter). Fields that change in the still moment (timers, animation) are left out, so at least one field must change only with input. The report's `botPlay.stateInputFields` and `stateSelfFields` show what the check saw.
+- **What the game reports**: a game that calls `GCP.score(n)` and `GCP.gameOver()` passes when input makes it report clearly more than time alone (`botPlay.outcomeInput` against `outcomeIdle`). This catches games where each press starts and ends a short run, so the screen and the state are back where they were by the next picture.
+- **The page**: elements of the page change with input.
+
+Look at it with `debug_preview {action: "act"}`: press, then screenshot and read `state`.
+
+## bot_play: it stopped during random play
+
+After the input rounds, the verifier keeps pressing random keys, clicks, drags and taps for a while (45 seconds by default). The game must keep answering throughout, without uncaught errors, `GCP.fatal`, leaving the page, or a state it cannot leave. Reproduce it in `debug_preview` by mashing keys and tapping, and fix what breaks.
+
+## score_or_end: advice only
+
+A game that reports a score (`GCP.score`) or an ending (`GCP.gameOver`) ranks a little higher in the store. Sandbox, idle, creative and exploration games need neither; this check never fails.
+
+## pause: two pause menus at once
+
+One Esc opened both the game's own pause menu and the platform menu, or the game opened its own menu because the platform paused it. Route Esc through `GCP.onEscape`, declare the menu with `GCP.pauseMenu(open)`, report it with `GCP.setPaused(on)`, and only freeze the clock on `GCP.onPause` (`get_started {topic: "touch"}`, "One pause owner").
+
+## server: the game's server code threw
+
+`server/index.js` threw while answering the game's `GCP.server` calls during verification. The detail names the requests. Fix the error, or catch it in `fetch()` and return a 4xx `Response`.
+
+## device_iphone, device_ipad: it broke on a phone or tablet
+
+After passing on the computer, the version is played again on an emulated iPhone (844 × 390) and iPad (1180 × 820) through taps and a drag. It fails only on a kind of device the game says it supports in `requirements.devices`, which every game must list in full to publish. Layout problems (cut off, tiny text, small buttons) are noted, not failed. Open the same size with `debug_preview {action: "open", viewport: "iphone"}` (or `"ipad"`) to see it.
+
 ## conduct: the page interfered with the player's browser
 
 The page left for another site, started a download, opened two or more windows by itself or opened three or more dialogs. Games stay on their own page: put links behind a click on a credits screen and never navigate the top window away.

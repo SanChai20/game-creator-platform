@@ -78,7 +78,7 @@ debug_preview {project, action: "act", steps: [
 debug_preview {project, action: "close"}
 ```
 
-- **Viewports**: `desktop` (960 × 540, the verifier's size), `hd`, `phone-landscape`, `phone-portrait`, `tablet`, `iphone` and `ipad` (the sizes the device checks play at; the phone and tablet presets have touch), or `{width, height, touch}`. `autostart: true` opens the game as the verifier does.
+- **Viewports**: `desktop` (960 × 540, the verifier's size), `hd` (1280 × 720), `phone-landscape` (844 × 390), `phone-portrait` (390 × 844), `tablet` (1024 × 768), `iphone` (844 × 390, landscape) and `ipad` (1180 × 820, landscape); `iphone` and `ipad` are the sizes the device checks play at, and the phone and tablet presets have touch, or `{width, height, touch}`. `autostart: true` opens the game as the verifier does.
 - **Steps**: `click`, `double_click`, `right_click`, `move`, `down`, `up`, `drag`, `tap`, `scroll`, `key` (with `hold_ms`), `key_down`, `key_up`, `type`, `wait`, `wait_for` (`ready`, `text` or `frames`), `screenshot` and `eval`. Coordinates are CSS pixels of the viewport, read off the last full screenshot.
 - **Screenshots**: JPEG by default; `format: "png"` is lossless (exact colours and hard pixel edges, to compare art with a reference), and `zoom: 2` to `4` renders a `clip` again at that many image pixels per CSS pixel, sharp, for small sprites, icons and text.
 - **State**, in every answer: ready, frames drawn, uncaught errors, console errors and warnings, the game's last calls to the platform with each answer (`platform_calls`), missing files and what `GCP.test.onState` returns.
