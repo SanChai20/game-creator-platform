@@ -906,28 +906,44 @@
   S.roomInfo = function () { return (S.rooms || []).map(function (f) { try { return f(); } catch (e) { return null; } }).filter(Boolean); };
   /** Every GCP.match.find this page made: the lobby code, its phase, this player's id, who the lobby listed, the match's players. */
   S.matchInfo = function () { return (S.matches || []).map(function (f) { try { return f(); } catch (e) { return null; } }).filter(Boolean); };
+  // Runs a test function the game gave (onPlaythrough, onTwoPlayers). A failure comes back classified in result.failure,
+  // so the verifier can tell the game's own script giving up from the game breaking or the platform failing:
+  //   { source: 'script', kind: 'timeout' }  a t.until() wait ran out: label, waitMs (its timeout)
+  //   { source: 'script', kind: 'assert' }   a t.assert() was false: message
+  //   { source: 'script', kind: 'error' }    the function (or game code it called) threw: message, name, at (top stack line)
+  //   { source: 'script', kind: 'limit' }    it did not return within the verifier's limit: limitMs, and the wait then pending
+  //   { source: 'game', kind: 'no_frames' }  t.frames() waited and the game drew none: the loop stopped
+  // Every failure also carries step (the last t.step() label, '' before the first), stepN and elapsedMs.
   function runScript(fn, limitMs, what, arg) {
     if (!fn) return Promise.resolve({ ran: false });
-    var steps = [], t0 = performance.now(), frames0 = S.frames, over = false;
+    var steps = [], t0 = performance.now(), frames0 = S.frames, over = false, pending = null;
+    var fail = function (f, message) { var e = new Error(message); e.gcpFailure = f; return e; };
     var wait = function (ms) { return new Promise(function (r) { setTimeout(r, Math.max(0, +ms || 0)); }); };
-    var until = function (fn, timeoutMs, label) {
-      var end = performance.now() + (timeoutMs || 5000);
+    var waitFor = function (fn, timeoutMs, label, onTimeout) {
+      var ms = timeoutMs || 5000, end = performance.now() + ms, me = { what: label || 'a condition', waitMs: ms, since: performance.now() };
+      pending = me;
       return new Promise(function (res, rej) {
         (function poll() {
-          var v; try { v = fn(); } catch (e) { return rej(e); }
-          if (v) return res(v);
-          if (over || performance.now() > end) return rej(new Error('Timed out waiting for ' + (label || 'a condition') + ' (' + Math.round((timeoutMs || 5000) / 1000) + ' s).'));
+          var v; try { v = fn(); } catch (e) { if (pending === me) pending = null; return rej(e); }
+          if (v) { if (pending === me) pending = null; return res(v); }
+          if (over || performance.now() > end) { if (pending === me) pending = null; return rej(onTimeout(me)); }
           setTimeout(poll, 30);
         })();
       });
     };
+    var until = function (fn, timeoutMs, label) {
+      return waitFor(fn, timeoutMs, label, function (me) { return fail({ source: 'script', kind: 'timeout', label: me.what, waitMs: me.waitMs }, 'Timed out waiting for ' + me.what + ' (' + Math.round(me.waitMs / 1000) + ' s).'); });
+    };
     var t = {
       /** Names what is about to be tried. The report lists the steps, and a failure names the last one. */
       step: function (label) { if (steps.length < 60) steps.push(String(label).slice(0, 120)); },
-      assert: function (cond, message) { if (!cond) throw new Error(String(message || 'Assertion failed')); },
+      assert: function (cond, message) { if (!cond) { var m = String(message || 'Assertion failed'); throw fail({ source: 'script', kind: 'assert', message: m.slice(0, 300) }, m); } },
       wait: wait,
       /** Resolves after n more frames have been drawn. Fails if the loop has stopped. */
-      frames: function (n) { var target = S.frames + (n || 1); return until(function () { return S.frames >= target; }, 8000, (n || 1) + ' more frame(s)'); },
+      frames: function (n) {
+        var target = S.frames + (n || 1), label = (n || 1) + ' more frame(s)';
+        return waitFor(function () { return S.frames >= target; }, 8000, label, function (me) { return fail({ source: 'game', kind: 'no_frames', label: label, waitMs: me.waitMs, drawn: S.frames - (target - (n || 1)) }, 'Timed out waiting for ' + label + ' (8 s).'); });
+      },
       until: until,
       /** Presses a key by its physical code ('KeyW', 'Space', 'ArrowLeft') the way a keyboard would, held for holdMs. */
       key: function (code, holdMs) {
@@ -936,10 +952,21 @@
         fire('keydown'); return wait(holdMs == null ? 120 : holdMs).then(function () { fire('keyup'); });
       },
     };
-    var out = function (ok, error, result) { over = true; return { ran: true, ok: ok, error: error || '', steps: steps, ms: Math.round(performance.now() - t0), frames: S.frames - frames0, result: result === undefined ? null : result }; };
-    var limit = new Promise(function (r) { setTimeout(function () { r(out(false, 'The ' + what + ' did not finish within ' + Math.round(limitMs / 1000) + ' s.')); }, limitMs); });
+    var where = function (f) { f.step = steps.length ? steps[steps.length - 1] : ''; f.stepN = steps.length; f.elapsedMs = Math.round(performance.now() - t0); return f; };
+    var classify = function (e) {
+      if (e && e.gcpFailure) return where(e.gcpFailure);
+      var stack = e && typeof e.stack === 'string' ? e.stack.split('\n') : [], at = '';
+      for (var i = 0; i < stack.length; i++) { var l = stack[i].trim(); if (/^at |@/.test(l) && !/\/sdk\/gcp\.js/.test(l)) { at = l.replace(/^at /, '').slice(0, 200); break; } }
+      return where({ source: 'script', kind: 'error', name: e && e.name ? String(e.name) : typeof e, message: String(e && e.message || e).slice(0, 300), at: at });
+    };
+    var out = function (ok, error, result, failure) { over = true; var o = { ran: true, ok: ok, error: error || '', steps: steps, ms: Math.round(performance.now() - t0), frames: S.frames - frames0, result: result === undefined ? null : result }; if (!ok) o.failure = failure || null; return o; };
+    var limit = new Promise(function (r) { setTimeout(function () {
+      var f = where({ source: 'script', kind: 'limit', limitMs: limitMs });
+      if (pending) { f.label = pending.what; f.waitMs = pending.waitMs; f.waitedMs = Math.round(performance.now() - pending.since); }
+      r(out(false, 'The ' + what + ' did not finish within ' + Math.round(limitMs / 1000) + ' s.', undefined, f));
+    }, limitMs); });
     var run; try { run = Promise.resolve(fn(t, arg)); } catch (e) { run = Promise.reject(e); }
-    return Promise.race([limit, run.then(function (v) { return out(true, '', v); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400)); })]);
+    return Promise.race([limit, run.then(function (v) { return out(true, '', v); }, function (e) { return out(false, String(e && e.message || e).slice(0, 400), undefined, classify(e)); })]);
   }
   // Display state, sent by the platform page (see GCP.display). The <html> element carries gcp-fullscreen and gcp-touch classes to match.
   var coarse = false; try { coarse = matchMedia('(pointer: coarse)').matches && matchMedia('(hover: none)').matches; } catch (e) { /* old browser */ }
