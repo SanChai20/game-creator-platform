@@ -54,6 +54,7 @@ export interface User {
 export interface Project {
   id: string; owner_id: string; slug: string; title: string; tagline: string; description: string; tags: string; controls: string;
   status: 'draft' | 'live' | 'offline' | 'removed'; live_version: number | null; preview_version: number | null; next_version: number;
+  ws_base?: number | null;                      // the version the workspace last matched (migrations/0048_version_sync.sql)
   cover_key: string | null; price_cents: number; trial_minutes: number; sales: number; featured: number; plays: number; seconds: number; rating_sum: number; rating_count: number;
   removed_reason: string | null; deleted_at?: number | null; created_at: number; updated_at: number; published_at: number | null;
   open_implementation: number; open_implementation_at: number | null;
@@ -73,6 +74,8 @@ export interface Version {
   screenshot_key: string | null; human_ok: number; created_at: number; verified_at: number | null; published_at: number | null;
   review?: 'pending' | 'approved' | 'denied' | null; review_note?: string | null; reviewed_at?: number | null; reviewed_by?: string | null;
   gate?: string | null;                         // the release gate's last outcome for this version (src/release-gate.ts)
+  base?: number | null;                         // the version it was built on (base_version)
+  actor?: string;                               // who deployed it
 }
 
 /** Thrown anywhere in a request; turned into a JSON error (HTTP) or a tool error (MCP). */

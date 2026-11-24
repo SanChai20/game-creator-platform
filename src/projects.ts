@@ -494,17 +494,27 @@ export async function getVersion(env: Env, pid: string, n: number): Promise<Vers
 }
 
 /** Freezes the workspace into an immutable numbered version. */
-export async function snapshot(env: Env, p: Project, manifest: Manifest, note: string): Promise<Version> {
+/**
+ * Freezes the workspace as a new numbered version. `expectNewest`: the deploy said which version its changes start from
+ * (base_version), so the number is taken only while that is still the newest version; two agents deploying at once
+ * cannot both pass, and the one that loses gets null (src/version-sync.ts).
+ */
+export async function snapshot(env: Env, p: Project, manifest: Manifest, note: string, opts: { base?: number | null; actor?: string; expectNewest?: number } = {}): Promise<Version | null> {
   const files = await listFiles(env, p.id);
-  const got = await env.DB.prepare('UPDATE projects SET next_version = next_version + 1, updated_at = ? WHERE id = ? RETURNING next_version').bind(now(), p.id).first<{ next_version: number }>();
-  const n = got!.next_version - 1;
+  const got = opts.expectNewest === undefined
+    ? await env.DB.prepare('UPDATE projects SET next_version = next_version + 1, updated_at = ? WHERE id = ? RETURNING next_version').bind(now(), p.id).first<{ next_version: number }>()
+    : await env.DB.prepare('UPDATE projects SET next_version = next_version + 1, updated_at = ? WHERE id = ? AND next_version = ? RETURNING next_version').bind(now(), p.id, opts.expectNewest + 1).first<{ next_version: number }>();
+  if (!got) return null;
+  const n = got.next_version - 1;
   for (const f of files) {
     const obj = await env.FILES.get(wsKey(p.id, f.path));
     if (!obj) throw new AppError(500, `Workspace file vanished: ${f.path}`);
     await env.FILES.put(verKey(p.id, n, f.path), obj.body, { httpMetadata: { contentType: f.ctype } });
   }
-  await env.DB.prepare('INSERT INTO versions (project_id, n, note, manifest, file_count, bytes, files, status, stage, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(p.id, n, note.slice(0, 300), JSON.stringify(manifest), files.length, files.reduce((a, f) => a + f.size, 0), JSON.stringify(files.map((f) => ({ path: f.path, size: f.size, sha: f.sha }))), 'queued', 'Queued', now()).run();
+  await env.DB.prepare('INSERT INTO versions (project_id, n, note, manifest, file_count, bytes, files, status, stage, created_at, base, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(p.id, n, note.slice(0, 300), JSON.stringify(manifest), files.length, files.reduce((a, f) => a + f.size, 0), JSON.stringify(files.map((f) => ({ path: f.path, size: f.size, sha: f.sha }))), 'queued', 'Queued', now(), opts.base ?? null, (opts.actor || '').slice(0, 120)).run();
+  // the workspace now matches this version: checkout_version and list_files say what changed since
+  await env.DB.prepare('UPDATE projects SET ws_base = ? WHERE id = ?').bind(n, p.id).run();
   return (await getVersion(env, p.id, n))!;
 }
 

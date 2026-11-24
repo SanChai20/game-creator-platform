@@ -30,7 +30,7 @@ import { follows } from './routes/follows';
 // @ts-ignore plain JS module
 import { creatorOf, followerCount } from './follows.js';
 import { push } from './routes/push';
-import { upload } from './routes/upload';
+import { download, upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now, parseJson } from './util';
 import { GUIDES, creatorPage, gamePage, homePage, injectMeta, isPrivatePath, llmsTxt, robotsTxt, siteJsonLd, sitemapXml, staticPage, type PageMeta, type SitemapEntry } from './seo';
@@ -72,7 +72,7 @@ const originOf = (env: Env, req: Request) => env.PUBLIC_ORIGIN || new URL(req.ur
 // Machine endpoints that keep answering on the Worker's other hosts (workers.dev, www): game Workers deployed before a
 // domain move call back to the address they were deployed with, and agents keep their configured MCP URL. None of them
 // sets a cookie. Everything else (pages, cookie-session API) moves to PUBLIC_ORIGIN, so sign-in only ever happens there.
-const MACHINE_PATHS = /^\/(api\/rt\/|api\/upload\/|api\/stripe\/webhook$|mcp(\/|$)|oauth\/(token|register|device(\/token)?)$|\.well-known\/|sdk\/|kits\/|vendor\/|guides\/|templates\/|__game\/)/;
+const MACHINE_PATHS = /^\/(api\/rt\/|api\/upload\/|api\/download\/|api\/stripe\/webhook$|mcp(\/|$)|oauth\/(token|register|device(\/token)?)$|\.well-known\/|sdk\/|kits\/|vendor\/|guides\/|templates\/|__game\/)/;
 export function canonicalRedirect(env: Pick<Env, 'PUBLIC_ORIGIN'>, url: URL): Response | null {
   if (!env.PUBLIC_ORIGIN || url.origin === env.PUBLIC_ORIGIN || MACHINE_PATHS.test(url.pathname)) return null;
   return new Response(null, { status: 308, headers: { location: env.PUBLIC_ORIGIN + url.pathname + url.search, 'cache-control': 'no-store' } });
@@ -97,6 +97,7 @@ app.use('*', async (c, next) => { c.set('origin', originOf(c.env, c.req.raw)); a
 // In-game runtime API and curl uploads: token-authenticated, cross-origin, no cookies involved.
 app.route('/api/rt', rt);
 app.route('/api/upload', upload);
+app.route('/api/download', download);   // pull_version's curl downloads of a version or the workspace
 
 // Everything else under /api uses the session cookie. Mutations must come from our own pages.
 app.use('/api/*', async (c, next) => {
@@ -493,6 +494,7 @@ const handler = {
     job('cleanup', () => eachStmt([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM uploads WHERE expires_at < ?').bind(t),
+      env.DB.prepare('DELETE FROM downloads WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare('DELETE FROM login_challenges WHERE expires_at < ?').bind(t),

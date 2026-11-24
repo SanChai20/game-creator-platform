@@ -4,7 +4,7 @@
 
 /** The platform's scope in one breath: what it does, and what it never decides. */
 export const SCOPE = {
-  covers: 'Hosting (projects, uploads, numbered versions on a private preview, publishing, rollback, storage), the SDK (window.GCP, injected into every game page: start-up, saves, stats, leaderboards, shared data, rooms, server-run matches, friends, display, touch controls, interface scale, test hooks) and testing and feedback (static checks, a real-browser verification of every version on a computer, an emulated iPhone and iPad, a browser you drive on the preview, the creator\'s annotated screenshots, bot players for online games, standards checks, a publish dry run, live analytics and runtime errors).',
+  covers: 'Hosting (projects, uploads, numbered versions on a private preview, downloading, checking out and comparing versions from any machine, publishing, rollback, storage), the SDK (window.GCP, injected into every game page: start-up, saves, stats, leaderboards, shared data, rooms, server-run matches, friends, display, touch controls, interface scale, test hooks) and testing and feedback (static checks, a real-browser verification of every version on a computer, an emulated iPhone and iPad, a browser you drive on the preview, the creator\'s annotated screenshots, bot players for online games, standards checks, a publish dry run, live analytics and runtime errors).',
   yours: 'The game\'s design is yours and the creator\'s: genre, rules, mechanics, art, engine (or none), renderer, interface, sound, length and scope. The platform neither prescribes nor scores any of it. Its checks judge only the player\'s experience: the game starts, keeps running, answers input on computers, tablets and phones, throws no errors and stays on the page; and around that, honest content descriptors, originality and the store metadata. game_standards describes the platform\'s own surfaces (cover crops, menu button, safe areas) as recommendations that never block a version.',
   self_contained: 'Everything needed is on this server: the tool descriptions and answers, get_started (rules, workflow, account, a guide per topic), platform_services (every service with its live limits), and the same guides and catalog as MCP resources (gcp://guides/<topic>, gcp://services, gcp://templates/<name>). No outside documentation is needed; every answer says what to call next.',
 };
@@ -27,7 +27,10 @@ export const TOOL_GROUPS: ToolGroup[] = [
     ['list_files', 'the workspace with sizes and hashes'],
     ['game_storage', 'how much storage the game uses and has, how to stay inside it, asking for more'],
     ['deploy_preview', 'static checks, then a new numbered version on the private preview, verified in a real browser (dry_run: static checks only)'],
-    ['list_versions', 'every version with its status, or one version\'s full verification report (waits for a running check)'],
+    ['list_versions', 'every version with its status, who deployed it and what it was built on, or one version\'s full verification report (waits for a running check)'],
+    ['pull_version', 'download any version\'s complete files (or the workspace) as a zip or file by file, to carry on from another machine or agent'],
+    ['checkout_version', 'make the workspace exactly one version\'s files; refuses to discard changes that are in no version unless forced'],
+    ['diff_versions', 'files added, removed and changed between two versions or a version and the workspace, with line diffs'],
     ['publish', 'make a verified version live; dry_run: true lists every release requirement with its fix'],
     ['rollback', 'make an earlier live version live again'],
     ['unpublish', 'take the game offline (versions stay)'],
