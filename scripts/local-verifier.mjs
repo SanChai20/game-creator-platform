@@ -3,7 +3,7 @@
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { applyDeviceResults, verifyDevices, verifyPage } from '../src/verify-core.js';
-import { gameState, openGame, runSteps, shoot } from '../src/debug-core.js';
+import { callShots, gameState, openGame, runSteps } from '../src/debug-core.js';
 
 const { chromium } = createRequire(import.meta.url)('playwright');
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
@@ -14,10 +14,10 @@ setInterval(() => { for (const [id, d] of debugPages) if (Date.now() - d.at > 18
 async function drive(page, steps) {
   const f0 = await gameState(page).catch(() => ({ frames: 0 })), t0 = Date.now();
   const run = await runSteps(page, steps || []);
-  const shots = [...run.shots, { label: 'now', bytes: await shoot(page) }];
+  const shots = await callShots(page, steps, run);
   const state = await gameState(page).catch((e) => ({ error: String(e.message || e) }));
   const dt = Date.now() - t0; if (dt > 600 && typeof state.frames === 'number') state.fps_during_call = Math.round(((state.frames - (f0.frames || 0)) * 1000) / dt);
-  return { log: run.log, state, stopped: run.stopped || 0, shots: shots.map((s) => ({ label: s.label, b64: Buffer.from(s.bytes).toString('base64') })) };
+  return { log: run.log, state, stopped: run.stopped || 0, shots: shots.map((s) => ({ label: s.label, b64: Buffer.from(s.bytes).toString('base64'), type: s.type, zoom: s.zoom, note: s.note })) };
 }
 async function debug(req, res, body) {
   const send = (code, j) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(j)); };

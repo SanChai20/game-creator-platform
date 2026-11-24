@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { DEBUG_LIMITS, StepError, checkSteps, gameState, openGame, runSteps, shoot, viewportOf } from '../src/debug-core.js';
+import { DEBUG_LIMITS, StepError, callShots, checkSteps, gameState, openGame, runSteps, shoot, viewportOf } from '../src/debug-core.js';
 
 const vp = viewportOf('desktop');
 test('viewports', () => {
@@ -13,6 +13,20 @@ test('viewports', () => {
   assert.equal(viewportOf({ width: 800, height: 600 }).name, 'custom');
   assert.throws(() => viewportOf('watch'), StepError);
   assert.throws(() => viewportOf({ width: 5000, height: 600 }), StepError);
+  assert.deepEqual(viewportOf('ipad'), { width: 1180, height: 820, touch: true, name: 'ipad' });   // verification's iPad check
+  assert.equal(viewportOf('iphone').width, 844);
+});
+
+test('screenshot format and zoom are held to their limits', () => {
+  assert.deepEqual(checkSteps([{ do: 'screenshot', format: 'png' }], vp), [{ do: 'screenshot', format: 'png' }]);
+  assert.deepEqual(checkSteps([{ do: 'screenshot', format: 'jpeg', zoom: 1 }], vp), [{ do: 'screenshot' }]);
+  assert.deepEqual(checkSteps([{ do: 'screenshot', zoom: 2 }], vp), [{ do: 'screenshot', zoom: 2 }]);   // 1920 × 1080
+  assert.deepEqual(checkSteps([{ do: 'screenshot', zoom: 4, clip: { x: 0, y: 0, width: 480, height: 270 } }], vp)[0].zoom, 4);
+  assert.throws(() => checkSteps([{ do: 'screenshot', format: 'gif' }], vp), /png or jpeg/);
+  assert.throws(() => checkSteps([{ do: 'screenshot', zoom: 8 }], vp), /zoom must be/);
+  assert.throws(() => checkSteps([{ do: 'screenshot', zoom: 1.5 }], vp), /zoom must be/);
+  assert.throws(() => checkSteps([{ do: 'screenshot', zoom: 3 }], vp), /2880 × 1620.*at most 640/);
+  assert.throws(() => checkSteps([{ do: 'screenshot', zoom: 2 }], viewportOf('hd')), /longest side/);
 });
 
 test('steps are held to their limits', () => {
@@ -75,5 +89,18 @@ test('steps play a real page and report its state', { skip: !chromium && 'Playwr
     const bad = await runSteps(page, checkSteps([{ do: 'eval', js: 'nope.nothing' }, { do: 'wait', ms: 1 }], vp));
     assert.equal(bad.log[0].ok, false); assert.equal(bad.log[1].ok, true);
     assert.ok((await shoot(page)).length > 1000);
+    // png and zoom: a lossless close-up rendered again at 3 image pixels per CSS pixel, with exact colours
+    const art = checkSteps([{ do: 'key', key: 'Enter' }, { do: 'screenshot', label: 'box', format: 'png', zoom: 3, clip: { x: 0, y: 0, width: 100, height: 60 } }], vp);
+    const ar = await runSteps(page, art);
+    const pic = ar.shots[0];
+    assert.equal(pic.type, 'image/png'); assert.equal(pic.zoom, 3);
+    assert.deepEqual([...pic.bytes.slice(1, 4)].map((b) => String.fromCharCode(b)).join(''), 'PNG');
+    const dv = new DataView(pic.bytes.buffer, pic.bytes.byteOffset);
+    assert.deepEqual([dv.getUint32(16), dv.getUint32(20)], [300, 180]);
+    // a call that ends on a screenshot returns it as the final picture, without another "now" one
+    assert.equal((await callShots(page, art, ar)).length, 1);
+    const plain = checkSteps([{ do: 'wait', ms: 1 }], vp);
+    const pr = await callShots(page, plain, await runSteps(page, plain));
+    assert.equal(pr.length, 1); assert.equal(pr[0].label, 'now'); assert.equal(pr[0].type, 'image/jpeg');
   } finally { await browser.close(); }
 });

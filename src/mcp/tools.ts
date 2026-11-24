@@ -242,7 +242,7 @@ async function feedbackHint(c: ToolCtx, p: Project): Promise<Record<string, stri
 
 const STEP_SCHEMA = {
   type: 'array', maxItems: DEBUG_LIMITS.steps,
-  description: `Steps run in order, then a screenshot of the result is returned. Coordinates are CSS pixels of the viewport, (0, 0) top left; read them off the last screenshot (same size as the viewport). Each step is an object with "do":
+  description: `Steps run in order, then a screenshot of the result is returned. Coordinates are CSS pixels of the viewport, (0, 0) top left; read them off the last full screenshot (same size as the viewport; in a zoomed or clipped one, CSS x = clip.x + image x ÷ zoom). Each step is an object with "do":
 - {do: "click", x, y, button?: "left"|"right"|"middle", count?: 1|2}, {do: "double_click", x, y}, {do: "right_click", x, y}
 - {do: "move", x, y} (hover), {do: "down", x?, y?, button?}, {do: "up", x?, y?, button?} (press and release separately, e.g. to hold the mouse)
 - {do: "drag", x, y, to_x, to_y, ms?} (press, move over ms milliseconds, release; default 300)
@@ -252,7 +252,7 @@ const STEP_SCHEMA = {
 - {do: "type", text} (types characters, up to ${DEBUG_LIMITS.text_chars})
 - {do: "wait", ms} (up to 10000 per step; every wait, hold, drag and wait_for timeout in one call adds up to at most ${DEBUG_LIMITS.wait_ms / 1000} seconds, so a 60-second round takes three or more act calls in the same session)
 - {do: "wait_for", until: "ready"|"text"|"frames", text?, frames?, timeout_ms?} (until GCP.ready(), until text appears on the page, or until the game drew that many more frames; stops the call if not met)
-- {do: "screenshot", label?, clip?: {x, y, width, height}} (an extra picture in the middle of the steps, or a close-up of one area; up to ${DEBUG_LIMITS.shots - 1} per call plus the final one)
+- {do: "screenshot", label?, clip?: {x, y, width, height}, format?: "jpeg"|"png", zoom?: 1|2|3|4} (an extra picture in the middle of the steps, or a close-up of one area; up to ${DEBUG_LIMITS.shots - 1} per call plus the final one. format "png" is lossless: exact colours and hard pixel edges, for checking art and palettes against a reference (default jpeg, smaller). zoom renders the region again at 2 to 4 image pixels per CSS pixel, sharp, not an enlarged 1× picture: for small sprites, icons and text. Picture size = clip (or the viewport) × zoom, at most ${DEBUG_LIMITS.shot_edge} px on its longest side, so at zoom 2 clip at most ${DEBUG_LIMITS.shot_edge / 2} px wide. A PNG over ${DEBUG_LIMITS.png_bytes / 1e6} MB comes back as a JPEG and its label says so. When the last step is a screenshot, it is the final picture and no extra one is added)
 - {do: "eval", js} (an expression or statements ending in return, evaluated in the game page; the JSON result comes back in the log. For reading the game's state, not for playing it)
 All waits of one call add up to at most ${DEBUG_LIMITS.wait_ms / 1000} seconds.`,
   items: { type: 'object' },
@@ -264,10 +264,10 @@ function debugAnswer(r: DebugResult, next: string) {
     ...(r.opened ? { opened: r.opened.started ? `The game called GCP.ready() after ${r.opened.ms} ms.` : `The game did not call GCP.ready() within ${Math.round(r.opened.ms / 1000)} seconds (see state.errors).` } : {}),
     steps: r.log, ...(r.stopped ? { stopped_at_step: r.stopped } : {}),
     state: r.state,
-    screenshots: r.shots.map((s, i) => `image ${i + 1}: ${s.label}`),
+    screenshots: r.shots.map((s, i) => `image ${i + 1}: ${s.label}${s.type === 'image/png' ? ' (png)' : ''}${s.zoom ? ` (zoom ${s.zoom}: ${s.zoom} image pixels per CSS pixel)` : ''}${s.note ? ` (${s.note})` : ''}`),
     closes_in_seconds: left,
     next,
-  }, r.shots.map((s) => ({ data: s.bytes, type: 'image/jpeg' })));
+  }, r.shots.map((s) => ({ data: s.bytes, type: s.type || 'image/jpeg' })));
 }
 
 /** A declared requirements block as agents read it: orientation "any" (an older spelling) shows as "both". */
@@ -1055,7 +1055,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
   },
   {
     name: 'debug_preview', title: 'Open, play and screenshot the preview in a browser',
-    description: `A real browser on the game's current preview that you drive step by step, to see what the game looks like and reproduce a bug: take screenshots, click, tap, drag, press and hold keys, type, wait, and read the game's state. action "open" starts a browser on the preview (deploy_preview first) and returns a screenshot; "act" runs steps in it and returns screenshots; "screenshot" takes one; "close" ends it. Every answer includes state: whether the game is ready, frames drawn, uncaught errors, console errors and console warnings the SDK saw, the game's last calls to the platform with the answer to each (platform_calls: a GCP.leaderboard.submit shows as path "score", op "submit", with its HTTP status), missing files, and what the game's GCP.test.onState(fn) returns. Scores the game submits here are kept on the preview's leaderboards under the name "Debugger" (game_data {action: "leaderboard", env: "preview"} reads them). Limits per act call: ${DEBUG_LIMITS.steps} steps, ${DEBUG_LIMITS.shots} screenshots, waits adding up to ${DEBUG_LIMITS.wait_ms / 1000} seconds (one wait step up to 10); a session lasts a few minutes, so play a long round over several act calls. The game runs as a throwaway test player (empty save, never the creator's data; its saves are removed daily). One browser per account at a time; it closes after 3 idle minutes and at most a few minutes after opening. The browser has no GPU: heavy 3D runs slowly and WebGPU is not available, so judge layout, UI and logic here, not frame rate. Also read creator_feedback: the creator may already have marked what is wrong.`,
+    description: `A real browser on the game's current preview that you drive step by step, to see what the game looks like and reproduce a bug: take screenshots (JPEG, or lossless PNG and sharp 2× to 4× close-ups to compare art with a reference), click, tap, drag, press and hold keys, type, wait, and read the game's state. action "open" starts a browser on the preview (deploy_preview first) and returns a screenshot; "act" runs steps in it and returns screenshots; "screenshot" takes one; "close" ends it. Every answer includes state: whether the game is ready, frames drawn, uncaught errors, console errors and console warnings the SDK saw, the game's last calls to the platform with the answer to each (platform_calls: a GCP.leaderboard.submit shows as path "score", op "submit", with its HTTP status), missing files, and what the game's GCP.test.onState(fn) returns. Scores the game submits here are kept on the preview's leaderboards under the name "Debugger" (game_data {action: "leaderboard", env: "preview"} reads them). Limits per act call: ${DEBUG_LIMITS.steps} steps, ${DEBUG_LIMITS.shots} screenshots, waits adding up to ${DEBUG_LIMITS.wait_ms / 1000} seconds (one wait step up to 10); a session lasts a few minutes, so play a long round over several act calls. The game runs as a throwaway test player (empty save, never the creator's data; its saves are removed daily). One browser per account at a time; it closes after 3 idle minutes and at most a few minutes after opening. The browser has no GPU: heavy 3D runs slowly and WebGPU is not available, so judge layout, UI and logic here, not frame rate. Also read creator_feedback: the creator may already have marked what is wrong.`,
     inputSchema: obj({
       project: PROJECT,
       action: { type: 'string', enum: ['open', 'act', 'screenshot', 'close'], description: 'open: a new browser on the preview (replaces your open one). act: run steps. screenshot: just a picture. close: end the session.' },

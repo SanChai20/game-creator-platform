@@ -11,6 +11,10 @@ export const DEBUG_LIMITS = {
   eval_chars: 2000,      // eval: the expression
   eval_result_chars: 4000,
   state_chars: 4000,     // what GCP.test.onState(fn) returned
+  zoom_max: 4,           // screenshot zoom: the region re-rendered at up to 4 image pixels per CSS pixel
+  shot_edge: 1920,       // a screenshot's longest side, in image pixels (clip × zoom)
+  shot_pixels: 1920 * 1200,
+  png_bytes: 1_200_000,  // a PNG over this is sent as a JPEG instead (the answer says so), so one call stays a few MB
 };
 export const VIEWPORTS = {
   desktop: { width: 960, height: 540, touch: false },
@@ -18,6 +22,9 @@ export const VIEWPORTS = {
   'phone-landscape': { width: 844, height: 390, touch: true },
   'phone-portrait': { width: 390, height: 844, touch: true },
   tablet: { width: 1024, height: 768, touch: true },
+  // the sizes verification's device checks play the game at ("Plays on iPhone", "Plays on iPad")
+  iphone: { width: 844, height: 390, touch: true },
+  ipad: { width: 1180, height: 820, touch: true },
 };
 const ACTIONS = ['click', 'double_click', 'right_click', 'move', 'down', 'up', 'drag', 'tap', 'scroll', 'key', 'key_down', 'key_up', 'type', 'wait', 'wait_for', 'screenshot', 'eval'];
 const KEY = /^([\x20-\x7e]|[A-Z][A-Za-z0-9]{1,24})$/;   // one printable character, or a key name: Enter, ArrowLeft, KeyW, Space, F1…
@@ -85,6 +92,14 @@ export function checkSteps(steps, vp) {
           if (![x, y, w, h].every(Number.isFinite) || w < 16 || h < 16 || x < 0 || y < 0 || x + w > vp.width + 0.5 || y + h > vp.height + 0.5) fail(`Step ${i + 1} (screenshot): clip must be { x, y, width, height } inside the viewport, at least 16 px each way.`);
           o.clip = { x, y, width: w, height: h };
         }
+        if (s.format !== undefined) { if (s.format !== 'png' && s.format !== 'jpeg') fail(`Step ${i + 1} (screenshot): format must be png or jpeg.`); if (s.format === 'png') o.format = 'png'; }
+        if (s.zoom !== undefined) {
+          const z = Number(s.zoom);
+          if (![1, 2, 3, 4].includes(z)) fail(`Step ${i + 1} (screenshot): zoom must be 1, 2, 3 or ${DEBUG_LIMITS.zoom_max}.`);
+          const w = o.clip ? o.clip.width : vp.width, h = o.clip ? o.clip.height : vp.height;
+          if (Math.max(w, h) * z > DEBUG_LIMITS.shot_edge + 0.5 || w * h * z * z > DEBUG_LIMITS.shot_pixels) fail(`Step ${i + 1} (screenshot): at zoom ${z} the picture would be ${Math.round(w * z)} × ${Math.round(h * z)}; keep it within ${DEBUG_LIMITS.shot_edge} px on its longest side and ${DEBUG_LIMITS.shot_pixels / 1e6} megapixels: clip a smaller region (at most ${Math.floor(DEBUG_LIMITS.shot_edge / z)} px wide or high).`);
+          if (z > 1) o.zoom = z;
+        }
         break;
       }
       case 'eval':
@@ -129,15 +144,51 @@ export async function gameState(page) {
 }
 
 /**
- * A JPEG of the viewport (or of clip, in CSS pixels of the viewport). Puppeteer would capture a clip "beyond the viewport"
- * by default, which resizes the page for the shot: the game would get a resize event and could be caught re-laying out.
- * The viewport as it is, never resized, is what the agent asked for (Playwright never resizes).
+ * A picture of the viewport (or of clip, in CSS pixels of the viewport): a JPEG by default, or a PNG (exact colours and
+ * hard pixel edges). zoom > 1 has the browser render the region again at that scale (page text and shapes come out sharp,
+ * a canvas drawn with image-rendering: pixelated keeps its square pixels), not an enlargement of a 1× picture.
+ * Puppeteer would capture a clip "beyond the viewport" by default, which resizes the page for the shot: the game would
+ * get a resize event and could be caught re-laying out. The viewport as it is, never resized, is what the agent asked for.
  */
-export async function shoot(page, clip, quality = 72) {
-  const buf = await page.screenshot({ type: 'jpeg', quality, ...(clip ? { clip } : {}), ...(isPlaywright(page) ? {} : { captureBeyondViewport: false }) });
-  return new Uint8Array(buf);
+export async function shoot(page, clip, quality = 72, o = {}) {
+  const format = o.format === 'png' ? 'png' : 'jpeg', zoom = o.zoom > 1 ? o.zoom : 1;
+  if (!isPlaywright(page)) {
+    const vp = page.viewport() || { width: 960, height: 540 };
+    const c = clip || zoom > 1 ? { ...(clip || { x: 0, y: 0, width: vp.width, height: vp.height }), ...(zoom > 1 ? { scale: zoom } : {}) } : null;
+    const buf = await page.screenshot({ type: format, ...(format === 'jpeg' ? { quality } : {}), ...(c ? { clip: c } : {}), captureBeyondViewport: false });
+    return new Uint8Array(buf);
+  }
+  if (zoom === 1) return new Uint8Array(await page.screenshot({ type: format, ...(format === 'jpeg' ? { quality } : {}), ...(clip ? { clip } : {}) }));
+  // Playwright has no zoomed capture: the browser's debugging protocol does it (the local verifier runs Chromium)
+  const vp = page.viewportSize() || { width: 960, height: 540 };
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const r = await cdp.send('Page.captureScreenshot', { format, ...(format === 'jpeg' ? { quality } : {}), clip: { ...(clip || { x: 0, y: 0, width: vp.width, height: vp.height }), scale: zoom }, captureBeyondViewport: false });
+    return new Uint8Array(Buffer.from(r.data, 'base64'));
+  } finally { await cdp.detach().catch(() => {}); }
 }
 
+/**
+ * The pictures one call returns: its screenshot steps, then "now" (the viewport as the call ends), unless the last step
+ * was a screenshot that was taken: that one already shows the end of the call.
+ */
+export async function callShots(page, steps, run) {
+  const last = steps[steps.length - 1];
+  if (last && last.do === 'screenshot' && !run.stopped && run.log[run.log.length - 1]?.ok) return run.shots;
+  return [...run.shots, { label: 'now', bytes: await shoot(page), type: 'image/jpeg' }];
+}
+
+/** A screenshot step's picture: a PNG over the size cap is taken again as a JPEG, and the shot says so. */
+export async function shootStep(page, s) {
+  const zoom = s.zoom || 1;
+  let bytes = await shoot(page, s.clip, 72, { format: s.format, zoom }), type = s.format === 'png' ? 'image/png' : 'image/jpeg', note = '';
+  if (s.format === 'png' && bytes.byteLength > DEBUG_LIMITS.png_bytes) {
+    const kb = Math.round(bytes.byteLength / 1000);
+    bytes = await shoot(page, s.clip, 90, { zoom }); type = 'image/jpeg';
+    note = `sent as JPEG (quality 90): the PNG was ${kb} kB, over the ${DEBUG_LIMITS.png_bytes / 1e6} MB cap; clip a smaller region for a PNG`;
+  }
+  return { label: s.label, bytes, type, ...(zoom > 1 ? { zoom } : {}), ...(note ? { note } : {}) };
+}
 /**
  * Runs checked steps on the page. Returns { log: [{ step, do, ok, detail? }], shots: [{ label, bytes }] }.
  * A failing step is logged and the rest still run, except after a failed wait_for, which stops the call.
@@ -189,7 +240,7 @@ export async function runSteps(page, steps) {
           if (!met) { entry.ok = false; log.push(entry); return { log, shots, stopped: i + 1 }; }
           break;
         }
-        case 'screenshot': shots.push({ label: s.label || `after step ${i}`, bytes: await shoot(page, s.clip) }); break;
+        case 'screenshot': shots.push(await shootStep(page, { ...s, label: s.label || `after step ${i}` })); break;
         case 'eval': {
           // Evaluated through the browser's debugging protocol, so the page's own script policy does not apply.
           // js is an expression, or statements that end in return.
