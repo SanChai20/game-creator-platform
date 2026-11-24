@@ -3,20 +3,26 @@
 import { AppError, type Env } from '../env';
 import { rateLimit, userById } from '../auth';
 import { getSettings } from '../settings';
-import { PLATFORM_GUIDES, TOOLS, WEB_ONLY, WithImages, guideText, type ToolCtx } from './tools';
+import { PLATFORM_GUIDES, TEMPLATES, TOOLS, WEB_ONLY, WithImages, guideText, type ToolCtx } from './tools';
 import { b64 } from '../util';
 import { DISCOVERY, NOT_PROVIDED, platformServices } from './services';
 import { checkArgs, listed, missingArgs, normalizeArgs, signature } from './schema';
+import { SCOPE, toolLines } from './overview';
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
-const INSTRUCTIONS = `${WEB_ONLY}
-This server deploys, verifies, publishes and versions web games for the account that authorized you, and hosts their services: player saves, shared game data and leaderboards in the platform database (game_data), realtime multiplayer rooms (game_room) and server-run matches. Players play together by inviting their platform friends (GCP.friends), not by typing room codes. How you make the game is up to you; the platform does not prescribe engines, renderers or art. find_implementations and get_implementation show how other creators' live games were built when they chose to share it (never their code).
-Call get_started first: it returns the rules a game must meet, the workflow, the account status and the platform services. platform_services (or the gcp://services resource) lists every service with its SDK calls, tools and limits, and what the platform does not provide.
-Typical loop: create_project → upload_files (or create_upload_url for big files and folders) → deploy_preview → read the report → fix → deploy_preview → publish.
-To see and debug the game: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game's state). creator_feedback returns the annotated screenshots and notes the creator left while playing the preview; read it at the start of a session and whenever an answer says feedback is waiting.
-A game is index.html plus the files it loads. The platform injects a global GCP; call GCP.ready() after the first playable frame. Recommended: draw what the player sees in canvases and register GCP.test.onCapture and GCP.test.onState, so the creator's feedback screenshots are the exact frame on every device (the "capture" check gives advice, it never stops a version; get_started {topic: "contract"}). Two kinds of rule: platform requirements are mandatory (a game must boot and play without errors, be playable on computers, tablets and phones, pass content and originality, and have its store metadata; publish refuses a version that misses one and says what to fix), while game design (orientation, layout, UI, cover, sound) is the game's choice: the platform's game standards are recommendations.`;
+export const INSTRUCTIONS = `${WEB_ONLY}
+This server is the game platform for the account that authorized you: it hosts web games you build with the creator you work for, gives them a platform SDK, and tests them and brings back feedback.
+What the platform covers: ${SCOPE.covers}
+What it leaves to you and the creator. ${SCOPE.yours}
+${SCOPE.self_contained}
+
+The tools, by what they are for:
+${toolLines()}
+
+Typical loop: get_started → create_project → upload_files (or create_upload_url) → deploy_preview → read the report → look with debug_preview and read creator_feedback → fix → deploy_preview → game_metadata → publish {dry_run: true} → publish (with the creator's go-ahead).
+The page contract in short: index.html at the root plus the files it loads by relative path, no build step on the platform. The platform injects a global GCP (never bundle it); call GCP.ready() once the first playable frame is drawn. Recommended: draw what the player sees in canvases and register GCP.test.onCapture and GCP.test.onState, so feedback screenshots are the exact frame and debug_preview shows where the game is (get_started {topic: "contract"}). The full testing and feedback loop: get_started {topic: "testing"}. Read creator_feedback at the start of a session and whenever an answer says feedback is waiting.`;
 
 const MAX_BATCH = 20;           // JSON-RPC messages in one POST
 const CALLS_PER_HOUR = 1200;    // tools/call per account (a busy agent makes a few hundred an hour)
@@ -75,11 +81,18 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
       return ok({ resources: [
         { uri: 'gcp://services', name: 'services', title: 'Platform services catalog', description: 'Every service games and agents can use, with SDK calls, MCP tools, limits and guidelines, and what the platform does not provide. JSON.', mimeType: 'application/json' },
         ...PLATFORM_GUIDES.map((g) => ({ uri: `gcp://guides/${g.topic}`, name: g.topic, title: g.title, description: g.summary, mimeType: 'text/markdown' })),
+        ...TEMPLATES.map((t) => ({ uri: `gcp://templates/${t.name}`, name: `${t.name}-template`, title: t.title, description: t.description, mimeType: 'image/png' })),
       ] });
     case 'resources/read': {
       if (params?.uri === 'gcp://services') {
         const catalog = { services: platformServices(await getSettings(c.env), c.origin), not_provided: NOT_PROVIDED, discover: DISCOVERY };
         return ok({ contents: [{ uri: 'gcp://services', mimeType: 'application/json', text: JSON.stringify(catalog, null, 1) }] });
+      }
+      const tm = String(params?.uri || '').match(/^gcp:\/\/templates\/([a-z0-9\-]+)$/), tpl = tm && TEMPLATES.find((t) => t.name === tm[1]);
+      if (tpl) {
+        const r = await c.env.ASSETS.fetch(new Request('https://assets.local' + tpl.path));
+        if (!r.ok) return rpcError(id, -32002, 'Resource not found');
+        return ok({ contents: [{ uri: params.uri, mimeType: 'image/png', blob: b64(new Uint8Array(await r.arrayBuffer())) }] });
       }
       const m = String(params?.uri || '').match(/^gcp:\/\/guides\/([a-z0-9\-]+)$/);
       const g = m && await guideText(c.env, c.origin, m[1]);

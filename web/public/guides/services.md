@@ -332,11 +332,11 @@ Every game plays on phones and tablets with no code for it. At deploy the platfo
 
 ## Verification and test hooks
 
-Every preview is opened in a real browser with no GPU. It must call `GCP.ready()` within 30 seconds (default), keep answering (redrawing all the time is not required), show a non-blank picture, survive keyboard, mouse and touch, load every file, throw no uncaught errors and hand over its exact frame. `deploy_preview {dry_run: true}` runs only the static checks.
+Every preview is opened in a real browser with no GPU. It must call `GCP.ready()` within 30 seconds (default), keep answering (redrawing all the time is not required), show a non-blank picture, survive keyboard, mouse and touch, load every file, and throw no uncaught errors; whether it hands over its exact frame is reported as advice (the `capture` check never stops a version). `deploy_preview {dry_run: true}` runs only the static checks.
 
 ```js
-GCP.test.onCapture(() => [world, ui]);                 // required: the canvases that hold everything the player sees
-GCP.test.onState(() => ({ scene, level, menu }));      // required: where the game is, sent with every feedback screenshot
+GCP.test.onCapture(() => [world, ui]);                 // recommended: the canvases that hold everything the player sees
+GCP.test.onState(() => ({ scene, level, menu }));      // recommended: where the game is, sent with every feedback screenshot
 GCP.test.onAutostart(() => startGame());               // skip menus when the verifier opens the game
 GCP.test.onPlaythrough(async (t) => {                  // play your own rules to the end; each t.step is reported
   t.step('collect the key'); await t.key('ArrowRight', 800); await t.until(() => game.hasKey, 5000, 'the key');
@@ -344,7 +344,7 @@ GCP.test.onPlaythrough(async (t) => {                  // play your own rules to
 GCP.test.onTwoPlayers(async (t, role) => ({ players: room.peers.length + 1, world: JSON.stringify(world) }));
 ```
 
-Limits (defaults): play-through 30 seconds and 60 steps. WebGPU-only games are verified by a short clean play of the preview by their creator. Each check, why it fails and the fix: `get_started {topic: "versions"}`.
+Limits (defaults): play-through 30 seconds and 60 steps. WebGPU-only games are verified by a short clean play of the preview by their creator. Each check, why it fails and the fix: `get_started {topic: "versions"}`; the whole testing and feedback loop: `get_started {topic: "testing"}`.
 
 ## Preview debugging in a browser
 
@@ -410,9 +410,10 @@ The MCP server is at `{{ORIGIN}}/mcp` (Streamable HTTP, stateless). Sign-in is O
 How to discover services:
 
 - `platform_services`: the catalog with this platform's live limits; `platform_services {service: "multiplayer"}` for one entry.
-- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `metadata`, `versions`, `storage`, `saves`, `multiplayer`, `matches`, `services`).
+- `get_started`: rules, workflow, account and a short overview; `get_started {topic}` for a guide (`contract`, `metadata`, `versions`, `testing`, `storage`, `saves`, `multiplayer`, `matches`, `bots`, `touch`, `standards`, `services`).
 - MCP resources: `gcp://services` (the catalog as JSON) and `gcp://guides/<topic>`.
-- On the web: `{{ORIGIN}}/guides/services.md` and the Docs page, `{{ORIGIN}}/docs#services`.
+- MCP resources for the template images: `gcp://templates/cover` and `gcp://templates/safe-area`.
+- Everything above is on this server; the same guides are also on the web at `{{ORIGIN}}/guides/<file>.md` for people.
 
 ## What the platform does not provide
 

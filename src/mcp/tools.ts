@@ -59,6 +59,7 @@ import { AREAS, STANDARDS, checkStandards, findingLine, renderStandards, standar
 import { SPLIT, deviceProblems } from '../platform-requirements.js';
 import { storeStatus, storeText } from '../store-quality';
 import { checkItem } from './schema';
+import { SCOPE, TESTING, toolMap } from './overview';
 import { deleteProject } from '../project-delete';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
 
@@ -70,12 +71,24 @@ export const PLATFORM_GUIDES: { topic: string; file: string; title: string; summ
   { topic: 'saves', file: 'saves', title: 'Player progress, saves, leaderboards and server code', summary: 'Each player\'s progress: cloud saves and stats per player and game, the play record the platform keeps, shared game data, leaderboards, and optional server code the platform runs in a sandbox of its own.' },
   { topic: 'multiplayer', file: 'multiplayer', title: 'Multiplayer rooms', summary: 'Realtime rooms on the platform, playing with friends (friend invites, GCP.friends, GCP.presence), the host-authoritative model, snapshots, host migration, turn-based games, and the two-player verification check.' },
   { topic: 'matches', file: 'matches', title: 'Server-run matches', summary: 'Competitive real-time games (shooters, fighting games, sports, racing): server/match.js runs the match at a fixed tick on the platform, with matchmaking by region and rating, private lobbies, client prediction, smooth playback and lag-compensated hit checks.' },
+  { topic: 'testing', file: 'testing', title: 'Testing and feedback', summary: 'Every way to test a game here and hear back about it, in the order a build uses them: static checks, the real-browser verification (each check, the iPhone and iPad pass, your own play-through), reading reports, debug_preview (screenshots, PNG and zoom, viewports, steps, state), creator_feedback, test bots for online games, standards checks, the publish dry run, and analytics and player errors after release.' },
   { topic: 'bots', file: 'test-bots', title: 'Testing online games with bots', summary: 'The bot contract every online game follows: the platform\'s test bots connect, matchmake, enter rooms and accept invites like real players, and the game\'s server/bot.js does everything that needs its rules (hello, ready, picks, moves; think, room, invite hooks). Also following the creator, invites as friends in the preview, network profiles, drops and reloads, the numbers per bot, limits. Read before building or testing any multiplayer game.' },
   { topic: 'storage', file: 'storage', title: 'Game storage', summary: 'How much a game\'s files may add up to, how uploads, deploys and publishing enforce it, how to keep a game small (generate content from code, load large or optional content at run time from your own host with CORS, compress what ships), and how to ask for more. Read before adding large assets.' },
   { topic: 'touch', file: 'input', title: 'Phones, tablets and input', summary: 'What the platform does so every game plays on touch screens (on-screen controls from the game\'s keys, mouse from the finger, pointer lock, taps, pixel density), gcp.json "controls" and GCP.controls, and what makes touch controls of your own good.' },
   { topic: 'standards', file: 'standards', title: 'Game standards', summary: 'Everything a game or its agent provides, as the platform shows it: the cover and its crops, title, tagline, description and controls text with how the store renders them, what the store draws over the cover, what it does not take (trailers, icons, logos, achievements), the splash, the platform menu button, safe areas, on-screen controls, orientation, interface scale, quality, hooks, the friends picker and languages. Exact sizes, limits, dos and don\'ts, and what is checked. Read the entry before making the thing.' },
   { topic: 'services', file: 'services', title: 'Platform services', summary: 'Every service the platform gives games and agents (hosting, accounts, saves, stats, shared data, leaderboards, rooms, server code, display, verification, payments, analytics, agent access): how each works, how to reach it, its limits, and what the platform does not provide.' },
 ];
+/** Template images an agent lays its work out on, served as MCP resources (gcp://templates/<name>) and on the web. */
+export const TEMPLATES = [
+  { name: 'cover', path: '/guides/cover-template.png', title: 'Cover template', description: 'The store cover at 1920x1080 with its safe area and every crop the store makes (home banner, 16:10, 16:7, small cards). PNG.' },
+  { name: 'safe-area', path: '/guides/safe-area-template.png', title: 'Safe area template', description: 'A phone held sideways as the platform shows a game in fullscreen: the notch and home-indicator insets, the platform menu button, the tip and friend pop-ups, and the on-screen controls. PNG.' },
+];
+/** A guide path on the web ("/guides/input.md#phones") as the MCP call that opens it, so an agent never needs the web. */
+export function guideCall(path: string): string {
+  const m = String(path || '').match(/^\/guides\/([a-z0-9-]+)\.md(?:#([\w-]+))?$/);
+  const g = m && PLATFORM_GUIDES.find((x) => x.file === m[1]);
+  return g ? `get_started {topic: "${g.topic}"}${m![2] ? `, section "${m![2].replace(/-/g, ' ')}"` : ''}` : path;
+}
 export async function guideText(env: Env, origin: string, topic: string) {
   const t = String(topic || '').toLowerCase().trim();
   const g = PLATFORM_GUIDES.find((x) => x.topic === t || x.file === t);
@@ -530,7 +543,7 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
 export const TOOLS: Tool[] = [
   {
     name: 'get_started', title: 'Start here',
-    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms, server-run matches). Pass topic to read one platform guide in full: ${PLATFORM_GUIDES.map((g) => `"${g.topic}"`).join(', ')}. Every game has a storage limit (see storage in the answer): tell the developer about it before planning large assets. debugging explains debug_preview (drive the preview in a browser and screenshot it) and creator_feedback (the creator's annotated screenshots, to read every session). platform_services lists every service with this platform's limits. It does not tell you how to make your game; that is up to you.`,
+    description: `Call this first. ${WEB_ONLY} Returns what the platform does, the rules a game must follow to deploy, the workflow, the account status (creator license, earnings, limits) and the platform services (saves, leaderboards, multiplayer rooms, server-run matches). Pass topic to read one platform guide in full: ${PLATFORM_GUIDES.map((g) => `"${g.topic}"`).join(', ')}. Every game has a storage limit (see storage in the answer): tell the developer about it before planning large assets. tools maps every tool on this server to what it is for; testing_and_feedback and debugging cover verification, debug_preview (drive the preview in a browser and screenshot it), creator_feedback (the creator's annotated screenshots, to read every session) and test bots. platform_services lists every service with this platform's limits. It does not tell you how to make your game: design is yours and the creator's, and the checks judge only whether a player can play it.`,
     inputSchema: obj({ topic: { type: 'string', enum: PLATFORM_GUIDES.map((g) => g.topic), description: 'Optional. Returns that platform guide as Markdown instead of the overview.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (a.topic) {
@@ -543,6 +556,9 @@ export const TOOLS: Tool[] = [
         platform: s.brand_name,
         operator: { name: OPERATOR.name, entity: `${OPERATOR.jurisdiction} limited liability company`, website: OPERATOR.url, legal_contact: OPERATOR.legalEmail, terms: `${c.origin}/legal/terms`, privacy: `${c.origin}/legal/privacy`, note: `${s.brand_name} is developed and operated by ${OPERATOR.name}. Publishing or selling a game here means the creator agrees to the Terms with ${OPERATOR.name}, which sells paid games to players. When the user asks who runs the platform, who the seller is, or where to send legal or privacy questions, answer from this.` },
         web_games_only: WEB_ONLY,
+        scope: SCOPE,
+        tools: toolMap(),
+        testing_and_feedback: { loop: TESTING, guide: 'get_started {topic: "testing"}' },
         what_this_server_does: 'It hosts web games. It takes the files of your game, deploys each version to its own address, checks it in a real browser, publishes it to the marketplace, keeps every version for rollback, and provides player saves, leaderboards, realtime multiplayer rooms and server-run competitive matches. How you make the game (engine or none, renderer, art, hand-made or generated assets, any build tooling on your side) is your choice: the platform neither prescribes nor scores it.',
         rules: [
           'A web page: index.html at the bundle root, plus the files it loads with relative paths. There is no build step on the platform: upload what the browser runs.',
@@ -871,7 +887,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
     }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       const action = a.action || (a.project ? 'check' : a.id ? 'get' : 'list');
-      const full = (x: (typeof STANDARDS)[number]) => ({ ...x, area: AREAS[x.area as keyof typeof AREAS], guide: `${c.origin}${x.guide}`, ...(x.template ? { template: `${c.origin}${x.template}` } : {}) });
+      const full = (x: (typeof STANDARDS)[number]) => ({ ...x, area: AREAS[x.area as keyof typeof AREAS], guide: guideCall(x.guide), guide_on_the_web: `${c.origin}${x.guide}`, ...(x.template ? { template: `${c.origin}${x.template}`, ...(TEMPLATES.find((t) => t.path === x.template) ? { template_resource: `gcp://templates/${TEMPLATES.find((t) => t.path === x.template)!.name}` } : {}) } : {}) });
       if (action === 'list') return { standards: standardsIndex(), next: 'game_standards {action: "get", id} for one in full; game_standards {project, action: "check"} to check a game.' };
       if (action === 'get') {
         const x = standardById(String(a.id || ''));

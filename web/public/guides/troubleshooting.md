@@ -63,7 +63,7 @@ The report has one entry per check, the errors the browser saw, any files that f
 
 - The loop is not driven by `requestAnimationFrame` (for example `setInterval`), or it stops when there is no input. The platform counts frames by watching `requestAnimationFrame`.
 - An error inside the loop on the second frame. Check `errors`.
-- The scene is too heavy for the verification browser, which renders on the CPU. Cap the pixel ratio, pick a lower quality when frames are slow (see the performance guide), and avoid full-screen post-processing by default.
+- The scene is too heavy for the verification browser, which renders on the CPU. Cap the pixel ratio, pick a lower quality when frames are slow, and avoid full-screen post-processing by default.
 - The game pauses itself because the page is not focused or pointer lock was not granted. Do not pause on those in the first seconds.
 
 - A turn-based or click-driven page that never calls `requestAnimationFrame` is not failed here: it is judged by `responds` instead.
