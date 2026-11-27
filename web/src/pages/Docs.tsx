@@ -1,13 +1,26 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { bytes, price, t, usd, useApp } from '../lib';
 import { termLength } from './License';
 import { Card, Code, PageHeader, Ticks } from '../ui';
 import { ConnectAgent, starterPrompt } from './Creators';
 
+const DOC_IDS = ['connect', 'prompt', 'rules', 'features', 'progress', 'metadata', 'services', 'storage', 'money'] as const;
+
 /** The details behind the creators page: setup per agent, the rules a game must follow, what it gets, and money. */
 export function Docs() {
   const { config } = useApp(), s = config.settings;
-  useEffect(() => { const id = location.hash.slice(1); if (id) document.getElementById(id)?.scrollIntoView(); }, []);
+  const [active, setActive] = useState<string>(() => location.hash.slice(1) || 'connect');
+  useEffect(() => {
+    const id = location.hash.slice(1);
+    if (id) document.getElementById(id)?.scrollIntoView();
+    if (typeof IntersectionObserver !== 'function') return;
+    const io = new IntersectionObserver((entries) => {
+      const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (vis) setActive(vis.target.id);
+    }, { rootMargin: '-15% 0px -68% 0px' });
+    DOC_IDS.forEach((k) => { const el = document.getElementById(k); if (el) io.observe(el); });
+    return () => io.disconnect();
+  }, []);
   const sections: [string, string][] = [
     ['connect', t('Connect your agent', '连接智能体')], ['prompt', t('Your first prompt', '第一句指令')], ['rules', t('The rules', '规则')],
     ['features', t('What every game gets', '每款游戏自带的能力')], ['progress', t('Player progress', '玩家进度')], ['metadata', t('Game metadata', '游戏元数据')], ['services', t('Platform services', '平台服务')], ['storage', t('Game storage', '游戏存储空间')], ['money', t('Pricing and payouts', '费用与收益')],
@@ -16,7 +29,7 @@ export function Docs() {
     <div className="wrap page">
       <PageHeader eyebrow={t('Docs', '文档')} title={t('Make a game here', '在这里发布游戏')} sub={t('Everything you need to go from a connected agent to a live web game.', '从连接智能体到网页游戏上线，你需要知道的一切。')} />
       <div className="docs">
-        <nav className="docs-nav" aria-label={t('On this page', '本页内容')}>{sections.map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}</nav>
+        <nav className="docs-nav" aria-label={t('On this page', '本页内容')}>{sections.map(([id, label]) => <a key={id} href={`#${id}`} className={active === id ? 'on' : undefined} onClick={() => setActive(id)}>{label}</a>)}</nav>
         <div className="docs-body">
           <section id="connect">
             <h2>{t('Connect your agent', '连接你的智能体')}</h2>

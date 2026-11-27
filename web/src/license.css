@@ -11,14 +11,14 @@
 .lic-head h1 { font: 800 var(--fs-4xl)/.94 var(--font-display); font-stretch: 78%; letter-spacing: -.012em; text-transform: uppercase; }
 .lic-head p { font-size: var(--fs-lg); }
 .lic-plans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(16px, 2.4vw, 28px); width: 100%; max-width: 920px; align-items: stretch; }
-.lic-plan { position: relative; display: flex; flex-direction: column; gap: 24px; padding: clamp(24px, 3vw, 36px); border-radius: var(--r-2xl); background: var(--surface); border: 1.5px solid var(--line-2); transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur-fast); min-width: 0; }
+.lic-plan { position: relative; display: flex; flex-direction: column; gap: 24px; padding: clamp(24px, 3vw, 36px); border-radius: var(--r-2xl); background: var(--surface); border: 1.5px solid var(--line-2); box-shadow: var(--shadow-1); transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur-fast); min-width: 0; }
 .lic-plan:hover { transform: translateY(-3px); border-color: var(--line-3); box-shadow: var(--shadow-3); }
-.lic-plan.featured { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 10px 10px 0 rgb(var(--accent-rgb) / .22); }
-.lic-plan.featured:hover { box-shadow: 0 0 0 1px var(--accent), 13px 13px 0 rgb(var(--accent-rgb) / .28); }
+.lic-plan.featured { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 10px 10px 0 rgb(var(--accent-rgb) / .22), var(--shadow-2); }
+.lic-plan.featured:hover { box-shadow: 0 0 0 1px var(--accent), 13px 13px 0 rgb(var(--accent-rgb) / .28), var(--shadow-3); }
 /* a slanted band of light across the featured card */
 .lic-plan.featured::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: linear-gradient(115deg, transparent 52%, rgb(var(--accent-rgb) / .12) 52% 66%, transparent 66%); }
 .lic-plan > * { position: relative; }
-.lic-ribbon { position: absolute !important; top: -13px; right: 26px; padding: 5px 14px; font: 800 12px/1 var(--font-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--on-accent); background: var(--accent); transform: skewX(var(--skew)); border-radius: 3px; }
+.lic-ribbon { position: absolute !important; top: -13px; right: 26px; padding: 5px 14px; font: 800 12px/1 var(--font-sans); letter-spacing: .08em; text-transform: uppercase; color: var(--on-accent); background: var(--accent); box-shadow: 0 4px 12px rgb(var(--accent-rgb) / .35); transform: skewX(var(--skew)); border-radius: 3px; }
 .lic-plan header { display: grid; gap: 8px; }
 .lic-kind { font: 600 12px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent-text); }
 .lic-plan h2 { font: 800 clamp(24px, 2.6vw, 30px)/1 var(--font-display); font-stretch: 80%; text-transform: uppercase; letter-spacing: -.005em; overflow-wrap: anywhere; }

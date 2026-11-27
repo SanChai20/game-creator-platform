@@ -247,7 +247,17 @@ function useWakeLock(on: boolean) {
   }, [on]);
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false, onCaptureHook, social = false }: {
+export interface StageViewport {
+  device: 'phone' | 'tablet';
+  w: number;
+  h: number;
+  displayW: number;
+  displayH: number;
+  scale: number;
+  touch?: boolean;
+}
+
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false, onCaptureHook, social = false, viewport = null }: {
   /** Friends on the platform: the game's GCP.friends / GCP.presence messages reach the friends panel (the game page sets it). */
   social?: boolean;
   /** The game registered GCP.test.onCapture (true) or has not (false, also whenever a new game page loads). */
@@ -270,6 +280,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   ctl?: Ref<StageCtl>;
   /** The game is being started (the play or preview request is on its way): the splash already covers the stage. */
   starting?: boolean;
+  /** Optional simulated device viewport used by the console preview (Phone / Tablet). */
+  viewport?: StageViewport | null;
 }) {
   const box = useRef<HTMLDivElement>(null), frame = useRef<HTMLIFrameElement>(null), menuBtn = useRef<HTMLButtonElement>(null);
   const [fs, setFs] = useState(false), [immersive, setImmersive] = useState(false), [menu, setMenu] = useState(false);
@@ -440,9 +452,13 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   useEffect(() => { if (menu) menuBtn.current?.focus({ preventScroll: true }); else if (active && url) frame.current?.focus(); }, [menu, active, url]);
 
   // Messages from the game (through the SDK) and what it is told back.
+  const simTouch = viewport ? (viewport.touch ?? true) : handheld;
+  const frameW = viewport ? viewport.w : playWin.w;
+  const frameH = viewport ? viewport.h : playWin.h;
+  const frameScale = viewport ? viewport.scale : playWin.scale;
   const post = useCallback(() => {
-    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: handheld, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held || asking || sideways, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize, scale: active ? 1 : playWin.scale }, '*');
-  }, [active, fs, immersive, want, handheld, edge, insets, menu, hung, held, asking, sideways, JSON.stringify(padCfg), padPref, uiSize, playWin.scale]); // eslint-disable-line react-hooks/exhaustive-deps
+    frame.current?.contentWindow?.postMessage({ gcp: 'display', fullscreen: active, mode: fs ? 'fullscreen' : immersive ? 'immersive' : 'inline', orientation: want, touch: simTouch, edgeToEdge: edge, safe: edge ? insets : NO_INSETS, paused: menu || hung || held || asking || sideways, menu: menu || held, controls: padCfg, controlsOn: padPref, uiSize, scale: active ? 1 : frameScale }, '*');
+  }, [active, fs, immersive, want, simTouch, edge, insets, menu, hung, held, asking, sideways, JSON.stringify(padCfg), padPref, uiSize, frameW, frameH, frameScale]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPadPref(readControlsPref(seed)); }, [seed]);
   useEffect(() => { if (!url) { setPadState({ available: false, shown: false }); setHeld(false); } }, [url]);
   const uiSizeRef = useRef(uiSize), seedRef = useRef(seed); uiSizeRef.current = uiSize; seedRef.current = seed;
@@ -552,7 +568,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   useEffect(() => { setPos(readPos(seed, portrait)); }, [active, seed, portrait]);
   // Where the button may go: the stage less its own size, the edge room and the safe-area insets, so a drag never takes
   // it under the notch, the camera hole or the home indicator, or off the screen.
-  const room = () => ({ w: Math.max(0, (box.current?.clientWidth ?? 0) - BTN - 2 * BTN_EDGE - btnIns.left - btnIns.right), h: Math.max(0, (box.current?.clientHeight ?? 0) - BTN - 2 * BTN_EDGE - btnIns.top - btnIns.bottom) });
+  const room = () => ({ w: Math.max(0, (!active && viewport ? viewport.displayW : (box.current?.clientWidth ?? 0)) - BTN - 2 * BTN_EDGE - btnIns.left - btnIns.right), h: Math.max(0, (!active && viewport ? viewport.displayH : (box.current?.clientHeight ?? 0)) - BTN - 2 * BTN_EDGE - btnIns.top - btnIns.bottom) });
   const onBtnDown = (e: RPointerEvent<HTMLButtonElement>) => {
     if (e.button > 0) return;
     setPressing(true);
@@ -594,13 +610,22 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
     const t0 = setTimeout(() => setTip(howTo), 1200), t1 = setTimeout(() => setTip(null), 6200);
     return () => { clearTimeout(t0); clearTimeout(t1); setTip(null); };
   }, [active, !!url]); // eslint-disable-line react-hooks/exhaustive-deps
+  const simulated = !active && !!viewport;
+  const stageStyle: CSSProperties | undefined = active
+    ? undefined
+    : viewport
+      ? { width: viewport.displayW, height: viewport.displayH, maxWidth: '100%', aspectRatio: 'auto', marginInline: 'auto' }
+      : { maxWidth: playWin.w, marginInline: 'auto' };
   return (
     <div>
-      <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (asking ? ' tuck' : '')} ref={box}
-        style={active ? undefined : { maxWidth: playWin.w, marginInline: 'auto' }}>
-        {url ? <iframe ref={frame} src={url} title="Game" style={active ? undefined : { inset: 'auto', top: 0, left: 0, width: playWin.w, height: playWin.h, maxWidth: 'none', maxHeight: 'none', transform: playWin.scale < 1 ? `scale(${playWin.scale})` : undefined, transformOrigin: '0 0' }} onLoad={() => { post(); postLang(); }} inert={menu || hung || held || asking} sandbox={GAME_SANDBOX} allow="gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
-          <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
-        )}
+      <div className={simulated ? 'pv-mat' : undefined}>
+        <div className={simulated ? 'pv-device-shell' : undefined}>
+          <div className={simulated ? `pv-bezel pv-${viewport.device}${viewport.w > viewport.h ? ' is-landscape' : ''}` : undefined}>
+            <div className={'stage ink' + (immersive ? ' immersive' : '') + (active ? ' filled' : '') + (edge ? ' edge' : '') + (asking ? ' tuck' : '')} ref={box}
+              style={stageStyle}>
+            {url ? <iframe ref={frame} src={url} title="Game" style={active ? undefined : { inset: 'auto', top: 0, left: 0, width: frameW, height: frameH, maxWidth: 'none', maxHeight: 'none', transform: frameScale < 1 ? `scale(${frameScale})` : undefined, transformOrigin: '0 0' }} onLoad={() => { post(); postLang(); }} inert={menu || hung || held || asking} sandbox={GAME_SANDBOX} allow="gamepad; autoplay; clipboard-write; accelerometer; gyroscope; screen-wake-lock; xr-spatial-tracking" /> : (
+              <><div className={'poster' + (blur && poster ? ' mature-blur' : '')} style={poster ? { backgroundImage: `url(${poster})` } : artStyle(seed)} /><div className="over">{children}</div></>
+            )}
         {splash.phase !== 'off' && <Splash out={splash.phase === 'out'} />}
         {url && !menu && !hung && !held && (
           <div className={'stage-exit ' + corner + (pos || drag ? ' moved' : '') + (drag ? ' dragging' : '') + (pressing ? ' pressing' : '')} style={btnStyle()}>
@@ -672,6 +697,9 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
             <Button size="sm" variant="ghost" onClick={() => setTurned(true)}>{t('Play this way', '就这样玩')}</Button>
           </div>
         )}
+      </div>
+      </div>
+      </div>
       </div>
       {url && (
         <div className="row stage-bar">

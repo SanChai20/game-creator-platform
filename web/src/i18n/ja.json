@@ -2489,5 +2489,11 @@
  "Buy game": "ゲームを購入",
  "Buy for myself": "自分用に購入",
  "{price}, goes straight to your library": "{price}、ライブラリにすぐ追加されます",
- "Send a request to a friend": "フレンドにリクエストを送る"
+ "Send a request to a friend": "フレンドにリクエストを送る",
+ "Preview screen size": "プレビュー画面サイズ",
+ "Current screen": "現在の画面",
+ "Switch to landscape": "横向きに切り替え",
+ "Switch to portrait": "縦向きに切り替え",
+ "Portrait": "縦向き",
+ "Landscape": "横向き"
 }

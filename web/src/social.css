@@ -21,10 +21,11 @@
 .fr-back:hover { background: rgb(var(--text-rgb) / .08); }
 .fr-head .fr-who { flex: 1; }
 
-.fr-status { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 10px; border: 1.5px solid var(--line-2); border-radius: 4px; font-size: 13.5px; cursor: pointer; }
+.fr-status { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 10px; border: 1.5px solid var(--line-2); border-radius: 5px; background: var(--sunk); font-size: 13.5px; cursor: pointer; transition: border-color var(--dur-fast); }
+.fr-status:hover { border-color: var(--line-3); }
 .fr-status select { appearance: none; -webkit-appearance: none; background: none; border: 0; color: inherit; font: inherit; padding-right: 4px; cursor: pointer; max-width: 150px; }
 .fr-status:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-.fr-status select option { color: initial; }
+.fr-status select option { background: var(--surface); color: var(--text); }
 
 .fr-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--text-3); }
 .fr-dot.online { background: var(--good); }
@@ -39,7 +40,8 @@
 .fr-invite-text { display: grid; gap: 2px; flex: 1; min-width: 0; font-size: 13.5px; }
 .fr-invite-text span, .fr-invite-text small { color: var(--text-2); overflow-wrap: anywhere; }
 
-.fr-tabs { display: flex; gap: 2px; padding: 10px 14px 0; border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; }
+.fr-tabs { display: flex; gap: 2px; padding: 10px 14px 0; border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; scrollbar-width: none; }
+.fr-tabs::-webkit-scrollbar { display: none; }
 .fr-tabs button { display: inline-flex; align-items: center; height: 38px; padding: 0 12px; font: 700 13px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); border-bottom: 3px solid transparent; white-space: nowrap; }
 .fr-tabs button:hover { color: var(--text); }
 .fr-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
@@ -48,10 +50,10 @@
 .fr-group { display: grid; gap: 2px; margin-top: 8px; }
 .fr-group h3 { padding: 8px 10px 4px; font: 700 11.5px/1 var(--font-display); letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); }
 .fr-group h3 span { margin-left: 4px; }
-.fr-row { display: flex; align-items: center; gap: 6px; padding: 2px; border-radius: var(--r-md); min-width: 0; }
-.fr-row:hover { background: rgb(var(--text-rgb) / .04); }
-.fr-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 8px; border-radius: var(--r-sm); text-align: left; }
-button.fr-main:hover { background: rgb(var(--text-rgb) / .05); }
+.fr-row { display: flex; align-items: center; gap: 6px; padding: 2px; border-radius: var(--r-md); min-width: 0; transition: background-color var(--dur-fast); }
+.fr-row:hover { background: rgb(var(--text-rgb) / .045); }
+.fr-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 8px; border-radius: var(--r-sm); text-align: left; transition: background-color var(--dur-fast); }
+button.fr-main:hover { background: rgb(var(--text-rgb) / .055); }
 .fr-av { position: relative; display: grid; place-items: center; width: 38px; height: 38px; flex: none; border-radius: 50%; background: rgb(var(--text-rgb) / .1); font: 800 15px/1 var(--font-display); }
 .fr-av .fr-dot { position: absolute; right: -1px; bottom: -1px; width: 12px; height: 12px; box-shadow: 0 0 0 2.5px var(--surface); }
 .fr-av .fr-dot.offline, .fr-av .fr-dot.invisible { background: var(--surface); box-shadow: inset 0 0 0 2px var(--text-3), 0 0 0 2.5px var(--surface); }
@@ -75,12 +77,12 @@ button.fr-main:hover { background: rgb(var(--text-rgb) / .05); }
 
 .fr-msgs { flex: 1; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 6px; padding: 14px; }
 .fr-older { align-self: center; padding: 6px 12px; border-radius: 14px; font-size: 12.5px; color: var(--text-2); background: rgb(var(--text-rgb) / .06); }
-.fr-bubble { align-self: flex-start; max-width: 82%; padding: 8px 12px; border-radius: 14px 14px 14px 4px; background: rgb(var(--text-rgb) / .07); font-size: 14.5px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
-.fr-bubble.mine { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: var(--accent); color: var(--on-accent); }
+.fr-bubble { align-self: flex-start; max-width: 82%; padding: 9px 13px; border-radius: 14px 14px 14px 4px; background: rgb(var(--text-rgb) / .07); font-size: 14.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fr-bubble.mine { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 12px -4px rgb(var(--accent-rgb) / .4); }
 .fr-bubble.invite { display: grid; gap: 6px; border-radius: var(--r-md); background: rgb(var(--accent-rgb) / .1); color: var(--text); border-left: 4px solid var(--accent); white-space: normal; }
 .fr-bubble.invite.mine { background: rgb(var(--text-rgb) / .06); }
 .fr-bubble.invite small, .fr-bubble.invite span { color: var(--text-2); font-size: 12.5px; }
-.fr-compose { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); flex: none; }
+.fr-compose { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); background: rgb(var(--text-rgb) / .015); flex: none; }
 .fr-compose textarea { flex: 1; min-height: 40px; max-height: 120px; resize: none; }
 
 .fr-sheet { position: fixed; inset: 0; z-index: calc(var(--z-toast) + 20); display: grid; place-items: center; padding: 16px; background: rgb(14 12 18 / .5); }
@@ -99,7 +101,7 @@ button.fr-main:hover { background: rgb(var(--text-rgb) / .05); }
 .fr-toast.bad .fr-toast-kick::before { background: var(--bad); }
 .fr-toast .fr-x { width: 26px; height: 26px; font-size: 18px; }
 .fr-toast-main { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.fr-toast-main .fr-av { width: 36px; height: 36px; font-size: 14px; background: rgb(var(--accent-rgb) / .16); color: var(--accent); }
+.fr-toast-main .fr-av { width: 36px; height: 36px; font-size: 14px; background: rgb(var(--accent-rgb) / .16); color: var(--accent-text); }
 .fr-toast-text { display: grid; gap: 3px; min-width: 0; line-height: 1.35; }
 .fr-toast-text b { font-weight: 700; overflow-wrap: anywhere; }
 .fr-toast-text span { color: var(--text-2); overflow-wrap: anywhere; }

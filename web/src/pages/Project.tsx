@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePlayClock } from '../play-clock';
 import { ago, api, bytes, dateTime, Fail, genreName, navigate, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { withPlayLang, type Orientation } from '../player';
+import { withPlayLang, type Orientation, type StageCtl } from '../player';
 import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
-import type { StageCtl } from '../player';
+import { defaultPreviewOrientation, resolvePreviewFrame, type PreviewDevice, type PreviewOrientation } from '../preview-viewport';
 import { CaptureButtons, FeedbackEditor, FeedbackQueue, type Shot } from '../feedback';
 import { projectTabs } from './Analytics';
 import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
@@ -207,10 +207,24 @@ export function Project({ id }: { id: string }) {
   const { config } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
   const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [previewSession, setPreviewSession] = useState<string | null>(null), [previewClock, setPreviewClock] = useState<string | null>(null), [previewOrient, setPreviewOrient] = useState<Orientation>('any'), [priceText, setPriceText] = useState<string | null>(null);
+  const [pvDevice, setPvDevice] = useState<PreviewDevice>('current'), [pvOrient, setPvOrient] = useState<PreviewOrientation>('portrait');
+  const [pvWin, setPvWin] = useState(() => ({ vw: typeof innerWidth === 'number' ? innerWidth : 1440, vh: typeof innerHeight === 'number' ? innerHeight : 900, cw: 0 }));
   usePlayClock(preview ? previewSession : null, preview ? previewClock : null);   // the platform's play clock for the preview session (src/play-clock.ts)
   // creator feedback: a capture being marked up (the game keeps its place, hidden, behind the editor), and a counter that
   // refreshes the queue card after an item was added
   const stage = useRef<StageCtl>(null), stageBox = useRef<HTMLDivElement>(null), [shot, setShot] = useState<Shot | null>(null), [fbStamp, setFbStamp] = useState(0), [canCapture, setCanCapture] = useState(false);
+
+  // Track modal stage container width & window dimensions for accurate Phone / Tablet scaling.
+  useLayoutEffect(() => {
+    if (!preview) return;
+    const sync = () => setPvWin({ vw: innerWidth, vh: innerHeight, cw: stageBox.current?.clientWidth ?? 0 });
+    sync();
+    const el = stageBox.current;
+    const ro = typeof ResizeObserver === 'function' && el ? new ResizeObserver(sync) : null;
+    if (el) ro?.observe(el);
+    addEventListener('resize', sync);
+    return () => { ro?.disconnect(); removeEventListener('resize', sync); };
+  }, [preview]);
 
   // While a deployment is running, keep the page fresh.
   const working = !!data?.versions.some((v: any) => ['queued', 'deploying', 'verifying'].includes(v.status));
@@ -220,7 +234,17 @@ export function Project({ id }: { id: string }) {
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <ProjectSkeleton />;
   const p = data.project, versions = data.versions as any[], reg: number = p.regular_price_cents ?? p.price_cents;   // the regular price; p.price_cents is the sale price during a sale
-  const playPreview = () => act('pv', async () => { const r = await api<{ url: string; session: string; clock?: string; orientation?: Orientation }>(`/console/projects/${id}/preview`, { method: 'POST' }); setPreviewSession(r.session); setPreviewClock(r.clock || null); setPreviewOrient(r.orientation ?? 'any'); setPreview(withPlayLang(r.url)); });
+  const playPreview = () => act('pv', async () => {
+    const r = await api<{ url: string; session: string; clock?: string; orientation?: Orientation }>(`/console/projects/${id}/preview`, { method: 'POST' });
+    const orient = r.orientation ?? 'any';
+    setPreviewSession(r.session); setPreviewClock(r.clock || null); setPreviewOrient(orient);
+    setPvDevice('current'); setPvOrient(defaultPreviewOrientation('phone', orient));
+    setPreview(withPlayLang(r.url));
+  });
+  const pickDevice = (next: PreviewDevice) => {
+    setPvDevice(next);
+    if (next !== 'current') setPvOrient(defaultPreviewOrientation(next, previewOrient));
+  };
   const offline = () => { if (confirm(t('Take this game offline? Players will not be able to open it until you put it back.', '确定下线这款游戏吗？在重新上线之前，玩家将无法打开它。'))) void act('off', async () => { await api(`/console/projects/${id}/offline`, { method: 'POST' }); await reload(); }, t('The game is offline.', '游戏已下线。')); };
   // Delete project (src/project-delete.ts): the creator types the game's address; the server refuses a live or bought game
   const remove = () => {
@@ -347,24 +371,65 @@ export function Project({ id }: { id: string }) {
         </div>
       </div>
 
-      {preview && <Modal wide game onClose={() => { setPreview(null); setShot(null); void reload(); }}><div className="stack">
-        <div className="row"><b>{p.title}</b><Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge><Button size="sm" className="right" onClick={() => { setPreview(null); setShot(null); void reload(); }}>{t('Close', '关闭')}</Button></div>
-        {(() => {
-          const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} supported={canCapture} version={p.preview_version} capture={(pic) => stage.current!.capture(pic)}
-            fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); (document.activeElement as HTMLElement | null)?.blur?.(); setShot(sh); }} /> : null;
-          // While a capture is marked up, the editor covers the game rather than replacing it: the game's frame keeps its
-          // size and stays on screen. Hiding or shrinking it would resize the game, and a browser slows the drawing of a
-          // frame it no longer shows, which a game can take for a slow device and lower its picture quality for good.
-          return <div className="fb-stack">
-            <div ref={stageBox} inert={shot ? true : undefined}>
-              <Stage ctl={stage} poster={null} seed={p.slug} url={preview} orientation={previewOrient} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} onCaptureHook={setCanCapture} />
+      {preview && (() => {
+        const pvFrame = resolvePreviewFrame({ device: pvDevice, orientation: pvOrient, containerW: pvWin.cw, viewportW: pvWin.vw, viewportH: pvWin.vh });
+        const stageViewport = pvDevice === 'current' ? null : { device: pvDevice, w: pvFrame.w, h: pvFrame.h, displayW: pvFrame.displayW, displayH: pvFrame.displayH, scale: pvFrame.scale, touch: pvFrame.touch };
+        const capture = (compact: boolean) => s.feedback_enabled !== false ? <CaptureButtons compact={compact} supported={canCapture} version={p.preview_version} capture={(pic) => stage.current!.capture(pic)}
+          fullscreen={() => !!stage.current?.isActive()} onShot={(sh) => { if (stage.current?.isActive()) stage.current.exit(); (document.activeElement as HTMLElement | null)?.blur?.(); setShot(sh); }} /> : null;
+        return (
+          <Modal wide game onClose={() => { setPreview(null); setShot(null); void reload(); }}><div className="stack">
+            <div className="pv-head">
+              <div className="pv-head-id">
+                <b className="clip">{p.title}</b>
+                <Badge tone="info">{t('Preview', '预览')} v{p.preview_version}</Badge>
+              </div>
+              <Button size="sm" onClick={() => { setPreview(null); setShot(null); void reload(); }}>{t('Close', '关闭')}</Button>
             </div>
-            {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
-          </div>;
-        })()}
-        <TestPlayers projectId={id} />
-        <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>
-      </div></Modal>}
+            <div className="pv-bar">
+              <div className="pv-modes">
+                <div className="seg" role="group" aria-label={t('Preview screen size', '预览屏幕尺寸')}>
+                  <button type="button" data-testid="preview-mode-current" className={pvDevice === 'current' ? 'on' : undefined} aria-pressed={pvDevice === 'current'} onClick={() => pickDevice('current')}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
+                    <span>{t('Current screen', '当前屏幕')}</span>
+                  </button>
+                  <button type="button" data-testid="preview-mode-phone" className={pvDevice === 'phone' ? 'on' : undefined} aria-pressed={pvDevice === 'phone'} onClick={() => pickDevice('phone')}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2" /><path d="M11 18h2" /></svg>
+                    <span>{t('Phone', '手机')}</span>
+                  </button>
+                  <button type="button" data-testid="preview-mode-tablet" className={pvDevice === 'tablet' ? 'on' : undefined} aria-pressed={pvDevice === 'tablet'} onClick={() => pickDevice('tablet')}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M11 18h2" /></svg>
+                    <span>{t('Tablet', '平板')}</span>
+                  </button>
+                </div>
+                {pvDevice !== 'current' && (
+                  <Button size="sm" className="pv-rot" data-testid="preview-rotate" onClick={() => setPvOrient((o) => o === 'portrait' ? 'landscape' : 'portrait')}
+                    aria-label={pvOrient === 'portrait' ? t('Switch to landscape', '切换为横屏') : t('Switch to portrait', '切换为竖屏')}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.3M3 12a9 9 0 0 1 15.5-6.3" /><path d="M18.5 2.5v3.5h-3.5M5.5 21.5V18h3.5" /></svg>
+                    <span>{pvOrient === 'portrait' ? t('Portrait', '竖屏') : t('Landscape', '横屏')}</span>
+                  </Button>
+                )}
+              </div>
+              <div className="pv-meta">
+                <span className="pv-dim" data-testid="preview-dimensions">
+                  {pvFrame.w} × {pvFrame.h}
+                  {pvFrame.scale < 0.995 && <small>· {Math.round(pvFrame.scale * 100)}%</small>}
+                </span>
+              </div>
+            </div>
+            {/* While a capture is marked up, the editor covers the game rather than replacing it: the game's frame keeps its
+                size and stays on screen. Hiding or shrinking it would resize the game, and a browser slows the drawing of a
+                frame it no longer shows, which a game can take for a slow device and lower its picture quality for good. */}
+            <div className="fb-stack">
+              <div ref={stageBox} inert={shot ? true : undefined}>
+                <Stage ctl={stage} poster={null} seed={p.slug} url={preview} orientation={previewOrient} viewport={stageViewport} controls={versions.find((v) => v.version === p.preview_version)?.controls ?? null} onQuit={() => { setPreview(null); setShot(null); void reload(); }} tools={capture(false)} badge={capture(true)} onCaptureHook={setCanCapture} />
+              </div>
+              {shot && <div className="fb-over"><FeedbackEditor projectId={id} shot={shot} onCancel={() => setShot(null)} onDone={() => { setShot(null); setFbStamp((n) => n + 1); }} /></div>}
+            </div>
+            <TestPlayers projectId={id} />
+            <p className="dim fs-sm">{t('Only you can open the preview. Playing it without errors also counts as verification when the automatic check cannot run the game.', '预览仅你本人可见。当自动检查无法运行游戏时，你无错误地试玩一段时间也算通过验证。')}</p>
+          </div></Modal>
+        );
+      })()}
     </div>
   );
 }

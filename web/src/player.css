@@ -58,7 +58,12 @@ html.gcp-loose .modal, html.gcp-loose .modal > div { overflow: hidden !important
 .stage-exit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .stage-tip { position: absolute; z-index: 3; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); max-width: min(440px, calc(100% - 32px)); padding: 8px 14px; border-radius: 12px; background: rgb(12 10 18 / .8); color: #fff; font: 600 13px/1.35 system-ui, -apple-system, sans-serif; text-align: center; pointer-events: none; animation: stage-tip 5s ease forwards; }
 @keyframes stage-tip { 0% { opacity: 0; } 6%, 85% { opacity: 1; } 100% { opacity: 0; } }
-.stage-badge { --pl: rgb(14 12 18 / .78); display: inline-flex; align-items: center; height: 26px; padding: 0 11px; color: #fff; font: 600 12.5px/1 var(--font-mono, ui-monospace, monospace); }
+.stage-badge { --pl: rgb(14 12 18 / .78); display: inline-flex; align-items: center; height: 28px; padding: 0 11px; color: #fff; font: 600 12.5px/1 var(--font-mono, ui-monospace, monospace); }
+.stage-badge:has(> button) { padding: 0; }
+.stage-badge button, .stage-exit .stage-badge button { pointer-events: auto; width: auto; height: 28px; padding: 0 12px; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; animation: none; opacity: 1; font-size: 11.5px; color: #fff; box-shadow: none; }
+.stage-badge button::before, .stage-exit .stage-badge button::before { display: none; }
+.stage-badge button:disabled, .stage-exit .stage-badge button:disabled { opacity: .45; }
+.stage-badge:has(> button:hover:not(:disabled)) { --pl: rgb(32 28 42 / .92); }
 @keyframes stage-exit-dim { 0%, 60% { opacity: 1; } 100% { opacity: .16; } }
 
 .stage-turn { position: absolute; inset: 0; z-index: 4; display: grid; place-content: center; justify-items: center; gap: 10px; padding: 24px; text-align: center; color: #fff; background: rgb(12 10 18 / .92); }
@@ -99,6 +104,22 @@ html:has(.stage.filled), html:has(.stage.filled) body { overscroll-behavior: non
 /* A phone on its side: the menu's buttons sit two by two so the card fits the short screen (and scrolls if it still does not). */
 .stage-card { max-height: 100%; overflow-y: auto; overscroll-behavior: contain; }
 @media (max-height: 420px) and (orientation: landscape) { .stage-card { width: min(540px, 100%); grid-template-columns: 1fr 1fr; } .stage-card > :not(.stage-btn) { grid-column: 1 / -1; } }
+/* Simulated Phone / Tablet frames in the console preview are smaller than the browser window: keep overlays legible and never cramped. */
+.pv-bezel .stage-menu { padding: 12px; }
+.pv-bezel .stage-card { padding: 14px 16px; gap: 8px; border-radius: 14px; }
+.pv-bezel .stage-card > b { font-size: 16.5px; }
+.pv-bezel .stage-sub { font-size: 13px; margin-bottom: 2px; }
+.pv-bezel .stage-hint { font-size: 12px; line-height: 1.4; }
+.pv-bezel .stage-btn { min-height: 38px; padding: 8px 12px; font-size: 13.5px; border-radius: 10px; }
+.pv-bezel .stage-size { grid-template-columns: minmax(0, 1fr) 36px 46px 36px; gap: 5px; font-size: 12.5px; text-align: left; }
+.pv-bezel .stage-size .stage-btn { min-height: 34px; font-size: 18px; }
+.pv-bezel.pv-phone:not(.is-landscape) .stage-size { grid-template-columns: 36px 1fr 36px; }
+.pv-bezel.pv-phone:not(.is-landscape) .stage-size > span { grid-column: 1 / -1; text-align: center; }
+.pv-bezel.is-landscape .stage-card { width: min(460px, 100%); grid-template-columns: 1fr 1fr; }
+.pv-bezel.is-landscape .stage-card > :not(.stage-btn) { grid-column: 1 / -1; }
+.pv-bezel .stage-turn { padding: 14px; gap: 8px; }
+.pv-bezel .stage-turn b { font-size: 16px; }
+.pv-bezel .stage-turn span { font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { .stage-menu { animation: none; } }
 
 /* The platform's splash (player.tsx, Splash): HearthCade's logo over the game frame from the Start click until the game's

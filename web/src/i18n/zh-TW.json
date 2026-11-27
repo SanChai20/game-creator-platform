@@ -2510,5 +2510,11 @@
  "Buy game": "購買遊戲",
  "Buy for myself": "為自己購買",
  "{price}, goes straight to your library": "{price}，直接加入你的遊戲庫",
- "Send a request to a friend": "向好友送出請求"
+ "Send a request to a friend": "向好友送出請求",
+ "Preview screen size": "預覽螢幕尺寸",
+ "Current screen": "目前螢幕",
+ "Switch to landscape": "切換為橫向",
+ "Switch to portrait": "切換為直向",
+ "Portrait": "直向",
+ "Landscape": "橫向"
 }

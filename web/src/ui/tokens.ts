@@ -20,15 +20,15 @@ export interface Theme {
 }
 export const day: Theme = {
   paper: '#f3f1ea', surface: '#ffffff', sunk: '#e9e6dc', rise: '#ffffff',
-  text: '#17151c', text2: '#565260', text3: '#8a8693', edge: '#17151c',
-  ink: '#17151c', ink2: '#24212b', ink3: '#35313e', onInk: '#f6f4ee', onInk2: '#b9b4c3', onInk3: '#857f91',
+  text: '#17151c', text2: '#504c5b', text3: '#6f6b7a', edge: '#17151c',
+  ink: '#17151c', ink2: '#24212b', ink3: '#35313e', onInk: '#f6f4ee', onInk2: '#c1bccb', onInk3: '#958fa3',
   accent: '#f5284c', accentHi: '#ff5c77', accentLo: '#c9153a', accentText: '#cf1238', onAccent: '#ffffff',
   good: '#0b7d57', bad: '#cf2a1b', warn: '#a8590a', info: '#5a47d6',
 };
 export const night: Theme = {
   paper: '#111015', surface: '#1b1a21', sunk: '#0a090d', rise: '#24222b',
-  text: '#f6f4ee', text2: '#b9b4c3', text3: '#857f91', edge: '#f6f4ee',
-  ink: '#08070a', ink2: '#1b1a21', ink3: '#2d2a36', onInk: '#f6f4ee', onInk2: '#b9b4c3', onInk3: '#857f91',
+  text: '#f6f4ee', text2: '#c1bccb', text3: '#958fa3', edge: '#f6f4ee',
+  ink: '#08070a', ink2: '#1b1a21', ink3: '#2d2a36', onInk: '#f6f4ee', onInk2: '#c1bccb', onInk3: '#958fa3',
   accent: '#ff3d60', accentHi: '#ff7089', accentLo: '#d81f45', accentText: '#ff5c7a', onAccent: '#ffffff',
   good: '#3ecf9a', bad: '#ff6b5e', warn: '#f0a548', info: '#a99bff',
 };
@@ -79,13 +79,13 @@ export const size = {
 
 export const space = { 1: '4px', 2: '8px', 3: '12px', 4: '16px', 5: '20px', 6: '24px', 7: '32px', 8: '40px', 9: '56px', 10: '80px', 11: '120px' } as const;
 export const radius = { xs: '3px', sm: '4px', md: '6px', lg: '8px', xl: '10px', '2xl': '12px', pill: '3px' } as const;
-export const motion = { ease: 'cubic-bezier(.2, .7, .1, 1)', fast: '.14s', base: '.24s', slow: '.5s' } as const;
+export const motion = { ease: 'cubic-bezier(.16, 1, .3, 1)', fast: '.16s', base: '.26s', slow: '.48s' } as const;
 export const layout = { wrap: '1320px', gutter: 'max(clamp(16px, 4vw, 48px), env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px))', nav: '68px' } as const;
 export const z = { nav: 50, sticky: 20, modal: 120, toast: 200 } as const;
 export const shadow = {
-  1: '0 1px 2px rgb(23 21 28 / .06), 0 2px 8px -2px rgb(23 21 28 / .06)',
-  2: '0 2px 4px rgb(23 21 28 / .05), 0 14px 32px -12px rgb(23 21 28 / .18)',
-  3: '0 4px 8px rgb(23 21 28 / .06), 0 36px 80px -24px rgb(23 21 28 / .34)',
+  1: '0 1px 2px rgb(23 21 28 / .05), 0 4px 12px -4px rgb(23 21 28 / .06)',
+  2: '0 2px 4px rgb(23 21 28 / .05), 0 14px 32px -12px rgb(23 21 28 / .16)',
+  3: '0 4px 10px rgb(23 21 28 / .06), 0 32px 72px -20px rgb(23 21 28 / .3)',
 } as const;
 
 const kebab = (k: string) => k.replace(/[A-Z0-9]/g, (m) => '-' + m.toLowerCase());
@@ -93,11 +93,11 @@ const RGB_KEYS = ['paper', 'surface', 'text', 'ink', 'onInk', 'accent', 'good', 
 const themeVars = (t: Theme, dark: boolean) => ({
   ...Object.fromEntries(Object.entries(t).map(([k, v]) => [kebab(k), v])),
   ...Object.fromEntries(RGB_KEYS.map((k) => [kebab(k) + '-rgb', rgb(t[k])])),
-  line: `rgb(${rgb(t.text)} / ${dark ? 0.1 : 0.09})`, 'line-2': `rgb(${rgb(t.text)} / ${dark ? 0.17 : 0.16})`, 'line-3': `rgb(${rgb(t.text)} / ${dark ? 0.3 : 0.3})`,
+  line: `rgb(${rgb(t.text)} / ${dark ? 0.11 : 0.095})`, 'line-2': `rgb(${rgb(t.text)} / ${dark ? 0.19 : 0.165})`, 'line-3': `rgb(${rgb(t.text)} / ${dark ? 0.32 : 0.3})`,
   'accent-wash': `rgb(${rgb(t.accent)} / ${dark ? 0.16 : 0.09})`,
-  'shadow-1': dark ? '0 1px 2px rgb(0 0 0 / .4)' : shadow[1],
-  'shadow-2': dark ? '0 14px 32px -12px rgb(0 0 0 / .7)' : shadow[2],
-  'shadow-3': dark ? '0 36px 80px -24px rgb(0 0 0 / .85)' : shadow[3],
+  'shadow-1': dark ? 'inset 0 1px 0 rgb(255 255 255 / .045), 0 2px 8px -2px rgb(0 0 0 / .45)' : shadow[1],
+  'shadow-2': dark ? 'inset 0 1px 0 rgb(255 255 255 / .055), 0 14px 32px -12px rgb(0 0 0 / .72)' : shadow[2],
+  'shadow-3': dark ? 'inset 0 1px 0 rgb(255 255 255 / .07), 0 32px 72px -20px rgb(0 0 0 / .88)' : shadow[3],
 });
 const shared: Record<string, string | number> = {
   ...Object.fromEntries(Object.entries(hue).map(([k, v]) => ['c-' + k, v])),

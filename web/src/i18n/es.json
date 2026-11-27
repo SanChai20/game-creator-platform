@@ -2488,5 +2488,11 @@
  "Buy game": "Comprar juego",
  "Buy for myself": "Comprar para mí",
  "{price}, goes straight to your library": "{price}, va directo a tu biblioteca",
- "Send a request to a friend": "Envía una petición a un amigo"
+ "Send a request to a friend": "Envía una petición a un amigo",
+ "Preview screen size": "Tamaño de vista previa",
+ "Current screen": "Pantalla actual",
+ "Switch to landscape": "Cambiar a horizontal",
+ "Switch to portrait": "Cambiar a vertical",
+ "Portrait": "Vertical",
+ "Landscape": "Horizontal"
 }
