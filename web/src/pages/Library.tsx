@@ -2,73 +2,120 @@
 // played, most recently played first (the full Continue row, paged), and the games they keep: every paid game they
 // bought (in the library from the moment the payment succeeds) and every free game they added from its page. Only
 // their own, from their account.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, Fail, GameTile, Link, t, useAct, useData } from '../lib';
-import { Badge, Button, EmptyState, PageHeader, Segmented } from '../ui';
+import { Badge, Button, EmptyState, ListPager, PageHeader, Segmented } from '../ui';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { ContinueCard, useHide, type ContinueGame } from '../continue';
 import { SectionHead } from '../store';
 import { FollowingList } from '../follow';
 import type { GameCard } from '../lib';
 
+const CONT_PER = 12;
+const OWN_PER = 24;
+
 type Filter = 'all' | 'bought' | 'added';
 interface LibraryInfo { source: 'bought' | 'added'; added_at: number; owned: boolean; last_played: number | null }
 type OwnedGame = GameCard & { library: LibraryInfo };
-interface Page<T> { games: T[]; more: boolean }
+interface Page<T> { games: T[]; more: boolean; total?: number; pages?: number }
 interface LibraryData extends Page<ContinueGame> { owned: Page<OwnedGame> | null; counts: Record<Filter, number> | null }
 
 export function Library() {
-  const { data, error, loading, reload } = useData<LibraryData>('/me/library');
+  const { data, error, loading, reload } = useData<LibraryData>(`/me/library?limit=${CONT_PER}`);
   const { act } = useAct();
-  const [extra, setExtra] = useState<ContinueGame[]>([]), [more, setMore] = useState<boolean | null>(null), [busy, setBusy] = useState(false);
-  const [gone, setGone] = useState<Set<string>>(new Set());
-  const hideOnServer = useHide(() => {}), hide = (slug: string) => { setGone((s) => new Set(s).add(slug)); hideOnServer(slug); };
+  const contRef = useRef<HTMLElement>(null), ownRef = useRef<HTMLElement>(null);
 
-  // the games kept in the library: one filter at a time, paged
-  const [filter, setFilter] = useState<Filter>('all'), [owned, setOwned] = useState<Page<OwnedGame> | null>(null), [ownBusy, setOwnBusy] = useState(false);
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
-  useEffect(() => { if (data?.owned && filter === 'all') setOwned(data.owned); }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pick = async (f: Filter) => {
-    setFilter(f); setOwnBusy(true);
-    try { setOwned(await api<Page<OwnedGame>>(`/me/library/games?filter=${f}`)); } finally { setOwnBusy(false); }
+  const [contPage, setContPage] = useState(1);
+  const [playedList, setPlayedList] = useState<ContinueGame[] | null>(null);
+  const [contTotal, setContTotal] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  const [filter, setFilter] = useState<Filter>('all');
+  const [ownPage, setOwnPage] = useState(1);
+  const [owned, setOwned] = useState<OwnedGame[] | null>(null);
+  const [ownTotal, setOwnTotal] = useState(0);
+  const [counts, setCounts] = useState<Record<Filter, number>>({ all: 0, bought: 0, added: 0 });
+  const [ownBusy, setOwnBusy] = useState(false);
+
+  useEffect(() => {
+    if (!data) return;
+    setPlayedList(data.games);
+    setContTotal(data.total ?? data.games.length);
+    setContPage(1);
+    if (data.counts) setCounts(data.counts);
+    if (data.owned && filter === 'all' && ownPage === 1) {
+      setOwned(data.owned.games);
+      setOwnTotal(data.owned.total ?? data.counts?.all ?? data.owned.games.length);
+    }
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadContinue = async (p: number, scroll = false) => {
+    setBusy(true);
+    try {
+      const r = await api<Page<ContinueGame>>(`/me/continue?page=${p}&per_page=${CONT_PER}`);
+      const maxP = Math.max(1, r.pages || 1);
+      if (p > maxP) { await loadContinue(maxP, false); return; }
+      setContPage(p);
+      setPlayedList(r.games);
+      setContTotal(r.total ?? r.games.length);
+      if (scroll) contRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } finally { setBusy(false); }
   };
-  const moreOwned = async () => {
-    if (!owned) return;
+
+  const hideOnServer = useHide(() => { void loadContinue(contPage); });
+  const hide = (slug: string) => {
+    setPlayedList((l) => (l ? l.filter((g) => g.slug !== slug) : l));
+    setContTotal((n) => Math.max(0, n - 1));
+    hideOnServer(slug);
+  };
+
+  const loadOwned = async (f: Filter, p: number, scroll = false) => {
     setOwnBusy(true);
-    try { const r = await api<Page<OwnedGame>>(`/me/library/games?filter=${filter}&offset=${owned.games.length}`); setOwned({ games: [...owned.games, ...r.games], more: r.more }); } finally { setOwnBusy(false); }
+    try {
+      const r = await api<Page<OwnedGame> & { counts?: Record<Filter, number> }>(`/me/library/games?filter=${f}&page=${p}&per_page=${OWN_PER}`);
+      const maxP = Math.max(1, r.pages || 1);
+      if (p > maxP) { await loadOwned(f, maxP, false); return; }
+      setFilter(f);
+      setOwnPage(p);
+      setOwned(r.games);
+      if (r.counts) setCounts(r.counts);
+      setOwnTotal(r.total ?? r.games.length);
+      if (scroll) ownRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } finally { setOwnBusy(false); }
   };
-  const remove = (g: OwnedGame) => act('rm' + g.slug, async () => { await api(`/me/library/${encodeURIComponent(g.slug)}`, { method: 'DELETE' }); setRemoved((s) => new Set(s).add(g.slug)); },
-    t('Removed from your library. Your progress is kept.', '已从游戏库移除，进度会保留。'));
+
+  const remove = (g: OwnedGame) => act('rm' + g.slug, async () => {
+    await api(`/me/library/${encodeURIComponent(g.slug)}`, { method: 'DELETE' });
+    await loadOwned(filter, ownPage);
+  }, t('Removed from your library. Your progress is kept.', '已从游戏库移除，进度会保留。'));
 
   // the bell's "Creators you follow" link lands on its section
   useEffect(() => { if (data && location.hash === '#following') document.getElementById('following')?.scrollIntoView({ block: 'start' }); }, [!!data]); // eslint-disable-line react-hooks/exhaustive-deps
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <div className="wrap page"><Skeleton><div className="cont-grid">{[0, 1, 2, 3].map((k) => <SkCard key={k} lines={3} />)}</div></Skeleton></div>;
-  const d = data!, played = [...d.games, ...extra].filter((g) => !gone.has(g.slug)), hasMore = more ?? d.more;
-  const counts = d.counts || { all: 0, bought: 0, added: 0 }, kept = (owned?.games || []).filter((g) => !removed.has(g.slug));
-  const loadMore = async () => {
-    setBusy(true);
-    try { const r = await api<LibraryData>(`/me/library?offset=${d.games.length + extra.length}`); setExtra((l) => [...l, ...r.games]); setMore(r.more); } finally { setBusy(false); }
-  };
+
+  const played = playedList ?? data!.games;
+  const kept = owned ?? data!.owned?.games ?? [];
+
   return (
     <div className="wrap page">
       <PageHeader eyebrow={t('Library', '游戏库')} title={t('Your games', '我的游戏')} actions={<Button to="/purchases" size="sm">{t('Purchases and refunds', '购买记录与退款')}</Button>} sub={t('The games you bought, the free games you added, and everything you played. Continue opens a game where you left off, on any device.', '你购买的游戏、你加入的免费游戏，以及你玩过的所有游戏。点“继续游戏”即可在任何设备上从上次离开的地方继续。')} />
-      {!played.length && !counts.all ? (
+      {!contTotal && !played.length && !counts.all ? (
         <EmptyState title={t('Nothing here yet', '这里还是空的')} action={<Button to="/" variant="primary">{t('Find a game', '去找游戏')}</Button>}>{t('Games you buy are added here automatically. Add free games from their page, and games you play show up here with where you left off.', '你购买的游戏会自动出现在这里。免费游戏可以在游戏页面加入游戏库，玩过的游戏也会出现在这里，并记录你上次玩到哪里。')}</EmptyState>
       ) : (
         <div className="stack xl library">
-          {played.length > 0 && (
-            <section>
+          {(contTotal > 0 || played.length > 0) && (
+            <section ref={contRef}>
               <SectionHead title={t('Continue playing', '继续游玩')} />
-              <div className="cont-grid">{played.map((g) => <ContinueCard key={g.id} g={g} onHide={hide} />)}</div>
-              {hasMore && <div className="row" style={{ justifyContent: 'center', marginTop: 20 }}><Button onClick={loadMore} disabled={busy}>{busy ? t('Loading…', '加载中…') : t('Show more', '显示更多')}</Button></div>}
+              <div className="cont-grid" aria-busy={busy}>{played.map((g) => <ContinueCard key={g.id} g={g} onHide={hide} />)}</div>
+              <ListPager page={contPage} total={contTotal} perPage={CONT_PER} onPage={(p) => void loadContinue(p, true)} />
             </section>
           )}
           {counts.all > 0 && (
-            <section>
+            <section ref={ownRef}>
               <SectionHead title={t('Collection', '收藏')} note={t('Bought games are added automatically. Free games stay until you remove them.', '购买的游戏会自动加入。免费游戏会一直保留，直到你移除。')} />
               {counts.bought > 0 && counts.added > 0 && (
-                <div className="lib-filter"><Segmented label={t('Show', '显示')} value={filter} onChange={(f) => void pick(f)} options={[
+                <div className="lib-filter"><Segmented label={t('Show', '显示')} value={filter} onChange={(f) => void loadOwned(f, 1)} options={[
                   ['all', `${t('All', '全部')} · ${counts.all}`], ['bought', `${t('Bought', '已购买')} · ${counts.bought}`], ['added', `${t('Free', '免费')} · ${counts.added}`]]} /></div>
               )}
               <div className="grid browse-grid" aria-busy={ownBusy}>{kept.map((g) => (
@@ -81,7 +128,7 @@ export function Library() {
                   </div>
                 </div>
               ))}</div>
-              {owned?.more && <div className="row" style={{ justifyContent: 'center', marginTop: 20 }}><Button onClick={moreOwned} disabled={ownBusy}>{ownBusy ? t('Loading…', '加载中…') : t('Show more', '显示更多')}</Button></div>}
+              <ListPager page={ownPage} total={ownTotal} perPage={OWN_PER} onPage={(p) => void loadOwned(filter, p, true)} />
             </section>
           )}
         </div>

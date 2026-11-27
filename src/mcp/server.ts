@@ -112,14 +112,16 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
   }
 }
 
-export async function handleMcp(request: Request, env: Env, props: { userId?: string; client?: string }, origin: string): Promise<Response> {
+import { normalizeProjectIds, type McpAuthProps } from './scope';
+
+export async function handleMcp(request: Request, env: Env, props: McpAuthProps, origin: string): Promise<Response> {
   const cors = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'mcp-session-id, www-authenticate' };
   if (request.method !== 'POST') return new Response(JSON.stringify(rpcError(null, -32000, 'This server answers POST only (stateless Streamable HTTP).')), { status: 405, headers: { allow: 'POST', 'content-type': 'application/json', ...cors } });
   const user = props.userId ? await userById(env, props.userId) : null;
   if (!user || user.status !== 'active') return new Response(JSON.stringify(rpcError(null, -32001, 'The account behind this authorization is not active.')), { status: 403, headers: { 'content-type': 'application/json', ...cors } });
   let body: unknown;
   try { body = await request.json(); } catch { return Response.json(rpcError(null, -32700, 'Parse error'), { status: 400, headers: cors }); }
-  const ctx: ToolCtx = { env, user, origin, client: String(props.client || 'agent').slice(0, 60) };
+  const ctx: ToolCtx = { env, user, origin, client: String(props.client || 'agent').slice(0, 60), allowedProjects: normalizeProjectIds(props.projectIds) };
   if (Array.isArray(body)) {
     if (body.length > MAX_BATCH) return Response.json(rpcError(null, -32600, `A batch holds at most ${MAX_BATCH} messages.`), { status: 400, headers: cors });
     const out = (await Promise.all(body.map((m) => dispatch(m, ctx)))).filter(Boolean);

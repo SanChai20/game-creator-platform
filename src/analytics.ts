@@ -32,14 +32,14 @@ export async function onlineNow(env: Env, pid: string) {
     // at scale the game's tally keeps the numbers (src/clock-do.ts); otherwise they come from the sessions' check-ins
     atScale ? env.DB.prepare("SELECT 'live' AS env, live_players AS players, live_sessions AS sessions FROM game_online WHERE project_id = ?1 AND updated_at > ?2 UNION ALL SELECT 'preview', preview_players, 0 FROM game_online WHERE project_id = ?1 AND updated_at > ?2").bind(pid, t - 6 * 60_000).all<{ env: string; players: number; sessions: number }>() :
     env.DB.prepare("SELECT env, COUNT(DISTINCT user_id) AS players, COUNT(*) AS sessions FROM plays WHERE project_id = ? AND seen_at > ? AND kind != 'verify' GROUP BY env").bind(pid, since).all<{ env: string; players: number; sessions: number }>(),
-    env.DB.prepare('SELECT env, room, players, updated_at FROM room_presence WHERE project_id = ? AND players > 0 AND updated_at > ? ORDER BY players DESC, updated_at DESC LIMIT 50').bind(pid, t - ROOM_STALE_MS).all<{ env: string; room: string; players: number; updated_at: number }>(),
+    env.DB.prepare('SELECT env, room, players, updated_at FROM room_presence WHERE project_id = ? AND players > 0 AND updated_at > ? ORDER BY players DESC, updated_at DESC LIMIT 100').bind(pid, t - ROOM_STALE_MS).all<{ env: string; room: string; players: number; updated_at: number }>(),
   ]);
   const of = (e: string) => online.results.find((r) => r.env === e) || { players: 0, sessions: 0 };
   const liveRooms = rooms.results.filter((r) => r.env === 'live');
   return {
     at: new Date(t).toISOString(),
     online: { live: of('live').players, preview: of('preview').players, live_sessions: of('live').sessions },
-    rooms: { live: liveRooms.length, players_in_rooms: liveRooms.reduce((a, r) => a + r.players, 0), busiest: rooms.results.slice(0, 10).map((r) => ({ room: r.room, env: r.env, players: r.players, since: new Date(r.updated_at).toISOString() })) },
+    rooms: { live: liveRooms.length, players_in_rooms: liveRooms.reduce((a, r) => a + r.players, 0), busiest: rooms.results.map((r) => ({ room: r.room, env: r.env, players: r.players, since: new Date(r.updated_at).toISOString() })) },
     note: 'Online means the page showing the game checked in with the platform in the last 90 seconds (it does every 30 seconds while the game is open). The game\'s own heartbeats do not count. Rooms count players connected to GCP.room right now, as the room servers see them.',
   };
 }
@@ -57,7 +57,7 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
     db.prepare("SELECT user_id, MIN(started_at) AS first_at, COUNT(DISTINCT strftime('%Y-%m-%d', started_at / 1000, 'unixepoch')) AS active_days FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player' GROUP BY user_id HAVING MAX(started_at) >= ?2").bind(pid, since).all<{ user_id: string; first_at: number; active_days: number }>(),
     db.prepare(`SELECT CAST((started_at - ?3) / 3600000 AS INTEGER) AS h, COUNT(*) AS sessions, COUNT(DISTINCT user_id) AS players FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player' AND started_at >= ?3 GROUP BY h`).bind(pid, since, t - 24 * 3600_000).all<{ h: number; sessions: number; players: number }>(),
     db.prepare(`SELECT seconds ${base}`).bind(pid, since).all<{ seconds: number }>(),
-    db.prepare(`SELECT version, COUNT(*) AS sessions, COUNT(DISTINCT user_id) AS players, COALESCE(SUM(seconds), 0) AS seconds, COALESCE(SUM(CASE WHEN errors > 0 THEN 1 ELSE 0 END), 0) AS error_sessions ${base} GROUP BY version ORDER BY version DESC LIMIT 20`).bind(pid, since).all<{ version: number; sessions: number; players: number; seconds: number; error_sessions: number }>(),
+    db.prepare(`SELECT version, COUNT(*) AS sessions, COUNT(DISTINCT user_id) AS players, COALESCE(SUM(seconds), 0) AS seconds, COALESCE(SUM(CASE WHEN errors > 0 THEN 1 ELSE 0 END), 0) AS error_sessions ${base} GROUP BY version ORDER BY version DESC LIMIT 200`).bind(pid, since).all<{ version: number; sessions: number; players: number; seconds: number; error_sessions: number }>(),
     db.prepare(`SELECT ua, COUNT(*) AS sessions, COALESCE(SUM(seconds), 0) AS seconds ${base} GROUP BY ua ORDER BY sessions DESC LIMIT 500`).bind(pid, since).all<{ ua: string | null; sessions: number; seconds: number }>(),
     db.prepare("SELECT version, message, count, first_at, last_at FROM client_errors WHERE project_id = ? AND env = 'live' AND last_at >= ? ORDER BY count DESC, last_at DESC LIMIT 15").bind(pid, since).all<{ version: number; message: string; count: number; first_at: number; last_at: number }>(),
     db.prepare("SELECT COUNT(*) AS kinds, COALESCE(SUM(count), 0) AS total FROM client_errors WHERE project_id = ? AND env = 'live' AND last_at >= ?").bind(pid, since).first<{ kinds: number; total: number }>(),

@@ -12,7 +12,7 @@
 // item always fits the queue and one answer to the agent (FEEDBACK_LIMITS in src/feedback-rules.js).
 import { Component, useCallback, useEffect, useRef, useState, type ReactNode, type DragEvent as RDragEvent, type PointerEvent as RPointerEvent } from 'react';
 import { ago, api, bytes, t, useAct, useData } from './lib';
-import { Badge, Button, Card, EmptyState, Segmented, Textarea } from './ui';
+import { Badge, Button, Card, EmptyState, ListPager, Segmented, Textarea } from './ui';
 import type { GameCapture } from './player';
 
 export type Tool = 'circle' | 'arrow' | 'box' | 'pen';
@@ -368,17 +368,21 @@ interface Item { id: string; version: number | null; note: string; marks: Mark[]
   attachments?: { n: number; width: number; height: number; bytes: number; marks: Mark[]; name?: string }[] }
 
 /** The queue on the project page: what is waiting for the agent, with Remove. */
+const FB_PER = 10;
 export function FeedbackQueue({ projectId, stamp }: { projectId: string; stamp: number }) {
-  const { data, reload } = useData<{ enabled: boolean; max_pending: number; keep_days: number; items: Item[] }>(`/console/projects/${projectId}/feedback`);
+  const [page, setPage] = useState(1);
+  const { data, reload } = useData<{ enabled: boolean; max_pending: number; keep_days: number; total?: number; pages?: number; items: Item[] }>(`/console/projects/${projectId}/feedback?page=${page}&per_page=${FB_PER}`);
   const { busy, act } = useAct(), [open, setOpen] = useState<string | null>(null), [shown, setShown] = useState(0);
+  useEffect(() => { if (data?.pages && page > data.pages) setPage(data.pages); }, [data?.pages, page]);
   useEffect(() => { void reload(); }, [stamp, reload]);
   // the agent takes items off while the creator watches: keep the list fresh
   useEffect(() => { const i = setInterval(() => { if (document.visibilityState === 'visible') void reload(); }, 15000); return () => clearInterval(i); }, [reload]);
   const remove = useCallback((id: string) => act('rm' + id, async () => { await api(`/console/projects/${projectId}/feedback/${id}`, { method: 'DELETE' }); await reload(); }), [act, projectId, reload]);
-  if (!data || (!data.enabled && !data.items.length)) return null;
+  if (!data || (!data.enabled && !(data.total || data.items.length))) return null;
   const items = data.items;
+  const total = data.total ?? items.length;
   return (
-    <Card title={t('Feedback for your agent', '给智能体的反馈')} aside={items.length ? <Badge tone="info" dot={false}>{t('{n} waiting', '{n} 条待读', { n: items.length })}</Badge> : undefined}>
+    <Card title={t('Feedback for your agent', '给智能体的反馈')} aside={total ? <Badge tone="info" dot={false}>{t('{n} waiting', '{n} 条待读', { n: total })}</Badge> : undefined}>
       {items.length ? <div className="fb-list">{items.map((it) => {
         const src = (n: number) => `/api/console/projects/${projectId}/feedback/${it.id}/image${n ? `?n=${n}` : ''}`;
         const extra = it.attachments || [], show = (n: number) => { const same = open === it.id && shown === n; setOpen(same ? null : it.id); setShown(n); };
@@ -402,6 +406,7 @@ export function FeedbackQueue({ projectId, stamp }: { projectId: string; stamp: 
           {open === it.id && <img className="fb-full" src={src(shown)} alt={shown ? t('Attached picture {n}', '附加图片 {n}', { n: shown }) : t('Annotated screenshot', '带标注的截图')} />}
         </div>;
       })}</div> : <div className="pad"><EmptyState compact title={t('Nothing waiting', '暂无待读反馈')}>{t('While you play the preview, press Capture feedback to circle what is wrong and tell your agent. It reads the queue with the creator_feedback tool.', '试玩预览时，按“截图反馈”圈出问题并告诉智能体。智能体会通过 creator_feedback 工具读取队列。')}</EmptyState></div>}
+      <ListPager flush compact page={page} total={total} perPage={FB_PER} onPage={setPage} />
       <p className="dim fs-sm pad" style={{ paddingTop: 0 }}>{t('Up to {max} items wait here; each leaves once your agent has read it. Unread items are deleted after {days} days.', '最多可排队 {max} 条；智能体读取后即移除。未读内容会在 {days} 天后删除。', { max: data.max_pending, days: data.keep_days })}</p>
     </Card>
   );

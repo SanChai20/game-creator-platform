@@ -308,18 +308,7 @@
 }
 @media (max-width: 420px) { .cat-count { display: none; } .cat-sort { margin-left: auto; } .cat-bar { gap: 10px; } .cat-view { padding: 3px 7px; } .cat-view button { width: 34px; } }
 
-/* numbered pages */
-.pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 14px; margin-top: 48px; }
-.pg { display: inline-grid; place-items: center; min-width: 40px; height: 38px; padding: 0 8px; border-radius: 3px; font: 700 14px/1 var(--font-display); font-variant-numeric: tabular-nums; transition: background-color var(--dur-fast); }
-a.pg:hover, button.pg:hover { background: rgb(var(--text-rgb) / .08); }
-.pg.on { background: var(--text); color: var(--paper); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
-.pg-step { padding: 0 18px; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; }
-a.pg-step:hover, button.pg-step:hover { background: none; }
-.pg-step.off { opacity: .4; }
-.pg-nums { display: flex; gap: 2px; }
-.pg-gap { display: inline-grid; place-items: center; width: 24px; color: var(--text-3); }
-.pg-of { display: none; color: var(--text-3); font-size: 13px; }
-@media (max-width: 620px) { .pg-nums { display: none; } .pg-of { display: inline; } }
+/* numbered pages live in ui/ui.css */
 
 /* ---- categories --------------------------------------------------------------------------------- */
 .az { margin-top: clamp(56px, 7vw, 96px); }

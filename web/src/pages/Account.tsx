@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 're
 import qrcode from 'qrcode-generator';
 import { announceAuth } from '../account-sync';
 import { ago, api, ApiError, navigate, t, useApp, useData } from '../lib';
-import { Badge, Button, Card, Field, Input, Modal, Notice } from '../ui';
+import { Badge, Button, Card, Field, Input, ListPager, Modal, Notice, useClientPage } from '../ui';
 import { PageSkeleton } from '../skeletons';
 import { FriendsSettings } from '../social';
 import { PushSettings } from '../push-ui';
@@ -162,6 +162,7 @@ type Run = (fn: () => Promise<void>) => Promise<void>;
 
 function PasskeysCard({ keys, reload, run }: { keys: Passkey[]; reload: () => Promise<void>; run: Run }) {
   const [err, setErr] = useState(''), [msg, setMsg] = useState(''), [busy, setBusy] = useState(''), [edit, setEdit] = useState<{ id: string; name: string } | null>(null);
+  const pg = useClientPage(keys, 10);
   const supported = passkeysSupported();
   const act = async (key: string, fn: () => Promise<void>, ok: string) => {
     setErr(''); setMsg(''); setBusy(key);
@@ -174,15 +175,20 @@ function PasskeysCard({ keys, reload, run }: { keys: Passkey[]; reload: () => Pr
   return (
     <Card title={t('Passkeys', '通行密钥')} aside={keys.length ? <Badge tone="good">{keys.length}</Badge> : <Badge>{t('None yet', '尚未添加')}</Badge>} pad>
       <p className="mute">{t('Sign in with your fingerprint, face or device PIN instead of a code. Passkeys are kept by your phone, computer or password manager, and work only on this site, so they cannot be phished.', '使用指纹、面容或设备 PIN 代替验证码登录。通行密钥保存在你的手机、电脑或密码管理器中，只能在本站使用，因此无法被钓鱼窃取。')}</p>
-      {keys.length > 0 && <ul className="acct-list acct-rows">
-        {keys.map((p) => <li key={p.id}>
-          <span className="acct-mi" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="7" cy="7.5" r="3.5" /><path d="M9.6 10l6.4 6.4M13.5 13.9l1.6-1.6" /></svg></span>
-          {edit?.id === p.id ? <form onSubmit={rename} className="row grow"><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} maxLength={40} autoFocus aria-label={t('Passkey name', '通行密钥名称')} /><Button type="submit" size="sm" variant="primary">{t('Save', '保存')}</Button><Button size="sm" variant="ghost" onClick={() => setEdit(null)}>{t('Cancel', '取消')}</Button></form> : <>
-            <div className="stack s grow"><b>{p.name}</b><span className="mute fs-sm">{t('Added {when}', '{when}添加', { when: ago(p.created_at) })}{p.last_used_at ? ' · ' + t('last used {when}', '上次使用于{when}', { when: ago(p.last_used_at) }) : ' · ' + t('not used yet', '尚未使用')}</span></div>
-            <div className="row"><Button size="sm" variant="ghost" onClick={() => setEdit({ id: p.id, name: p.name })}>{t('Rename', '重命名')}</Button><Button size="sm" variant="ghost" disabled={busy === 'del' + p.id} onClick={() => remove(p)}>{t('Remove', '移除')}</Button></div>
-          </>}
-        </li>)}
-      </ul>}
+      {keys.length > 0 && (
+        <>
+          <ul className="acct-list acct-rows">
+            {pg.slice.map((p) => <li key={p.id}>
+              <span className="acct-mi" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="7" cy="7.5" r="3.5" /><path d="M9.6 10l6.4 6.4M13.5 13.9l1.6-1.6" /></svg></span>
+              {edit?.id === p.id ? <form onSubmit={rename} className="row grow"><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} maxLength={40} autoFocus aria-label={t('Passkey name', '通行密钥名称')} /><Button type="submit" size="sm" variant="primary">{t('Save', '保存')}</Button><Button size="sm" variant="ghost" onClick={() => setEdit(null)}>{t('Cancel', '取消')}</Button></form> : <>
+                <div className="stack s grow"><b>{p.name}</b><span className="mute fs-sm">{t('Added {when}', '{when}添加', { when: ago(p.created_at) })}{p.last_used_at ? ' · ' + t('last used {when}', '上次使用于{when}', { when: ago(p.last_used_at) }) : ' · ' + t('not used yet', '尚未使用')}</span></div>
+                <div className="row"><Button size="sm" variant="ghost" onClick={() => setEdit({ id: p.id, name: p.name })}>{t('Rename', '重命名')}</Button><Button size="sm" variant="ghost" disabled={busy === 'del' + p.id} onClick={() => remove(p)}>{t('Remove', '移除')}</Button></div>
+              </>}
+            </li>)}
+          </ul>
+          <ListPager compact page={pg.page} total={pg.total} perPage={pg.perPage} onPage={pg.setPage} />
+        </>
+      )}
       {msg && <Notice tone="good" role="status">{msg}</Notice>}
       {err && <Notice tone="bad" role="alert">{err}</Notice>}
       {supported ? <div><Button variant={keys.length ? undefined : 'primary'} onClick={() => void add()} disabled={busy === 'add'}>{busy === 'add' ? t('One moment…', '请稍候…') : t('Add a passkey', '添加通行密钥')}</Button></div>
@@ -191,25 +197,37 @@ function PasskeysCard({ keys, reload, run }: { keys: Passkey[]; reload: () => Pr
   );
 }
 
+const SESS_PER = 10;
 function Devices({ sessions, reload }: { sessions: Session[]; reload: () => Promise<void> }) {
-  const [msg, setMsg] = useState(''), [busy, setBusy] = useState(false), others = sessions.filter((s) => !s.current).length;
+  const [page, setPage] = useState(1);
+  const sess = useData<{ sessions: Session[]; total: number; pages: number }>(`/account/sessions?page=${page}&per_page=${SESS_PER}`);
+  useEffect(() => { if (sess.data && page > sess.data.pages) setPage(sess.data.pages); }, [sess.data, page]);
+  const [msg, setMsg] = useState(''), [busy, setBusy] = useState(false);
+  const shown = sess.data?.sessions ?? sessions.slice(0, SESS_PER);
+  const total = sess.data?.total ?? sessions.length;
+  const hasOthers = total > 1 || shown.some((s) => !s.current);
   const endOthers = async () => {
     setBusy(true);
-    try { const r = await api<{ ended: number }>('/auth/sessions/end-others', { body: {} }); setMsg(r.ended === 1 ? t('1 other sign-in was ended.', '已退出 1 个其他登录。') : t('{n} other sign-ins were ended.', '已退出 {n} 个其他登录。', { n: r.ended })); void reload(); }
-    catch (x) { setMsg((x as Error).message); }
+    try {
+      const r = await api<{ ended: number }>('/auth/sessions/end-others', { body: {} });
+      setMsg(r.ended === 1 ? t('1 other sign-in was ended.', '已退出 1 个其他登录。') : t('{n} other sign-ins were ended.', '已退出 {n} 个其他登录。', { n: r.ended }));
+      setPage(1);
+      await Promise.all([sess.reload(), reload()]);
+    } catch (x) { setMsg((x as Error).message); }
     setBusy(false);
   };
   return (
     <Card pad>
       <ul className="acct-list acct-rows">
-        {sessions.map((s, i) => <li key={i}>
+        {shown.map((s, i) => <li key={`${page}-${i}`}>
           <span className="acct-mi" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><rect x="3" y="4" width="14" height="9.5" rx="1.5" /><path d="M7 16.5h6" /></svg></span>
           <div className="stack s grow"><b>{deviceOf(s.ua)}</b><span className="mute fs-sm">{t('signed in {when}', '{when}登录', { when: ago(s.created_at) })}{s.method ? ' ' + methodOf(s.method) : ''}</span></div>
           {s.current && <Badge tone="accent">{t('this browser', '当前浏览器')}</Badge>}
         </li>)}
       </ul>
+      <ListPager compact page={page} total={total} perPage={SESS_PER} onPage={setPage} />
       {msg && <Notice tone="good" role="status">{msg}</Notice>}
-      <div><Button onClick={endOthers} disabled={busy || others === 0}>{t('Sign out everywhere else', '退出其他所有设备')}</Button></div>
+      <div><Button onClick={endOthers} disabled={busy || !hasOthers}>{t('Sign out everywhere else', '退出其他所有设备')}</Button></div>
     </Card>
   );
 }

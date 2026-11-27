@@ -396,19 +396,4 @@ export function MoreFrom({ owner, author, slug, n }: { owner?: string; author: s
 }
 
 // ---- paging -------------------------------------------------------------------------------------
-/** Numbered pages: first, last, the pages around this one, and gaps between. Pages are links, so they can be opened and shared. */
-export function Pager({ page, pages, href, onPage }: { page: number; pages: number; href?: (p: number) => string; onPage?: (p: number) => void }) {
-  if (pages <= 1) return null;
-  const around = new Set([1, pages, page - 2, page - 1, page, page + 1, page + 2].filter((p) => p >= 1 && p <= pages));
-  const list = [...around].sort((a, b) => a - b), out: (number | string)[] = [];
-  list.forEach((p, k) => { if (k && p - list[k - 1] > 1) out.push('gap' + p); out.push(p); });
-  const go = (p: number, cls: string, label: ReactNode) => href ? <Link key={'p' + p + cls} to={href(p)} className={cls}>{label}</Link> : <button key={'p' + p + cls} type="button" className={cls} onClick={() => onPage?.(p)}>{label}</button>;
-  return (
-    <nav className="pager" aria-label={t('Pages', '分页')}>
-      {page > 1 ? go(page - 1, 'pg pg-step', <>‹ {t('Prev', '上一页')}</>) : <span className="pg pg-step off">‹ {t('Prev', '上一页')}</span>}
-      <span className="pg-nums">{out.map((p) => typeof p === 'string' ? <span key={p} className="pg-gap">…</span> : p === page ? <span key={p} className="pg on" aria-current="page">{p}</span> : go(p, 'pg', p))}</span>
-      <span className="pg-of">{t('Page {page} of {pages}', '第 {page} / {pages} 页', { page, pages: num(pages) })}</span>
-      {page < pages ? go(page + 1, 'pg pg-step', <>{t('Next', '下一页')} ›</>) : <span className="pg pg-step off">{t('Next', '下一页')} ›</span>}
-    </nav>
-  );
-}
+export { Pager } from './ui';

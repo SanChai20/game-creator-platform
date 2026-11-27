@@ -306,30 +306,60 @@ export async function adminRefund(env: Env, s: RefundSettings, adminId: string, 
 }
 
 /** A buyer's purchase history: every game and build skill they bought, newest first, each game with its refund state. */
-export async function purchaseHistory(env: Env, s: RS & Limits, userId: string, origin: string) {
+export async function purchaseHistory(env: Env, s: RS & Limits, userId: string, origin: string, opts?: { limit?: number; offset?: number }) {
+  const limit = Math.max(1, Math.min(200, Math.floor(opts?.limit ?? 200)));
+  const offset = Math.max(0, Math.min(200_000, Math.floor(opts?.offset ?? 0)));
+  const page = Math.floor(offset / limit) + 1;
+  const gameWhere = "x.user_id = ?1 AND NOT (x.gifted_by IS NOT NULL AND x.status = 'refunded')";
+  const skillWhere = 'x.user_id = ?1';
+  const [slice, tot] = await Promise.all([
+    env.DB.prepare(`SELECT id, item, created_at FROM (
+        SELECT x.id, 'game' AS item, x.created_at FROM purchases x JOIN projects p ON p.id = x.project_id WHERE ${gameWhere}
+        UNION ALL
+        SELECT x.id, 'skill' AS item, x.created_at FROM skill_purchases x JOIN projects p ON p.id = x.project_id WHERE ${skillWhere}
+      ) ORDER BY created_at DESC, id DESC LIMIT ?2 OFFSET ?3`).bind(userId, limit, offset).all<{ id: string; item: 'game' | 'skill'; created_at: number }>(),
+    env.DB.prepare(`SELECT
+        (SELECT COUNT(*) FROM purchases x JOIN projects p ON p.id = x.project_id WHERE ${gameWhere}) +
+        (SELECT COUNT(*) FROM skill_purchases x JOIN projects p ON p.id = x.project_id WHERE ${skillWhere}) AS n`).bind(userId).first<{ n: number }>(),
+  ]);
+  const gameIds = slice.results.filter((r) => r.item === 'game').map((r) => r.id);
+  const skillIds = slice.results.filter((r) => r.item === 'skill').map((r) => r.id);
   const [games, skills] = await Promise.all([
-    env.DB.prepare('SELECT x.*, p.title, p.slug FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.user_id = ? AND NOT (x.gifted_by IS NOT NULL AND x.status = \'refunded\') ORDER BY x.created_at DESC LIMIT 200').bind(userId).all<PurchaseRow & { title: string; slug: string; refunded_at: number | null }>(),
-    env.DB.prepare('SELECT x.id, x.price_cents, x.status, x.provider, x.created_at, p.title, p.slug FROM skill_purchases x JOIN projects p ON p.id = x.project_id WHERE x.user_id = ? ORDER BY x.created_at DESC LIMIT 200').bind(userId).all<{ id: string; price_cents: number; status: string; provider: string; created_at: number; title: string; slug: string }>(),
+    gameIds.length
+      ? env.DB.prepare('SELECT x.*, p.title, p.slug FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(gameIds)).all<PurchaseRow & { title: string; slug: string; refunded_at: number | null }>()
+      : Promise.resolve({ results: [] as (PurchaseRow & { title: string; slug: string; refunded_at: number | null })[] }),
+    skillIds.length
+      ? env.DB.prepare('SELECT x.id, x.price_cents, x.status, x.provider, x.created_at, p.title, p.slug FROM skill_purchases x JOIN projects p ON p.id = x.project_id WHERE x.id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(skillIds)).all<{ id: string; price_cents: number; status: string; provider: string; created_at: number; title: string; slug: string }>()
+      : Promise.resolve({ results: [] as { id: string; price_cents: number; status: string; provider: string; created_at: number; title: string; slug: string }[] }),
   ]);
   const states = await refundStates(env, s, userId, games.results);
   // gifts: who gave each one
   const givers = [...new Set(games.results.map((g) => g.gifted_by).filter((x): x is string => !!x))];
   const names = new Map<string, { id: string; name: string }>();
-  if (givers.length) for (const u of (await env.DB.prepare(`SELECT id, name, status FROM users WHERE id IN (${givers.map(() => '?').join(',')})`).bind(...givers).all<{ id: string; name: string; status: string }>()).results) names.set(u.id, { id: u.id, name: u.status === 'active' ? u.name : 'Deleted account' });
-  const list = [
-    ...games.results.map((g) => ({ id: g.id, item: 'game' as const, title: g.title, slug: g.slug, price_cents: g.price_cents, status: g.status, gift: g.provider !== 'stripe' || !!g.gifted_by, gifted_by: g.gifted_by ? names.get(g.gifted_by) ?? null : null, created_at: g.created_at, refunded_at: g.refunded_at ?? null, refund: pub(states.get(g.id)!) })),
-    // build skills are final: no refund state, no button
-    ...skills.results.map((k) => ({ id: k.id, item: 'skill' as const, title: k.title, slug: k.slug, price_cents: k.price_cents, status: k.status, gift: k.provider !== 'stripe', created_at: k.created_at, refunded_at: null, refund: null })),
-  ].sort((a, b) => b.created_at - a.created_at);
-  return { purchases: list, policy: { window_hours: s.refund_window_hours, max_play_minutes: s.refund_max_play_minutes } };
+  if (givers.length) for (const u of (await env.DB.prepare('SELECT id, name, status FROM users WHERE id IN (SELECT value FROM json_each(?))').bind(JSON.stringify(givers)).all<{ id: string; name: string; status: string }>()).results) names.set(u.id, { id: u.id, name: u.status === 'active' ? u.name : 'Deleted account' });
+  const byGame = new Map(games.results.map((g) => [g.id, { id: g.id, item: 'game' as const, title: g.title, slug: g.slug, price_cents: g.price_cents, status: g.status, gift: g.provider !== 'stripe' || !!g.gifted_by, gifted_by: g.gifted_by ? names.get(g.gifted_by) ?? null : null, created_at: g.created_at, refunded_at: g.refunded_at ?? null, refund: pub(states.get(g.id)!) }]));
+  const bySkill = new Map(skills.results.map((k) => [k.id, { id: k.id, item: 'skill' as const, title: k.title, slug: k.slug, price_cents: k.price_cents, status: k.status, gift: k.provider !== 'stripe', created_at: k.created_at, refunded_at: null, refund: null }]));
+  const list = slice.results.map((r) => (r.item === 'game' ? byGame.get(r.id) : bySkill.get(r.id))).filter((x): x is NonNullable<typeof x> => !!x);
+  const total = tot?.n || 0;
+  return { purchases: list, total, page, per_page: limit, pages: Math.max(1, Math.ceil(total / limit)), policy: { window_hours: s.refund_window_hours, max_play_minutes: s.refund_max_play_minutes } };
+}
+
+/** Paginated refunds and requests for the admin console: open ones first, with totals. */
+export async function adminRefundRequestsPage(env: Env, opts?: { limit?: number; offset?: number }) {
+  const limit = Math.max(1, Math.min(200, Math.floor(opts?.limit ?? 20)));
+  const offset = Math.max(0, Math.min(200_000, Math.floor(opts?.offset ?? 0)));
+  const [rows, tot] = await Promise.all([
+    env.DB.prepare(`SELECT q.*, p.title, p.slug, b.email AS buyer, b.refund_review_at AS buyer_review_at, o.email AS creator, x.status AS purchase_status
+      FROM refund_requests q JOIN projects p ON p.id = q.project_id LEFT JOIN users b ON b.id = q.user_id LEFT JOIN users o ON o.id = q.owner_id LEFT JOIN purchases x ON x.id = q.purchase_id
+      ORDER BY (q.status = 'pending') DESC, q.created_at DESC LIMIT ?1 OFFSET ?2`).bind(limit, offset).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS waiting FROM refund_requests").first<{ n: number; waiting: number | null }>(),
+  ]);
+  return { refunds: rows.results, total: tot?.n || 0, waiting: tot?.waiting || 0 };
 }
 
 /** Every refund and request for the admin console: open ones first, with what the admin needs to decide. */
 export async function adminRefundRequests(env: Env) {
-  const r = await env.DB.prepare(`SELECT q.*, p.title, p.slug, b.email AS buyer, b.refund_review_at AS buyer_review_at, o.email AS creator, x.status AS purchase_status
-    FROM refund_requests q JOIN projects p ON p.id = q.project_id LEFT JOIN users b ON b.id = q.user_id LEFT JOIN users o ON o.id = q.owner_id LEFT JOIN purchases x ON x.id = q.purchase_id
-    ORDER BY (q.status = 'pending') DESC, q.created_at DESC LIMIT 200`).all<Record<string, unknown>>();
-  return r.results;
+  return (await adminRefundRequestsPage(env, { limit: 200, offset: 0 })).refunds;
 }
 
 /** An admin gives an account its self-service refunds back (or takes them away). */

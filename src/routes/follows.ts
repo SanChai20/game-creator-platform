@@ -38,9 +38,12 @@ follows.delete('/creators/:id/follow', async (c) => {
   const u = requireUser(c); await followLimit(c.env, u);
   return c.json(await rules(() => F.unfollow(c.env.DB, u.id, c.req.param('id'))));
 });
+import { pageMeta, parsePage } from '../paging';
+
 follows.get('/me/following', async (c) => {
-  const u = requireUser(c);
-  return c.json({ following: await F.followingList(c.env.DB, u.id) });
+  const u = requireUser(c), pg = parsePage((k) => c.req.query(k), 24, 100);
+  const { following, total } = await F.followingPage(c.env.DB, u.id, { limit: pg.limit, offset: pg.offset });
+  return c.json({ following, ...pageMeta(total, pg.page, pg.per_page) });
 });
 
 // ---- the bell ---------------------------------------------------------------------------------------------------------

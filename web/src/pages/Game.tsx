@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
 import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
-import { Badge, Button, Card, EmptyState, KeyValue, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
+import { Badge, Button, Card, EmptyState, KeyValue, ListPager, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { MoreFrom, MoreLike, SectionHead } from '../store';
@@ -313,11 +313,7 @@ export function Game({ slug }: { slug: string }) {
                   <div><Button variant="primary" disabled={!rating || busy === 'review'} onClick={review}>{data.my_review ? t('Update review', '更新评价') : t('Post review', '发布评价')}</Button></div>
                 </Card>
               ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t('Play for at least {n} seconds to leave a review.', '游玩至少 {n} 秒后即可评价。', { n: config.settings.play_min_seconds })}</p>}
-              {data.reviews.length ? <div className="reviews">{data.reviews.map((r: any, i: number) => (
-                <div className="review" key={i}>
-                  <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span><b>{r.name}</b>{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>
-                  {r.body && <p className="prose">{r.body}</p>}
-                </div>))}</div> : <EmptyState compact title={t('No reviews yet', '还没有评价')}>{t('Be the first to say something.', '来做第一个吧。')}</EmptyState>}
+              <ReviewsList slug={slug} initial={data.reviews} total={data.reviews_total ?? data.reviews.length} />
             </section>
             {user && live && !data.is_owner && <ReportGame slug={slug} />}
           </div>
@@ -424,5 +420,37 @@ function ReportGame({ slug }: { slug: string }) {
       <Textarea value={detail} onChange={(e) => setDetail(e.target.value)} maxLength={1000} placeholder={t('What happened? (optional)', '发生了什么？（选填）')} />
       <div className="row"><Button variant="primary" disabled={!reason || busy === 'report'} onClick={send}>{t('Send report', '提交举报')}</Button><Button onClick={() => setOpen(false)}>{t('Cancel', '取消')}</Button></div>
     </Card>
+  );
+}
+
+const REVIEWS_PER = 10;
+function ReviewsList({ slug, initial, total }: { slug: string; initial: any[]; total: number }) {
+  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<any[]>(initial);
+  const [countTotal, setCountTotal] = useState(total);
+  const [loading, setLoading] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setPage(1); setRows(initial); setCountTotal(total); }, [slug, initial, total]);
+  useEffect(() => {
+    if (page === 1) { setRows(initial); setCountTotal(total); return; }
+    let live = true; setLoading(true);
+    api<{ reviews: any[]; total: number }>(`/games/${encodeURIComponent(slug)}/reviews?page=${page}&per_page=${REVIEWS_PER}`)
+      .then((r) => { if (live) { setRows(r.reviews); setCountTotal(r.total); } }, () => {})
+      .finally(() => live && setLoading(false));
+    return () => { live = false; };
+  }, [slug, page, initial, total]);
+
+  if (!countTotal && !rows.length) return <EmptyState compact title={t('No reviews yet', '还没有评价')}>{t('Be the first to say something.', '来做第一个吧。')}</EmptyState>;
+  const go = (p: number) => { setPage(p); box.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  return (
+    <div ref={box}>
+      <div className="reviews" aria-busy={loading}>{rows.map((r: any, i: number) => (
+        <div className="review" key={`${page}-${i}`}>
+          <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span><b>{r.name}</b>{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>
+          {r.body && <p className="prose">{r.body}</p>}
+        </div>))}</div>
+      <ListPager page={page} total={countTotal} perPage={REVIEWS_PER} onPage={go} />
+    </div>
   );
 }

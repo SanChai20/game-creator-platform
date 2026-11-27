@@ -56,6 +56,8 @@ import { askForGift, cancelGiftRequest, checkGift, declineGift, gameGiftState, g
 import { ensureProfile } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 import { deleteFacts, deleteProject, deleteVerdict } from '../project-delete';
+import { pageMeta, parsePage } from '../paging';
+import { normalizeProjectIds } from '../mcp/scope';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const api = new Hono<App>();
@@ -333,17 +335,35 @@ async function endOtherSessions(c: Ctx, userId: string) {
 }
 
 api.get('/account', async (c) => {
-  const u = requireUser(c), mine = await loginIdOf(c.req.raw);
-  const rows = await c.env.DB.prepare('SELECT id, created_at, ua, method FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 50').bind(u.id, now()).all<{ id: string; created_at: number; ua: string; method: string | null }>();
-  const keys = await c.env.DB.prepare('SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at').bind(u.id).all<{ id: string; name: string; created_at: number; last_used_at: number | null }>();
-  const v = await c.env.DB.prepare('SELECT email_verified_at FROM users WHERE id = ?').bind(u.id).first<{ email_verified_at: number | null }>();
+  const u = requireUser(c), mine = await loginIdOf(c.req.raw), t = now();
+  const [rows, sessTot, keys, v] = await Promise.all([
+    c.env.DB.prepare('SELECT id, created_at, ua, method FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 50').bind(u.id, t).all<{ id: string; created_at: number; ua: string; method: string | null }>(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND expires_at > ?').bind(u.id, t).first<{ n: number }>(),
+    c.env.DB.prepare('SELECT id, name, created_at, last_used_at FROM passkeys WHERE user_id = ? ORDER BY created_at').bind(u.id).all<{ id: string; name: string; created_at: number; last_used_at: number | null }>(),
+    c.env.DB.prepare('SELECT email_verified_at FROM users WHERE id = ?').bind(u.id).first<{ email_verified_at: number | null }>(),
+  ]);
   return c.json({
     user: pubUser(u), created_at: u.created_at, email_verified_at: v?.email_verified_at || null,
     sessions: rows.results.map((r) => ({ created_at: r.created_at, ua: r.ua || '', method: r.method || null, current: r.id === mine })),
+    sessions_total: sessTot?.n || 0,
     passkeys: keys.results,
     confirmed_until: await confirmedUntil(c.env, mine),
     delete_blocker: await deleteBlocker(c.env, u),
     two_factor: await twoFactorState(c.env, u.id),
+  });
+});
+
+api.get('/account/sessions', async (c) => {
+  const u = requireUser(c), mine = await loginIdOf(c.req.raw), t = now();
+  const pg = parsePage((k) => c.req.query(k), 10, 50);
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare('SELECT id, created_at, ua, method FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+      .bind(u.id, t, pg.limit, pg.offset).all<{ id: string; created_at: number; ua: string; method: string | null }>(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND expires_at > ?').bind(u.id, t).first<{ n: number }>(),
+  ]);
+  return c.json({
+    sessions: rows.results.map((r) => ({ created_at: r.created_at, ua: r.ua || '', method: r.method || null, current: r.id === mine })),
+    ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
   });
 });
 
@@ -636,8 +656,11 @@ async function liveGame(c: Ctx, slug: string): Promise<Project & { author: strin
 
 api.get('/games/:slug', async (c) => {
   const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
-  const reviews = await c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 50').bind(p.id).all<Record<string, any>>();
-  const dist = await c.env.DB.prepare('SELECT rating, COUNT(*) AS n FROM reviews WHERE project_id = ? AND hidden = 0 GROUP BY rating').bind(p.id).all<{ rating: number; n: number }>();
+  const [reviews, revTot, dist] = await Promise.all([
+    c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 10').bind(p.id).all<Record<string, any>>(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
+    c.env.DB.prepare('SELECT rating, COUNT(*) AS n FROM reviews WHERE project_id = ? AND hidden = 0 GROUP BY rating').bind(p.id).all<{ rating: number; n: number }>(),
+  ]);
   let mine = null, played = false, owned = p.price_cents === 0, library: string | null = null, resume: { last_played: number; saved_at: number | null; resume: unknown } | null = null;
   if (u) {
     mine = await c.env.DB.prepare('SELECT rating, body FROM reviews WHERE project_id = ? AND user_id = ?').bind(p.id, u.id).first();
@@ -661,6 +684,7 @@ api.get('/games/:slug', async (c) => {
   return c.json({
     game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: listingLangs(p, ['title', 'tagline', 'description', 'controls'], (k) => media(origin, k)).i18n || {}, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
     reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    reviews_total: revTot?.n || 0,
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
     // whether the game is in this player's library: 'bought' (a paid game, from its purchase), 'added' (a free game they added) or null
@@ -683,6 +707,20 @@ api.get('/games/:slug', async (c) => {
       // adults only: the page blurs the cover and asks the player to confirm before the game starts (POST /play enforces it)
       mature: matureOf(meta.meta.content).categories,
     })).catch(() => ({ controls: null, compat: null, meta: null, mature: matureList(p) })) : { controls: null, compat: null, meta: null, mature: matureList(p) }),
+  });
+});
+
+api.get('/games/:slug/reviews', async (c) => {
+  const p = await liveGame(c, c.req.param('slug')), u = c.get('user');
+  const pg = parsePage((k) => c.req.query(k), 10, 50);
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT ? OFFSET ?')
+      .bind(p.id, pg.limit, pg.offset).all<Record<string, any>>(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
+  ]);
+  return c.json({
+    reviews: rows.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
   });
 });
 
@@ -762,18 +800,20 @@ api.delete('/games/:slug/progress', async (c) => {
 // ---- continue playing ---------------------------------------------------------------------------
 // The signed-in player's own games, most recently played first: the store's Continue row and the library. Only their own.
 async function continueCards(c: Ctx, userId: string, limit: number, offset = 0) {
-  const { list, more } = await continueList(c.env.DB, userId, { limit, offset });
-  if (!list.length) return { games: [], more: false };
+  const { list, more, total } = await continueList(c.env.DB, userId, { limit, offset });
+  if (!list.length) return { games: [], more: false, total: total || 0 };
   const ids = list.map((x: { game_id: string }) => x.game_id), origin = c.get('origin');
   const rows = await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>();
   const byId = new Map(rows.results.map((r) => [r.id, r]));
   const games = list.filter((x: { game_id: string }) => byId.has(x.game_id)).map(({ game_id, ...x }: Record<string, any>) => ({ ...card(origin, byId.get(game_id)!), progress: x }));
-  return { games, more };
+  return { games, more, total: total ?? games.length };
 }
 api.get('/me/continue', async (c) => {
   const u = requireUser(c);
   c.header('cache-control', 'private, no-store');
-  return c.json(await continueCards(c, u.id, num(c.req.query('limit')) || 12, num(c.req.query('offset')) || 0));
+  const pg = parsePage((k) => c.req.query(k), 12, 60);
+  const res = await continueCards(c, u.id, pg.limit, pg.offset);
+  return c.json({ ...res, ...pageMeta(res.total, pg.page, pg.per_page) });
 });
 // Takes a game off the Continue row until it is played again. Progress stays.
 api.delete('/me/continue/:slug', async (c) => {
@@ -785,8 +825,8 @@ api.delete('/me/continue/:slug', async (c) => {
 // What the library shows: the games played (the Continue row, paged), and the games the player owns or keeps: every paid
 // game they bought (in it from the moment the payment succeeds, out again on a refund) and the free games they added.
 const libraryErr = (e: unknown): never => { if (e instanceof LibraryError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
-async function libraryCards(c: Ctx, userId: string, offset: number, filter: string) {
-  const { list, more } = await libraryList(c.env.DB, userId, { limit: 24, offset, filter });
+async function libraryCards(c: Ctx, userId: string, offset: number, filter: string, limit = 24) {
+  const { list, more } = await libraryList(c.env.DB, userId, { limit, offset, filter });
   if (!list.length) return { games: [], more: false };
   const ids = list.map((x: { game_id: string }) => x.game_id), origin = c.get('origin');
   const rows = await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>();
@@ -794,16 +834,22 @@ async function libraryCards(c: Ctx, userId: string, offset: number, filter: stri
   return { games: list.filter((x: { game_id: string }) => byId.has(x.game_id)).map(({ game_id, ...x }: Record<string, any>) => ({ ...card(origin, byId.get(game_id)!), library: x })), more };
 }
 api.get('/me/library', async (c) => {
-  const u = requireUser(c), offset = num(c.req.query('offset')) || 0;
+  const u = requireUser(c);
+  const pg = parsePage((k) => c.req.query(k), 24, 60);
   c.header('cache-control', 'private, no-store');
-  const [played, owned, counts] = await Promise.all([continueCards(c, u.id, 24, offset), offset ? null : libraryCards(c, u.id, 0, 'all'), offset ? null : libraryCounts(c.env.DB, u.id)]);
-  return c.json({ ...played, owned, counts });
+  const first = pg.offset === 0;
+  const [played, owned, counts] = await Promise.all([continueCards(c, u.id, pg.limit, pg.offset), first ? libraryCards(c, u.id, 0, 'all', 24) : null, first ? libraryCounts(c.env.DB, u.id) : null]);
+  return c.json({ ...played, ...pageMeta(played.total, pg.page, pg.per_page), owned: owned && counts ? { ...owned, ...pageMeta(counts.all, 1, 24) } : owned, counts });
 });
 // More of the owned part, or one filter of it: all, bought or added.
 api.get('/me/library/games', async (c) => {
   const u = requireUser(c);
+  const filter = String(c.req.query('filter') || 'all');
+  const pg = parsePage((k) => c.req.query(k), 24, 60);
   c.header('cache-control', 'private, no-store');
-  return c.json(await libraryCards(c, u.id, num(c.req.query('offset')) || 0, String(c.req.query('filter') || 'all')));
+  const [res, counts] = await Promise.all([libraryCards(c, u.id, pg.offset, filter, pg.limit), libraryCounts(c.env.DB, u.id)]);
+  const total = filter === 'bought' ? counts.bought : filter === 'added' ? counts.added : counts.all;
+  return c.json({ ...res, ...pageMeta(total, pg.page, pg.per_page), counts });
 });
 api.post('/me/library/:slug', async (c) => {
   const u = requireUser(c), p = await c.env.DB.prepare('SELECT id, status, price_cents FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string; status: string; price_cents: number }>();
@@ -931,7 +977,8 @@ api.post('/billing/license', async (c) => {
 // ----- the Creator Store: build skills, free or sold, each under its game (src/skills.ts) -------------------------------
 api.get('/creator-store', async (c) => {
   c.header('cache-control', 'private, no-store');
-  return c.json(await storeList(c.env, c.get('origin'), c.get('user'), { query: c.req.query('q'), price: c.req.query('price'), sort: c.req.query('sort'), limit: Number(c.req.query('limit')) || undefined, offset: Number(c.req.query('offset')) || undefined }));
+  const pg = parsePage((k) => c.req.query(k), 24, 100);
+  return c.json(await storeList(c.env, c.get('origin'), c.get('user'), { query: c.req.query('q'), price: c.req.query('price'), sort: c.req.query('sort'), limit: pg.limit, offset: pg.offset }));
 });
 api.get('/creator-store/:slug', async (c) => {
   c.header('cache-control', 'private, no-store');
@@ -1002,7 +1049,21 @@ api.get('/games/:slug/gift-friends', async (c) => {
 api.get('/me/gifts', async (c) => {
   const u = requireUser(c), s = await getSettings(c.env);
   c.header('cache-control', 'private, no-store');
-  return c.json({ enabled: giftsOn(s), ...(await giftOverview(c.env, u.id)) });
+  const q = (k: string) => c.req.query(k);
+  const paged = ['incoming_page', 'outgoing_page', 'received_page', 'sent_page', 'per_page'].some((k) => q(k) != null && q(k) !== '');
+  if (!paged) return c.json({ enabled: giftsOn(s), ...(await giftOverview(c.env, u.id)) });
+  const rawPer = Math.floor(Number(q('per_page') || 10));
+  const per = Number.isFinite(rawPer) ? Math.max(1, Math.min(100, rawPer)) : 10;
+  const sec = (k: string) => {
+    const p = Math.floor(Number(q(k) || 1));
+    const page = Number.isFinite(p) ? Math.max(1, Math.min(10_000, p)) : 1;
+    return { limit: per, offset: (page - 1) * per };
+  };
+  return c.json({
+    enabled: giftsOn(s),
+    per_page: per,
+    ...(await giftOverview(c.env, u.id, now(), { incoming: sec('incoming_page'), outgoing: sec('outgoing_page'), received: sec('received_page'), sent: sec('sent_page') })),
+  });
 });
 api.post('/me/gifts/requests/:id/decline', async (c) => {
   const u = requireUser(c), r = await declineGift(c.env, u.id, c.req.param('id'));
@@ -1070,7 +1131,10 @@ api.post('/me/purchases/:id/refund', (c) => buyerRefund(c, c.req.param('id'), nu
 api.get('/me/purchases', async (c) => {
   const u = requireUser(c), s = await getSettings(c.env);
   c.header('cache-control', 'private, no-store');
-  return c.json(await purchaseHistory(c.env, s, u.id, c.get('origin')));
+  const q = (k: string) => c.req.query(k);
+  const paged = ['page', 'per_page', 'limit', 'offset'].some((k) => q(k) != null && q(k) !== '');
+  const pg = paged ? parsePage(q, 20, 100) : null;
+  return c.json(await purchaseHistory(c.env, s, u.id, c.get('origin'), pg ? { limit: pg.limit, offset: pg.offset } : undefined));
 });
 
 async function creatorFeeSession(env: Env, paymentIntent: string): Promise<string | null> {
@@ -1291,27 +1355,86 @@ api.post('/billing/withdraw', async (c) => {
 });
 
 // ----- creator console -------------------------------------------------------------------------
+const consoleProjectCard = (origin: string, p: Record<string, any>) => ({
+  ...card(origin, p), live_version: p.live_version, preview_version: p.preview_version,
+  sales: p.sales, skill_price_cents: p.skill_price_cents, skill_sales: p.skill_sales, updated_at: p.updated_at,
+});
+
 api.get('/console/overview', async (c) => {
-  const u = requireUser(c), origin = c.get('origin'), s = await getSettings(c.env);
-  const projects = await c.env.DB.prepare("SELECT p.*, ? AS author FROM projects p WHERE p.owner_id = ? AND p.status != 'removed' ORDER BY p.updated_at DESC").bind(u.name, u.id).all<Record<string, any>>();
-  const sales = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>();
-  const skillSales = await c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>();
+  const u = requireUser(c), origin = c.get('origin');
+  const includeProjects = c.req.query('projects') !== '0';
+  const [agg, projects, sales, skillSales, balance] = await Promise.all([
+    c.env.DB.prepare(`SELECT COUNT(*) AS total_games,
+        COALESCE(SUM(CASE WHEN status = 'live' THEN 1 ELSE 0 END), 0) AS live_games,
+        COALESCE(SUM(plays), 0) AS total_plays,
+        COALESCE(SUM(seconds), 0) AS total_seconds,
+        COALESCE(SUM(CASE WHEN open_implementation = 1 AND status = 'live' THEN 1 ELSE 0 END), 0) AS skills_shared
+      FROM projects WHERE owner_id = ? AND status != 'removed'`).bind(u.id).first<{ total_games: number; live_games: number; total_plays: number; total_seconds: number; skills_shared: number }>(),
+    includeProjects
+      ? c.env.DB.prepare("SELECT p.*, ? AS author FROM projects p WHERE p.owner_id = ? AND p.status != 'removed' ORDER BY p.updated_at DESC").bind(u.name, u.id).all<Record<string, any>>()
+      : Promise.resolve({ results: [] as Record<string, any>[] }),
+    c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>(),
+    c.env.DB.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first<{ n: number; net: number }>(),
+    balanceOf(c.env, u.id),
+  ]);
+  const stats = {
+    total_games: agg?.total_games || 0,
+    live_games: agg?.live_games || 0,
+    total_plays: agg?.total_plays || 0,
+    total_minutes: Math.round((agg?.total_seconds || 0) / 60),
+    skills_shared: agg?.skills_shared || 0,
+  };
   return c.json({
-    user: pubUser(u), balance: await balanceOf(c.env, u.id), sales: sales || { n: 0, net: 0 }, skill_sales: skillSales || { n: 0, net: 0 },
-    skills_shared: projects.results.filter((p) => p.open_implementation && p.status === 'live').length,
-    projects: projects.results.map((p) => ({ ...card(origin, p), live_version: p.live_version, preview_version: p.preview_version, sales: p.sales, skill_price_cents: p.skill_price_cents, skill_sales: p.skill_sales, updated_at: p.updated_at })),
+    user: pubUser(u), balance, sales: sales || { n: 0, net: 0 }, skill_sales: skillSales || { n: 0, net: 0 },
+    skills_shared: stats.skills_shared,
+    stats,
+    projects: projects.results.map((p) => consoleProjectCard(origin, p)),
+  });
+});
+
+api.get('/console/projects', async (c) => {
+  const u = requireUser(c), origin = c.get('origin');
+  const pg = parsePage((k) => c.req.query(k), 20, 100);
+  const q = (c.req.query('q') || '').trim().slice(0, 80);
+  const status = String(c.req.query('status') || 'all');
+  const sort = String(c.req.query('sort') || 'updated');
+  const where = ["p.owner_id = ?", "p.status != 'removed'"], args: unknown[] = [u.id];
+  if (status === 'live' || status === 'draft' || status === 'offline') { where.push('p.status = ?'); args.push(status); }
+  if (q) {
+    const like = '%' + q.replace(/[\\%_]/g, '\\$&') + '%';
+    where.push("(p.title LIKE ? ESCAPE '\\' OR p.slug LIKE ? ESCAPE '\\' OR p.tagline LIKE ? ESCAPE '\\')");
+    args.push(like, like, like);
+  }
+  const order = sort === 'plays' ? 'p.plays DESC, p.updated_at DESC' : sort === 'title' ? 'LOWER(p.title) ASC, p.updated_at DESC' : 'p.updated_at DESC';
+  const w = where.join(' AND ');
+  const [rows, tot, counts] = await Promise.all([
+    c.env.DB.prepare(`SELECT p.*, ? AS author FROM projects p WHERE ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(u.name, ...args, pg.limit, pg.offset).all<Record<string, any>>(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${w}`).bind(...args).first<{ n: number }>(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS all_n,
+        COALESCE(SUM(CASE WHEN status = 'live' THEN 1 ELSE 0 END), 0) AS live,
+        COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) AS draft,
+        COALESCE(SUM(CASE WHEN status = 'offline' THEN 1 ELSE 0 END), 0) AS offline
+      FROM projects WHERE owner_id = ? AND status != 'removed'`).bind(u.id).first<{ all_n: number; live: number; draft: number; offline: number }>(),
+  ]);
+  return c.json({
+    projects: rows.results.map((p) => consoleProjectCard(origin, p)),
+    counts: { all: counts?.all_n || 0, live: counts?.live || 0, draft: counts?.draft || 0, offline: counts?.offline || 0 },
+    ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
   });
 });
 
 api.get('/console/projects/:id', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id')), origin = c.get('origin'), db = c.env.DB;
-  const [versions, events, daily, errors, files, sales] = await Promise.all([
+  const [versions, events, daily, errors, files, sales, vTot, evTot, erTot] = await Promise.all([
     db.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 30').bind(p.id).all<any>(),
     db.prepare('SELECT kind, detail, version, actor, created_at FROM events WHERE project_id = ? ORDER BY id DESC LIMIT 40').bind(p.id).all(),
     db.prepare('SELECT day, sessions, plays, seconds FROM game_daily WHERE project_id = ? AND day >= ? ORDER BY day').bind(p.id, addDays(dayOf(now()), -29)).all(),
     db.prepare('SELECT version, env, message, count, last_at FROM client_errors WHERE project_id = ? ORDER BY last_at DESC LIMIT 20').bind(p.id).all(),
     listFiles(c.env, p.id),
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
+    db.prepare('SELECT COUNT(*) AS n FROM versions WHERE project_id = ?').bind(p.id).first<{ n: number }>(),
+    db.prepare('SELECT COUNT(*) AS n FROM events WHERE project_id = ?').bind(p.id).first<{ n: number }>(),
+    db.prepare('SELECT COUNT(*) AS n FROM client_errors WHERE project_id = ?').bind(p.id).first<{ n: number }>(),
   ]);
   const [skillSales, skillRows] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
@@ -1327,7 +1450,11 @@ api.get('/console/projects/:id', async (c) => {
     store: await storeStatus(c.env, s, p),
     project: { ...card(origin, { ...p, author: u.name }), regular_price_cents: p.price_cents, open_implementation_at: p.open_implementation_at, description: p.description, controls: p.controls, live_version: p.live_version, preview_version: p.preview_version, removed_reason: p.removed_reason, created_at: p.created_at, updated_at: p.updated_at },
     versions: versions.results.map((v) => { const g = storedGate(v); return { ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required), current: currentChecks(v, s), release: g ? gateView(g) : null }; }),
-    events: events.results, daily: daily.results, errors: errors.results, sales,
+    versions_total: vTot?.n || 0,
+    events: events.results, events_total: evTot?.n || 0,
+    daily: daily.results,
+    errors: errors.results, errors_total: erTot?.n || 0,
+    sales,
     files: { count: files.length, bytes: files.reduce((a, f) => a + f.size, 0), storage_bytes: budgetOf(p, s).bytes, storage_set: budgetOf(p, s).source === 'game', request: await latestRequest(c.env, p.id).then((r) => r && { status: r.status, bytes: r.bytes, granted_bytes: r.granted_bytes, note: r.note, created_at: r.created_at }) },
     split: p.price_cents > 0 ? splitSale(p.price_cents, s, freeSkillShared(p)) : null,
     // the limited-time sale: the one running (with what the creator receives per sale at that price), the last one, and
@@ -1343,6 +1470,48 @@ api.get('/console/projects/:id', async (c) => {
     online: await onlineNow(c.env, p.id),
     implementation: p.open_implementation ? await db.prepare('SELECT version, summary_source, reads, created_at FROM implementations WHERE project_id = ?').bind(p.id).first() : null,
   });
+});
+
+api.get('/console/projects/:id/versions', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id')), origin = c.get('origin');
+  const pg = parsePage((k) => c.req.query(k), 10, 50);
+  const [rows, tot, s] = await Promise.all([
+    c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT ? OFFSET ?').bind(p.id, pg.limit, pg.offset).all<any>(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM versions WHERE project_id = ?').bind(p.id).first<{ n: number }>(),
+    getSettings(c.env),
+  ]);
+  return c.json({
+    versions: rows.results.map((v) => { const g = storedGate(v); return { ...publicVersion(v, origin), eligible: versionEligible(v, s.verify_browser_required), current: currentChecks(v, s), release: g ? gateView(g) : null }; }),
+    ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
+  });
+});
+
+api.get('/console/projects/:id/errors', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const pg = parsePage((k) => c.req.query(k), 10, 100);
+  const envName = c.req.query('env');
+  const days = Number(c.req.query('days') || 0);
+  const sort = c.req.query('sort') || (envName === 'live' && days > 0 ? 'count' : 'recent');
+  const where = ['project_id = ?'], args: unknown[] = [p.id];
+  if (envName === 'live' || envName === 'preview') { where.push('env = ?'); args.push(envName); }
+  if (Number.isFinite(days) && days > 0) { where.push('last_at >= ?'); args.push(now() - Math.min(365, Math.round(days)) * 86400000); }
+  const w = where.join(' AND ');
+  const order = sort === 'count' ? 'count DESC, last_at DESC' : 'last_at DESC, count DESC';
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare(`SELECT version, env, message, count, last_at FROM client_errors WHERE ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...args, pg.limit, pg.offset).all(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM client_errors WHERE ${w}`).bind(...args).first<{ n: number }>(),
+  ]);
+  return c.json({ errors: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
+});
+
+api.get('/console/projects/:id/events', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const pg = parsePage((k) => c.req.query(k), 15, 100);
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare('SELECT kind, detail, version, actor, created_at FROM events WHERE project_id = ? ORDER BY id DESC LIMIT ? OFFSET ?').bind(p.id, pg.limit, pg.offset).all(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM events WHERE project_id = ?').bind(p.id).first<{ n: number }>(),
+  ]);
+  return c.json({ events: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
 });
 
 // Preview test bots (src/bots.ts): bot players that join the creator's own preview over the real network path.
@@ -1404,7 +1573,11 @@ const FEEDBACK_BODY_MAX = Math.ceil(FEEDBACK_LIMITS.item_bytes / 3) * 4 + 300_00
 // Owner only, never an admin looking at someone else's game.
 api.get('/console/projects/:id/feedback', async (c) => {
   const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
-  return c.json(await listFeedback(c.env, p));
+  const q = (k: string) => c.req.query(k);
+  const paged = ['page', 'per_page', 'limit', 'offset'].some((k) => q(k) != null && q(k) !== '');
+  const pg = parsePage(q, paged ? 10 : 100, 100);
+  const res = await listFeedback(c.env, p, { limit: pg.limit, offset: pg.offset });
+  return c.json({ ...res, ...pageMeta(res.total, pg.page, pg.per_page) });
 });
 api.post('/console/projects/:id/feedback', async (c) => {
   const u = requireUser(c), p = await feedbackProject(c.env, u, c.req.param('id'));
@@ -1485,31 +1658,110 @@ api.get('/console/projects/:id/implementation', async (c) => {
 
 api.get('/console/earnings', async (c) => {
   const u = requireUser(c), s = await getSettings(c.env), db = c.env.DB;
-  const [ledger, withdrawals, byGame] = await Promise.all([
-    db.prepare('SELECT kind, amount_cents, note, available_at, created_at FROM ledger WHERE user_id = ? ORDER BY id DESC LIMIT 100').bind(u.id).all(),
-    db.prepare('SELECT id, amount_cents, method, status, error, created_at, settled_at FROM withdrawals WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').bind(u.id).all(),
-    db.prepare("SELECT p.title, p.slug, COUNT(*) AS n, SUM(x.price_cents) AS gross, SUM(x.fee_cents) AS fees, SUM(x.net_cents) AS net FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid' GROUP BY x.project_id ORDER BY net DESC").bind(u.id).all(),
-  ]);
-  const [gameTotal, skills] = await Promise.all([
+  const summaryOnly = c.req.query('summary') === '1';
+  const [ledger, withdrawals, byGame, gameTotal, skills, balance, pendingW] = await Promise.all([
+    summaryOnly ? Promise.resolve({ results: [] }) : db.prepare('SELECT kind, amount_cents, note, available_at, created_at FROM ledger WHERE user_id = ? ORDER BY id DESC LIMIT 100').bind(u.id).all(),
+    summaryOnly ? Promise.resolve({ results: [] }) : db.prepare('SELECT id, amount_cents, method, status, error, created_at, settled_at FROM withdrawals WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').bind(u.id).all(),
+    summaryOnly ? Promise.resolve({ results: [] }) : db.prepare("SELECT p.title, p.slug, COUNT(*) AS n, SUM(x.price_cents) AS gross, SUM(x.fee_cents) AS fees, SUM(x.net_cents) AS net FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid' GROUP BY x.project_id ORDER BY net DESC").bind(u.id).all(),
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(fee_cents), 0) AS fees, COALESCE(SUM(net_cents), 0) AS net FROM purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first(),
-    skillSalesOf(c.env, u.id),
+    summaryOnly
+      ? db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(fee_cents), 0) AS fees, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE owner_id = ? AND status = 'paid'").bind(u.id).first().then((total) => ({ total, by_game: [] }))
+      : skillSalesOf(c.env, u.id),
+    balanceOf(c.env, u.id),
+    db.prepare("SELECT 1 FROM withdrawals WHERE user_id = ? AND status = 'pending' LIMIT 1").bind(u.id).first(),
   ]);
   return c.json({
-    balance: await balanceOf(c.env, u.id), min_cents: s.withdraw_min_cents, hold_days: Math.ceil(holdMs(s, now() - u.created_at) / 86400000), fee_percent: s.platform_fee_percent, fee_open_percent: s.platform_fee_open_percent,
+    balance, min_cents: s.withdraw_min_cents, hold_days: Math.ceil(holdMs(s, now() - u.created_at) / 86400000), fee_percent: s.platform_fee_percent, fee_open_percent: s.platform_fee_open_percent,
     skill_fee_percent: s.skill_fee_percent, game_sales: gameTotal, skill_sales: skills.total, by_skill: skills.by_game,
+    has_pending_withdrawal: !!pendingW,
     payments: stripeReady(c.env), manual: s.allow_manual_withdrawals, auto: !!s.auto_payouts, user: pubUser(u), ledger: ledger.results, withdrawals: withdrawals.results, by_game: byGame.results,
   });
 });
 
+api.get('/console/earnings/ledger', async (c) => {
+  const u = requireUser(c), db = c.env.DB, pg = parsePage((k) => c.req.query(k), 20, 100);
+  const [rows, tot] = await Promise.all([
+    db.prepare('SELECT kind, amount_cents, note, available_at, created_at FROM ledger WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?').bind(u.id, pg.limit, pg.offset).all(),
+    db.prepare('SELECT COUNT(*) AS n FROM ledger WHERE user_id = ?').bind(u.id).first<{ n: number }>(),
+  ]);
+  return c.json({ ledger: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
+});
+
+api.get('/console/earnings/withdrawals', async (c) => {
+  const u = requireUser(c), db = c.env.DB, pg = parsePage((k) => c.req.query(k), 10, 100);
+  const [rows, tot] = await Promise.all([
+    db.prepare('SELECT id, amount_cents, method, status, error, created_at, settled_at FROM withdrawals WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?').bind(u.id, pg.limit, pg.offset).all(),
+    db.prepare('SELECT COUNT(*) AS n FROM withdrawals WHERE user_id = ?').bind(u.id).first<{ n: number }>(),
+  ]);
+  return c.json({ withdrawals: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
+});
+
+api.get('/console/earnings/by-game', async (c) => {
+  const u = requireUser(c), db = c.env.DB, pg = parsePage((k) => c.req.query(k), 10, 100);
+  const [rows, tot] = await Promise.all([
+    db.prepare("SELECT p.title, p.slug, COUNT(*) AS n, SUM(x.price_cents) AS gross, SUM(x.fee_cents) AS fees, SUM(x.net_cents) AS net FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid' GROUP BY x.project_id ORDER BY net DESC, p.title ASC LIMIT ? OFFSET ?")
+      .bind(u.id, pg.limit, pg.offset).all(),
+    db.prepare("SELECT COUNT(DISTINCT x.project_id) AS n FROM purchases x JOIN projects p ON p.id = x.project_id WHERE x.owner_id = ? AND x.status = 'paid'").bind(u.id).first<{ n: number }>(),
+  ]);
+  return c.json({ by_game: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
+});
+
+api.get('/console/earnings/by-skill', async (c) => {
+  const u = requireUser(c), db = c.env.DB, pg = parsePage((k) => c.req.query(k), 10, 100);
+  const [rows, tot] = await Promise.all([
+    db.prepare("SELECT p.title, p.slug, p.skill_copies AS copies, COUNT(x.id) AS n, COALESCE(SUM(x.price_cents), 0) AS gross, COALESCE(SUM(x.fee_cents), 0) AS fees, COALESCE(SUM(x.net_cents), 0) AS net FROM projects p LEFT JOIN skill_purchases x ON x.project_id = p.id AND x.status = 'paid' WHERE p.owner_id = ? AND (p.open_implementation = 1 OR x.id IS NOT NULL) GROUP BY p.id ORDER BY net DESC, copies DESC, p.title ASC LIMIT ? OFFSET ?")
+      .bind(u.id, pg.limit, pg.offset).all(),
+    db.prepare("SELECT COUNT(DISTINCT p.id) AS n FROM projects p LEFT JOIN skill_purchases x ON x.project_id = p.id AND x.status = 'paid' WHERE p.owner_id = ? AND (p.open_implementation = 1 OR x.id IS NOT NULL)").bind(u.id).first<{ n: number }>(),
+  ]);
+  return c.json({ by_skill: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
+});
+
 api.get('/console/agents', async (c) => {
   const u = requireUser(c);
-  const grants = await c.env.OAUTH_PROVIDER.listUserGrants(u.id);
-  const out = [];
-  for (const g of grants.items) {
-    const client = await c.env.OAUTH_PROVIDER.lookupClient(g.clientId).catch(() => null);
-    out.push({ id: g.id, client: client?.clientName || g.clientId, scope: g.scope, created_at: (g as any).createdAt * 1000, expires_at: (g as any).expiresAt ? (g as any).expiresAt * 1000 : null });
+  const q = (k: string) => c.req.query(k);
+  const paged = ['page', 'per_page', 'limit', 'offset'].some((k) => q(k) != null && q(k) !== '');
+  const pg = parsePage(q, paged ? 8 : 50, 50);
+  const allGrants: any[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < 20; i++) {
+    const res = await c.env.OAUTH_PROVIDER.listUserGrants(u.id, cursor ? { cursor } : undefined);
+    allGrants.push(...res.items);
+    if (!res.cursor) break;
+    cursor = res.cursor;
   }
-  return c.json({ agents: out });
+  allGrants.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
+  const slice = allGrants.slice(pg.offset, pg.offset + pg.limit);
+  // Batch-resolve any project IDs stored in grant metadata for display in the console.
+  const allPids = new Set<string>();
+  const grantPids = slice.map((g) => {
+    const pids = normalizeProjectIds((g as any).metadata?.projectIds);
+    if (pids) for (const pid of pids) allPids.add(pid);
+    return pids;
+  });
+  const byId = new Map<string, { id: string; slug: string; title: string; status: string }>();
+  if (allPids.size) {
+    const rows = await c.env.DB.prepare('SELECT id, slug, title, status FROM projects WHERE owner_id = ? AND id IN (SELECT value FROM json_each(?))')
+      .bind(u.id, JSON.stringify([...allPids])).all<{ id: string; slug: string; title: string; status: string }>();
+    for (const r of rows.results) byId.set(r.id, r);
+  }
+  const out = [];
+  for (let i = 0; i < slice.length; i++) {
+    const g = slice[i], pids = grantPids[i];
+    const client = await c.env.OAUTH_PROVIDER.lookupClient(g.clientId).catch(() => null);
+    out.push({
+      id: g.id,
+      client: client?.clientName || g.clientId,
+      scope: g.scope,
+      project_scope: pids ? 'selected' : 'all',
+      projects: pids ? pids.map((pid) => {
+        const p = byId.get(pid);
+        return p ? { id: p.id, slug: p.slug, title: p.title, status: p.status } : { id: pid, slug: null, title: null, status: 'removed' };
+      }) : null,
+      created_at: (g as any).createdAt * 1000,
+      expires_at: (g as any).expiresAt ? (g as any).expiresAt * 1000 : null,
+    });
+  }
+  return c.json({ agents: out, ...pageMeta(allGrants.length, pg.page, pg.per_page) });
 });
 api.delete('/console/agents/:id', async (c) => {
   const u = requireUser(c);

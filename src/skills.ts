@@ -120,15 +120,16 @@ function entry(origin: string, r: any, owned: boolean) {
 /** The Creator Store: every shared skill, listed under its game. Paid skills that have no written skill are left out. */
 export async function storeList(env: Env, origin: string, user: User | null, q: { query?: string; price?: string; sort?: string; limit?: number; offset?: number }) {
   const words = String(q.query || '').toLowerCase().split(/[^\p{L}\p{N}.+-]+/u).filter((w) => w.length > 1).slice(0, 8);
-  const rows = (await env.DB.prepare(`${STORE_SELECT} ORDER BY p.plays DESC LIMIT 1000`).all<any>()).results
+  const rows = (await env.DB.prepare(`${STORE_SELECT} ORDER BY p.plays DESC LIMIT 5000`).all<any>()).results
     .filter((r) => r.s_version || !(Number(r.skill_price_cents) > 0))
     .filter((r) => q.price === 'free' ? !(Number(r.skill_price_cents) > 0) : q.price === 'paid' ? Number(r.skill_price_cents) > 0 : true)
     .filter((r) => !words.length || words.every((w) => `${r.title} ${r.tagline} ${r.tags} ${r.author} ${r.s_description || ''} ${headingsOf(r.s_content).join(' ')}`.toLowerCase().includes(w)));
   if (q.sort === 'new') rows.sort((a, b) => (b.s_updated || b.published_at || 0) - (a.s_updated || a.published_at || 0));
   else if (q.sort === 'sales') rows.sort((a, b) => (b.skill_sales + b.skill_copies) - (a.skill_sales + a.skill_copies));
   const bought = user ? new Set((await env.DB.prepare("SELECT project_id FROM skill_purchases WHERE user_id = ? AND status = 'paid'").bind(user.id).all<{ project_id: string }>()).results.map((x) => x.project_id)) : new Set<string>();
-  const limit = Math.max(1, Math.min(100, Math.round(Number(q.limit) || 48))), offset = Math.max(0, Math.round(Number(q.offset) || 0));
-  return { total: rows.length, skills: rows.slice(offset, offset + limit).map((r) => entry(origin, r, bought.has(r.id) || r.owner_id === user?.id)) };
+  const limit = Math.max(1, Math.min(100, Math.round(Number(q.limit) || 24))), offset = Math.max(0, Math.round(Number(q.offset) || 0));
+  const page = Math.floor(offset / limit) + 1;
+  return { total: rows.length, page, per_page: limit, pages: Math.max(1, Math.ceil(rows.length / limit)), skills: rows.slice(offset, offset + limit).map((r) => entry(origin, r, bought.has(r.id) || r.owner_id === user?.id)) };
 }
 
 /** One game's skill: its listing, and its full content and SKILL.md when the reader may see it. */

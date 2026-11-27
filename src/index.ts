@@ -19,6 +19,7 @@ import { outboundDecision } from './runtime/outbound-worker.js';
 const DAILY_CRON = '17 3 * * *';   // must match the first cron in wrangler.jsonc
 const MINUTE_CRON = '* * * * *';
 import { handleMcp } from './mcp/server';
+import { listSelectableProjects, resolveAllowedProjects, type McpAuthProps, type SelectableProject } from './mcp/scope';
 import { THREE_VERSION } from './generated/runtime-source';
 import { getProject, getVersion } from './projects';
 import { admin } from './routes/admin';
@@ -170,17 +171,46 @@ app.all('/__game/:pid/:env/*', async (c) => {
 // Server-rendered pages share the web app's design tokens (web/src/ui/tokens.ts), so they look like the rest of the site.
 const PAGE_CSS = `*,*::before,*::after{box-sizing:border-box}html,body{min-height:100%;margin:0;background:var(--paper);color:var(--text);font:400 var(--fs-md)/1.6 var(--font-sans);-webkit-font-smoothing:antialiased}
 body{display:grid;place-items:center;padding:24px}
-main{position:relative;width:min(470px,100%);display:grid;gap:14px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:clamp(24px,5vw,34px);box-shadow:var(--shadow-3)}
+main{position:relative;width:min(520px,100%);display:grid;gap:14px;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:clamp(24px,5vw,34px);box-shadow:var(--shadow-3)}
 main::before{content:"";position:absolute;left:-1px;top:-1px;width:84px;height:5px;background:var(--accent);clip-path:polygon(0 0,100% 0,calc(100% - 5px) 100%,0 100%)}
 .mark{display:flex;align-items:center;gap:10px;font:800 15px/1 var(--font-display);font-stretch:82%;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px}.mark i{width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 34% 32%,var(--c-cream) 0 15%,transparent 16%),radial-gradient(circle at 26% 30%,var(--accent) 0 60%,var(--c-wine) 61%)}
 h1{font:800 27px/1.05 var(--font-display);font-stretch:80%;text-transform:uppercase;margin:0;text-wrap:balance}p{margin:0;color:var(--text-2)}strong{color:var(--text);font-weight:650}
-ul{margin:0;padding:14px 16px;list-style:none;display:grid;gap:9px;background:var(--sunk);border-radius:var(--r-sm);font-size:13.5px}li{padding-left:26px;position:relative}li::before{content:"";position:absolute;left:0;top:.5em;width:14px;height:7px;background:var(--accent);clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
+ul.can{margin:0;padding:14px 16px;list-style:none;display:grid;gap:9px;background:var(--sunk);border-radius:var(--r-sm);font-size:13.5px}ul.can li{padding-left:26px;position:relative}ul.can li::before{content:"";position:absolute;left:0;top:.5em;width:14px;height:7px;background:var(--accent);clip-path:polygon(4px 0,100% 0,calc(100% - 4px) 100%,0 100%)}
 .warn{border-left:4px solid var(--bad);background:rgb(var(--bad-rgb) / .09);border-radius:var(--r-sm);padding:12px 14px;color:var(--text)}
 .web-only{font-size:13px;padding-left:12px;border-left:2px solid var(--line-3)}
-.row{display:flex;gap:16px;margin-top:8px;padding-inline:5px}button{position:relative;isolation:isolate;flex:1;height:48px;font:700 14px/1 var(--font-display);letter-spacing:.06em;text-transform:uppercase;cursor:pointer;border:0;background:none;color:var(--text)}
-button::before{content:"";position:absolute;inset:0;z-index:-1;transform:skewX(-12deg);border-radius:3px;border:1.5px solid var(--line-2);background:var(--surface);transition:border-color var(--dur-fast),background-position var(--dur) var(--ease)}button:hover::before{border-color:var(--edge)}button:active{transform:translate(1px,1px)}
-button.go{color:var(--on-accent)}button.go::before{border-color:transparent;background:var(--accent) linear-gradient(105deg,transparent 0 49.8%,rgb(0 0 0 / .16) 50% 100%) 22% 0 / 300% 100% no-repeat}button.go:hover::before{border-color:transparent;background-position:62% 0}
-button.go::after{content:"";position:absolute;inset:0;z-index:-2;border-radius:3px;background:rgb(var(--accent-rgb) / .3);transform:skewX(-12deg) translate(3px,3px)}
+.scope{display:grid;gap:8px;padding:14px;background:var(--sunk);border:1px solid var(--line);border-radius:var(--r-sm)}
+.scope-h{font:700 13px/1.3 var(--font-display);letter-spacing:.05em;text-transform:uppercase;color:var(--text)}
+.scope-opt{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface);cursor:pointer;transition:border-color var(--dur-fast)}
+.scope-opt:has(input:checked){border-color:var(--accent)}
+.scope-opt input{margin-top:3px;accent-color:var(--accent);flex:none}
+.scope-opt b{display:block;font-size:14px;color:var(--text)}.scope-opt span{display:block;font-size:12.5px;color:var(--text-2);line-height:1.4}
+.proj-box{display:grid;gap:8px;margin-top:4px;padding-top:10px;border-top:1px solid var(--line)}
+.proj-box[hidden]{display:none}
+.proj-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.proj-search{flex:1 1 160px;height:34px;padding:0 10px;border-radius:var(--r-sm);border:1px solid var(--line-2);background:var(--surface);color:var(--text);font:400 13px/1 var(--font-sans)}
+.proj-act{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)}
+.proj-act button{all:unset;cursor:pointer;color:var(--accent);font-weight:600;padding:2px 4px}.proj-act button:hover{text-decoration:underline}
+.proj-list{display:grid;gap:4px;max-height:240px;overflow:auto;padding-right:2px}
+.proj-item{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:13.5px}
+.proj-item[hidden]{display:none}
+.proj-item:hover{border-color:var(--line-3)}
+.proj-item input{accent-color:var(--accent);flex:none}
+.proj-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--text)}
+.proj-slug{font:400 12px/1 var(--font-mono);color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+.proj-st{font:700 11px/1 var(--font-display);text-transform:uppercase;padding:3px 6px;border-radius:3px;background:var(--sunk);color:var(--text-2)}
+.proj-st.live{color:var(--good)}
+.proj-pager{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--text-2)}
+.proj-pager[hidden]{display:none}
+.proj-pager button{all:unset;cursor:pointer;padding:4px 10px;border:1px solid var(--line-2);border-radius:3px;background:var(--surface);color:var(--text);font:700 12px/1 var(--font-display)}
+.proj-pager button:disabled{opacity:.4;cursor:default}
+.scope-err{font-size:12.5px;color:var(--bad);font-weight:600}.scope-err[hidden]{display:none}
+form{display:grid;gap:12px}
+.row{display:flex;gap:16px;margin-top:4px;padding-inline:5px}
+.row button{position:relative;isolation:isolate;flex:1;height:48px;font:700 14px/1 var(--font-display);letter-spacing:.06em;text-transform:uppercase;cursor:pointer;border:0;background:none;color:var(--text)}
+.row button::before{content:"";position:absolute;inset:0;z-index:-1;transform:skewX(-12deg);border-radius:3px;border:1.5px solid var(--line-2);background:var(--surface);transition:border-color var(--dur-fast),background-position var(--dur) var(--ease)}.row button:hover:not(:disabled)::before{border-color:var(--edge)}.row button:active:not(:disabled){transform:translate(1px,1px)}
+.row button.go{color:var(--on-accent)}.row button.go::before{border-color:transparent;background:var(--accent) linear-gradient(105deg,transparent 0 49.8%,rgb(0 0 0 / .16) 50% 100%) 22% 0 / 300% 100% no-repeat}.row button.go:hover:not(:disabled)::before{border-color:transparent;background-position:62% 0}
+.row button.go::after{content:"";position:absolute;inset:0;z-index:-2;border-radius:3px;background:rgb(var(--accent-rgb) / .3);transform:skewX(-12deg) translate(3px,3px)}
+.row button:disabled{opacity:.45;cursor:not-allowed}
 small{display:block;color:var(--text-3);font-size:12.5px}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}:lang(zh) h1,:lang(ja) h1,:lang(ko) h1{letter-spacing:0;line-height:1.25}`;
 // The same start-up line as the web app: the visitor's chosen theme, or the system's.
 const THEME_JS = `try{var t=localStorage.getItem('gcp.theme');document.documentElement.dataset.theme=t==='day'||t==='night'?t:matchMedia('(prefers-color-scheme: dark)').matches?'night':'day'}catch(e){document.documentElement.dataset.theme='day'}`;
@@ -189,20 +219,76 @@ function page(title: string, body: string, lang: Lang = 'en'): string {
 <style>${TOKENS_CSS}${PAGE_CSS}</style></head><body><main>${body}</main></body></html>`;
 }
 
-function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number, lang: Lang): string {
+const CONSENT_SCOPE_JS = `(function(){
+  var f=document.getElementById('consent-form');if(!f)return;
+  var box=document.getElementById('proj-box'),allow=document.getElementById('btn-allow'),err=document.getElementById('scope-err');
+  var countEl=document.getElementById('proj-count'),search=document.getElementById('proj-search');
+  var pager=document.getElementById('proj-pager'),prev=document.getElementById('proj-prev'),next=document.getElementById('proj-next'),pageInfo=document.getElementById('proj-page-info');
+  var items=[].slice.call(f.querySelectorAll('.proj-item')),checks=[].slice.call(f.querySelectorAll('input[name="project_ids"]'));
+  var selRadio=f.querySelector('input[name="project_scope"][value="selected"]'),allRadio=f.querySelector('input[name="project_scope"][value="all"]');
+  var PER=8,cur=1,tpl=countEl?countEl.getAttribute('data-tpl')||'{n}':'{n}';
+  function matched(){var q=search?search.value.trim().toLowerCase():'';return items.filter(function(el){return !q||(el.getAttribute('data-q')||'').indexOf(q)!==-1;});}
+  function renderList(){
+    var m=matched(),pages=Math.max(1,Math.ceil(m.length/PER));if(cur>pages)cur=pages;
+    var s=(cur-1)*PER,e=s+PER;
+    items.forEach(function(el){el.hidden=true;});
+    m.slice(s,e).forEach(function(el){el.hidden=false;});
+    if(pager){pager.hidden=pages<=1;if(prev)prev.disabled=cur<=1;if(next)next.disabled=cur>=pages;if(pageInfo)pageInfo.textContent=cur+' / '+pages;}
+  }
+  function sync(){
+    var scoped=!!(selRadio&&selRadio.checked);
+    if(box)box.hidden=!scoped;
+    var n=checks.filter(function(c){return c.checked;}).length;
+    if(countEl)countEl.textContent=tpl.replace('{n}',String(n));
+    if(err)err.hidden=!scoped||n>0;
+    if(allow)allow.disabled=scoped&&n===0;
+    if(scoped)renderList();
+  }
+  if(allRadio)allRadio.addEventListener('change',sync);
+  if(selRadio)selRadio.addEventListener('change',sync);
+  checks.forEach(function(c){c.addEventListener('change',function(){if(c.checked&&selRadio)selRadio.checked=true;sync();});});
+  if(search)search.addEventListener('input',function(){cur=1;renderList();});
+  var selAll=document.getElementById('proj-all'),clr=document.getElementById('proj-clear');
+  if(selAll)selAll.addEventListener('click',function(){matched().forEach(function(el){var c=el.querySelector('input');if(c)c.checked=true;});sync();});
+  if(clr)clr.addEventListener('click',function(){checks.forEach(function(c){c.checked=false;});sync();});
+  if(prev)prev.addEventListener('click',function(){if(cur>1){cur--;renderList();}});
+  if(next)next.addEventListener('click',function(){cur++;renderList();});
+  sync();
+})();`;
+
+function consentPage(brand: string, d: ConsentDescription, handle: string, user: User, days: number, lang: Lang, projects: SelectableProject[]): string {
   const T = TEXT[lang], app = esc(d.clientName);
   const who = d.clientDomain ? T.publishedBy(esc(d.clientDomain)) : T.unverified;
+  const countTpl = esc(T.scopeSelectedCount(0).replace('0', '{n}'));
+  const scopeSection = projects.length > 0 ? `<div class="scope">
+<div class="scope-h">${esc(T.scopeHeading)}</div>
+<label class="scope-opt"><input type="radio" name="project_scope" value="all" checked><div><b>${esc(T.scopeAll)}</b><span>${esc(T.scopeAllHint)}</span></div></label>
+<label class="scope-opt"><input type="radio" name="project_scope" value="selected"><div><b>${esc(T.scopeSelected)}</b><span>${esc(T.scopeSelectedHint)}</span></div></label>
+<div class="proj-box" id="proj-box" hidden>
+  <div class="proj-bar">
+    ${projects.length > 6 ? `<input type="search" class="proj-search" id="proj-search" placeholder="${esc(T.scopeSearch)}" aria-label="${esc(T.scopeSearch)}">` : ''}
+    <div class="proj-act"><span id="proj-count" data-tpl="${countTpl}">${esc(T.scopeSelectedCount(0))}</span><button type="button" id="proj-all">${esc(T.scopeSelectAll)}</button><button type="button" id="proj-clear">${esc(T.scopeClear)}</button></div>
+  </div>
+  <div class="proj-list">${projects.map((p) => {
+    const st = T.statusLabels[p.status] || p.status;
+    return `<label class="proj-item" data-q="${esc((p.title + ' ' + p.slug).toLowerCase())}"><input type="checkbox" name="project_ids" value="${esc(p.id)}"><span class="proj-name">${esc(p.title)}</span><span class="proj-slug">${esc(p.slug)}</span><span class="proj-st ${p.status === 'live' ? 'live' : ''}">${esc(st)}</span></label>`;
+  }).join('')}</div>
+  <div class="proj-pager" id="proj-pager" hidden><button type="button" id="proj-prev">‹ ${esc(T.scopePrev)}</button><span id="proj-page-info">1 / 1</span><button type="button" id="proj-next">${esc(T.scopeNext)} ›</button></div>
+  <div class="scope-err" id="scope-err" hidden>${esc(T.scopePickOne)}</div>
+</div>
+</div>` : `<input type="hidden" name="project_scope" value="all"><small>${esc(T.scopeNoProjects)}</small>`;
   return page(T.connect(d.clientName), `<div class="mark"><i></i>${esc(brand)}</div>
 <h1>${T.heading(app)}</h1>
 <p>${who} ${T.sentTo(esc(d.redirectHost))}</p>
 ${d.redirectIsLoopback ? `<div class="warn"><strong>${T.loopback[0]}</strong> ${T.loopback[1]}</div>` : ''}
 <p>${T.signedInAs(esc(user.name), esc(user.email))}</p>
-<ul>${T.can.map((c) => `<li>${c}</li>`).join('')}</ul>
+<ul class="can">${T.can.map((c) => `<li>${c}</li>`).join('')}</ul>
 <p>${T.cannot}</p>
 <p class="web-only">${T.webOnly}</p>
-<form method="post"><input type="hidden" name="handle" value="${esc(handle)}">
-<div class="row"><button name="decision" value="deny">${T.deny}</button><button class="go" name="decision" value="approve">${T.allow}</button></div></form>
-<small>${T.expires(days)}</small>`, lang);
+<form method="post" id="consent-form"><input type="hidden" name="handle" value="${esc(handle)}">
+${scopeSection}
+<div class="row"><button name="decision" value="deny">${T.deny}</button><button class="go" id="btn-allow" name="decision" value="approve">${T.allow}</button></div></form>
+<small>${T.expires(days)}</small><script>${CONSENT_SCOPE_JS}</script>`, lang);
 }
 
 app.all('/authorize', async (c) => {
@@ -213,26 +299,36 @@ app.all('/authorize', async (c) => {
       if (!user) return c.html(page(T.signInAgain, `<h1>${T.sessionEnded}</h1><p>${T.sessionEndedBody}</p>`, lang), 401);
       const form = await req.formData(), handle = String(form.get('handle') || '');
       if (form.get('decision') !== 'approve') { const denied = await oauth.denyConsent(req, handle); return new Response(null, { status: 302, headers: denied.headers }); }
+      const projectScope = String(form.get('project_scope') || 'all');
+      const projectIds = projectScope === 'selected'
+        ? await resolveAllowedProjects(env, user.id, form.getAll('project_ids').map(String))
+        : null;
       const approved = await oauth.approveConsent(req, handle);
       const client = await oauth.lookupClient(approved.request.clientId).catch(() => null);
+      const clientName = client?.clientName || 'agent';
       const { redirectTo } = await oauth.completeAuthorization({
-        request: approved.request, userId: user.id, metadata: { client: client?.clientName || 'agent' }, scope: approved.request.scope,
-        props: { userId: user.id, client: client?.clientName || 'agent' },
+        request: approved.request, userId: user.id,
+        metadata: { client: clientName, ...(projectIds ? { projectIds } : {}) },
+        scope: approved.request.scope,
+        props: { userId: user.id, client: clientName, ...(projectIds ? { projectIds } : {}) },
       });
       approved.headers.set('Location', redirectTo);
       return new Response(null, { status: 302, headers: approved.headers });
     }
     const authReq = await oauth.parseAuthRequest(req);
     if (!user) { const u = new URL(req.url); return c.redirect(`/login?next=${encodeURIComponent(u.pathname + u.search)}`, 302); }
-    const details = await oauth.describeConsent(authReq);
-    const consent = await oauth.beginConsent(authReq);
+    const [details, consent, projects] = await Promise.all([
+      oauth.describeConsent(authReq),
+      oauth.beginConsent(authReq),
+      listSelectableProjects(env, user.id),
+    ]);
     consent.headers.set('Content-Type', 'text/html; charset=utf-8');
-    return new Response(consentPage(s.brand_name, details, consent.handle, user, Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)), lang), { headers: consent.headers });
+    return new Response(consentPage(s.brand_name, details, consent.handle, user, Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)), lang, projects), { headers: consent.headers });
   } catch (error) {
     if (error instanceof AuthorizationError && error.redirectTo) return Response.redirect(error.redirectTo, 302);
-    if (error instanceof AuthorizationError || error instanceof CimdFetchError) {
-      const msg = error instanceof AuthorizationError ? error.description : T.notVerified;
-      return c.html(page(T.cannotConnect, `<h1>${T.cannotContinue}</h1><p>${esc(msg)}</p><p>${T.startAgain}</p>`, lang), 400);
+    if (error instanceof AuthorizationError || error instanceof CimdFetchError || error instanceof AppError) {
+      const msg = error instanceof AuthorizationError ? error.description : error instanceof AppError ? error.message : T.notVerified;
+      return c.html(page(T.cannotConnect, `<h1>${T.cannotContinue}</h1><p>${esc(msg)}</p><p>${T.startAgain}</p>`, lang), error instanceof AppError ? (error.status as any) : 400);
     }
     throw error;
   }
@@ -335,7 +431,7 @@ function provider(origin: string, accessTtl: number, grantTtl: number): OAuthPro
   if (!p) {
     p = new OAuthProvider<Env>({
       apiRoute: '/mcp',
-      apiHandler: { fetch: (req: Request, env: Env, ctx: ExecutionContext) => handleMcp(req, env, ((ctx as any).props || {}) as { userId?: string; client?: string }, originOf(env, req)) } as any,
+      apiHandler: { fetch: (req: Request, env: Env, ctx: ExecutionContext) => handleMcp(req, env, ((ctx as any).props || {}) as McpAuthProps, originOf(env, req)) } as any,
       defaultHandler: { fetch: (req: Request, env: Env, ctx: ExecutionContext) => app.fetch(req, env, ctx) } as any,
       authorizeEndpoint: '/authorize',
       tokenEndpoint: '/oauth/token',

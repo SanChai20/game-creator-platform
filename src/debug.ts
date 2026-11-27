@@ -154,9 +154,9 @@ export async function actDebug(env: DebugEnv, user: User, p: Project, sid: strin
   }
 }
 
-export async function closeDebug(env: DebugEnv, user: User, sid?: string) {
+export async function closeDebug(env: DebugEnv, user: User, sid?: string, projectId?: string) {
   const row = await openRow(env, user, sid);
-  if (!row) return { closed: false, note: 'No debug session was open.' };
+  if (!row || (projectId && row.project_id !== projectId)) return { closed: false, note: 'No debug session was open.' };
   await markClosed(env, row.id);
   await driverOf(env).close(row.browser_id);
   return { closed: true, session: row.id };

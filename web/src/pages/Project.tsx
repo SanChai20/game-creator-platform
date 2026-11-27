@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePlayClock } from '../play-clock';
 import { ago, api, bytes, dateTime, Fail, genreName, navigate, num, playTime, series, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
 import { withPlayLang, type Orientation, type StageCtl } from '../player';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, EmptyState, Input, KeyValue, ListPager, Modal, Notice, PageHeader, Stat, StatGrid, StatusBadge, Switch, Table } from '../ui';
 import { ProjectSkeleton } from '../skeletons';
 import { Stage } from './Game';
 import { defaultPreviewOrientation, resolvePreviewFrame, type PreviewDevice, type PreviewOrientation } from '../preview-viewport';
@@ -285,37 +285,7 @@ export function Project({ id }: { id: string }) {
 
         <div className="cols">
           <div className="stack l">
-            <Card title={t('Versions', '版本')} aside={t('Your agent deploys, verifies and publishes', '由智能体部署、验证并发布')}>
-              {versions.length ? versions.map((v) => (
-                <div className={'ver' + (open === v.version ? ' open' : '')} key={v.version}>
-                  <button onClick={() => setOpen(open === v.version ? null : v.version)} aria-expanded={open === v.version}>
-                    <span className="chev" aria-hidden="true" />
-                    <b className="mono">v{v.version}</b><StatusBadge status={v.status} />
-                    {p.live_version === v.version && <Badge tone="good" dot={false}>{t('Live', '线上')}</Badge>}
-                    {p.preview_version === v.version && <Badge tone="info" dot={false}>{t('Preview', '预览')}</Badge>}
-                    {v.human_ok && <Badge dot={false}>{t('Verified by play', '试玩验证')}</Badge>}
-                    <span className="mute clip grow fs-sm">{v.note || v.stage}</span>
-                    <span className="dim fs-sm" style={{ whiteSpace: 'nowrap' }}>{ago(v.created_at)}</span>
-                  </button>
-                  {open === v.version && (
-                    <div className="body">
-                      <div className="stack">{v.report?.summary && <p>{v.report.summary}</p>}<Report v={v} /></div>
-                      <div className="stack">
-                        {v.screenshot ? <a href={v.screenshot} target="_blank" rel="noreferrer"><img src={v.screenshot} alt={t('Verification screenshot', '验证截图')} /></a> : <EmptyState compact title={t('No screenshot', '暂无截图')} />}
-                        <KeyValue items={[
-                          [t('Files', '文件'), `${v.files} · ${bytes(v.bytes)}`],
-                          v.report?.metrics && [t('Load time', '加载耗时'), `${v.report.metrics.loadMs} ms`],
-                          v.report?.metrics && [t('Frame rate in check', '检查帧率'), `${v.report.metrics.fps} fps`],
-                          [t('Created', '创建于'), dateTime(v.created_at)],
-                          v.published_at && [t('Published', '发布于'), dateTime(v.published_at)],
-                        ]} />
-                      </div>
-                      {v.compat && <VersionCompat c={v.compat} />}
-                    </div>
-                  )}
-                </div>
-              )) : <div className="pad mute">{t('No version yet. Ask your agent to run deploy_preview.', '还没有版本。让你的智能体执行 deploy_preview。')}</div>}
-            </Card>
+            <ProjectVersionsCard id={id} project={p} initial={versions} total={data.versions_total ?? versions.length} open={open} setOpen={setOpen} />
 
             <Card title={t('Last 30 days', '近 30 天')} pad>
               <div className="stack l">
@@ -324,10 +294,7 @@ export function Project({ id }: { id: string }) {
               </div>
             </Card>
 
-            {!!data.errors.length && <Card title={t('Errors players hit', '玩家遇到的错误')} aside={t('Reported by the game', '游戏自己上报的')}>
-              <Table><thead><tr><th>{t('Message', '信息')}</th><th>{t('Version', '版本')}</th><th className="n">{t('Count', '次数')}</th><th className="n">{t('Last seen', '最近出现')}</th></tr></thead>
-                <tbody>{data.errors.map((e: any, i: number) => <tr key={i}><td className="mono bad fs-sm" style={{ wordBreak: 'break-word' }}>{e.message}</td><td>v{e.version} · {e.env}</td><td className="n">{e.count}</td><td className="n">{ago(e.last_at)}</td></tr>)}</tbody></Table>
-            </Card>}
+            <ProjectErrorsCard id={id} initial={data.errors} total={data.errors_total ?? data.errors.length} />
           </div>
 
           <div className="stack l">
@@ -362,11 +329,7 @@ export function Project({ id }: { id: string }) {
                 : t('Frees a place under your project limit. A game someone has bought cannot be deleted.', '释放一个项目名额。已有人购买的游戏无法删除。')}</p>
               <Button variant="danger" size="sm" onClick={remove} disabled={p.status === 'live' || busy === 'del'}>{t('Delete project', '删除项目')}</Button>
             </Card>}
-            <Card title={t('Activity', '动态')} pad>
-              {data.events.length ? <div>{data.events.slice(0, 14).map((e: any, i: number) => (
-                <div key={i} className="activity"><Badge dot={false}>{String(e.kind).replace(/_/g, ' ')}</Badge><span className="mute" style={{ wordBreak: 'break-word' }}>{e.version ? `v${e.version} ` : ''}{e.detail}</span><span className="dim" style={{ whiteSpace: 'nowrap' }}>{ago(e.created_at)}</span></div>
-              ))}</div> : <span className="mute">{t('Nothing yet.', '暂无动态。')}</span>}
-            </Card>
+            <ProjectActivityCard id={id} initial={data.events} total={data.events_total ?? data.events.length} />
           </div>
         </div>
       </div>
@@ -433,3 +396,116 @@ export function Project({ id }: { id: string }) {
     </div>
   );
 }
+
+const VER_PER = 10, ERR_PER = 10, ACT_PER = 15;
+
+function ProjectVersionsCard({ id, project: p, initial, total, open, setOpen }: { id: string; project: any; initial: any[]; total: number; open: number | null; setOpen: (v: number | null) => void }) {
+  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<any[]>(() => initial.slice(0, VER_PER));
+  const [countTotal, setCountTotal] = useState(total);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { setPage(1); }, [id]);
+  useEffect(() => {
+    if (page === 1) { setRows(initial.slice(0, VER_PER)); setCountTotal(total); setLoading(false); return; }
+    let live = true; setLoading(true);
+    api<{ versions: any[]; total: number }>(`/console/projects/${id}/versions?page=${page}&per_page=${VER_PER}`)
+      .then((r) => { if (live) { setRows(r.versions); setCountTotal(r.total); } }, () => {})
+      .finally(() => live && setLoading(false));
+    return () => { live = false; };
+  }, [id, page, initial, total]);
+
+  return (
+    <Card title={t('Versions', '版本')} aside={t('Your agent deploys, verifies and publishes', '由智能体部署、验证并发布')}>
+      <div aria-busy={loading}>
+        {rows.length ? rows.map((v) => (
+          <div className={'ver' + (open === v.version ? ' open' : '')} key={v.version}>
+            <button onClick={() => setOpen(open === v.version ? null : v.version)} aria-expanded={open === v.version}>
+              <span className="chev" aria-hidden="true" />
+              <b className="mono">v{v.version}</b><StatusBadge status={v.status} />
+              {p.live_version === v.version && <Badge tone="good" dot={false}>{t('Live', '线上')}</Badge>}
+              {p.preview_version === v.version && <Badge tone="info" dot={false}>{t('Preview', '预览')}</Badge>}
+              {v.human_ok && <Badge dot={false}>{t('Verified by play', '试玩验证')}</Badge>}
+              <span className="mute clip grow fs-sm">{v.note || v.stage}</span>
+              <span className="dim fs-sm" style={{ whiteSpace: 'nowrap' }}>{ago(v.created_at)}</span>
+            </button>
+            {open === v.version && (
+              <div className="body">
+                <div className="stack">{v.report?.summary && <p>{v.report.summary}</p>}<Report v={v} /></div>
+                <div className="stack">
+                  {v.screenshot ? <a href={v.screenshot} target="_blank" rel="noreferrer"><img src={v.screenshot} alt={t('Verification screenshot', '验证截图')} /></a> : <EmptyState compact title={t('No screenshot', '暂无截图')} />}
+                  <KeyValue items={[
+                    [t('Files', '文件'), `${v.files} · ${bytes(v.bytes)}`],
+                    v.report?.metrics && [t('Load time', '加载耗时'), `${v.report.metrics.loadMs} ms`],
+                    v.report?.metrics && [t('Frame rate in check', '检查帧率'), `${v.report.metrics.fps} fps`],
+                    [t('Created', '创建于'), dateTime(v.created_at)],
+                    v.published_at && [t('Published', '发布于'), dateTime(v.published_at)],
+                  ]} />
+                </div>
+                {v.compat && <VersionCompat c={v.compat} />}
+              </div>
+            )}
+          </div>
+        )) : <div className="pad mute">{t('No version yet. Ask your agent to run deploy_preview.', '还没有版本。让你的智能体执行 deploy_preview。')}</div>}
+      </div>
+      <ListPager flush page={page} total={countTotal} perPage={VER_PER} onPage={setPage} />
+    </Card>
+  );
+}
+
+function ProjectErrorsCard({ id, initial, total }: { id: string; initial: any[]; total: number }) {
+  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<any[]>(() => initial.slice(0, ERR_PER));
+  const [countTotal, setCountTotal] = useState(total);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { setPage(1); }, [id]);
+  useEffect(() => {
+    if (page === 1) { setRows(initial.slice(0, ERR_PER)); setCountTotal(total); setLoading(false); return; }
+    let live = true; setLoading(true);
+    api<{ errors: any[]; total: number }>(`/console/projects/${id}/errors?page=${page}&per_page=${ERR_PER}`)
+      .then((r) => { if (live) { setRows(r.errors); setCountTotal(r.total); } }, () => {})
+      .finally(() => live && setLoading(false));
+    return () => { live = false; };
+  }, [id, page, initial, total]);
+
+  if (!countTotal && !rows.length) return null;
+  return (
+    <Card title={t('Errors players hit', '玩家遇到的错误')} aside={t('Reported by the game', '游戏自己上报的')}>
+      <div aria-busy={loading}>
+        <Table><thead><tr><th>{t('Message', '信息')}</th><th>{t('Version', '版本')}</th><th className="n">{t('Count', '次数')}</th><th className="n">{t('Last seen', '最近出现')}</th></tr></thead>
+          <tbody>{rows.map((e: any, i: number) => <tr key={`${page}-${i}`}><td className="mono bad fs-sm" style={{ wordBreak: 'break-word' }}>{e.message}</td><td>v{e.version} · {e.env}</td><td className="n">{e.count}</td><td className="n">{ago(e.last_at)}</td></tr>)}</tbody></Table>
+      </div>
+      <ListPager flush page={page} total={countTotal} perPage={ERR_PER} onPage={setPage} />
+    </Card>
+  );
+}
+
+function ProjectActivityCard({ id, initial, total }: { id: string; initial: any[]; total: number }) {
+  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<any[]>(() => initial.slice(0, ACT_PER));
+  const [countTotal, setCountTotal] = useState(total);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { setPage(1); }, [id]);
+  useEffect(() => {
+    if (page === 1) { setRows(initial.slice(0, ACT_PER)); setCountTotal(total); setLoading(false); return; }
+    let live = true; setLoading(true);
+    api<{ events: any[]; total: number }>(`/console/projects/${id}/events?page=${page}&per_page=${ACT_PER}`)
+      .then((r) => { if (live) { setRows(r.events); setCountTotal(r.total); } }, () => {})
+      .finally(() => live && setLoading(false));
+    return () => { live = false; };
+  }, [id, page, initial, total]);
+
+  return (
+    <Card title={t('Activity', '动态')}>
+      <div className="pad" aria-busy={loading}>
+        {rows.length ? <div>{rows.map((e: any, i: number) => (
+          <div key={`${page}-${i}`} className="activity"><Badge dot={false}>{String(e.kind).replace(/_/g, ' ')}</Badge><span className="mute" style={{ wordBreak: 'break-word' }}>{e.version ? `v${e.version} ` : ''}{e.detail}</span><span className="dim" style={{ whiteSpace: 'nowrap' }}>{ago(e.created_at)}</span></div>
+        ))}</div> : <span className="mute">{t('Nothing yet.', '暂无动态。')}</span>}
+      </div>
+      <ListPager flush compact page={page} total={countTotal} perPage={ACT_PER} onPage={setPage} />
+    </Card>
+  );
+}
+

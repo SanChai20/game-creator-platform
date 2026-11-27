@@ -140,7 +140,12 @@ social.delete('/friends/:id', async (c) => {
   await parted(c.env, u.id, other);
   return c.json({ ok: true });
 });
-social.get('/blocks', async (c) => { const u = requireUser(c); return c.json({ blocked: await R.listBlocked(c.env.DB, u.id) }); });
+import { pageMeta, parsePage } from '../paging';
+social.get('/blocks', async (c) => {
+  const u = requireUser(c), pg = parsePage((k) => c.req.query(k), 20, 100);
+  const { blocked, total } = await R.listBlockedPage(c.env.DB, u.id, { limit: pg.limit, offset: pg.offset });
+  return c.json({ blocked, ...pageMeta(total, pg.page, pg.per_page) });
+});
 social.post('/blocks', async (c) => {
   const u = requireUser(c), b = await body(c), other = idParam(b.id);
   await rules(() => R.block(c.env.DB, u.id, other));

@@ -2,7 +2,7 @@
 // to how a button, card, stat or table looks is made once, here and in ui.css.
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, t } from '../lib';
+import { Link, num, t } from '../lib';
 import { CountUp } from './count';
 
 const cx = (...c: (string | false | null | undefined | 0)[]) => c.filter(Boolean).join(' ');
@@ -272,3 +272,55 @@ export function Chip({ active, onClick, to, children }: { active?: boolean; onCl
 export const Steps = ({ items }: { items: ReactNode[] }) => <ol className="steps">{items.map((s, i) => <li key={i}><span>{s}</span></li>)}</ol>;
 /** A list with accent dots. */
 export const Ticks = ({ items }: { items: ReactNode[] }) => <ul className="ticks">{items.map((s, i) => <li key={i}>{s}</li>)}</ul>;
+
+// ---- pagination -------------------------------------------------------------------------------
+/** Numbered pages: first, last, the pages around this one, and gaps between. Pages can be links (href) or buttons (onPage). */
+export function Pager({ page, pages, href, onPage, compact }: { page: number; pages: number; href?: (p: number) => string; onPage?: (p: number) => void; compact?: boolean }) {
+  if (pages <= 1) return null;
+  const span = compact ? 1 : 2;
+  const around = new Set([1, pages]);
+  for (let p = page - span; p <= page + span; p++) if (p >= 1 && p <= pages) around.add(p);
+  const list = [...around].sort((a, b) => a - b), out: (number | string)[] = [];
+  list.forEach((p, k) => { if (k && p - list[k - 1] > 1) out.push('gap' + p); out.push(p); });
+  const go = (p: number, cls: string, label: ReactNode) => href
+    ? <Link key={'p' + p + cls} to={href(p)} className={cls}>{label}</Link>
+    : <button key={'p' + p + cls} type="button" className={cls} onClick={() => onPage?.(p)}>{label}</button>;
+  return (
+    <nav className={cx('pager', compact && 'compact')} aria-label={t('Pages', '分页')}>
+      {page > 1 ? go(page - 1, 'pg pg-step', <>‹ {t('Prev', '上一页')}</>) : <span className="pg pg-step off">‹ {t('Prev', '上一页')}</span>}
+      <span className="pg-nums">{out.map((p) => typeof p === 'string' ? <span key={p} className="pg-gap">…</span> : p === page ? <span key={p} className="pg on" aria-current="page">{p}</span> : go(p, 'pg', p))}</span>
+      <span className="pg-of">{t('Page {page} of {pages}', '第 {page} / {pages} 页', { page, pages: num(pages) })}</span>
+      {page < pages ? go(page + 1, 'pg pg-step', <>{t('Next', '下一页')} ›</>) : <span className="pg pg-step off">{t('Next', '下一页')} ›</span>}
+    </nav>
+  );
+}
+
+/** Range counter + numbered pager. Use `flush` inside a Card, `compact` inside narrow dialogs/drawers. */
+export function ListPager({ page, total, perPage, href, onPage, flush, compact }: {
+  page: number; total: number; perPage: number; href?: (p: number) => string; onPage?: (p: number) => void; flush?: boolean; compact?: boolean;
+}) {
+  const safePer = Math.max(1, perPage);
+  const pages = Math.max(1, Math.ceil(Math.max(0, total) / safePer));
+  if (pages <= 1 && page <= 1) return null;
+  const from = total ? (page - 1) * safePer + 1 : 0;
+  const to = Math.min(total, page * safePer);
+  return (
+    <div className={cx(flush ? 'list-foot' : 'pager-bar', compact && 'pager-compact')}>
+      <span className="mute fs-sm num">{t('{from}–{to} of {total}', '第 {from}–{to} 条，共 {total} 条', { from: num(from), to: num(to), total: num(total) })}</span>
+      <Pager page={page} pages={pages} href={href} onPage={onPage} compact={compact} />
+    </div>
+  );
+}
+
+/** Client-side pagination over a bounded array; clamps automatically if the list shrinks and resets on dependency changes. */
+export function useClientPage<T>(items: readonly T[], perPage: number, resetDeps: readonly unknown[] = []) {
+  const [page, setPage] = useState(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(1); }, resetDeps);
+  const safePer = Math.max(1, perPage);
+  const pages = Math.max(1, Math.ceil(items.length / safePer));
+  const cur = Math.min(page, pages);
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
+  const slice = items.slice((cur - 1) * safePer, cur * safePer);
+  return { page: cur, pages, setPage, slice, total: items.length, perPage: safePer };
+}

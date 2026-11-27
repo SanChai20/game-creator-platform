@@ -2,9 +2,9 @@
 // lands in their library) and, on a paid game the player does not own, "Ask a friend to gift it". Both open GiftDialog,
 // which lists the player's friends. A gift goes through Stripe Checkout like any purchase, and is non-refundable: the
 // dialog says so before the player continues, and Checkout asks them to tick it.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, price, t, useAct, useApp } from './lib';
-import { Button, Modal, Notice, Textarea } from './ui';
+import { Button, Input, ListPager, Modal, Notice, Textarea, useClientPage } from './ui';
 
 interface GiftFriend { id: string; name: string; owned: boolean }
 export interface GameGift { asked: { request: string; friend: { id: string; name: string } }[]; asked_by: { request: string; friend: { id: string; name: string } }[] }
@@ -21,8 +21,13 @@ export async function giveGift(slug: string, to: string, request?: string) {
 export function GiftDialog({ mode, slug, title, cents, gift, preselect, onClose, onDone }: { mode: 'give' | 'ask'; slug: string; title: string; cents: number; gift: GameGift | null; preselect?: string; onClose: () => void; onDone?: () => unknown }) {
   const { toast } = useApp(), { busy, act } = useAct();
   const [friends, setFriends] = useState<GiftFriend[] | null>(null), [err, setErr] = useState('');
-  const [pick, setPick] = useState(preselect || ''), [note, setNote] = useState('');
+  const [pick, setPick] = useState(preselect || ''), [note, setNote] = useState(''), [q, setQ] = useState('');
   useEffect(() => { api<{ friends: GiftFriend[] }>(`/games/${encodeURIComponent(slug)}/gift-friends`).then((r) => setFriends(r.friends), (e) => setErr((e as Error).message)); }, [slug]);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return (friends || []).filter((f) => !s || f.name.toLowerCase().includes(s));
+  }, [friends, q]);
+  const pg = useClientPage(filtered, 10, [slug, mode, q]);
   const asked = new Set((gift?.asked || []).map((a) => a.friend.id));
   const usable = (f: GiftFriend) => mode === 'give' ? !f.owned : !asked.has(f.id);
   const request = mode === 'give' ? gift?.asked_by.find((a) => a.friend.id === pick)?.request : undefined;
@@ -45,16 +50,22 @@ export function GiftDialog({ mode, slug, title, cents, gift, preselect, onClose,
         </div>
         {err ? <Notice tone="bad">{err}</Notice> : !friends ? <p className="mute">{t('Loading friends…', '正在加载好友…')}</p>
           : !friends.length ? <Notice tone="info" title={t('No friends yet', '还没有好友')}>{t('Gifts are only possible between friends. Add a friend first from the Friends panel.', '只有好友之间才能赠送游戏。请先在好友面板中添加好友。')}</Notice>
-          : <ul className="gift-friends" role="radiogroup" aria-label={t('Friends', '好友')}>{friends.map((f) => {
-            const ok = usable(f);
-            return <li key={f.id}><label className={'gift-friend' + (ok ? '' : ' off')}>
-              <input type="radio" name="gift-friend" value={f.id} checked={pick === f.id} disabled={!ok} onChange={() => setPick(f.id)} />
-              <span className="grow clip"><b>{f.name}</b></span>
-              {mode === 'give' && f.owned ? <span className="dim fs-sm">{t('Already has it', '已拥有')}</span>
-                : mode === 'ask' && asked.has(f.id) ? <span className="dim fs-sm">{t('Asked', '已请求')}</span>
-                : mode === 'give' && gift?.asked_by.some((a) => a.friend.id === f.id) ? <span className="fs-sm gift-wants">{t('Asked you for it', '向你请求过')}</span> : null}
-            </label></li>;
-          })}</ul>}
+          : <div className="stack s">
+            {friends.length > 8 && <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Search friends…', '搜索好友…')} aria-label={t('Search friends…', '搜索好友…')} />}
+            {!pg.slice.length ? <p className="mute fs-sm">{t('No friends match.', '没有匹配的好友。')}</p> : (
+              <ul className="gift-friends" role="radiogroup" aria-label={t('Friends', '好友')}>{pg.slice.map((f) => {
+                const ok = usable(f);
+                return <li key={f.id}><label className={'gift-friend' + (ok ? '' : ' off')}>
+                  <input type="radio" name="gift-friend" value={f.id} checked={pick === f.id} disabled={!ok} onChange={() => setPick(f.id)} />
+                  <span className="grow clip"><b>{f.name}</b></span>
+                  {mode === 'give' && f.owned ? <span className="dim fs-sm">{t('Already has it', '已拥有')}</span>
+                    : mode === 'ask' && asked.has(f.id) ? <span className="dim fs-sm">{t('Asked', '已请求')}</span>
+                    : mode === 'give' && gift?.asked_by.some((a) => a.friend.id === f.id) ? <span className="fs-sm gift-wants">{t('Asked you for it', '向你请求过')}</span> : null}
+                </label></li>;
+              })}</ul>
+            )}
+            <ListPager compact page={pg.page} total={pg.total} perPage={pg.perPage} onPage={pg.setPage} />
+          </div>}
         {mode === 'ask' && !!friends?.length && <Textarea rows={2} maxLength={200} placeholder={t('Add a note (optional)', '附言（可选）')} value={note} onChange={(e) => setNote(e.target.value)} />}
         {mode === 'give' && <Notice tone="info" title={t('Non-refundable', '不可退款')}>{NON_REFUNDABLE()}</Notice>}
         <div className="row wrapx gift-actions">

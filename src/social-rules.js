@@ -248,6 +248,14 @@ export async function listBlocked(db, me) {
   const r = await db.prepare('SELECT u.id, u.name, b.created_at AS at FROM blocks b JOIN users u ON u.id = b.blocked_id WHERE b.user_id = ? ORDER BY b.created_at DESC LIMIT 500').bind(me).all();
   return r.results;
 }
+export async function listBlockedPage(db, me, { limit = 20, offset = 0 } = {}) {
+  const lim = Math.max(1, Math.min(100, limit | 0 || 20)), off = Math.max(0, Math.min(50000, offset | 0));
+  const [rows, tot] = await Promise.all([
+    db.prepare('SELECT u.id, u.name, b.created_at AS at FROM blocks b JOIN users u ON u.id = b.blocked_id WHERE b.user_id = ?1 ORDER BY b.created_at DESC LIMIT ?2 OFFSET ?3').bind(me, lim, off).all(),
+    db.prepare('SELECT COUNT(*) AS n FROM blocks b JOIN users u ON u.id = b.blocked_id WHERE b.user_id = ?').bind(me).first(),
+  ]);
+  return { blocked: rows.results, total: tot?.n || 0 };
+}
 
 // ---- messages -------------------------------------------------------------------------------------------------------
 export function cleanBody(s, max = LIMITS.message_max) {

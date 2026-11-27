@@ -7,7 +7,7 @@ import { balanceOf, freeSkillShared, splitSale, splitSkillSale } from '../earnin
 import { NO_CODE, setSkillPrice, skillForAgent, skillGate, storeItem, writeSkill } from '../skills';
 import { enqueue } from '../pipeline';
 import {
-  assetText, checkProject, chooseTags, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getVersion, listFiles, logEvent, ownedProject, publicVersion,
+  assetText, checkProject, chooseTags, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
   listingForStandards,
 } from '../projects';
@@ -42,8 +42,9 @@ import { feedbackProject, pendingFeedback, takeFeedback } from '../feedback';
 import { DEBUG_LIMITS, VIEWPORTS } from '../debug-core.js';
 // @ts-ignore plain JS module
 import { FEEDBACK_LIMITS } from '../feedback-rules.js';
+import { assertCanCreateProject, isProjectAllowed, scopedProject } from './scope';
 
-export interface ToolCtx { env: Env; user: User; origin: string; client: string }
+export interface ToolCtx { env: Env; user: User; origin: string; client: string; allowedProjects: string[] | null }
 /** A tool answer with pictures: the JSON part is sent as text, each image as an MCP image block after it. */
 export class WithImages { constructor(public data: unknown, public images: { data: Uint8Array; type: string }[]) {} }
 interface Tool {
@@ -132,13 +133,17 @@ const sharing = (p: { open_implementation: number; skill_price_cents?: number })
   : 'off: nothing about how this game is built is shared');
 
 async function account(c: ToolCtx) {
-  const s = await getSettings(c.env), u = c.user, bal = await balanceOf(c.env, u.id);
+  const s = await getSettings(c.env), u = c.user, scoped = c.allowedProjects !== null;
+  const bal = scoped ? null : await balanceOf(c.env, u.id);
   return {
     name: u.name, creator_license: !!u.creator,
     can_publish: !!u.creator || !s.creator_fee_required,
     license: u.creator ? licenseText(u) : `${licenseText(u) === 'none' ? 'Not purchased' : 'Expired (' + licenseText(u) + ')'}. Publishing and the console need ${offersText(s)}. Uploading, previewing and verifying are free. The account owner gets it at ${c.origin}/license`,
     console_url: `${c.origin}/console`,
-    earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) },
+    project_access: scoped
+      ? { scope: 'selected', project_ids: c.allowedProjects, can_create_projects: false, note: 'This connection is limited to selected projects. Call list_projects to see them.' }
+      : { scope: 'all', can_create_projects: true },
+    ...(bal ? { earnings: { available: usd(bal.available), pending: usd(bal.pending), withdraw_minimum: usd(s.withdraw_min_cents) } } : {}),
     build_skills: { free_skill: `a game that shares its build skill for free pays a ${s.platform_fee_open_percent}% cut on its own sales instead of ${s.platform_fee_percent}%`, paid_skill: s.paid_skills_enabled ? `a skill can be sold for ${usd(s.skill_price_min_cents)} to ${usd(s.skill_price_max_cents)}; the platform keeps ${s.skill_fee_percent}% of each skill sale and the game keeps the standard ${s.platform_fee_percent}% cut; skill sales are final, build skills are non-refundable` : 'disabled', store: `${c.origin}/creator-store` },
     paid_games: s.paid_games_enabled ? { platform_cut_percent: s.platform_fee_percent, platform_cut_percent_with_free_build_skill: s.platform_fee_open_percent, min_price_cents: s.game_price_min_cents, max_price_cents: s.game_price_max_cents, free_trial: s.trials_enabled ? { max_minutes: s.trial_max_minutes, how: 'update_project trial_minutes' } : 'disabled', sales: s.sales_enabled ? { max_days: s.sale_max_days, min_percent_off: s.sale_min_percent_off, min_sale_price_cents: s.sale_price_min_cents, days_between_sales: s.sale_gap_days, how: 'update_project sale {price_cents, days}; null ends it' } : 'disabled' } : 'disabled',
     limits: { storage_per_game: mb(s.bundle_max_bytes), storage_per_game_bytes: s.bundle_max_bytes, largest_file: mb(s.file_max_bytes), files_per_game: s.bundle_max_files, more_storage: s.storage_requests_open ? `ask with game_storage, up to ${mb(s.storage_max_bytes)} per game` : 'closed', server_code: s.allow_server_code },
@@ -499,7 +504,7 @@ async function coverAdvice(c: ToolCtx, q: Project, v: any): Promise<{ cover?: st
 }
 
 async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: boolean): Promise<unknown> {
-  const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
+  const p = await scopedProject(c, a.project), s = await getSettings(c.env);
   if (p.status === 'removed') throw forbidden('This game was removed by the platform and cannot be published.');
   let v: any = null;
   if (a.version !== undefined && a.version !== null) {
@@ -684,11 +689,16 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ project: { ...PROJECT, description: 'Optional. A project id or slug to show in detail.' } }), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (!a.project) {
-        const rows = await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, CASE WHEN price_cents > 0 THEN trial_minutes ELSE 0 END AS trial_minutes, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all<any>();
+        const rows = c.allowedProjects === null
+          ? await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, CASE WHEN price_cents > 0 THEN trial_minutes ELSE 0 END AS trial_minutes, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all<any>()
+          : await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, CASE WHEN price_cents > 0 THEN trial_minutes ELSE 0 END AS trial_minutes, plays, sales, updated_at FROM projects WHERE owner_id = ?1 AND status != 'removed' AND id IN (SELECT value FROM json_each(?2)) ORDER BY updated_at DESC").bind(c.user.id, JSON.stringify(c.allowedProjects)).all<any>();
         // the genre and secondary genres are stored among the tags; split them out as every other answer does
-        return { projects: rows.results.map((r) => { const { tags, ...rest } = r; return { ...rest, ...tagAnswer({ tags } as Project, undefined) }; }) };
+        return {
+          projects: rows.results.map((r) => { const { tags, ...rest } = r; return { ...rest, ...tagAnswer({ tags } as Project, undefined) }; }),
+          ...(c.allowedProjects !== null ? { access_scope: 'selected', note: 'This agent connection is limited to selected projects chosen during authorization.' } : {}),
+        };
       }
-      const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id);
+      const p = await scopedProject(c, a.project), files = await listFiles(c.env, p.id);
       const latest = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 1').bind(p.id).first<any>();
       return {
         project: p.id, slug: p.slug, title: p.title, tagline: p.tagline, description: p.description, controls: p.controls, ...tagAnswer(p, undefined),
@@ -712,6 +722,7 @@ export const TOOLS: Tool[] = [
       tags: TAGS_SCHEMA,
     }, ['title']),
     run: async (a, c) => {
+      assertCanCreateProject(c.allowedProjects);
       // tags and genre are checked exactly as game_metadata and update_project check them, before the project exists, so
       // a refused word leaves no half-made project behind; genres named among the tags become secondary genres
       if (a.tags !== undefined) chooseTags(a.tags);
@@ -744,7 +755,7 @@ export const TOOLS: Tool[] = [
       listing_translations: TRANSLATIONS_SCHEMA,
     }, ['project']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
+      const p = await scopedProject(c, a.project);
       let cover: string | undefined;
       const coverChecks: Record<string, unknown> = {};
       const storeCover = async (raw: unknown, tag: string) => {
@@ -806,7 +817,7 @@ export const TOOLS: Tool[] = [
       delete: { type: 'array', items: { type: 'string' }, description: 'Paths to delete. A path that is not in the workspace refuses the whole call (nothing is saved).' },
     }, ['project']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
+      const p = await scopedProject(c, a.project);
       // each file and edit is held to its item schema like the call itself: old/new are read as old_string/new_string,
       // and a key still unknown refuses the call instead of reading as a missing old_string
       const items = (k: 'files' | 'edits', aliases: Record<string, string>) => (Array.isArray(a[k]) ? a[k] : []).map((it: unknown, i: number) => {
@@ -865,7 +876,7 @@ export const TOOLS: Tool[] = [
     description: 'Returns a short-lived URL for uploading files straight from a shell with curl, without passing their contents through this conversation. Use it for large or binary files, or a whole folder as a zip (an engine\'s web export folder, for example). Valid for 30 minutes.',
     inputSchema: obj({ project: PROJECT }, ['project']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), t = randomToken(24);
+      const p = await scopedProject(c, a.project), t = randomToken(24);
       await c.env.DB.prepare('INSERT INTO uploads (token_hash, project_id, user_id, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(t), p.id, c.user.id, now() + 30 * 60000).run();
       const base = `${c.origin}/api/upload/${t}`;
       return {
@@ -881,7 +892,7 @@ export const TOOLS: Tool[] = [
     name: 'list_files', title: 'List workspace files',
     description: 'Lists every file in the project workspace with its size and sha (the first 32 hex characters of its SHA-256), so you can see which local files differ from what was uploaded, and which version the workspace is based on and what changed in it since. To get the files themselves, use pull_version.',
     inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0), workspace: await workspaceLine(c.env, p), storage: await storageLine(c.env, p, files) }; },
+    run: async (a, c) => { const p = await scopedProject(c, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0), workspace: await workspaceLine(c.env, p), storage: await storageLine(c.env, p, files) }; },
   },
   {
     name: 'game_storage', title: 'Check the game\'s storage or ask for more',
@@ -893,7 +904,7 @@ export const TOOLS: Tool[] = [
       reason: { type: 'string', description: 'request only: what needs the space and why generating it from code or loading it at run time does not work for it (at least 40 characters).' },
     }, ['project']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), action = a.action || 'check';
+      const p = await scopedProject(c, a.project), action = a.action || 'check';
       if (action === 'request') return { project: p.id, ...(await requestStorage(c.env, c.user, p, a.megabytes, a.reason, c.client)), storage: await storageLine(c.env, await ownedProject(c.env, c.user, p.id)) };
       if (action !== 'check') throw bad('action must be "check" or "request".');
       const files = await listFiles(c.env, p.id), report = await storageReport(c.env, p, files);
@@ -927,7 +938,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       }
       if (action !== 'check') throw bad('action must be "list", "get" or "check".');
       if (!a.project) throw bad('check needs project.');
-      const p = await ownedProject(c.env, c.user, a.project);
+      const p = await scopedProject(c, a.project);
       const r = await checkProject(c.env, p, c.origin);
       // what verification measured on the newest version (the loading hand-off, the reserved zones on a phone)
       const last = await c.env.DB.prepare('SELECT n, report FROM versions WHERE project_id = ? AND report IS NOT NULL ORDER BY n DESC LIMIT 1').bind(p.id).first<{ n: number; report: string }>();
@@ -963,7 +974,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       version: { type: 'integer', description: 'Optional. Show what this version went out with.' },
     }, ['project']), annotations: { idempotentHint: true },
     run: async (a, c) => {
-      let p = await ownedProject(c.env, c.user, a.project);
+      let p = await scopedProject(c, a.project);
       if (a.version !== undefined && a.version !== null) {
         const v = await getVersion(c.env, p.id, Number(a.version));
         if (!v) throw bad(`Version ${a.version} does not exist.`, 'Call list_versions.');
@@ -1028,7 +1039,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       version: { type: 'integer', description: 'Optional. Show what this version went out with.' },
     }, ['project']), annotations: { idempotentHint: true },
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
+      const p = await scopedProject(c, a.project);
       if (a.version !== undefined && a.version !== null) {
         const v = await getVersion(c.env, p.id, Number(a.version));
         if (!v) throw bad(`Version ${a.version} does not exist.`, 'Call list_versions.');
@@ -1077,7 +1088,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       by: { type: 'string', description: 'Optional. A short name for this machine or agent (e.g. "laptop", "ci"), shown with the agent app\'s name as who deployed the version.' },
     }, ['project']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
+      const p = await scopedProject(c, a.project);
       if (a.retry_version !== undefined && a.retry_version !== null) return retryPreview(c, p, Number(a.retry_version), a.wait_seconds);
       const check = await checkProject(c.env, p, c.origin);
       const storage = await storageLine(c.env, p);
@@ -1106,7 +1117,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
     description: `Without version: lists the project's versions, newest first, with status, the one-line summary, the checks that failed, whether each can be published, and which is live and which is on preview. With version: returns that version's full verification report (each check with its detail and hint, uncaught errors, missing files, load time, frame rate, screenshot), waiting up to ${LIST_WAIT_MS / 1000} seconds if it is still being checked (wait_seconds up to ${MAX_WAIT_S} waits longer, so one call returns the result). This is how to read any past version's report.`,
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Optional. A version number to read in full.' }, wait_seconds: WAIT_SCHEMA(LIST_WAIT_MS) }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), s = await getSettings(c.env);
+      const p = await scopedProject(c, a.project), s = await getSettings(c.env);
       if (a.version) return { ...waitNote(a.wait_seconds), ...(await versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), waitMs(a.wait_seconds, LIST_WAIT_MS)))) };
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
       const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), ...(v.actor ? { by: v.actor } : {}), ...(v.base ? { based_on: v.base } : {}), live: v.n === p.live_version && p.status === 'live' }));
@@ -1124,7 +1135,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       paths: { type: 'array', items: { type: 'string' }, description: `Optional. Text files to return in the answer itself (up to ${PULL_INLINE.files} files and ${PULL_INLINE.bytes / 1024} KB in all).` },
     }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), newest = p.next_version - 1;
+      const p = await scopedProject(c, a.project), newest = p.next_version - 1;
       if (a.workspace === true && a.version !== undefined && a.version !== null) throw bad('Pass version or workspace, not both.');
       if (a.workspace !== true && !newest) throw bad('This game has no version yet.', 'Pass workspace: true to download the workspace, or deploy_preview to make the first version.');
       const source: Source = a.workspace === true ? { workspace: true } : { version: a.version ? Number(a.version) : newest };
@@ -1166,7 +1177,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
     description: 'Makes the workspace exactly the files of one version: files that differ are replaced, files the version does not have are deleted. Use it to carry on from a version with upload_files edits, or to go back to an older version and build on it. The live game and the preview do not change until you deploy_preview and publish. If the workspace has changes that are in no version yet (uploaded but not deployed, perhaps by another agent), nothing is changed and the answer lists them; force: true discards them.',
     inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'The version to check out.' }, force: { type: 'boolean', description: 'Discard workspace changes that are in no version yet.' } }, ['project', 'version']), annotations: { destructiveHint: true },
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), n = Number(a.version);
+      const p = await scopedProject(c, a.project), n = Number(a.version);
       await versionOrThrow(c.env, p, n);
       const w = await workspaceState(c.env, p);
       const unsaved = w.diff ? (isSame(w.diff) ? null : w.diff) : (w.files ? diffFiles([], await sourceFiles(c.env, p, { workspace: true })) : null);
@@ -1201,7 +1212,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       text: { type: 'boolean', description: 'Default true: include line diffs of changed text files.' },
     }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), newest = p.next_version - 1;
+      const p = await scopedProject(c, a.project), newest = p.next_version - 1;
       const to: Source = parseSource(a.to, 'to') ?? (newest ? { version: newest } : { workspace: true });
       const fromDefault: Source | null = 'workspace' in to ? ((p.ws_base ?? newest) ? { version: (p.ws_base ?? newest)! } : null) : (to.version > 1 ? { version: to.version - 1 } : null);
       const from = parseSource(a.from, 'from') ?? fromDefault;
@@ -1241,8 +1252,8 @@ The whole set as one page: get_started {topic: "standards"}.`,
       session: { type: 'string', description: 'Optional: the session id from open (your latest one is used otherwise).' },
     }, ['project', 'action']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
-      if (a.action === 'close') return closeDebug(c.env, c.user, a.session ? String(a.session) : undefined);
+      const p = await scopedProject(c, a.project);
+      if (a.action === 'close') return closeDebug(c.env, c.user, a.session ? String(a.session) : undefined, p.id);
       if (a.action === 'open') {
         const r = await openDebug(c.env, c.origin, c.user, p, { viewport: a.viewport, autostart: a.autostart === true, steps: a.steps }, c.client);
         return debugAnswer(r, 'Look at the screenshot, then call debug_preview {action: "act", steps: [...]} to play. Close the session when you are done.');
@@ -1257,6 +1268,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
     description: `The creator's feedback queue: while playing the preview in the console, the creator takes screenshots, circles or points at what is wrong, writes a note and adds it to this queue. Returns the oldest items (up to ${FEEDBACK_LIMITS.read_max}), each with its note, its marks numbered as drawn on the picture (in picture pixels, plus [game (x, y)]: the same spot in the game's CSS pixels, which debug_preview steps take, when the picture shows the whole game), how the picture was taken (captured_from), the preview version, the screen size, errors the game had and what GCP.test.onState(fn) returned, followed by the annotated pictures as images. An item can also carry pictures the creator attached themselves (attached_pictures: design mockups, references, photos, each with its own numbered marks); they show what the creator wants, not what the game shows, and come right after that item's screenshot. Each item is taken off the queue as it is returned, so act on it: the next call returns the next items. If an answer never reached you, recent: true returns the items read in the last day again. Large pictures may hold some items back for the next call (still_waiting says so). peek: true lists what is waiting (notes only, no pictures) without removing anything. Check it at the start of a session and after each deploy_preview (deploy_preview and list_versions say when items are waiting). Only the game's creator's own account can read it.`,
     inputSchema: obj({ project: PROJECT, limit: { type: 'integer', description: `Items to take, 1 to ${FEEDBACK_LIMITS.read_max} (default 3).` }, peek: { type: 'boolean', description: 'List what is waiting without taking anything (no pictures).' }, recent: { type: 'boolean', description: 'Return the items already read in the last 24 hours again, newest first, with their pictures (nothing is taken).' } }, ['project']),
     run: async (a, c) => {
+      await scopedProject(c, a.project);
       const p = await feedbackProject(c.env, c.user, a.project);
       const recent = a.recent === true && a.peek !== true;
       const r = await takeFeedback(c.env, p, Number(a.limit ?? 3), a.peek === true, c.client, recent);
@@ -1287,13 +1299,13 @@ The whole set as one page: get_started {topic: "standards"}.`,
     name: 'unpublish', title: 'Take a game offline',
     description: 'Takes the live game out of the marketplace and removes its live deployment. Versions and the preview stay; publish puts it back.',
     inputSchema: obj({ project: PROJECT }, ['project']), annotations: { destructiveHint: true },
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); if (p.status !== 'live') throw bad('This game is not live.'); await takeOffline(c.env, p, c.client); return { ok: true, status: 'offline' }; },
+    run: async (a, c) => { const p = await scopedProject(c, a.project); if (p.status !== 'live') throw bad('This game is not live.'); await takeOffline(c.env, p, c.client); return { ok: true, status: 'offline' }; },
   },
   {
     name: 'delete_project', title: 'Delete a project',
     description: 'Deletes one of this account\'s projects so it no longer counts toward the project limit and leaves list_projects. Ask the user first, and name the project to them. Two calls: without confirm it deletes nothing and says what deleting would mean (other players who played it, a price) and the confirm value; with confirm set to the project\'s address (slug) it deletes. A live game is refused (unpublish it first), and so is a game or build skill anyone has bought (buyers keep what they paid for: take it offline instead). The workspace and versions stop being served at once; players\' saves and scores are deleted after 30 days, and until then a platform admin can restore the project.',
     inputSchema: obj({ project: PROJECT, confirm: { type: 'string', description: 'The project\'s slug (its address, shown by list_projects and by the first call). Leave it out to see what would be deleted.' } }, ['project']), annotations: { destructiveHint: true },
-    run: async (a, c) => { const p = await ownedProject(c.env, c.user, a.project); return deleteProject(c.env, c.user, p, a.confirm, c.client); },
+    run: async (a, c) => { const p = await scopedProject(c, a.project); return deleteProject(c.env, c.user, p, a.confirm, c.client); },
   },
   {
     name: 'game_data', title: 'Game database: shared data, saves and leaderboards',
@@ -1310,7 +1322,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       limit: { type: 'integer', description: 'Rows for leaderboard, 1 to 100. Default 20.' },
     }, ['project', 'action']), annotations: { destructiveHint: true },
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB, env = envOf(a.env);
+      const p = await scopedProject(c, a.project), db = c.env.DB, env = envOf(a.env);
       const scope = `${p.id}${env === 'preview' ? ':preview' : ''}`, key = String(a.key ?? ''), board = String(a.board || 'default').slice(0, 40);
       const needKey = () => { if (!key || key.length > 120) throw bad('key must be a string of 1 to 120 characters.'); };
       // env was left out and nothing was found in live: say when the other environment has it, since previews keep their own data
@@ -1391,7 +1403,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       kick: { type: 'boolean', description: 'For reset: also disconnect everyone in the room.' },
     }, ['project']), annotations: { destructiveHint: true },
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project), env = envOf(a.env), code = String(a.room || 'lobby').slice(0, 40);
+      const p = await scopedProject(c, a.project), env = envOf(a.env), code = String(a.room || 'lobby').slice(0, 40);
       if (a.action !== undefined && a.action !== 'inspect' && a.action !== 'reset') throw bad('action must be "inspect" or "reset".');
       const rooms = c.env.ROOMS as unknown as DurableObjectNamespace<GameRoom>, stub = rooms.get(rooms.idFromName(`${p.id}:${env}:${code}`));
       if (a.action === 'reset') {
@@ -1439,14 +1451,14 @@ The whole set as one page: get_started {topic: "standards"}.`,
       extra: { type: 'integer', description: 'act spike: the extra delay in ms (default 400).' },
     }, ['project']), annotations: { destructiveHint: false },
     run: async (a, c) => {
-      const action = a.action || 'status';
-      if (action === 'options') { const p = await ownedProject(c.env, c.user, a.project); return botOptions(c.env, p, c.user); }
-      if (action === 'start') return startBots(c.env, c.origin, c.user, a.project, a);
-      if (action === 'act') return actBots(c.env, c.user, a.project, { bot: a.bot, action: a.what, ms: a.ms, extra: a.extra, net: a.net });
-      if (action === 'invite') return inviteBotFor(c.env, c.user, a.project, { bot: a.bot, lobby: a.lobby, label: a.label, data: a.data });
-      if (action === 'stop') return stopBots(c.env, c.user, a.project);
+      const p = await scopedProject(c, a.project), action = a.action || 'status';
+      if (action === 'options') return botOptions(c.env, p, c.user);
+      if (action === 'start') return startBots(c.env, c.origin, c.user, p.id, a);
+      if (action === 'act') return actBots(c.env, c.user, p.id, { bot: a.bot, action: a.what, ms: a.ms, extra: a.extra, net: a.net });
+      if (action === 'invite') return inviteBotFor(c.env, c.user, p.id, { bot: a.bot, lobby: a.lobby, label: a.label, data: a.data });
+      if (action === 'stop') return stopBots(c.env, c.user, p.id);
       if (action !== 'status') throw bad('action must be options, start, status, act, invite or stop.');
-      return botStatus(c.env, c.user, a.project);
+      return botStatus(c.env, c.user, p.id);
     },
   },
   {
@@ -1454,8 +1466,8 @@ The whole set as one page: get_started {topic: "standards"}.`,
     description: 'Returns how the game is doing. now: players online at this moment (live and preview) and players in multiplayer rooms. analytics, over the last days (default 30, at most 90): sessions, unique, new and returning players, play time with average and median session length, session-length spread, players per day and per hour for the last 24 hours, a breakdown by version, device, browser and operating system. Every play number is measured by the platform itself (it starts each session, and the page that shows the game checks in every 30 seconds), never taken from the game; what the game reports about itself (whether it reached GCP.ready, the errors it caught) is under analytics.reported_by_game and in runtime_errors, apart from the rest. Also plays, ratings and recent reviews, and sales. Pass only_now: true for just the live counts, which is cheap enough to poll.',
     inputSchema: obj({ project: PROJECT, days: { type: 'integer', description: 'Window for analytics, 1 to 90 days. Default 30.' }, only_now: { type: 'boolean', description: 'Return only players online now and room occupancy.' } }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      if (a.only_now) { const p = await ownedProject(c.env, c.user, a.project); return { status: p.status, ...(await onlineNow(c.env, p.id)) }; }
-      const p = await ownedProject(c.env, c.user, a.project), db = c.env.DB;
+      if (a.only_now) { const p = await scopedProject(c, a.project); return { status: p.status, ...(await onlineNow(c.env, p.id)) }; }
+      const p = await scopedProject(c, a.project), db = c.env.DB;
       const [daily, errors, reviews, sales] = await Promise.all([
         db.prepare('SELECT day, sessions, plays, seconds FROM game_daily WHERE project_id = ? AND day >= ? ORDER BY day').bind(p.id, addDays(dayOf(now()), -13)).all<any>(),
         db.prepare('SELECT version, env, message, count FROM client_errors WHERE project_id = ? ORDER BY last_at DESC LIMIT 15').bind(p.id).all(),
@@ -1485,7 +1497,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       content: { type: 'string', description: 'write: the skill in Markdown, organised under level-two headings (##), 600 to 60000 characters, no code. The platform adds the front matter, the title and the facts it measured.' },
     }, ['project', 'action']),
     run: async (a, c) => {
-      const p = await ownedProject(c.env, c.user, a.project);
+      const p = await scopedProject(c, a.project);
       const v = a.version === undefined || a.version === null ? undefined : Math.round(Number(a.version));
       if (a.action === 'get') return skillForAgent(c.env, c.origin, p, v);
       if (a.action !== 'write') throw bad('action must be get or write.');
@@ -1518,9 +1530,15 @@ The whole set as one page: get_started {topic: "standards"}.`,
     description: `Returns the implementation card of one live game whose creator shares it: engine and libraries, rendering and graphics techniques, input, audio, art approach, platform services (saves, leaderboards, rooms, server code), loop and performance techniques, code structure in numbers, the verified play-through, and a summary for building something similar. Your own games can always be read (marked as a preview when not shared). ${NEVER_SHARED}`,
     inputSchema: obj({ game: { type: 'string', description: 'The game slug from find_implementations or its marketplace address (/g/<slug>).' } }, ['game']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      const card = await implementationCard(c.env, c.origin, c.user, a.game);
+      // When project-scoped, do not grant owner/admin bypass on out-of-scope projects of this account.
+      const slug = String(a.game || '').trim().replace(/^.*\/(?:g|creator-store)\//, '').replace(/[/?#].*$/, '');
+      const target = c.allowedProjects !== null ? await getProject(c.env, slug) : null;
+      const reader = c.allowedProjects !== null && target && (target.owner_id === c.user.id || c.user.role === 'admin') && !isProjectAllowed(c.allowedProjects, target.id)
+        ? null
+        : c.user;
+      const card = await implementationCard(c.env, c.origin, reader, a.game);
       // the game's build skill: in full when it is free (or yours, or bought), otherwise where to get it
-      const skill = await storeItem(c.env, c.origin, c.user, card.game.slug, false).catch(() => null);
+      const skill = await storeItem(c.env, c.origin, reader, card.game.slug, false).catch(() => null);
       return { ...card, build_skill: !skill ? null : skill.locked
         ? { price: usd(skill.skill.price_cents), sections: skill.skill.sections, version: skill.skill.version, store_page: skill.skill.page, note: 'This build skill is sold. The user can buy it in the Creator Store; it then shows here in full.' }
         : { name: skill.skill.name, version: skill.skill.version, in_sync: skill.skill.in_sync, written_by: skill.skill.written_by_platform ? 'the platform (the game\'s agent has not written one yet)' : 'the game\'s development agent', skill_md: skill.skill_md, store_page: skill.skill.page, how_to_use: 'Save skill_md as SKILL.md in a folder named after the skill in your skills directory, or follow it directly.' } };

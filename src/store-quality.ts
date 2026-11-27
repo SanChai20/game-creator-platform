@@ -268,23 +268,36 @@ export async function reviewReports(env: Env, adminId: string, p: Pick<Project, 
   await logEvent(env, p.id, 'reports_' + action, what, p.live_version ?? null, 'admin:' + adminId);
 }
 
-/** The admin queue: games with open reports or hidden from the store, most reported first, with the latest reports. */
-export async function reportQueue(env: Env, s: R) {
-  const games = await env.DB.prepare(`SELECT p.id, p.slug, p.title, p.status, p.shelf, p.hidden_at, p.hidden_reason, p.live_version, u.email, u.name AS author,
-      (SELECT COUNT(*) FROM game_reports r WHERE r.project_id = p.id AND r.status = 'open') AS open,
-      (SELECT COUNT(*) FROM player_games pg WHERE pg.project_id = p.id AND pg.user_id != p.owner_id) AS players
-    FROM projects p JOIN users u ON u.id = p.owner_id
-    WHERE p.hidden_at IS NOT NULL OR p.id IN (SELECT project_id FROM game_reports WHERE status = 'open')
-    ORDER BY p.hidden_at IS NULL, open DESC LIMIT 100`).all<Record<string, any>>();
+/** Paginated admin queue: games with open reports or hidden from the store, most reported first, with total count. */
+export async function reportQueuePage(env: Env, s: R, opts?: { limit?: number; offset?: number }) {
+  const lim = Math.max(1, Math.min(100, Math.floor(opts?.limit ?? 100))), off = Math.max(0, Math.floor(opts?.offset ?? 0));
+  const where = "p.hidden_at IS NOT NULL OR p.id IN (SELECT project_id FROM game_reports WHERE status = 'open')";
+  const [games, tot] = await Promise.all([
+    env.DB.prepare(`SELECT p.id, p.slug, p.title, p.status, p.shelf, p.hidden_at, p.hidden_reason, p.live_version, u.email, u.name AS author,
+        (SELECT COUNT(*) FROM game_reports r WHERE r.project_id = p.id AND r.status = 'open') AS open,
+        (SELECT COUNT(*) FROM player_games pg WHERE pg.project_id = p.id AND pg.user_id != p.owner_id) AS players
+      FROM projects p JOIN users u ON u.id = p.owner_id
+      WHERE ${where}
+      ORDER BY p.hidden_at IS NULL, open DESC LIMIT ?1 OFFSET ?2`).bind(lim, off).all<Record<string, any>>(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM projects p WHERE ${where}`).first<{ n: number }>(),
+  ]);
   const ids = games.results.map((g) => g.id);
   const reports = ids.length ? (await env.DB.prepare(`SELECT r.project_id, r.reason, r.detail, r.version, r.created_at, COALESCE(u.name, 'a player') AS name FROM game_reports r LEFT JOIN users u ON u.id = r.user_id
       WHERE r.status = 'open' AND r.project_id IN (SELECT value FROM json_each(?)) ORDER BY r.created_at DESC LIMIT 1000`).bind(JSON.stringify(ids)).all<Record<string, any>>()).results : [];
-  return games.results.map((g) => {
-    const mine = reports.filter((r) => r.project_id === g.id), th = hideThreshold(s, g.players);
-    const reasons: Record<string, number> = {};
-    for (const r of mine) reasons[r.reason] = (reasons[r.reason] || 0) + 1;
-    return { ...g, threshold: Number.isFinite(th) ? th : null, reasons, reports: mine.slice(0, 10).map(({ project_id, ...r }) => r) };
-  });
+  return {
+    total: tot?.n || 0,
+    games: games.results.map((g) => {
+      const mine = reports.filter((r) => r.project_id === g.id), th = hideThreshold(s, g.players);
+      const reasons: Record<string, number> = {};
+      for (const r of mine) reasons[r.reason] = (reasons[r.reason] || 0) + 1;
+      return { ...g, threshold: Number.isFinite(th) ? th : null, reasons, reports: mine.slice(0, 10).map(({ project_id, ...r }) => r) };
+    }),
+  };
+}
+
+/** The admin queue: games with open reports or hidden from the store, most reported first, with the latest reports. */
+export async function reportQueue(env: Env, s: R) {
+  return (await reportQueuePage(env, s, { limit: 100, offset: 0 })).games;
 }
 
 // ---- what the creator sees -----------------------------------------------------------------------------------------

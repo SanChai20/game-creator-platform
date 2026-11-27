@@ -2494,5 +2494,22 @@
  "Switch to landscape": "Cambiar a horizontal",
  "Switch to portrait": "Cambiar a vertical",
  "Portrait": "Vertical",
- "Landscape": "Horizontal"
+ "Landscape": "Horizontal",
+ "Search friends…": "Buscar amigos…",
+ "No friends match.": "No coincide ningún amigo.",
+ "1 project": "1 proyecto",
+ "{n} projects": "{n} proyectos",
+ "All projects": "Todos los proyectos",
+ "Removed project": "Proyecto eliminado",
+ "Project access": "Acceso a proyectos",
+ "All projects (including new ones)": "Todos los proyectos (incluidos los nuevos)",
+ "Full creator access across every game in your account.": "Acceso completo de creador a todos los juegos de tu cuenta, incluida la creación de nuevos proyectos.",
+ "Only selected projects": "Solo proyectos seleccionados",
+ "Restrict this agent to the projects you check below. It cannot create new projects.": "Restringe este agente a los proyectos que marques abajo. No puede crear proyectos nuevos.",
+ "You have no projects yet. Authorize all projects first so your agent can create one.": "Todavía no tienes proyectos. Autoriza primero todos los proyectos para que tu agente pueda crear uno.",
+ "Search projects…": "Buscar proyectos…",
+ "{n} selected": "{n} seleccionados",
+ "Select all": "Seleccionar todo",
+ "No matching projects.": "No hay proyectos que coincidan.",
+ "Select at least one project to continue.": "Selecciona al menos un proyecto para continuar."
 }

@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { AppError, bad, notFound, type Env, type User } from '../env';
 import { requireAdmin } from '../auth';
 import { balanceOf, freeSkillShared, recordPurchase } from '../earnings';
-import { adminRefund, adminRefundRequests, decideRefund, setRefundReview, stripePay } from '../refunds';
+import { adminRefund, adminRefundRequests, adminRefundRequestsPage, decideRefund, setRefundReview, stripePay } from '../refunds';
 import { getProject, getVersion, logEvent } from '../projects';
 import { getSettings, putSettings, SETTING_DEFS } from '../settings';
 import { stripe, stripeReady } from '../stripe';
@@ -19,7 +19,8 @@ import { currentPicks, JOBS } from '../rankings';
 import { reverseWithdrawal, takeOffline } from './api';
 import { grantLicense, isPlan, revokeLicense } from '../license';
 import { RULES, RULESET, gateView, recordGate, releaseGate, unwaive, waive } from '../release-gate';
-import { reportQueue, reviewReports, type ReviewAction } from '../store-quality';
+import { reportQueuePage, reviewReports, type ReviewAction } from '../store-quality';
+import { pageMeta, parsePage } from '../paging';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
@@ -62,6 +63,18 @@ admin.get('/overview', async (c) => {
     jobs, picks: picks.map((p) => ({ id: p.id, slug: p.slug, title: p.title, reason: p.pick })),
     health: { payments: stripeReady(c.env), webhook: !!c.env.STRIPE_WEBHOOK_SECRET, accounts_webhook: !!c.env.STRIPE_ACCOUNTS_WEBHOOK_SECRET, deploy: (!!(c.env.CF_API_TOKEN && c.env.CF_ACCOUNT_ID) && !hostingProblems(c.env).length) || c.env.DEPLOY_DRIVER === 'local', hosting: hostId(c.env), hosting_problems: hostingProblems(c.env), browser: !!c.env.BROWSER || !!(c.env as any).VERIFIER_URL, driver: c.env.DEPLOY_DRIVER, db_bytes: await dbSize(c.env) },
   });
+});
+
+admin.get('/flags', async (c) => {
+  const pg = parsePage((k) => c.req.query(k), 20, 100);
+  const where = "e.kind IN ('copy_flagged', 'not_game_flagged', 'player_report')";
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare(`SELECT e.id, e.kind, e.detail, e.version, e.created_at, p.id AS project_id, p.title, p.slug, u.email
+      FROM events e JOIN projects p ON p.id = e.project_id JOIN users u ON u.id = p.owner_id
+      WHERE ${where} ORDER BY e.id DESC LIMIT ?1 OFFSET ?2`).bind(pg.limit, pg.offset).all(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM events e JOIN projects p ON p.id = e.project_id JOIN users u ON u.id = p.owner_id WHERE ${where}`).first<{ n: number }>(),
+  ]);
+  return c.json({ flags: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
 });
 
 admin.get('/settings', async (c) => c.json({ defs: SETTING_DEFS, values: await getSettings(c.env, true) }));
@@ -167,8 +180,8 @@ admin.get('/games/:id/release', async (c) => {
   const g = await releaseGate(c.env, p, vrow, { mode: 'publish' });
   await recordGate(c.env, g);
   const [waivers, versions] = await Promise.all([
-    c.env.DB.prepare('SELECT w.*, u.email AS admin_email FROM release_waivers w LEFT JOIN users u ON u.id = w.created_by WHERE w.project_id = ? ORDER BY w.created_at DESC LIMIT 50').bind(p.id).all(),
-    c.env.DB.prepare('SELECT n, status, published_at, created_at FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all(),
+    c.env.DB.prepare('SELECT w.*, u.email AS admin_email FROM release_waivers w LEFT JOIN users u ON u.id = w.created_by WHERE w.project_id = ? ORDER BY w.created_at DESC LIMIT 200').bind(p.id).all(),
+    c.env.DB.prepare('SELECT n, status, published_at, created_at FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 100').bind(p.id).all(),
   ]);
   return c.json({ ruleset: RULESET, game: { id: p.id, title: p.title, status: p.status, live_version: p.live_version }, version: vrow.n, requirements: gateView(g), waivable: RULES.filter((r) => r.waivable).map((r) => r.id), waivers: waivers.results, versions: versions.results });
 });
@@ -202,12 +215,18 @@ admin.post('/games/:id/release/:n/publish', async (c) => {
 
 // Creators' requests for more storage: pending first, then the latest decisions.
 admin.get('/storage-requests', async (c) => {
-  const rows = await c.env.DB.prepare(
-    `SELECT r.*, p.title, p.slug, p.status AS game_status, p.storage_bytes, u.name AS author, u.email AS author_email,
-       (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.project_id = r.project_id) AS used_now
-     FROM storage_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.user_id
-     WHERE r.status = 'pending' OR r.decided_at > ? ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 100`).bind(now() - 30 * 86400000).all();
-  return c.json({ requests: rows.results, default_bytes: (await getSettings(c.env)).bundle_max_bytes });
+  const pg = parsePage((k) => c.req.query(k), 20, 100), since = now() - 30 * 86400000;
+  const where = "r.status = 'pending' OR r.decided_at > ?1";
+  const [rows, tot, s] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT r.*, p.title, p.slug, p.status AS game_status, p.storage_bytes, u.name AS author, u.email AS author_email,
+         (SELECT COALESCE(SUM(size), 0) FROM files f WHERE f.project_id = r.project_id) AS used_now
+       FROM storage_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.user_id
+       WHERE ${where} ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT ?2 OFFSET ?3`).bind(since, pg.limit, pg.offset).all(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n, SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS waiting FROM storage_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.user_id WHERE ${where}`).bind(since).first<{ n: number; waiting: number | null }>(),
+    getSettings(c.env),
+  ]);
+  return c.json({ requests: rows.results, default_bytes: s.bundle_max_bytes, waiting: tot?.waiting || 0, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
 });
 
 admin.post('/storage-requests/:id', async (c) => {
@@ -219,16 +238,25 @@ admin.post('/storage-requests/:id', async (c) => {
 
 // Versions the verification browser could not run (WebGPU, or no browser): a person checks them before they go live.
 admin.get('/reviews', async (c) => {
-  const rows = await c.env.DB.prepare(
-    `SELECT v.project_id, v.n, v.note, v.review, v.review_note, v.reviewed_at, v.created_at, v.screenshot_key, v.report, p.title, p.slug, p.status AS game_status,
-       u.name AS author, u.email AS author_email
-     FROM versions v JOIN projects p ON p.id = v.project_id JOIN users u ON u.id = p.owner_id
-     WHERE v.review = 'pending' OR v.reviewed_at > ? ORDER BY (v.review = 'pending') DESC, v.created_at DESC LIMIT 100`).bind(now() - 30 * 86400000).all<any>();
+  const pg = parsePage((k) => c.req.query(k), 20, 100), since = now() - 30 * 86400000;
+  const where = "v.review = 'pending' OR v.reviewed_at > ?1";
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT v.project_id, v.n, v.note, v.review, v.review_note, v.reviewed_at, v.created_at, v.screenshot_key, v.report, p.title, p.slug, p.status AS game_status,
+         u.name AS author, u.email AS author_email
+       FROM versions v JOIN projects p ON p.id = v.project_id JOIN users u ON u.id = p.owner_id
+       WHERE ${where} ORDER BY (v.review = 'pending') DESC, v.created_at DESC LIMIT ?2 OFFSET ?3`).bind(since, pg.limit, pg.offset).all<any>(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n, SUM(CASE WHEN v.review = 'pending' THEN 1 ELSE 0 END) AS waiting FROM versions v JOIN projects p ON p.id = v.project_id JOIN users u ON u.id = p.owner_id WHERE ${where}`).bind(since).first<{ n: number; waiting: number | null }>(),
+  ]);
   const origin = c.get('origin');
-  return c.json({ reviews: rows.results.map(({ report, screenshot_key, ...r }) => {
-    const rep = JSON.parse(report || '{}');
-    return { ...r, screenshot: screenshot_key ? `${origin}/api/media/${screenshot_key}` : null, why: rep.gpuLimited ? 'webgpu' : rep.browser === 'unavailable' ? 'no_browser' : 'other', summary: rep.summary || '' };
-  }) });
+  return c.json({
+    reviews: rows.results.map(({ report, screenshot_key, ...r }) => {
+      const rep = JSON.parse(report || '{}');
+      return { ...r, screenshot: screenshot_key ? `${origin}/api/media/${screenshot_key}` : null, why: rep.gpuLimited ? 'webgpu' : rep.browser === 'unavailable' ? 'no_browser' : 'other', summary: rep.summary || '' };
+    }),
+    waiting: tot?.waiting || 0,
+    ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
+  });
 });
 
 admin.post('/reviews/:pid/:n', async (c) => {
@@ -253,6 +281,45 @@ admin.get('/money', async (c) => {
     db.prepare("SELECT x.id, 'skill' AS item, x.price_cents, x.fee_cents, x.net_cents, x.status, x.provider, x.created_at, p.title, p.slug, b.email AS buyer, o.email AS creator FROM skill_purchases x JOIN projects p ON p.id = x.project_id JOIN users b ON b.id = x.user_id JOIN users o ON o.id = x.owner_id ORDER BY x.created_at DESC LIMIT 200").all(),
   ]);
   return c.json({ purchases: [...purchases.results, ...skillPurchases.results].sort((a: any, b: any) => b.created_at - a.created_at).slice(0, 200), payments: payments.results, withdrawals: withdrawals.results, refunds: await adminRefundRequests(c.env) });
+});
+
+admin.get('/money/withdrawals', async (c) => {
+  const pg = parsePage((k) => c.req.query(k), 20, 100);
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare("SELECT w.id, w.amount_cents, w.method, w.details, w.status, w.error, w.provider_ref, w.created_at, w.settled_at, u.email, u.name FROM withdrawals w JOIN users u ON u.id = w.user_id ORDER BY (w.status = 'pending') DESC, w.created_at DESC LIMIT ?1 OFFSET ?2").bind(pg.limit, pg.offset).all(),
+    c.env.DB.prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS waiting FROM withdrawals").first<{ n: number; waiting: number | null }>(),
+  ]);
+  return c.json({ withdrawals: rows.results, waiting: tot?.waiting || 0, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
+});
+
+admin.get('/money/refunds', async (c) => {
+  const pg = parsePage((k) => c.req.query(k), 20, 100);
+  const { refunds, total, waiting } = await adminRefundRequestsPage(c.env, { limit: pg.limit, offset: pg.offset });
+  return c.json({ refunds, waiting, ...pageMeta(total, pg.page, pg.per_page) });
+});
+
+admin.get('/money/sales', async (c) => {
+  const pg = parsePage((k) => c.req.query(k), 20, 100);
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare(`SELECT * FROM (
+        SELECT x.id, 'game' AS item, x.gifted_by, x.price_cents, x.fee_cents, x.net_cents, x.status, x.provider, x.created_at, p.title, p.slug, b.email AS buyer, o.email AS creator
+        FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users b ON b.id = x.user_id JOIN users o ON o.id = x.owner_id
+        UNION ALL
+        SELECT x.id, 'skill' AS item, NULL AS gifted_by, x.price_cents, x.fee_cents, x.net_cents, x.status, x.provider, x.created_at, p.title, p.slug, b.email AS buyer, o.email AS creator
+        FROM skill_purchases x JOIN projects p ON p.id = x.project_id JOIN users b ON b.id = x.user_id JOIN users o ON o.id = x.owner_id
+      ) ORDER BY created_at DESC, id DESC LIMIT ?1 OFFSET ?2`).bind(pg.limit, pg.offset).all(),
+    c.env.DB.prepare('SELECT (SELECT COUNT(*) FROM purchases) + (SELECT COUNT(*) FROM skill_purchases) AS n').first<{ n: number }>(),
+  ]);
+  return c.json({ purchases: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
+});
+
+admin.get('/money/payments', async (c) => {
+  const pg = parsePage((k) => c.req.query(k), 20, 100);
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare('SELECT y.id, y.amount_cents, y.provider, y.status, y.created_at, u.email FROM payments y CROSS JOIN users u ON u.id = y.user_id ORDER BY y.created_at DESC LIMIT ?1 OFFSET ?2').bind(pg.limit, pg.offset).all(),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM payments').first<{ n: number }>(),
+  ]);
+  return c.json({ payments: rows.results, ...pageMeta(tot?.n || 0, pg.page, pg.per_page) });
 });
 
 admin.post('/withdrawals/:id', async (c) => {
@@ -307,7 +374,11 @@ admin.post('/grant-game', async (c) => {
 // Games players reported (broken, low effort, …) and games hidden from the store, most reported first. dismiss: nothing
 // wrong, back in the store; hide: reports upheld, it stays out of the store; unhide: back in the store, reports left open.
 // Taking a game offline or removing it is done from Games.
-admin.get('/game-reports', async (c) => c.json({ games: await reportQueue(c.env, await getSettings(c.env)) }));
+admin.get('/game-reports', async (c) => {
+  const pg = parsePage((k) => c.req.query(k), 15, 100);
+  const { games, total } = await reportQueuePage(c.env, await getSettings(c.env), { limit: pg.limit, offset: pg.offset });
+  return c.json({ games, ...pageMeta(total, pg.page, pg.per_page) });
+});
 admin.post('/game-reports/:id', async (c) => {
   const p = await getProject(c.env, c.req.param('id')), b = await c.req.json<{ action?: string }>().catch(() => ({} as { action?: string }));
   if (!p) throw notFound('No such game.');
@@ -320,13 +391,20 @@ admin.post('/game-reports/:id', async (c) => {
 // Open reports first, each with the reported messages as they were when reported. Suspending the account is done from
 // Users (Actions); here a report is closed as dismissed or acted on.
 admin.get('/social-reports', async (c) => {
+  const pg = parsePage((k) => c.req.query(k), 20, 100);
   const status = c.req.query('status') === 'closed' ? "r.status != 'open'" : "r.status = 'open'";
-  const rows = await c.env.DB.prepare(`SELECT r.*, a.name AS reporter_name, a.email AS reporter_email, b.name AS target_name, b.email AS target_email, b.status AS target_status,
-      (SELECT COUNT(*) FROM social_reports x WHERE x.target_id = r.target_id) AS target_reports
-      FROM social_reports r JOIN users a ON a.id = r.reporter_id JOIN users b ON b.id = r.target_id WHERE ${status} ORDER BY r.created_at DESC LIMIT 200`).all<Record<string, any>>();
-  return c.json({ reports: rows.results.map((r) => { let ctx: { messages?: unknown[] } = {}; try { ctx = JSON.parse(r.context || '{}'); } catch { /* bad row */ }
-    return { id: r.id, reason: r.reason, detail: r.detail, status: r.status, created_at: r.created_at, handled_at: r.handled_at, messages: ctx.messages || [],
-      reporter: { id: r.reporter_id, name: r.reporter_name, email: r.reporter_email }, target: { id: r.target_id, name: r.target_name, email: r.target_email, status: r.target_status, reports: r.target_reports } }; }) });
+  const [rows, tot] = await Promise.all([
+    c.env.DB.prepare(`SELECT r.*, a.name AS reporter_name, a.email AS reporter_email, b.name AS target_name, b.email AS target_email, b.status AS target_status,
+        (SELECT COUNT(*) FROM social_reports x WHERE x.target_id = r.target_id) AS target_reports
+        FROM social_reports r JOIN users a ON a.id = r.reporter_id JOIN users b ON b.id = r.target_id WHERE ${status} ORDER BY r.created_at DESC LIMIT ?1 OFFSET ?2`).bind(pg.limit, pg.offset).all<Record<string, any>>(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM social_reports r WHERE ${status}`).first<{ n: number }>(),
+  ]);
+  return c.json({
+    reports: rows.results.map((r) => { let ctx: { messages?: unknown[] } = {}; try { ctx = JSON.parse(r.context || '{}'); } catch { /* bad row */ }
+      return { id: r.id, reason: r.reason, detail: r.detail, status: r.status, created_at: r.created_at, handled_at: r.handled_at, messages: ctx.messages || [],
+        reporter: { id: r.reporter_id, name: r.reporter_name, email: r.reporter_email }, target: { id: r.target_id, name: r.target_name, email: r.target_email, status: r.target_status, reports: r.target_reports } }; }),
+    ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
+  });
 });
 admin.post('/social-reports/:id', async (c) => {
   const b = await c.req.json<{ status?: string }>().catch(() => ({} as { status?: string }));

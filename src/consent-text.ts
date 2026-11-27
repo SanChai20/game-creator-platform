@@ -17,6 +17,16 @@ type Text = {
   expires: (days: number) => string;
   signInAgain: string; sessionEnded: string; sessionEndedBody: string;
   cannotConnect: string; cannotContinue: string; startAgain: string; notVerified: string;
+  // Project-level authorization scope
+  scopeHeading: string;
+  scopeAll: string; scopeAllHint: string;
+  scopeSelected: string; scopeSelectedHint: string;
+  scopeSearch: string; scopeSelectAll: string; scopeClear: string;
+  scopeSelectedCount: (n: number) => string;
+  scopePickOne: string;
+  scopeNoProjects: string;
+  scopePrev: string; scopeNext: string;
+  statusLabels: Record<string, string>;
 };
 
 // Strings take HTML-escaped arguments; the <strong> markup is part of each sentence so word order can change.
@@ -34,6 +44,17 @@ export const TEXT: Record<Lang, Text> = {
     expires: (d) => `Access expires after ${d} day${d === 1 ? '' : 's'}; you can revoke it sooner from your console.`,
     signInAgain: 'Sign in again', sessionEnded: 'Your session ended', sessionEndedBody: 'Sign in and start connecting from your agent again.',
     cannotConnect: 'Cannot connect', cannotContinue: 'This connection cannot continue', startAgain: 'Start connecting from your agent again.', notVerified: 'This app could not be verified.',
+    scopeHeading: 'Which projects can this agent access?',
+    scopeAll: 'All projects (including new ones)',
+    scopeAllHint: 'Can access every project in your account and create new projects.',
+    scopeSelected: 'Only selected projects',
+    scopeSelectedHint: 'Can only access the projects you tick below. Cannot see other projects or create new ones.',
+    scopeSearch: 'Filter projects…', scopeSelectAll: 'Select all', scopeClear: 'Clear',
+    scopeSelectedCount: (n) => `${n} selected`,
+    scopePickOne: 'Select at least one project to continue.',
+    scopeNoProjects: 'You do not have any projects yet, so this agent will have access to all projects you create.',
+    scopePrev: 'Prev', scopeNext: 'Next',
+    statusLabels: { live: 'Live', draft: 'Draft', offline: 'Offline' },
   },
   zh: {
     connect: (a) => `连接 ${a}`, heading: (a) => `允许 ${a} 为你发布网页游戏吗？`,
@@ -48,6 +69,17 @@ export const TEXT: Record<Lang, Text> = {
     expires: (d) => `访问权限将在 ${d} 天后过期，你也可以随时在控制台提前撤销。`,
     signInAgain: '请重新登录', sessionEnded: '你的登录已过期', sessionEndedBody: '请登录后，从你的智能体重新发起连接。',
     cannotConnect: '无法连接', cannotContinue: '此连接无法继续', startAgain: '请从你的智能体重新发起连接。', notVerified: '无法验证这个应用。',
+    scopeHeading: '授权范围：允许该智能体访问哪些项目？',
+    scopeAll: '全部项目（包括之后新建的项目）',
+    scopeAllHint: '可访问账户下的全部项目，并可创建新项目。',
+    scopeSelected: '仅限指定项目',
+    scopeSelectedHint: '仅可访问下方勾选的项目，无法查看其他项目或创建新项目。',
+    scopeSearch: '搜索项目…', scopeSelectAll: '全选', scopeClear: '清空',
+    scopeSelectedCount: (n) => `已选 ${n} 个`,
+    scopePickOne: '请至少选择一个项目后再继续。',
+    scopeNoProjects: '你目前还没有项目，该智能体将拥有你之后创建的所有项目的访问权限。',
+    scopePrev: '上一页', scopeNext: '下一页',
+    statusLabels: { live: '已上线', draft: '草稿', offline: '已下线' },
   },
   'zh-TW': {
     connect: (a) => `連接 ${a}`, heading: (a) => `允許 ${a} 為你發布網頁遊戲嗎？`,
@@ -62,6 +94,17 @@ export const TEXT: Record<Lang, Text> = {
     expires: (d) => `存取權限將在 ${d} 天後過期，你也可以隨時在主控台提前撤銷。`,
     signInAgain: '請重新登入', sessionEnded: '你的登入已過期', sessionEndedBody: '請登入後，從你的 AI 代理重新發起連接。',
     cannotConnect: '無法連接', cannotContinue: '此連接無法繼續', startAgain: '請從你的 AI 代理重新發起連接。', notVerified: '無法驗證這個應用程式。',
+    scopeHeading: '授權範圍：允許這個 AI 代理存取哪些專案？',
+    scopeAll: '全部專案（包括之後新建的專案）',
+    scopeAllHint: '可存取帳戶下的所有專案，並可建立新專案。',
+    scopeSelected: '僅限指定專案',
+    scopeSelectedHint: '僅可存取下方勾選的專案，無法查看其他專案或建立新專案。',
+    scopeSearch: '篩選專案…', scopeSelectAll: '全選', scopeClear: '清除',
+    scopeSelectedCount: (n) => `已選 ${n} 個`,
+    scopePickOne: '請至少選擇一個專案以繼續。',
+    scopeNoProjects: '你目前還沒有專案，此 AI 代理將可存取你之後建立的所有專案。',
+    scopePrev: '上一頁', scopeNext: '下一頁',
+    statusLabels: { live: '已上線', draft: '草稿', offline: '已下架' },
   },
   ja: {
     connect: (a) => `${a} を接続`, heading: (a) => `${a} にWebゲームの公開を許可しますか？`,
@@ -76,6 +119,17 @@ export const TEXT: Record<Lang, Text> = {
     expires: (d) => `アクセスは ${d} 日後に期限切れになります。それより前にコンソールから取り消すこともできます。`,
     signInAgain: 'もう一度ログイン', sessionEnded: 'セッションが終了しました', sessionEndedBody: 'ログインして、エージェントからもう一度接続を始めてください。',
     cannotConnect: '接続できません', cannotContinue: 'この接続は続行できません', startAgain: 'エージェントからもう一度接続を始めてください。', notVerified: 'このアプリを検証できませんでした。',
+    scopeHeading: 'このエージェントにアクセスを許可するプロジェクト',
+    scopeAll: 'すべてのプロジェクト（今後作成するものを含む）',
+    scopeAllHint: 'アカウント内のすべてのプロジェクトにアクセスし、新しいプロジェクトを作成できます。',
+    scopeSelected: '選択したプロジェクトのみ',
+    scopeSelectedHint: '下でチェックしたプロジェクトのみアクセスできます。他のプロジェクトの閲覧や新規作成はできません。',
+    scopeSearch: 'プロジェクトを検索…', scopeSelectAll: 'すべて選択', scopeClear: 'クリア',
+    scopeSelectedCount: (n) => `${n} 件選択中`,
+    scopePickOne: '続行するにはプロジェクトを1つ以上選択してください。',
+    scopeNoProjects: 'まだプロジェクトがないため、今後作成するすべてのプロジェクトにアクセスできます。',
+    scopePrev: '前へ', scopeNext: '次へ',
+    statusLabels: { live: '公開中', draft: '下書き', offline: '非公開' },
   },
   ko: {
     connect: (a) => `${a} 연결`, heading: (a) => `${a}이(가) 웹 게임을 게시하도록 허용할까요?`,
@@ -90,6 +144,17 @@ export const TEXT: Record<Lang, Text> = {
     expires: (d) => `접근 권한은 ${d}일 후 만료됩니다. 그 전에 콘솔에서 취소할 수도 있습니다.`,
     signInAgain: '다시 로그인', sessionEnded: '세션이 종료되었습니다', sessionEndedBody: '로그인한 뒤 에이전트에서 다시 연결을 시작하세요.',
     cannotConnect: '연결할 수 없음', cannotContinue: '이 연결은 계속할 수 없습니다', startAgain: '에이전트에서 다시 연결을 시작하세요.', notVerified: '이 앱을 확인할 수 없습니다.',
+    scopeHeading: '이 에이전트가 접근할 수 있는 프로젝트',
+    scopeAll: '모든 프로젝트(새로 만들 프로젝트 포함)',
+    scopeAllHint: '계정의 모든 프로젝트에 접근하고 새 프로젝트를 만들 수 있습니다.',
+    scopeSelected: '선택한 프로젝트만',
+    scopeSelectedHint: '아래에서 선택한 프로젝트에만 접근할 수 있으며, 다른 프로젝트 조회나 새 프로젝트 생성은 할 수 없습니다.',
+    scopeSearch: '프로젝트 검색…', scopeSelectAll: '모두 선택', scopeClear: '선택 해제',
+    scopeSelectedCount: (n) => `${n}개 선택됨`,
+    scopePickOne: '계속하려면 프로젝트를 하나 이상 선택하세요.',
+    scopeNoProjects: '아직 프로젝트가 없으므로 앞으로 만드는 모든 프로젝트에 접근할 수 있습니다.',
+    scopePrev: '이전', scopeNext: '다음',
+    statusLabels: { live: '게시됨', draft: '초안', offline: '비공개' },
   },
   es: {
     connect: (a) => `Conectar ${a}`, heading: (a) => `¿Permitir que ${a} publique juegos web por ti?`,
@@ -104,5 +169,16 @@ export const TEXT: Record<Lang, Text> = {
     expires: (d) => `El acceso caduca en ${d} día${d === 1 ? '' : 's'}; puedes revocarlo antes desde tu consola.`,
     signInAgain: 'Vuelve a iniciar sesión', sessionEnded: 'Tu sesión ha terminado', sessionEndedBody: 'Inicia sesión y vuelve a conectar desde tu agente.',
     cannotConnect: 'No se puede conectar', cannotContinue: 'Esta conexión no puede continuar', startAgain: 'Vuelve a conectar desde tu agente.', notVerified: 'No se pudo verificar esta app.',
+    scopeHeading: '¿A qué proyectos puede acceder este agente?',
+    scopeAll: 'Todos los proyectos (incluidos los nuevos)',
+    scopeAllHint: 'Puede acceder a todos los proyectos de tu cuenta y crear proyectos nuevos.',
+    scopeSelected: 'Solo proyectos seleccionados',
+    scopeSelectedHint: 'Solo puede acceder a los proyectos que marques abajo. No puede ver otros proyectos ni crear nuevos.',
+    scopeSearch: 'Filtrar proyectos…', scopeSelectAll: 'Seleccionar todo', scopeClear: 'Limpiar',
+    scopeSelectedCount: (n) => `${n} seleccionado${n === 1 ? '' : 's'}`,
+    scopePickOne: 'Selecciona al menos un proyecto para continuar.',
+    scopeNoProjects: 'Todavía no tienes proyectos, así que este agente tendrá acceso a todos los que crees.',
+    scopePrev: 'Ant.', scopeNext: 'Sig.',
+    statusLabels: { live: 'Publicado', draft: 'Borrador', offline: 'Desconectado' },
   },
 };

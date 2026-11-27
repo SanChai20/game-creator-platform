@@ -76,11 +76,16 @@ export async function addFeedback(env: Env, user: User, p: Project, body: Record
 }
 
 /** The queue as the console shows it, oldest first. The picture comes from feedbackImage. */
-export async function listFeedback(env: Env, p: Project) {
-  const rows = await env.DB.prepare('SELECT * FROM feedback WHERE project_id = ? AND taken_at IS NULL ORDER BY created_at, id LIMIT 100').bind(p.id).all<FeedbackRow>();
-  const s = await getSettings(env);
+export async function listFeedback(env: Env, p: Project, opts?: { limit?: number; offset?: number }) {
+  const lim = Math.max(1, Math.min(100, Math.floor(opts?.limit ?? 100))), off = Math.max(0, Math.floor(opts?.offset ?? 0));
+  const [rows, tot, s] = await Promise.all([
+    env.DB.prepare('SELECT * FROM feedback WHERE project_id = ?1 AND taken_at IS NULL ORDER BY created_at, id LIMIT ?2 OFFSET ?3').bind(p.id, lim, off).all<FeedbackRow>(),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM feedback WHERE project_id = ? AND taken_at IS NULL').bind(p.id).first<{ n: number }>(),
+    getSettings(env),
+  ]);
   return {
     enabled: s.feedback_enabled, max_pending: s.feedback_max_pending, keep_days: s.feedback_keep_days,
+    total: tot?.n || 0,
     items: rows.results.map((r) => ({ id: r.id, version: r.version, note: r.note, marks: parseJson(r.marks, []), context: parseJson(r.context, {}), width: r.width, height: r.height, bytes: r.bytes, created_at: r.created_at,
       attachments: attachedOf(r).map((a, i) => ({ n: i + 1, width: a.width, height: a.height, bytes: a.bytes, marks: a.marks || [], ...(a.name ? { name: a.name } : {}) })) })),
   };

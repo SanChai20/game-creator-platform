@@ -3,10 +3,10 @@
 // (GCP.friends.open), pop-ups for what arrives, and the privacy settings on the Account page.
 // Everything that pops up or slides in is rendered into the fullscreen element while a game fills the screen, so it is
 // seen over the game too. A Busy player gets no pop-ups (only the badge), and nothing is ever sent for a guest.
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ago, api, ApiError, local, navigate, t, useApp } from './lib';
-import { Button, Field, Input, RowMenu, Select, Switch, Textarea } from './ui';
+import { Button, Field, Input, ListPager, RowMenu, Select, Switch, Textarea, useClientPage } from './ui';
 import { notesArrived } from './follow';
 import './social.css';
 
@@ -369,38 +369,59 @@ function Invites() {
 
 function FriendList() {
   const s = useSocial(), list = s.friends, inv = s.open?.invite || (s.activity ? { slug: s.activity.slug, title: s.activity.title, lobby: s.activity.lobby || null, label: s.activity.label || '' } : null);
-  const [sent, setSent] = useState<Record<string, boolean>>({});
+  const [sent, setSent] = useState<Record<string, boolean>>({}), [q, setQ] = useState('');
+  const rank = (f: Friend) => (f.p.game ? 0 : f.p.s === 'online' ? 1 : f.p.s === 'away' ? 2 : f.p.s === 'busy' ? 3 : 4);
+  const sorted = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return [...(list || [])]
+      .filter((f) => !query || f.name.toLowerCase().includes(query))
+      .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  }, [list, q]);
+  const pg = useClientPage(sorted, 20, [q]);
   if (!list) return <div className="fr-empty">{t('Loading…', '加载中…')}</div>;
   if (!list.length) return <div className="fr-empty"><b>{t('No friends yet', '还没有好友')}</b><span>{t('Find people by name or friend code under Add friend.', '在“添加好友”里按名字或好友码查找。')}</span><Button size="sm" variant="primary" onClick={() => { S.open = { ...S.open!, tab: 'add' }; emit(); }}>{t('Add friend', '添加好友')}</Button></div>;
-  const rank = (f: Friend) => (f.p.game ? 0 : f.p.s === 'online' ? 1 : f.p.s === 'away' ? 2 : f.p.s === 'busy' ? 3 : 4);
-  const sorted = [...list].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
-  const groups: [string, Friend[]][] = [[t('Playing', '游戏中'), sorted.filter((f) => rank(f) === 0)], [t('Online', '在线'), sorted.filter((f) => rank(f) > 0 && rank(f) < 4)], [t('Offline', '离线'), sorted.filter((f) => rank(f) === 4)]];
-  return <>{groups.filter(([, g]) => g.length).map(([title, g]) => (
-    <section key={title} className="fr-group"><h3>{title} <span>{g.length}</span></h3>
-      {g.map((f) => {
-        const can = invitable(f.p.s);
-        return (
-          <div key={f.id} className="fr-row">
-            <button type="button" className="fr-main" onClick={() => openChat(f)} title={t('Message', '发消息')}>
-              <Initial name={f.name} s={f.p.s} />
-              <span className="fr-who"><b className="clip">{f.name}</b><span className={'clip fr-line' + (f.p.game ? ' playing' : '')}>{presenceLine(f.p)}</span></span>
-              {f.unread > 0 && <b className="fr-badge in">{f.unread}</b>}
-            </button>
-            <span className="fr-acts">
-              {f.p.joinable && <Button size="sm" variant="primary" onClick={() => void joinFriend(f)}>{t('Join', '加入')}</Button>}
-              {inv && (sent[f.id] ? <span className="fr-sent">{t('Invited', '已邀请')}</span>
-                : <Button size="sm" variant={s.open?.invite ? 'primary' : 'secondary'} disabled={!can} title={can ? (f.p.s === 'online' ? t('Invite to {game}', '邀请一起玩 {game}', { game: inv.title }) : t('{status}: they may not answer soon', '{status}：对方可能不会马上回复', { status: statusName(f.p.s) })) : t('Invisible or offline friends cannot be invited', '无法邀请隐身或离线的好友')}
-                  onClick={async () => { if (await invite(f, inv)) setSent((x) => ({ ...x, [f.id]: true })); }}>{t('Invite', '邀请')}{can && f.p.s !== 'online' && <small className="fr-st"> · {statusName(f.p.s)}</small>}</Button>)}
-              <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: f.name })} actions={[
-                { label: t('Message', '发消息'), onClick: () => openChat(f) },
-                { label: t('Remove friend', '删除好友'), danger: true, onClick: () => void removeFriend(f) },
-                { label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(f) },
-                { label: t('Report', '举报'), danger: true, onClick: () => setReport(f) },
-              ]} />
-            </span>
-          </div>);
-      })}
-    </section>))}<ReportHost /></>;
+  const counts = [
+    sorted.filter((f) => rank(f) === 0).length,
+    sorted.filter((f) => rank(f) > 0 && rank(f) < 4).length,
+    sorted.filter((f) => rank(f) === 4).length,
+  ];
+  const groups: [string, Friend[], number][] = [
+    [t('Playing', '游戏中'), pg.slice.filter((f) => rank(f) === 0), counts[0]],
+    [t('Online', '在线'), pg.slice.filter((f) => rank(f) > 0 && rank(f) < 4), counts[1]],
+    [t('Offline', '离线'), pg.slice.filter((f) => rank(f) === 4), counts[2]],
+  ];
+  return <>
+    {list.length > 10 && <label className="fr-search"><span className="sr-only">{t('Search friends…', '搜索好友…')}</span><Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('Search friends…', '搜索好友…')} /></label>}
+    {!pg.slice.length && <div className="fr-empty small">{t('No friends match.', '没有匹配的好友。')}</div>}
+    {groups.filter(([, g]) => g.length).map(([title, g, tot]) => (
+      <section key={title} className="fr-group"><h3>{title} <span>{tot}</span></h3>
+        {g.map((f) => {
+          const can = invitable(f.p.s);
+          return (
+            <div key={f.id} className="fr-row">
+              <button type="button" className="fr-main" onClick={() => openChat(f)} title={t('Message', '发消息')}>
+                <Initial name={f.name} s={f.p.s} />
+                <span className="fr-who"><b className="clip">{f.name}</b><span className={'clip fr-line' + (f.p.game ? ' playing' : '')}>{presenceLine(f.p)}</span></span>
+                {f.unread > 0 && <b className="fr-badge in">{f.unread}</b>}
+              </button>
+              <span className="fr-acts">
+                {f.p.joinable && <Button size="sm" variant="primary" onClick={() => void joinFriend(f)}>{t('Join', '加入')}</Button>}
+                {inv && (sent[f.id] ? <span className="fr-sent">{t('Invited', '已邀请')}</span>
+                  : <Button size="sm" variant={s.open?.invite ? 'primary' : 'secondary'} disabled={!can} title={can ? (f.p.s === 'online' ? t('Invite to {game}', '邀请一起玩 {game}', { game: inv.title }) : t('{status}: they may not answer soon', '{status}：对方可能不会马上回复', { status: statusName(f.p.s) })) : t('Invisible or offline friends cannot be invited', '无法邀请隐身或离线的好友')}
+                    onClick={async () => { if (await invite(f, inv)) setSent((x) => ({ ...x, [f.id]: true })); }}>{t('Invite', '邀请')}{can && f.p.s !== 'online' && <small className="fr-st"> · {statusName(f.p.s)}</small>}</Button>)}
+                <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: f.name })} actions={[
+                  { label: t('Message', '发消息'), onClick: () => openChat(f) },
+                  { label: t('Remove friend', '删除好友'), danger: true, onClick: () => void removeFriend(f) },
+                  { label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(f) },
+                  { label: t('Report', '举报'), danger: true, onClick: () => setReport(f) },
+                ]} />
+              </span>
+            </div>);
+        })}
+      </section>))}
+    <ListPager compact page={pg.page} total={pg.total} perPage={pg.perPage} onPage={pg.setPage} />
+    <ReportHost />
+  </>;
 }
 async function removeFriend(f: { id: string; name: string }) {
   if (!confirmDialog(t('Remove {name} from your friends?', '要把 {name} 从好友中删除吗？', { name: f.name }))) return;
@@ -455,18 +476,22 @@ function Requests() {
   const [d, setD] = useState<ReqData | null>(null);
   const load = () => api<ReqData>('/social/requests').then(setD, fail);
   useEffect(() => { void load().then(() => api('/social/notifications/read', { method: 'POST' })).then(() => soonSummary()).catch(() => {}); }, [S.summary?.counts?.requests]); // eslint-disable-line react-hooks/exhaustive-deps
+  const inPg = useClientPage(d?.incoming || [], 10);
+  const outPg = useClientPage(d?.outgoing || [], 10);
   if (!d) return <div className="fr-empty">{t('Loading…', '加载中…')}</div>;
   const act = async (path: string, method = 'POST') => { try { await api(path, { method }); await load(); soonSummary(); soonFriends(); } catch (e) { fail(e); } };
   const accepted = d.notifications.filter((n) => n.kind === 'friend_accepted').slice(0, 10);
   if (!d.incoming.length && !d.outgoing.length && !accepted.length) return <div className="fr-empty"><b>{t('No requests', '没有请求')}</b><span>{t('Friend requests you get and send show here.', '你收到和发出的好友请求会显示在这里。')}</span></div>;
   return <>
-    {d.incoming.length > 0 && <section className="fr-group"><h3>{t('Received', '收到的')} <span>{d.incoming.length}</span></h3>{d.incoming.map((r) => (
+    {d.incoming.length > 0 && <section className="fr-group"><h3>{t('Received', '收到的')} <span>{d.incoming.length}</span></h3>{inPg.slice.map((r) => (
       <div key={r.id} className="fr-row"><span className="fr-main static"><Initial name={r.name} /><span className="fr-who"><b className="clip">{r.name}</b><span className="fr-line">{ago(r.at)}</span></span></span>
         <span className="fr-acts"><Button size="sm" variant="primary" onClick={() => void act(`/social/requests/${r.id}/accept`)}>{t('Accept', '接受')}</Button><Button size="sm" variant="ghost" onClick={() => void act(`/social/requests/${r.id}/decline`)}>{t('Decline', '拒绝')}</Button>
-          <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: r.name })} actions={[{ label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(r).then(load) }, { label: t('Report', '举报'), danger: true, onClick: () => setReport(r) }]} /></span></div>))}</section>}
-    {d.outgoing.length > 0 && <section className="fr-group"><h3>{t('Sent', '已发送')} <span>{d.outgoing.length}</span></h3>{d.outgoing.map((r) => (
+          <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: r.name })} actions={[{ label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(r).then(load) }, { label: t('Report', '举报'), danger: true, onClick: () => setReport(r) }]} /></span></div>))}
+      <ListPager compact page={inPg.page} total={inPg.total} perPage={inPg.perPage} onPage={inPg.setPage} /></section>}
+    {d.outgoing.length > 0 && <section className="fr-group"><h3>{t('Sent', '已发送')} <span>{d.outgoing.length}</span></h3>{outPg.slice.map((r) => (
       <div key={r.id} className="fr-row"><span className="fr-main static"><Initial name={r.name} /><span className="fr-who"><b className="clip">{r.name}</b><span className="fr-line">{t('Waiting for an answer', '等待对方回复')}</span></span></span>
-        <span className="fr-acts"><Button size="sm" variant="ghost" onClick={() => void act(`/social/requests/${r.id}`, 'DELETE')}>{t('Cancel', '取消')}</Button></span></div>))}</section>}
+        <span className="fr-acts"><Button size="sm" variant="ghost" onClick={() => void act(`/social/requests/${r.id}`, 'DELETE')}>{t('Cancel', '取消')}</Button></span></div>))}
+      <ListPager compact page={outPg.page} total={outPg.total} perPage={outPg.perPage} onPage={outPg.setPage} /></section>}
     {accepted.length > 0 && <section className="fr-group"><h3>{t('Recent', '最近')}</h3>{accepted.map((n) => <div key={n.id} className="fr-note">{t('{name} accepted your friend request', '{name} 接受了你的好友请求', { name: n.actor.name })} <small>{ago(n.at)}</small></div>)}</section>}
     <ReportHost />
   </>;
@@ -559,10 +584,22 @@ function Bubble({ m, mine, name }: { m: Msg; mine: boolean; name: string }) {
 }
 
 // ---- Account: who can reach me ------------------------------------------------------------------------------------------------
+const BLOCKS_PER = 20;
 export function FriendsSettings() {
   const s = useSocial(), p = s.summary?.profile;
-  const [blocked, setBlocked] = useState<{ id: string; name: string }[] | null>(null);
-  useEffect(() => { void api<{ blocked: { id: string; name: string }[] }>('/social/blocks').then((r) => setBlocked(r.blocked), () => setBlocked([])); }, []);
+  const [blkPage, setBlkPage] = useState(1), [blkStamp, setBlkStamp] = useState(0);
+  const [blocked, setBlocked] = useState<{ id: string; name: string }[] | null>(null), [blkTotal, setBlkTotal] = useState(0);
+  useEffect(() => {
+    let live = true;
+    void api<{ blocked: { id: string; name: string }[]; total?: number; pages?: number }>(`/social/blocks?page=${blkPage}&per_page=${BLOCKS_PER}`).then((r) => {
+      if (!live) return;
+      const maxP = Math.max(1, r.pages || 1);
+      if (blkPage > maxP) { setBlkPage(maxP); return; }
+      setBlocked(r.blocked);
+      setBlkTotal(r.total ?? r.blocked.length);
+    }, () => { if (live) { setBlocked([]); setBlkTotal(0); } });
+    return () => { live = false; };
+  }, [blkPage, blkStamp]);
   if (s.summary?.enabled === false) return null;
   if (!p) return <div className="mute">{t('Loading…', '加载中…')}</div>;
   const patch = async (b: Partial<Profile>) => { try { const r = await api<{ profile: Profile; me: Presence | null }>('/social/profile', { method: 'PATCH', body: b }); if (S.summary) { S.summary = { ...S.summary, profile: r.profile, me: r.me || S.summary.me }; emit(); } } catch (e) { fail(e); } };
@@ -577,8 +614,11 @@ export function FriendsSettings() {
     {row(t('Let friends join my game when it has room', '游戏有空位时允许好友加入'), <Switch checked={p.joinable} onChange={(e) => void patch({ joinable: e.target.checked })} />)}
     {row(t('Let people find me by name', '允许别人按名字找到我'), <Switch checked={p.searchable} onChange={(e) => void patch({ searchable: e.target.checked })} />)}
     <div className="fr-blocked"><b>{t('Blocked players', '已屏蔽的玩家')}</b>
-      {!blocked ? <span className="mute">{t('Loading…', '加载中…')}</span> : !blocked.length ? <span className="mute">{t('Nobody is blocked.', '没有屏蔽任何人。')}</span>
-        : blocked.map((b) => <div key={b.id} className="row" style={{ justifyContent: 'space-between' }}><span>{b.name}</span><Button size="sm" variant="ghost" onClick={async () => { try { await api(`/social/blocks/${b.id}`, { method: 'DELETE' }); setBlocked((l) => (l || []).filter((x) => x.id !== b.id)); } catch (e) { fail(e); } }}>{t('Unblock', '取消屏蔽')}</Button></div>)}
+      {!blocked ? <span className="mute">{t('Loading…', '加载中…')}</span> : !blkTotal && !blocked.length ? <span className="mute">{t('Nobody is blocked.', '没有屏蔽任何人。')}</span>
+        : <>
+          {blocked.map((b) => <div key={b.id} className="row" style={{ justifyContent: 'space-between' }}><span>{b.name}</span><Button size="sm" variant="ghost" onClick={async () => { try { await api(`/social/blocks/${b.id}`, { method: 'DELETE' }); setBlkStamp((n) => n + 1); } catch (e) { fail(e); } }}>{t('Unblock', '取消屏蔽')}</Button></div>)}
+          <ListPager compact page={blkPage} total={blkTotal} perPage={BLOCKS_PER} onPage={setBlkPage} />
+        </>}
     </div>
   </div>;
 }

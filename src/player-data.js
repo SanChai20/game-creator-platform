@@ -186,18 +186,22 @@ export async function resumeOp(db, tok, b, t = Date.now()) {
  * Games taken off the row stay off until played again. Only live games, never preview data.
  */
 export async function continueList(db, owner, { limit = 12, offset = 0 } = {}) {
-  const lim = Math.max(1, Math.min(50, limit | 0 || 12)), off = Math.max(0, Math.min(5000, offset | 0));
-  const rows = await db.prepare(`SELECT pg.project_id, pg.first_at, pg.last_at, pg.sessions, pg.seconds, pg.resume,
+  const lim = Math.max(1, Math.min(60, limit | 0 || 12)), off = Math.max(0, Math.min(50000, offset | 0));
+  const where = "pg.user_id = ?1 AND p.status = 'live' AND (pg.continue_hidden_at IS NULL OR pg.last_at > pg.continue_hidden_at)";
+  const [rows, tot] = await Promise.all([
+    db.prepare(`SELECT pg.project_id, pg.first_at, pg.last_at, pg.sessions, pg.seconds, pg.resume,
       (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = pg.project_id AND s.user_id = pg.user_id) AS saved_at,
       (p.price_cents = 0 OR p.owner_id = pg.user_id OR EXISTS (SELECT 1 FROM purchases b WHERE b.user_id = pg.user_id AND b.project_id = p.id AND b.status = 'paid')) AS owned
     FROM player_games pg JOIN projects p ON p.id = pg.project_id
-    WHERE pg.user_id = ? AND p.status = 'live' AND (pg.continue_hidden_at IS NULL OR pg.last_at > pg.continue_hidden_at)
-    ORDER BY pg.last_at DESC LIMIT ? OFFSET ?`).bind(owner, lim + 1, off).all();
+    WHERE ${where}
+    ORDER BY pg.last_at DESC LIMIT ?2 OFFSET ?3`).bind(owner, lim + 1, off).all(),
+    db.prepare(`SELECT COUNT(*) AS n FROM player_games pg JOIN projects p ON p.id = pg.project_id WHERE ${where}`).bind(owner).first(),
+  ]);
   const list = rows.results.slice(0, lim).map((r) => ({
     game_id: r.project_id, first_played: r.first_at, last_played: r.last_at, sessions: r.sessions || 0, seconds: r.seconds || 0,
     saved_at: r.saved_at || null, resume: r.resume ? parse(r.resume) : null, owned: !!r.owned,
   }));
-  return { list, more: rows.results.length > lim };
+  return { list, more: rows.results.length > lim, total: tot?.n || 0 };
 }
 /** Takes one game off the player's Continue row until they play it again. Their progress is untouched. */
 export async function hideContinue(db, scope, owner, t = Date.now()) {

@@ -5,6 +5,7 @@
 // every few minutes while it is in view. The rules are src/follows.js; the routes src/routes/follows.ts.
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent } from 'react';
 import { ago, api, ApiError, CoverImg, genreHue, Link, loginUrl, navigate, num, shown, t, useApp, type ListingI18n } from './lib';
+import { ListPager } from './ui';
 import './follow.css';
 
 // ---- following ------------------------------------------------------------------------------------------------------
@@ -158,12 +159,24 @@ export function NotificationsButton() {
 
 // ---- creators you follow (the Library's Following tab) -----------------------------------------------------------------
 export interface Followed { id: string; name: string; since: number; games: number }
+const FOLLOW_PER = 24;
 export function FollowingList() {
-  const [list, setList] = useState<Followed[] | null>(null), [err, setErr] = useState('');
-  useEffect(() => { api<{ following: Followed[] }>('/me/following').then((r) => setList(r.following), (e) => setErr((e as Error).message)); }, []);
+  const [page, setPage] = useState(1);
+  const [list, setList] = useState<Followed[] | null>(null), [total, setTotal] = useState(0), [err, setErr] = useState(''), [stamp, setStamp] = useState(0);
+  useEffect(() => {
+    let live = true;
+    api<{ following: Followed[]; total?: number; pages?: number }>(`/me/following?page=${page}&per_page=${FOLLOW_PER}`).then((r) => {
+      if (!live) return;
+      const maxP = Math.max(1, r.pages || 1);
+      if (page > maxP) { setPage(maxP); return; }
+      setList(r.following);
+      setTotal(r.total ?? r.following.length);
+    }, (e) => { if (live) setErr((e as Error).message); });
+    return () => { live = false; };
+  }, [page, stamp]);
   if (err) return <p className="bad">{err}</p>;
   if (!list) return <div className="fl-grid">{[0, 1, 2].map((i) => <div key={i} className="fl-card sk" />)}</div>;
-  if (!list.length) return (
+  if (!total && !list.length) return (
     <div className="fl-empty">
       <b>{t('You are not following anyone yet', '你还没有关注任何创作者')}</b>
       <span className="mute">{t('Open a game you like and follow its creator. Their next game will show up under the bell.', '打开一款你喜欢的游戏并关注它的创作者，对方的下一款游戏会出现在通知里。')}</span>
@@ -171,13 +184,16 @@ export function FollowingList() {
     </div>
   );
   return (
-    <div className="fl-grid">
-      {list.map((c) => (
-        <div key={c.id} className="fl-card">
-          <Link to={creatorPath(c.id)} className="fl-who"><Monogram id={c.id} name={c.name} /><span className="grow"><b className="clip">{c.name}</b><small className="dim">{c.games === 1 ? t('1 game', '1 款游戏') : t('{n} games', '{n} 款游戏', { n: num(c.games) })} · {t('followed {when}', '关注于{when}', { when: ago(c.since) })}</small></span></Link>
-          <FollowButton id={c.id} name={c.name} state size="sm" onChange={(on) => { if (!on) setList((l) => l && l.filter((x) => x.id !== c.id)); }} />
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="fl-grid">
+        {list.map((c) => (
+          <div key={c.id} className="fl-card">
+            <Link to={creatorPath(c.id)} className="fl-who"><Monogram id={c.id} name={c.name} /><span className="grow"><b className="clip">{c.name}</b><small className="dim">{c.games === 1 ? t('1 game', '1 款游戏') : t('{n} games', '{n} 款游戏', { n: num(c.games) })} · {t('followed {when}', '关注于{when}', { when: ago(c.since) })}</small></span></Link>
+            <FollowButton id={c.id} name={c.name} state size="sm" onChange={(on) => { if (!on) setStamp((n) => n + 1); }} />
+          </div>
+        ))}
+      </div>
+      <ListPager page={page} total={total} perPage={FOLLOW_PER} onPage={setPage} />
+    </>
   );
 }

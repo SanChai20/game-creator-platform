@@ -3,9 +3,9 @@
 // their monogram, name and HUD figures, and the Follow button as the one hot action. Then their newest release and
 // their most played game side by side, and every live game in the store's own cards, sortable and paged.
 // Data: GET /api/creators/:id (src/routes/follows.ts) and the store list GET /api/games?by=<id>.
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ago, api, blurb, CoverImg, count, date, Fail, GameTile, genreHue, genreName, Link, MatureTag, num, PriceTag, shown, t, useApp, useData, Verdict, artStyle, type GameCard } from '../lib';
-import { Button, EmptyState, Notice, Segmented } from '../ui';
+import { Button, EmptyState, ListPager, Notice, Segmented } from '../ui';
 import { Skeleton, Sk, SkText } from '../ui/skeleton';
 import { SectionHead } from '../store';
 import { creatorPath, FollowButton, Monogram } from '../follow';
@@ -136,22 +136,26 @@ function Spotlight({ newest, best }: { newest: GameCard | null; best: GameCard |
 
 /** Every live game of theirs, in the store's cards: most played, newest or best rated, 24 at a time. */
 function AllGames({ id, total }: { id: string; total: number }) {
-  const [sort, setSort] = useState<Sort>('played'), [games, setGames] = useState<GameCard[] | null>(null), [next, setNext] = useState<number | null>(null), [busy, setBusy] = useState(false);
-  const page = (s: Sort, offset: number) => api<{ games: GameCard[]; next_offset: number | null }>(`/games?by=${encodeURIComponent(id)}&facets=0&sort=${s}&limit=${PAGE}&offset=${offset}`);
+  const [sort, setSort] = useState<Sort>('played'), [page, setPage] = useState(1);
+  const [games, setGames] = useState<GameCard[] | null>(null), [totalCount, setTotalCount] = useState(total), [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => { setPage(1); }, [id, sort]);
   useEffect(() => {
     let live = true; setBusy(true);
-    page(sort, 0).then((r) => { if (live) { setGames(r.games); setNext(r.next_offset); } }, () => { if (live) setGames([]); }).finally(() => live && setBusy(false));
+    api<{ games: GameCard[]; total?: number }>(`/games?by=${encodeURIComponent(id)}&facets=0&sort=${sort}&limit=${PAGE}&offset=${(page - 1) * PAGE}`)
+      .then((r) => { if (live) { setGames(r.games); if (typeof r.total === 'number') setTotalCount(r.total); } }, () => { if (live) setGames([]); })
+      .finally(() => live && setBusy(false));
     return () => { live = false; };
-  }, [id, sort]); // eslint-disable-line react-hooks/exhaustive-deps
-  const more = async () => { if (next == null) return; setBusy(true); try { const r = await page(sort, next); setGames((g) => [...(g || []), ...r.games]); setNext(r.next_offset); } finally { setBusy(false); } };
+  }, [id, sort, page]);
+  const go = (p: number) => { setPage(p); ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   return (
-    <section className="cp-games">
+    <section className="cp-games" ref={ref}>
       <SectionHead title={total === 1 ? t('Their game', 'TA 的游戏') : t('All {n} games', '全部 {n} 款游戏', { n: num(total) })}>
         {total > 1 && <Segmented label={t('Sort', '排序')} value={sort} onChange={setSort} options={[['played', t('Most played', '最多人玩')], ['new', t('Newest', '最新')], ['top', t('Top rated', '评分最高')]]} />}
       </SectionHead>
       {games === null ? <Skeleton><div className="grid browse-grid">{Array.from({ length: Math.min(total, 8) }, (_, i) => <div key={i} className="stack s"><Sk h={150} /><SkText lines={2} /></div>)}</div></Skeleton>
         : <div className="grid browse-grid" aria-busy={busy}>{games.map((g) => <GameTile key={g.id} g={g} />)}</div>}
-      {next != null && <div className="row cp-more"><Button onClick={more} disabled={busy}>{busy ? t('Loading…', '加载中…') : t('Show more', '显示更多')}</Button></div>}
+      <ListPager page={page} total={totalCount} perPage={PAGE} onPage={go} />
     </section>
   );
 }

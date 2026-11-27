@@ -8,12 +8,13 @@ import { AppError, bad, notFound, type Env, type User } from '../env';
 import { rateLimit, requireUser, userById } from '../auth';
 import { getSettings } from '../settings';
 import { b64u, now, sha256, token } from '../util';
+import { listSelectableProjects, parseStoredProjectIds, resolveAllowedProjects } from '../mcp/scope';
 
 export const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 const TTL_S = 900, INTERVAL_S = 5, ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';   // no vowels: codes never spell words
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
-type Row = { id: string; user_code: string; client_name: string; status: string; user_id: string | null; created_at: number; expires_at: number; last_poll_at: number; req_place: string | null; req_country: string | null };
+type Row = { id: string; user_code: string; client_name: string; status: string; user_id: string | null; project_ids: string | null; created_at: number; expires_at: number; last_poll_at: number; req_place: string | null; req_country: string | null };
 /** Where a request came from, roughly, as Cloudflare places it: shown to the person approving it. */
 function placeOf(req: Request): { place: string | null; country: string | null } {
   const cf = (req as unknown as { cf?: { city?: string; country?: string } }).cf || {};
@@ -88,6 +89,7 @@ export function deviceOAuth(exchange: TokenExchange) {
     if (!claim.meta.changes) return oauthError(c, 'expired_token', 'This device code was already used.');
     const user = row.user_id ? await userById(env, row.user_id) : null;
     if (!user || user.status !== 'active') return oauthError(c, 'access_denied', 'The approving account is not active.');
+    const projectIds = parseStoredProjectIds(row.project_ids);
 
     // Issue through the ordinary authorization-code path, so the grant is listed, expires and is revocable like any other.
     const redirectUri = `${origin}/oauth/code`, resource = `${origin}/mcp`;
@@ -95,7 +97,10 @@ export function deviceOAuth(exchange: TokenExchange) {
     const verifier = token(32), challenge = b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
       request: { responseType: 'code', clientId: client.clientId, redirectUri, scope: ['games'], state: 'device', codeChallenge: challenge, codeChallengeMethod: 'S256', resource },
-      userId: user.id, metadata: { client: row.client_name, via: 'device' }, scope: ['games'], props: { userId: user.id, client: row.client_name },
+      userId: user.id,
+      metadata: { client: row.client_name, via: 'device', ...(projectIds ? { projectIds } : {}) },
+      scope: ['games'],
+      props: { userId: user.id, client: row.client_name, ...(projectIds ? { projectIds } : {}) },
     });
     const code = new URL(redirectTo).searchParams.get('code') || '';
     const res = await exchange(env, c.executionCtx as ExecutionContext, origin, new URLSearchParams({ grant_type: 'authorization_code', code, client_id: client.clientId, redirect_uri: redirectUri, code_verifier: verifier, resource }));
@@ -104,6 +109,7 @@ export function deviceOAuth(exchange: TokenExchange) {
     const s = await getSettings(env);
     return c.json({
       ...tokens, client_id: client.clientId, mcp_url: resource, token_endpoint: `${origin}/oauth/token`, authorization_expires_in: s.oauth_grant_ttl_s,
+      ...(projectIds ? { project_scope: 'selected', project_ids: projectIds } : { project_scope: 'all' }),
       usage: `Call mcp_url with the header "Authorization: Bearer <access_token>". The access token expires in ${tokens.expires_in} seconds: get a new one with POST token_endpoint, grant_type=refresh_token, refresh_token=<refresh_token>, client_id=<client_id>. Each refresh returns a new refresh_token. The whole authorization ends after authorization_expires_in seconds or when the user revokes it; then start again with POST /oauth/device.`,
     }, 200, noStore);
   });
@@ -122,16 +128,21 @@ async function pendingByUserCode(c: Context<App>): Promise<Row> {
   return row;
 }
 deviceApi.get('/:code', async (c) => {
-  const row = await pendingByUserCode(c), s = await getSettings(c.env);
+  const u = requireUser(c as any), row = await pendingByUserCode(c), [s, projects] = await Promise.all([getSettings(c.env), listSelectableProjects(c.env, u.id)]);
   // Someone who was sent a link by an attacker is usually somewhere else than the attacker's agent: say so.
   const here = placeOf(c.req.raw).country, elsewhere = !!(row.req_country && here && row.req_country !== here);
-  return c.json({ user_code: row.user_code, client_name: row.client_name, created_at: row.created_at, expires_at: row.expires_at, grant_days: Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)), from: row.req_place, elsewhere });
+  return c.json({ user_code: row.user_code, client_name: row.client_name, created_at: row.created_at, expires_at: row.expires_at, grant_days: Math.max(1, Math.round(s.oauth_grant_ttl_s / 86400)), from: row.req_place, elsewhere, projects });
 });
 deviceApi.post('/:code', async (c) => {
   const row = await pendingByUserCode(c), u = requireUser(c as any);
-  const b = await c.req.json<{ decision?: string }>().catch(() => ({} as { decision?: string }));
+  const b = await c.req.json<{ decision?: string; project_scope?: string; project_ids?: string[] }>().catch(() => ({} as { decision?: string; project_scope?: string; project_ids?: string[] }));
   const status = b.decision === 'approve' ? 'approved' : 'denied';
-  const r = await c.env.DB.prepare("UPDATE device_codes SET status = ?, user_id = ? WHERE id = ? AND status = 'pending' AND expires_at > ?").bind(status, u.id, row.id, now()).run();
+  let storedProjectIds: string | null = null;
+  if (status === 'approved' && (b.project_scope === 'selected' || (b.project_scope !== 'all' && Array.isArray(b.project_ids)))) {
+    const valid = await resolveAllowedProjects(c.env, u.id, b.project_ids);
+    storedProjectIds = JSON.stringify(valid);
+  }
+  const r = await c.env.DB.prepare("UPDATE device_codes SET status = ?, user_id = ?, project_ids = ? WHERE id = ? AND status = 'pending' AND expires_at > ?").bind(status, u.id, storedProjectIds, row.id, now()).run();
   if (!r.meta.changes) throw notFound('That code is not valid any more. Ask your agent to start again.');
-  return c.json({ ok: true, status });
+  return c.json({ ok: true, status, ...(storedProjectIds ? { project_scope: 'selected', project_ids: JSON.parse(storedProjectIds) } : { project_scope: 'all' }) });
 });

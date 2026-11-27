@@ -156,23 +156,43 @@ export async function giftDelivered(env: Env, a: { purchaseId: string; giver: st
   return true;
 }
 
+export interface GiftOverviewPaging {
+  incoming?: { limit: number; offset: number };
+  outgoing?: { limit: number; offset: number };
+  received?: { limit: number; offset: number };
+  sent?: { limit: number; offset: number };
+}
+
 /** Everything gift-related for one player: requests waiting for them, their own open requests, gifts in and out. */
-export async function giftOverview(env: Env, me: string, t = now()) {
+export async function giftOverview(env: Env, me: string, t = now(), paging?: GiftOverviewPaging) {
+  const clampP = (p: { limit: number; offset: number } | undefined, defLim: number) => ({
+    limit: Math.max(1, Math.min(100, Math.floor(p?.limit ?? defLim))),
+    offset: Math.max(0, Math.min(200_000, Math.floor(p?.offset ?? 0))),
+  });
+  const pi = clampP(paging?.incoming, 50), po = clampP(paging?.outgoing, 50), pr = clampP(paging?.received, 100), ps = clampP(paging?.sent, 100);
   const reqCols = `r.id, r.note, r.created_at, r.expires_at, p.id AS project_id, p.slug, p.title, p.price_cents, p.sale_price_cents, p.sale_starts_at, p.sale_ends_at, p.status AS game_status`;
-  const [incoming, outgoing, received, sent] = await Promise.all([
+  const inWhere = "r.to_id = ?1 AND r.status = 'pending' AND r.expires_at > ?2 AND u.status = 'active' AND EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = r.to_id AND f.friend_id = r.from_id)";
+  const outWhere = "r.from_id = ?1 AND r.status = 'pending' AND r.expires_at > ?2 AND EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = r.from_id AND f.friend_id = r.to_id)";
+  const recWhere = "x.user_id = ?1 AND x.gifted_by IS NOT NULL AND x.status != 'refunded'";
+  const sentWhere = "x.gifted_by = ?1 AND (x.status = 'paid' OR x.status = 'disputed')";
+  const [incoming, outgoing, received, sent, tIn, tOut, tRec, tSent] = await Promise.all([
     env.DB.prepare(`SELECT ${reqCols}, u.id AS user_id, u.name AS user_name,
         EXISTS(SELECT 1 FROM purchases x WHERE x.user_id = r.from_id AND x.project_id = r.project_id AND x.status = 'paid') AS owned
       FROM gift_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.from_id
-      WHERE r.to_id = ?1 AND r.status = 'pending' AND r.expires_at > ?2 AND u.status = 'active' AND EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = r.to_id AND f.friend_id = r.from_id) ORDER BY r.created_at DESC LIMIT 50`).bind(me, t).all<any>(),
+      WHERE ${inWhere} ORDER BY r.created_at DESC LIMIT ?3 OFFSET ?4`).bind(me, t, pi.limit, pi.offset).all<any>(),
     env.DB.prepare(`SELECT ${reqCols}, u.id AS user_id, u.name AS user_name, 0 AS owned
       FROM gift_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.to_id
-      WHERE r.from_id = ?1 AND r.status = 'pending' AND r.expires_at > ?2 AND EXISTS(SELECT 1 FROM friendships f WHERE f.user_id = r.from_id AND f.friend_id = r.to_id) ORDER BY r.created_at DESC LIMIT 50`).bind(me, t).all<any>(),
+      WHERE ${outWhere} ORDER BY r.created_at DESC LIMIT ?3 OFFSET ?4`).bind(me, t, po.limit, po.offset).all<any>(),
     env.DB.prepare(`SELECT x.id, x.price_cents, x.status, x.created_at, p.slug, p.title, u.id AS user_id, u.name AS user_name
       FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users u ON u.id = x.gifted_by
-      WHERE x.user_id = ? AND x.gifted_by IS NOT NULL AND x.status != 'refunded' ORDER BY x.created_at DESC LIMIT 100`).bind(me).all<any>(),
+      WHERE ${recWhere} ORDER BY x.created_at DESC LIMIT ?2 OFFSET ?3`).bind(me, pr.limit, pr.offset).all<any>(),
     env.DB.prepare(`SELECT x.id, x.price_cents, x.status, x.created_at, p.slug, p.title, u.id AS user_id, u.name AS user_name
       FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users u ON u.id = x.user_id
-      WHERE x.gifted_by = ? AND (x.status = 'paid' OR x.status = 'disputed') ORDER BY x.created_at DESC LIMIT 100`).bind(me).all<any>(),
+      WHERE ${sentWhere} ORDER BY x.created_at DESC LIMIT ?2 OFFSET ?3`).bind(me, ps.limit, ps.offset).all<any>(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM gift_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.from_id WHERE ${inWhere}`).bind(me, t).first<{ n: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM gift_requests r JOIN projects p ON p.id = r.project_id JOIN users u ON u.id = r.to_id WHERE ${outWhere}`).bind(me, t).first<{ n: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users u ON u.id = x.gifted_by WHERE ${recWhere}`).bind(me).first<{ n: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM purchases x JOIN projects p ON p.id = x.project_id JOIN users u ON u.id = x.user_id WHERE ${sentWhere}`).bind(me).first<{ n: number }>(),
   ]);
   const req = (r: any) => ({
     id: r.id, note: r.note, created_at: r.created_at, expires_at: r.expires_at, friend: { id: r.user_id, name: r.user_name },
@@ -180,7 +200,10 @@ export async function giftOverview(env: Env, me: string, t = now()) {
     owned: !!r.owned,
   });
   const gift = (g: any) => ({ id: g.id, price_cents: g.price_cents, status: g.status, created_at: g.created_at, friend: { id: g.user_id, name: g.user_name }, game: { slug: g.slug, title: g.title } });
-  return { incoming: incoming.results.map(req), outgoing: outgoing.results.map(req), received: received.results.map(gift), sent: sent.results.map(gift) };
+  return {
+    incoming: incoming.results.map(req), outgoing: outgoing.results.map(req), received: received.results.map(gift), sent: sent.results.map(gift),
+    totals: { incoming: tIn?.n || 0, outgoing: tOut?.n || 0, received: tRec?.n || 0, sent: tSent?.n || 0 },
+  };
 }
 
 /** What the game page shows about gifts for this player and game: whether they can be given, and requests already open. */

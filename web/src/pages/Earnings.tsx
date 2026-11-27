@@ -1,33 +1,111 @@
 import { useEffect, useState } from 'react';
 import { api, dateTime, Fail, Link, navigate, num, query, t, usd, useAct, useApp, useData } from '../lib';
-import { Badge, Button, Card, Field, ListRow, Modal, Notice, PageHeader, Select, Stat, StatGrid, StatusBadge, Table, Textarea } from '../ui';
+import { Badge, Button, Card, Field, ListPager, ListRow, Modal, Notice, PageHeader, Select, Stat, StatGrid, StatusBadge, Table, Textarea } from '../ui';
 import { EarningsSkeleton } from '../skeletons';
 import { ConsoleTabs } from './Console';
 
 // Countries where Stripe can pay out to a connected account. The creator picks where their bank is.
 const COUNTRIES = 'US United States,GB United Kingdom,CA Canada,AU Australia,NZ New Zealand,SG Singapore,HK Hong Kong,JP Japan,DE Germany,FR France,ES Spain,IT Italy,NL Netherlands,BE Belgium,AT Austria,CH Switzerland,IE Ireland,PT Portugal,SE Sweden,NO Norway,DK Denmark,FI Finland,PL Poland,CZ Czechia,RO Romania,BG Bulgaria,GR Greece,HU Hungary,HR Croatia,SK Slovakia,SI Slovenia,EE Estonia,LV Latvia,LT Lithuania,LU Luxembourg,MT Malta,CY Cyprus,MX Mexico,BR Brazil,TH Thailand,MY Malaysia,AE United Arab Emirates,IN India,ID Indonesia,PH Philippines,KR South Korea,TW Taiwan,VN Vietnam,TR Türkiye,ZA South Africa,IL Israel,CL Chile,CO Colombia,PE Peru,AR Argentina'.split(',').map((x) => [x.slice(0, 2), x.slice(3)]);
 
+function LedgerCard({ stamp }: { stamp: number }) {
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useData<any>(`/console/earnings/ledger?page=${page}&per_page=20`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const kinds: Record<string, string> = { sale: t('Game sale', '游戏销售'), skill_sale: t('Skill sale', '技能销售'), partial_refund: t('Partial refund', '部分退款'), dispute: t('Chargeback', '拒付'), dispute_won: t('Chargeback won', '拒付胜诉'), refund: t('Refund', '退款'), refund_fee: t('Refund payment fee', '退款手续费'), transfer_reversal: t('Taken back from a payout', '从已打款中收回'), withdrawal: t('Withdrawal', '提现'), withdrawal_reversal: t('Withdrawal returned', '提现退回'), adjustment: t('Adjustment', '调整') };
+  return (
+    <Card title={t('History', '收支记录')}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.ledger?.length ? (
+          <>
+            <Table><thead><tr><th>{t('When', '时间')}</th><th>{t('What', '类型')}</th><th>{t('Note', '说明')}</th><th className="n">{t('Amount', '金额')}</th></tr></thead>
+              <tbody>{data.ledger.map((l: any, i: number) => <tr key={`${page}-${i}`}><td className="mute" style={{ whiteSpace: 'nowrap' }}>{dateTime(l.created_at)}</td><td><span className="row s">{kinds[l.kind] || l.kind}{l.amount_cents > 0 && l.available_at > Date.now() && <Badge tone="accent" dot={false}>{t('pending', '待结算')}</Badge>}</span></td><td className="mute">{l.note}</td><td className={'n ' + (l.amount_cents >= 0 ? 'good' : '')}>{l.amount_cents > 0 ? '+' : ''}{usd(l.amount_cents)}</td></tr>)}</tbody></Table>
+            <ListPager flush page={page} total={data.total} perPage={data.per_page || 20} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('Nothing yet. Earnings from paid games appear here.', '暂无记录。付费游戏的收入会显示在这里。')}</div>}
+    </Card>
+  );
+}
+
+function ByGameCard({ stamp }: { stamp: number }) {
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useData<any>(`/console/earnings/by-game?page=${page}&per_page=10`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Card title={t('Game sales by game', '按游戏统计游戏销售')}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.by_game?.length ? (
+          <>
+            <Table><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('You earned', '你的收益')}</th></tr></thead>
+              <tbody>{data.by_game.map((g: any) => <tr key={g.slug}><td><Link to={`/g/${g.slug}`}>{g.title}</Link></td><td className="n">{g.n}</td><td className="n">{usd(g.net)}</td></tr>)}</tbody></Table>
+            <ListPager flush compact page={page} total={data.total} perPage={data.per_page || 10} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('No sales yet. Set a price on a game from its project page.', '还没有销售。可以在项目页面为游戏设置价格。')}</div>}
+    </Card>
+  );
+}
+
+function BySkillCard({ stamp }: { stamp: number }) {
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useData<any>(`/console/earnings/by-skill?page=${page}&per_page=10`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Card title={t('Skill sales by game', '按游戏统计技能销售')} aside={<Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link>}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.by_skill?.length ? (
+          <>
+            <Table><thead><tr><th>{t('Skill of', '技能所属游戏')}</th><th className="n">{t('Copies', '复制次数')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('You earned', '你的收益')}</th></tr></thead>
+              <tbody>{data.by_skill.map((g: any) => <tr key={g.slug}><td><Link to={`/creator-store/${g.slug}`}>{g.title}</Link></td><td className="n">{num(g.copies)}</td><td className="n">{g.n}</td><td className="n">{usd(g.net)}</td></tr>)}</tbody></Table>
+            <ListPager flush compact page={page} total={data.total} perPage={data.per_page || 10} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('No shared skills yet. Turn on Open Implementation on a game to put its build skill in the Creator Store.', '还没有分享的技能。为游戏开启开放实现，即可将其构建技能上架创作者商店。')}</div>}
+    </Card>
+  );
+}
+
+function WithdrawalsCard({ stamp }: { stamp: number }) {
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useData<any>(`/console/earnings/withdrawals?page=${page}&per_page=10`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Card title={t('Withdrawals', '提现记录')}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.withdrawals?.length ? (
+          <>
+            {data.withdrawals.map((w: any) => (
+              <ListRow key={w.id} title={<b className="num">{usd(w.amount_cents)}</b>} meta={<>{dateTime(w.created_at)} · {w.method === 'stripe' ? 'Stripe' : t('manual', '人工')}{w.error ? ` · ${w.error}` : ''}</>} tail={<StatusBadge status={w.status} />} />
+            ))}
+            <ListPager flush compact page={page} total={data.total} perPage={data.per_page || 10} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('No withdrawals yet.', '暂无提现记录。')}</div>}
+    </Card>
+  );
+}
+
 export function Earnings() {
   const { toast, refresh } = useApp(), { busy, act } = useAct();
-  const { data, error, loading, reload } = useData<any>('/console/earnings');
+  const { data, error, loading, reload } = useData<any>('/console/earnings?summary=1');
+  const [stamp, setStamp] = useState(0);
   const [country, setCountry] = useState('US'), [manual, setManual] = useState(false), [details, setDetails] = useState('');
 
   useEffect(() => {
     const p = query().get('payout'); if (!p) return;
     navigate('/console/earnings', true);
     api<{ payouts_enabled: boolean }>('/billing/payout-account/refresh', { method: 'POST' }).then(async (r) => {
-      toast(r.payouts_enabled ? t('Payout account ready.', '收款账户已就绪。') : t('Your payout account still needs a few details.', '收款账户还需要补充一些信息。'), !r.payouts_enabled); await refresh(); await reload();
+      toast(r.payouts_enabled ? t('Payout account ready.', '收款账户已就绪。') : t('Your payout account still needs a few details.', '收款账户还需要补充一些信息。'), !r.payouts_enabled); await refresh(); await reload(); setStamp((n) => n + 1);
     }, (e) => toast((e as Error).message, true));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <EarningsSkeleton />;
   const b = data.balance, u = data.user, ready = u.payouts_enabled, enough = b.available >= data.min_cents;
-  const pending = data.withdrawals.some((w: any) => w.status === 'pending');
+  const pending = !!data.has_pending_withdrawal;
   const setup = () => act('acct', async () => { const r = await api<{ url: string }>('/billing/payout-account', { body: { country } }); location.href = r.url; });
-  const withdraw = (method: 'stripe' | 'manual') => act('wd', async () => { await api('/billing/withdraw', { body: { method, details } }); setManual(false); setDetails(''); await reload(); },
+  const withdraw = (method: 'stripe' | 'manual') => act('wd', async () => { await api('/billing/withdraw', { body: { method, details } }); setManual(false); setDetails(''); await reload(); setStamp((n) => n + 1); },
     method === 'stripe' ? t('Withdrawal sent to your payout account.', '提现已发送至你的收款账户。') : t('Withdrawal requested. An administrator will send it.', '已提交提现申请，管理员将为你打款。'));
-  const kinds: Record<string, string> = { sale: t('Game sale', '游戏销售'), skill_sale: t('Skill sale', '技能销售'), partial_refund: t('Partial refund', '部分退款'), dispute: t('Chargeback', '拒付'), dispute_won: t('Chargeback won', '拒付胜诉'), refund: t('Refund', '退款'), refund_fee: t('Refund payment fee', '退款手续费'), transfer_reversal: t('Taken back from a payout', '从已打款中收回'), withdrawal: t('Withdrawal', '提现'), withdrawal_reversal: t('Withdrawal returned', '提现退回'), adjustment: t('Adjustment', '调整') };
 
   return (
     <div className="wrap page">
@@ -76,29 +154,13 @@ export function Earnings() {
               </div>
             </Card>
 
-            <Card title={t('History', '收支记录')}>
-              {data.ledger.length ? <Table><thead><tr><th>{t('When', '时间')}</th><th>{t('What', '类型')}</th><th>{t('Note', '说明')}</th><th className="n">{t('Amount', '金额')}</th></tr></thead>
-                <tbody>{data.ledger.map((l: any, i: number) => <tr key={i}><td className="mute" style={{ whiteSpace: 'nowrap' }}>{dateTime(l.created_at)}</td><td><span className="row s">{kinds[l.kind] || l.kind}{l.amount_cents > 0 && l.available_at > Date.now() && <Badge tone="accent" dot={false}>{t('pending', '待结算')}</Badge>}</span></td><td className="mute">{l.note}</td><td className={'n ' + (l.amount_cents >= 0 ? 'good' : '')}>{l.amount_cents > 0 ? '+' : ''}{usd(l.amount_cents)}</td></tr>)}</tbody></Table>
-                : <div className="pad mute">{t('Nothing yet. Earnings from paid games appear here.', '暂无记录。付费游戏的收入会显示在这里。')}</div>}
-            </Card>
+            <LedgerCard stamp={stamp} />
           </div>
 
           <div className="stack l">
-            <Card title={t('Game sales by game', '按游戏统计游戏销售')}>
-              {data.by_game.length ? <Table><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('You earned', '你的收益')}</th></tr></thead>
-                <tbody>{data.by_game.map((g: any) => <tr key={g.slug}><td><Link to={`/g/${g.slug}`}>{g.title}</Link></td><td className="n">{g.n}</td><td className="n">{usd(g.net)}</td></tr>)}</tbody></Table>
-                : <div className="pad mute">{t('No sales yet. Set a price on a game from its project page.', '还没有销售。可以在项目页面为游戏设置价格。')}</div>}
-            </Card>
-            <Card title={t('Skill sales by game', '按游戏统计技能销售')} aside={<Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link>}>
-              {data.by_skill?.length ? <Table><thead><tr><th>{t('Skill of', '技能所属游戏')}</th><th className="n">{t('Copies', '复制次数')}</th><th className="n">{t('Sales', '销量')}</th><th className="n">{t('You earned', '你的收益')}</th></tr></thead>
-                <tbody>{data.by_skill.map((g: any) => <tr key={g.slug}><td><Link to={`/creator-store/${g.slug}`}>{g.title}</Link></td><td className="n">{num(g.copies)}</td><td className="n">{g.n}</td><td className="n">{usd(g.net)}</td></tr>)}</tbody></Table>
-                : <div className="pad mute">{t('No shared skills yet. Turn on Open Implementation on a game to put its build skill in the Creator Store.', '还没有分享的技能。为游戏开启开放实现，即可将其构建技能上架创作者商店。')}</div>}
-            </Card>
-            <Card title={t('Withdrawals', '提现记录')}>
-              {data.withdrawals.length ? data.withdrawals.map((w: any) => (
-                <ListRow key={w.id} title={<b className="num">{usd(w.amount_cents)}</b>} meta={<>{dateTime(w.created_at)} · {w.method === 'stripe' ? 'Stripe' : t('manual', '人工')}{w.error ? ` · ${w.error}` : ''}</>} tail={<StatusBadge status={w.status} />} />
-              )) : <div className="pad mute">{t('No withdrawals yet.', '暂无提现记录。')}</div>}
-            </Card>
+            <ByGameCard stamp={stamp} />
+            <BySkillCard stamp={stamp} />
+            <WithdrawalsCard stamp={stamp} />
           </div>
         </div>
       </div>

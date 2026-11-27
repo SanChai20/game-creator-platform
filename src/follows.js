@@ -88,6 +88,18 @@ export async function followingList(db, me, limit = 200) {
     .bind(me, Math.max(1, Math.min(LIMITS.following_max, limit))).all();
   return r.results.map((x) => ({ id: x.id, name: x.name, since: x.since, games: x.games }));
 }
+/** Paginated list of creators this account follows, with total count. */
+export async function followingPage(db, me, { limit = 24, offset = 0 } = {}) {
+  const lim = Math.max(1, Math.min(100, limit | 0 || 24)), off = Math.max(0, Math.min(LIMITS.following_max, offset | 0));
+  const [rows, tot] = await Promise.all([
+    db.prepare(`SELECT u.id, u.name, f.created_at AS since,
+        (SELECT COUNT(*) FROM projects p WHERE p.owner_id = u.id AND p.status = 'live' AND p.hidden_at IS NULL) AS games
+      FROM follows f JOIN users u ON u.id = f.creator_id AND u.status = 'active' WHERE f.follower_id = ?1 ORDER BY f.created_at DESC LIMIT ?2 OFFSET ?3`)
+      .bind(me, lim, off).all(),
+    db.prepare("SELECT COUNT(*) AS n FROM follows f JOIN users u ON u.id = f.creator_id AND u.status = 'active' WHERE f.follower_id = ?").bind(me).first(),
+  ]);
+  return { following: rows.results.map((x) => ({ id: x.id, name: x.name, since: x.since, games: x.games })), total: tot?.n || 0 };
+}
 
 // ---- news of a new game --------------------------------------------------------------------------------------------
 /**

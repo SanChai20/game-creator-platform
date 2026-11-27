@@ -4,9 +4,11 @@
 // clipboard for the reader's own agent. Served by src/skills.ts.
 import { useEffect, useState } from 'react';
 import { api, artStyle, date, shown, type ListingI18n, Fail, Link, loginUrl, navigate, num, query, t, usd, useAct, useApp, useData } from '../lib';
-import { Badge, Button, Card, Crumbs, EmptyState, KeyValue, Notice, PageHeader, Segmented, Stat, StatGrid, Steps, Ticks } from '../ui';
+import { Badge, Button, Card, Crumbs, EmptyState, KeyValue, ListPager, Notice, PageHeader, Segmented, Stat, StatGrid, Steps, Ticks } from '../ui';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { SkillMarkdown } from '../skill-md';
+
+const PER = 24;
 
 interface SkillEntry {
   game: { id: string; slug: string; title: string; tagline: string; by: string; tags: string[]; cover: string | null; lang?: string; i18n?: ListingI18n; game_page: string; plays: number; live_version: number; price_cents: number };
@@ -26,10 +28,13 @@ const syncTag = (e: SkillEntry) => (e.skill.in_sync
 /** The skills list: search, free or paid, and order. */
 export function CreatorStore() {
   const [q, setQ] = useState(query().get('q') || ''), [price, setPrice] = useState<'all' | 'free' | 'paid'>('all'), [sort, setSort] = useState('popular');
+  const [page, setPage] = useState(() => Math.max(1, Number(query().get('page')) || 1));
   const [typed, setTyped] = useState(q);
   useEffect(() => { const h = setTimeout(() => setQ(typed.trim()), 250); return () => clearTimeout(h); }, [typed]);
-  const path = `/creator-store?${new URLSearchParams({ ...(q ? { q } : {}), ...(price !== 'all' ? { price } : {}), sort }).toString()}`;
-  const { data, error, loading, reload } = useData<{ total: number; skills: SkillEntry[] }>(path);
+  useEffect(() => { setPage(1); }, [q, price, sort]);
+  const path = `/creator-store?${new URLSearchParams({ ...(q ? { q } : {}), ...(price !== 'all' ? { price } : {}), sort, page: String(page), per_page: String(PER) }).toString()}`;
+  const { data, error, loading, reload } = useData<{ total: number; page: number; per_page: number; pages: number; skills: SkillEntry[] }>(path);
+  useEffect(() => { if (data && page > data.pages) setPage(data.pages); }, [data, page]);
   const { user } = useApp();
   return (
     <div className="wrap page">
@@ -48,7 +53,10 @@ export function CreatorStore() {
           {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
             : loading && !data ? <Skeleton><SkRows n={4} /></Skeleton>
               : !data!.skills.length ? <div className="pad"><EmptyState compact title={q || price !== 'all' ? t('No skill matches that.', '没有符合条件的技能。') : t('No skills shared yet', '还没有分享的技能')}>{t('Creators share a skill by turning on Open Implementation for a live game.', '创作者为线上游戏开启开放实现后，即可分享技能。')}</EmptyState></div>
-                : <div className="skill-grid">{data!.skills.map((e) => <SkillCard key={e.game.id} e={e} />)}</div>}
+                : <>
+                  <div className="skill-grid">{data!.skills.map((e) => <SkillCard key={e.game.id} e={e} />)}</div>
+                  <ListPager flush page={page} total={data!.total} perPage={PER} onPage={(p) => { setPage(p); scrollTo({ top: 0 }); }} />
+                </>}
         </Card>
         <Card title={t('How build skills work', '构建技能如何运作')} pad>
           <Steps items={[

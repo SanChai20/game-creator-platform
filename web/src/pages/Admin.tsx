@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pager } from '../store';
 import { ago, api, bytes, date, dateTime, Fail, Link, num, playTime, series, t, tr, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, RowMenu, Table, Tabs } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, ListPager, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, RowMenu, Table, Tabs, useClientPage } from '../ui';
 import { AdminSkeleton } from '../skeletons';
 
 const MB = 1024 * 1024;
@@ -15,6 +14,24 @@ export function Admin({ tab }: { tab: string }) {
       <Tabs active={tab} items={tabs().map(([k, label]) => ({ key: k, to: k === 'overview' ? '/admin' : `/admin/${k}`, label }))} />
       {tab === 'overview' ? <Overview /> : tab === 'settings' ? <Settings /> : tab === 'users' ? <Users /> : tab === 'games' ? <Games /> : tab === 'money' ? <Money /> : tab === 'reports' ? <Reports /> : null}
     </div>
+  );
+}
+
+function FlaggedUploads() {
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useData<any>(`/admin/flags?page=${page}&per_page=20`);
+  return (
+    <Card title={t('Flagged uploads', '被标记的上传')} aside={t('copies of other creators\' games and uploads that are not games, caught before publishing', '发布前拦截的抄袭作品与非游戏上传')}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.flags?.length ? (
+          <>
+            <Table><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Creator', '创作者')}</th><th>{t('Why', '原因')}</th><th className="n">{t('When', '时间')}</th></tr></thead>
+              <tbody>{data.flags.map((f: any, i: number) => <tr key={f.id ?? i}><td><b>{f.title}</b> <span className="dim mono fs-xs">v{f.version}</span></td><td className="mono fs-sm">{f.email}</td><td className="fs-sm"><Badge tone={f.kind === 'not_game_flagged' ? 'neutral' : 'accent'} dot={false}>{f.kind === 'copy_flagged' ? t('Copy', '抄袭') : f.kind === 'player_report' ? t('Player report', '玩家举报') : t('Not a game', '非游戏')}</Badge> <span className="mute">{f.detail}</span></td><td className="n fs-sm">{ago(f.created_at)}</td></tr>)}</tbody></Table>
+            <ListPager flush page={page} total={data.total} perPage={data.per_page || 20} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('Nothing flagged.', '暂无标记。')}</div>}
+    </Card>
   );
 }
 
@@ -48,11 +65,7 @@ function Overview() {
         <Card title={t('System', '系统状态')} pad><div>{items.map(([label, ok, detail]) => <CheckRow key={label} ok={ok} title={label} detail={detail} />)}</div></Card>
       </div>
       <Jobs jobs={data.jobs || []} picks={data.picks || []} />
-      <Card title={t('Flagged uploads', '被标记的上传')} aside={t('copies of other creators\' games and uploads that are not games, caught before publishing', '发布前拦截的抄袭作品与非游戏上传')}>
-        {data.flags?.length ? <Table><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Creator', '创作者')}</th><th>{t('Why', '原因')}</th><th className="n">{t('When', '时间')}</th></tr></thead>
-          <tbody>{data.flags.map((f: any, i: number) => <tr key={i}><td><b>{f.title}</b> <span className="dim mono fs-xs">v{f.version}</span></td><td className="mono fs-sm">{f.email}</td><td className="fs-sm"><Badge tone={f.kind === 'not_game_flagged' ? 'neutral' : 'accent'} dot={false}>{f.kind === 'copy_flagged' ? t('Copy', '抄袭') : f.kind === 'player_report' ? t('Player report', '玩家举报') : t('Not a game', '非游戏')}</Badge> <span className="mute">{f.detail}</span></td><td className="n fs-sm">{ago(f.created_at)}</td></tr>)}</tbody></Table>
-          : <div className="pad mute">{t('Nothing flagged.', '暂无标记。')}</div>}
-      </Card>
+      <FlaggedUploads />
     </div>
   );
 }
@@ -122,8 +135,7 @@ function useSearch(base: string) {
   const [q, setQ] = useState(() => new URLSearchParams(location.search).get('q') || ''), [applied, setApplied] = useState(q), [page, setPage] = useState(1);
   useEffect(() => { const i = setTimeout(() => { setApplied(q); setPage(1); }, 300); return () => clearTimeout(i); }, [q]);
   const d = useData<any>(`${base}?q=${encodeURIComponent(applied)}&page=${page}`);
-  const pages = d.data ? Math.max(1, Math.ceil(d.data.total / d.data.per_page)) : 1;
-  const pager = d.data && pages > 1 ? <div className="list-foot"><span className="dim fs-sm">{t('{total} in all', '共 {total} 条', { total: num(d.data.total) })}</span><Pager page={page} pages={pages} onPage={(p) => { setPage(p); scrollTo({ top: 0 }); }} /></div> : null;
+  const pager = d.data ? <ListPager flush page={page} total={d.data.total} perPage={d.data.per_page || 50} onPage={(p) => { setPage(p); scrollTo({ top: 0 }); }} /> : null;
   return { q, setQ, pager, ...d };
 }
 
@@ -169,8 +181,10 @@ function Users() {
 
 /** Creators' requests for more storage for one game: approve (with the amount asked, or another) or deny. */
 function StorageRequests({ onChange }: { onChange: () => void }) {
-  const { busy, act } = useAct(), { data, reload } = useData<any>('/admin/storage-requests');
-  if (!data?.requests?.length) return null;
+  const [page, setPage] = useState(1);
+  const { busy, act } = useAct(), { data, reload } = useData<any>(`/admin/storage-requests?page=${page}&per_page=10`);
+  useEffect(() => { if (data && page > data.pages) setPage(data.pages); }, [data, page]);
+  if (!data || !(data.total > 0 || data.requests?.length)) return null;
   const decide = (r: any, approve: boolean) => {
     const mbs = approve ? prompt(t('Storage to grant "{title}", in MB', '为《{title}》分配的存储空间（MB）', { title: r.title }), String(Math.round(r.bytes / MB))) : '';
     if (mbs === null) return;
@@ -178,7 +192,7 @@ function StorageRequests({ onChange }: { onChange: () => void }) {
     if (note === null) return;
     void act(r.id, async () => { await api(`/admin/storage-requests/${r.id}`, { body: { action: approve ? 'approve' : 'deny', megabytes: mbs || undefined, note } }); await reload(); onChange(); }, approve ? t('Storage granted.', '已分配存储空间。') : t('Request denied.', '已拒绝申请。'));
   };
-  const waiting = data.requests.filter((r: any) => r.status === 'pending').length;
+  const waiting = data.waiting ?? data.requests.filter((r: any) => r.status === 'pending').length;
   return (
     <Card title={t('Storage requests', '存储空间申请')} aside={t('creators asking for more storage for one game', '创作者为单款游戏申请更多存储空间')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
       <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th className="n">{t('Asked for', '申请')}</th><th className="n">{t('Has', '现有')}</th><th className="n">{t('Used', '已用')}</th><th>{t('Why', '原因')}</th><th>{t('Status', '状态')}</th><th /></tr></thead>
@@ -189,21 +203,24 @@ function StorageRequests({ onChange }: { onChange: () => void }) {
           <td><StatusBadge status={r.status} />{r.status === 'approved' && r.granted_bytes ? <div className="dim fs-xs">{bytes(r.granted_bytes)}</div> : null}</td>
           <td>{r.status === 'pending' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === r.id} onClick={() => decide(r, true)}>{t('Approve', '批准')}</Button><Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => decide(r, false)}>{t('Deny', '拒绝')}</Button></div>}</td>
         </tr>)}</tbody></Table>
+      <ListPager flush page={page} total={data.total} perPage={data.per_page || 10} onPage={setPage} />
     </Card>
   );
 }
 
 /** Versions the verification browser could not run (WebGPU, or no browser): approve to publish, or deny with a reason. */
 function Reviews({ onChange }: { onChange: () => void }) {
-  const { busy, act } = useAct(), { data, reload } = useData<any>('/admin/reviews');
-  if (!data?.reviews?.length) return null;
+  const [page, setPage] = useState(1);
+  const { busy, act } = useAct(), { data, reload } = useData<any>(`/admin/reviews?page=${page}&per_page=10`);
+  useEffect(() => { if (data && page > data.pages) setPage(data.pages); }, [data, page]);
+  if (!data || !(data.total > 0 || data.reviews?.length)) return null;
   const decide = (r: any, approve: boolean) => {
     const note = prompt(approve ? t('Note for the creator (optional)', '给创作者的备注（可选）') : t('Reason shown to the creator', '向创作者显示的原因'));
     if (note === null) return;
     const key = `${r.project_id}:${r.n}`;
     void act(key, async () => { await api(`/admin/reviews/${r.project_id}/${r.n}`, { body: { action: approve ? 'approve' : 'deny', note } }); await reload(); onChange(); }, approve ? t('Approved. The version is being published.', '已批准，该版本正在发布。') : t('Review denied.', '已拒绝审核。'));
   };
-  const waiting = data.reviews.filter((r: any) => r.review === 'pending').length;
+  const waiting = data.waiting ?? data.reviews.filter((r: any) => r.review === 'pending').length;
   const why = (w: string) => (w === 'webgpu' ? t('Needs WebGPU', '需要 WebGPU') : w === 'no_browser' ? t('Browser unavailable', '浏览器不可用') : t('Other', '其他'));
   return (
     <Card title={t('Version reviews', '版本审核')} aside={t('versions the verification browser could not run, checked by a person before they go live', '验证浏览器无法运行的版本，上线前需人工检查')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
@@ -215,6 +232,7 @@ function Reviews({ onChange }: { onChange: () => void }) {
           <td><StatusBadge status={r.review} /></td>
           <td>{r.review === 'pending' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === key} onClick={() => decide(r, true)}>{t('Approve', '批准')}</Button><Button size="sm" variant="danger" disabled={busy === key} onClick={() => decide(r, false)}>{t('Deny', '拒绝')}</Button></div>}</td>
         </tr>; })}</tbody></Table>
+      <ListPager flush page={page} total={data.total} perPage={data.per_page || 10} onPage={setPage} />
     </Card>
   );
 }
@@ -224,6 +242,7 @@ function Reviews({ onChange }: { onChange: () => void }) {
 function ReleasePanel({ game, onClose }: { game: any; onClose: () => void }) {
   const [version, setVersion] = useState<number | null>(null);
   const { busy, act } = useAct(), { data, error, loading, reload } = useData<any>(`/admin/games/${game.id}/release${version ? `?version=${version}` : ''}`);
+  const waiverPg = useClientPage<any>(data?.waivers || [], 10, [game.id, version]);
   const tone = (st: string) => (st === 'pass' ? 'good' : st === 'fail' ? 'bad' : st === 'waived' ? 'accent' : 'neutral');
   const label = (st: string) => (st === 'pass' ? t('Met', '满足') : st === 'fail' ? t('Not met', '未满足') : st === 'waived' ? t('Waived', '已豁免') : t('Not checked', '未检查'));
   const n = data?.version;
@@ -253,7 +272,19 @@ function ReleasePanel({ game, onClose }: { game: any; onClose: () => void }) {
             <td>{r.status === 'fail' && data.waivable.includes(r.id) && <Button size="sm" disabled={busy === r.id} onClick={() => waiveRule(r)}>{t('Waive', '豁免')}</Button>}
               {r.status === 'waived' && <Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => void unwaive(r.id)}>{t('Remove waiver', '撤销豁免')}</Button>}</td>
           </tr>)}</tbody></Table>
-        {data.waivers?.length > 0 && <div className="pad fs-sm mute">{t('Waivers on record', '豁免记录')}: {data.waivers.map((w: any) => `v${w.version} ${w.rule} (${w.admin_email || w.created_by}, ${w.revoked_at ? t('removed', '已撤销') : w.expires_at < Date.now() ? t('ended', '已到期') : t('until {d}', '至 {d}', { d: date(w.expires_at) })}): ${w.reason}`).join(' · ')}</div>}
+        {waiverPg.total > 0 && (
+          <>
+            <div className="pad fs-sm mute stack s">
+              <b>{t('Waivers on record', '豁免记录')}</b>
+              {waiverPg.slice.map((w: any, i: number) => (
+                <div key={w.id ?? i}>
+                  <span className="mono">v{w.version} {w.rule}</span> ({w.admin_email || w.created_by}, {w.revoked_at ? t('removed', '已撤销') : w.expires_at < Date.now() ? t('ended', '已到期') : t('until {d}', '至 {d}', { d: date(w.expires_at) })}): {w.reason}
+                </div>
+              ))}
+            </div>
+            <ListPager flush compact page={waiverPg.page} total={waiverPg.total} perPage={waiverPg.perPage} onPage={waiverPg.setPage} />
+          </>
+        )}
       </>)}
     </Card>
   );
@@ -303,48 +334,33 @@ function Games() {
   );
 }
 
-function Money() {
-  const { busy, act } = useAct(), { data, error, loading, reload } = useData<any>('/admin/money');
-  const [grant, setGrant] = useState({ email: '', slug: '' });
-  if (error && !data) return <Fail error={error} retry={reload} />;
-  if (loading && !data) return <AdminSkeleton tab="money" />;
+function MoneyWithdrawals({ stamp, bump }: { stamp: number; bump: () => void }) {
+  const [page, setPage] = useState(1);
+  const { busy, act } = useAct();
+  const { data, error, loading, reload } = useData<any>(`/admin/money/withdrawals?page=${page}&per_page=20`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
   const settle = (w: any, action: 'paid' | 'reject') => {
     const note = prompt(action === 'paid' ? t('Reference for this payment (for your records)', '本次打款的参考编号（用于留档）') : t('Reason shown to the creator', '向创作者显示的原因')); if (note === null) return;
-    void act(w.id, async () => { await api(`/admin/withdrawals/${w.id}`, { body: { action, note } }); await reload(); }, action === 'paid' ? t('Marked as paid.', '已标记为已打款。') : t('Rejected. The balance was returned.', '已拒绝，余额已退回。'));
+    void act(w.id, async () => { await api(`/admin/withdrawals/${w.id}`, { body: { action, note } }); await reload(); bump(); }, action === 'paid' ? t('Marked as paid.', '已标记为已打款。') : t('Rejected. The balance was returned.', '已拒绝，余额已退回。'));
   };
-  const refund = (x: any) => { if (confirm(t('Refund {price} to {buyer}? Access is revoked, the creator\'s credit is reversed (from their payout if it was already sent) and the platform gives back its cut.', '确定向 {buyer} 退款 {price} 吗？对方将失去访问权限，创作者的相应收益会被冲回（若已打款则从打款中收回），平台也会退回其分成。', { price: usd(x.price_cents), buyer: x.buyer }))) void act(x.id, async () => { await api(`/admin/purchases/${x.id}/refund`, { method: 'POST' }); await reload(); }, t('Refunded.', '已退款。')); };
-  const doGrant = () => act('grant', async () => { await api('/admin/grant-game', { body: grant }); setGrant({ email: '', slug: '' }); await reload(); }, t('Access granted.', '已授予访问权限。'));
-  const waiting = data.withdrawals.filter((w: any) => w.status === 'pending');
+  const waiting = data?.waiting || 0;
   return (
-    <div className="stack l">
-      <Card title={t('Withdrawals', '提现')} actions={<>{waiting.length > 0 && <Badge tone="accent">{waiting.length} {t('waiting', '笔待处理')}</Badge>}</>}>
-        {data.withdrawals.length ? <Table stickyEnd><thead><tr><th>{t('Creator', '创作者')}</th><th className="n">{t('Amount', '金额')}</th><th>{t('Method', '方式')}</th><th>{t('Status', '状态')}</th><th>{t('Requested', '申请时间')}</th><th /></tr></thead>
-          <tbody>{data.withdrawals.map((w: any) => <tr key={w.id}>
-            <td><b>{w.name}</b><div className="mute fs-sm">{w.email}</div></td><td className="n">{usd(w.amount_cents)}</td>
-            <td>{w.method === 'stripe' ? 'Stripe' : t('Manual', '人工')}{w.details && <div className="mute fs-sm" style={{ maxWidth: 320, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{w.details}</div>}{w.provider_ref && <div className="dim mono fs-xs">{w.provider_ref}</div>}{w.error && <div className="bad fs-sm">{w.error}</div>}</td>
-            <td><StatusBadge status={w.status} /></td><td className="mute">{dateTime(w.created_at)}</td>
-            <td>{w.status === 'pending' && w.method === 'manual' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === w.id} onClick={() => settle(w, 'paid')}>{t('Mark paid', '标记已打款')}</Button><Button size="sm" variant="danger" disabled={busy === w.id} onClick={() => settle(w, 'reject')}>{t('Reject', '拒绝')}</Button></div>}</td>
-          </tr>)}</tbody></Table> : <div className="pad mute">{t('No withdrawals yet.', '暂无提现。')}</div>}
-      </Card>
-      <Refunds rows={data.refunds || []} reload={reload} />
-      <Card title={t('Game sales', '游戏销售')}>
-        {data.purchases.length ? <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th>{t('Creator', '创作者')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Platform', '平台')}</th><th className="n">{t('Creator', '创作者')}</th><th>{t('Status', '状态')}</th><th>{t('When', '时间')}</th><th /></tr></thead>
-          <tbody>{data.purchases.map((x: any) => <tr key={x.id}><td>{x.item === 'skill' ? <><Link to={`/creator-store/${x.slug}`}>{x.title}</Link> <Badge dot={false} tone="accent">{t('skill', '技能')}</Badge></> : <Link to={`/g/${x.slug}`}>{x.title}</Link>}</td><td className="mute">{x.buyer}</td><td className="mute">{x.creator}</td><td className="n">{usd(x.price_cents)}</td><td className="n">{usd(x.fee_cents)}</td><td className="n">{usd(x.net_cents)}</td><td><StatusBadge status={x.status} />{x.provider === 'admin' && <Badge dot={false}>{t('granted', '赠送')}</Badge>}</td><td className="mute">{dateTime(x.created_at)}</td>
-            <td style={{ textAlign: 'right' }}>{x.status === 'paid' && x.gifted_by ? <span className="dim fs-sm">{t('Gift · non-refundable', '礼物 · 不可退款')}</span> : x.status === 'paid' && x.item === 'skill' ? <span className="dim fs-sm">{t('Non-refundable', '不可退款')}</span> : x.status === 'paid' && <Button size="sm" variant="danger" disabled={busy === x.id} onClick={() => refund(x)}>{x.provider === 'admin' ? t('Revoke', '撤销') : t('Refund', '退款')}</Button>}</td></tr>)}</tbody></Table> : <div className="pad mute">{t('No sales yet.', '暂无销售。')}</div>}
-      </Card>
-      <div className="cols">
-        <Card title={t('Creator fee payments', '创作者费用')}>
-          {data.payments.length ? <Table><thead><tr><th>{t('User', '用户')}</th><th className="n">{t('Amount', '金额')}</th><th>{t('Source', '来源')}</th><th>{t('When', '时间')}</th></tr></thead>
-            <tbody>{data.payments.map((y: any) => <tr key={y.id}><td>{y.email}</td><td className="n">{usd(y.amount_cents)}</td><td className="mute">{y.provider}</td><td className="mute">{dateTime(y.created_at)}</td></tr>)}</tbody></Table> : <div className="pad mute">{t('None yet.', '暂无记录。')}</div>}
-        </Card>
-        <Card title={t('Give a player a game', '赠送游戏')}><div className="pad stack">
-          <p className="mute fs-sm">{t('For support cases and testing. No charge is made and the creator is not credited.', '用于客服或测试场景。不产生扣款，创作者也不会获得收益。')}</p>
-          <Input type="email" placeholder={t('Player email', '玩家邮箱')} value={grant.email} onChange={(e) => setGrant({ ...grant, email: e.target.value })} />
-          <Input mono placeholder={t('Game address (the part after /g/) or project id', '游戏地址（/g/ 之后的部分）或项目 ID')} value={grant.slug} onChange={(e) => setGrant({ ...grant, slug: e.target.value })} />
-          <div><Button disabled={!grant.email || !grant.slug || busy === 'grant'} onClick={doGrant}>{t('Grant access', '授予访问权限')}</Button></div>
-        </div></Card>
-      </div>
-    </div>
+    <Card title={t('Withdrawals', '提现')} actions={waiting > 0 ? <Badge tone="accent">{waiting} {t('waiting', '笔待处理')}</Badge> : undefined}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.withdrawals?.length ? (
+          <>
+            <Table stickyEnd><thead><tr><th>{t('Creator', '创作者')}</th><th className="n">{t('Amount', '金额')}</th><th>{t('Method', '方式')}</th><th>{t('Status', '状态')}</th><th>{t('Requested', '申请时间')}</th><th /></tr></thead>
+              <tbody>{data.withdrawals.map((w: any) => <tr key={w.id}>
+                <td><b>{w.name}</b><div className="mute fs-sm">{w.email}</div></td><td className="n">{usd(w.amount_cents)}</td>
+                <td>{w.method === 'stripe' ? 'Stripe' : t('Manual', '人工')}{w.details && <div className="mute fs-sm" style={{ maxWidth: 320, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{w.details}</div>}{w.provider_ref && <div className="dim mono fs-xs">{w.provider_ref}</div>}{w.error && <div className="bad fs-sm">{w.error}</div>}</td>
+                <td><StatusBadge status={w.status} /></td><td className="mute">{dateTime(w.created_at)}</td>
+                <td>{w.status === 'pending' && w.method === 'manual' && <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === w.id} onClick={() => settle(w, 'paid')}>{t('Mark paid', '标记已打款')}</Button><Button size="sm" variant="danger" disabled={busy === w.id} onClick={() => settle(w, 'reject')}>{t('Reject', '拒绝')}</Button></div>}</td>
+              </tr>)}</tbody></Table>
+            <ListPager flush page={page} total={data.total} perPage={data.per_page || 20} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('No withdrawals yet.', '暂无提现。')}</div>}
+    </Card>
   );
 }
 
@@ -357,35 +373,110 @@ const REVIEW: Record<string, () => string> = {
   refund_failed: () => t('Stripe did not refund it: try again', 'Stripe 未能退款：请重试'),
   admin: () => t('Refunded by an admin', '由管理员退款'),
 };
-function Refunds({ rows, reload }: { rows: any[]; reload: () => Promise<unknown> }) {
+function MoneyRefunds({ stamp, bump }: { stamp: number; bump: () => void }) {
+  const [page, setPage] = useState(1);
   const { busy, act } = useAct();
-  const open = rows.filter((r) => r.status === 'pending');
+  const { data, error, loading, reload } = useData<any>(`/admin/money/refunds?page=${page}&per_page=20`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = (r: any, action: 'approve' | 'deny') => {
     const note = action === 'deny' ? prompt(t('Reason shown to the buyer', '向买家显示的原因')) : '';
     if (note === null) return;
     if (action === 'approve' && !confirm(t('Refund {price} to {buyer}?', '确定向 {buyer} 退款 {price} 吗？', { price: usd(r.price_cents), buyer: r.buyer || '—' }))) return;
-    void act(r.id, async () => { await api(`/admin/refunds/${r.id}`, { body: { action, note } }); await reload(); }, action === 'approve' ? t('Refunded.', '已退款。') : t('Declined. The buyer was told why.', '已拒绝，并已告知买家原因。'));
+    void act(r.id, async () => { await api(`/admin/refunds/${r.id}`, { body: { action, note } }); await reload(); bump(); }, action === 'approve' ? t('Refunded.', '已退款。') : t('Declined. The buyer was told why.', '已拒绝，并已告知买家原因。'));
   };
   const restore = (r: any) => act('rv' + r.user_id, async () => { await api(`/admin/users/${r.user_id}/refund-review`, { body: { on: false } }); await reload(); }, t('Self-service refunds are back on for this account.', '已为该账户恢复自助退款。'));
+  const open = data?.waiting || 0;
   return (
-    <Card title={t('Refunds', '退款')} actions={open.length > 0 ? <Badge tone="accent">{open.length} {t('waiting', '笔待处理')}</Badge> : undefined}>
-      {rows.length ? <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th className="n">{t('Price', '价格')}</th><th>{t('Played', '已游玩')}</th><th>{t('Asked', '申请时间')}</th><th>{t('Status', '状态')}</th><th>{t('Books', '账目')}</th><th /></tr></thead>
-        <tbody>{rows.map((r) => <tr key={r.id}>
-          <td><Link to={`/g/${r.slug}`}>{r.title}</Link>{r.note && <div className="mute fs-sm" style={{ maxWidth: 280, whiteSpace: 'pre-wrap' }}>“{r.note}”</div>}</td>
-          <td className="mute">{r.buyer || '—'}{r.buyer_review_at && <div><Badge dot={false} tone="accent">{t('no self-service', '无自助退款')}</Badge></div>}</td>
-          <td className="n">{usd(r.price_cents)}</td>
-          <td className="mute">{t('{n} min', '{n} 分钟', { n: Math.floor((r.played_seconds || 0) / 60) })} · {t('bought {when}', '购买于 {when}', { when: dateTime(r.bought_at) })}</td>
-          <td className="mute">{dateTime(r.created_at)}</td>
-          <td><StatusBadge status={r.status} />{r.review_reason && REVIEW[r.review_reason] && <div className="mute fs-sm">{REVIEW[r.review_reason]()}</div>}{r.decided_by && <div className="dim fs-xs">{r.decided_by === 'auto' ? t('automatic', '自动') : r.decided_by.startsWith('admin:') ? t('by an admin', '由管理员') : t('from Stripe', '来自 Stripe')}</div>}{r.decision_note && <div className="mute fs-sm">{r.decision_note}</div>}</td>
-          <td className="mute fs-sm">{r.status === 'refunded' && r.creator_net_cents != null ? <>
-            {t('Creator −{amount}', '创作者 −{amount}', { amount: usd(r.creator_net_cents) })} · {t('Platform cut −{amount}', '平台分成 −{amount}', { amount: usd(r.platform_fee_cents || 0) })}
-            {r.stripe_fee_cents != null && <div>{t('Stripe fee {amount}, borne by the {who}', 'Stripe 手续费 {amount}，由{who}承担', { amount: usd(r.stripe_fee_cents), who: r.fee_bearer === 'creator' ? t('creator', '创作者') : t('platform', '平台') })}</div>}
-            {r.transfer_reversal_cents > 0 && <div>{t('{amount} taken back from payout {ref}', '已从打款 {ref} 收回 {amount}', { amount: usd(r.transfer_reversal_cents), ref: r.transfer_ref })}</div>}
-          </> : '—'}</td>
-          <td>{r.status === 'pending' ? <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>{t('Refund', '退款')}</Button><Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => decide(r, 'deny')}>{t('Decline', '拒绝')}</Button></div>
-            : r.buyer_review_at ? <Button size="sm" disabled={busy === 'rv' + r.user_id} onClick={() => restore(r)}>{t('Restore self-service', '恢复自助退款')}</Button> : null}</td>
-        </tr>)}</tbody></Table> : <div className="pad mute">{t('No refunds yet.', '暂无退款。')}</div>}
+    <Card title={t('Refunds', '退款')} actions={open > 0 ? <Badge tone="accent">{open} {t('waiting', '笔待处理')}</Badge> : undefined}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.refunds?.length ? (
+          <>
+            <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th className="n">{t('Price', '价格')}</th><th>{t('Played', '已游玩')}</th><th>{t('Asked', '申请时间')}</th><th>{t('Status', '状态')}</th><th>{t('Books', '账目')}</th><th /></tr></thead>
+              <tbody>{data.refunds.map((r: any) => <tr key={r.id}>
+                <td><Link to={`/g/${r.slug}`}>{r.title}</Link>{r.note && <div className="mute fs-sm" style={{ maxWidth: 280, whiteSpace: 'pre-wrap' }}>“{r.note}”</div>}</td>
+                <td className="mute">{r.buyer || '—'}{r.buyer_review_at && <div><Badge dot={false} tone="accent">{t('no self-service', '无自助退款')}</Badge></div>}</td>
+                <td className="n">{usd(r.price_cents)}</td>
+                <td className="mute">{t('{n} min', '{n} 分钟', { n: Math.floor((r.played_seconds || 0) / 60) })} · {t('bought {when}', '购买于 {when}', { when: dateTime(r.bought_at) })}</td>
+                <td className="mute">{dateTime(r.created_at)}</td>
+                <td><StatusBadge status={r.status} />{r.review_reason && REVIEW[r.review_reason] && <div className="mute fs-sm">{REVIEW[r.review_reason]()}</div>}{r.decided_by && <div className="dim fs-xs">{r.decided_by === 'auto' ? t('automatic', '自动') : r.decided_by.startsWith('admin:') ? t('by an admin', '由管理员') : t('from Stripe', '来自 Stripe')}</div>}{r.decision_note && <div className="mute fs-sm">{r.decision_note}</div>}</td>
+                <td className="mute fs-sm">{r.status === 'refunded' && r.creator_net_cents != null ? <>
+                  {t('Creator −{amount}', '创作者 −{amount}', { amount: usd(r.creator_net_cents) })} · {t('Platform cut −{amount}', '平台分成 −{amount}', { amount: usd(r.platform_fee_cents || 0) })}
+                  {r.stripe_fee_cents != null && <div>{t('Stripe fee {amount}, borne by the {who}', 'Stripe 手续费 {amount}，由{who}承担', { amount: usd(r.stripe_fee_cents), who: r.fee_bearer === 'creator' ? t('creator', '创作者') : t('platform', '平台') })}</div>}
+                  {r.transfer_reversal_cents > 0 && <div>{t('{amount} taken back from payout {ref}', '已从打款 {ref} 收回 {amount}', { amount: usd(r.transfer_reversal_cents), ref: r.transfer_ref })}</div>}
+                </> : '—'}</td>
+                <td>{r.status === 'pending' ? <div className="row-actions"><Button size="sm" variant="primary" disabled={busy === r.id} onClick={() => decide(r, 'approve')}>{t('Refund', '退款')}</Button><Button size="sm" variant="danger" disabled={busy === r.id} onClick={() => decide(r, 'deny')}>{t('Decline', '拒绝')}</Button></div>
+                  : r.buyer_review_at ? <Button size="sm" disabled={busy === 'rv' + r.user_id} onClick={() => restore(r)}>{t('Restore self-service', '恢复自助退款')}</Button> : null}</td>
+              </tr>)}</tbody></Table>
+            <ListPager flush page={page} total={data.total} perPage={data.per_page || 20} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('No refunds yet.', '暂无退款。')}</div>}
     </Card>
+  );
+}
+
+function MoneySales({ stamp, bump }: { stamp: number; bump: () => void }) {
+  const [page, setPage] = useState(1);
+  const { busy, act } = useAct();
+  const { data, error, loading, reload } = useData<any>(`/admin/money/sales?page=${page}&per_page=20`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refund = (x: any) => { if (confirm(t('Refund {price} to {buyer}? Access is revoked, the creator\'s credit is reversed (from their payout if it was already sent) and the platform gives back its cut.', '确定向 {buyer} 退款 {price} 吗？对方将失去访问权限，创作者的相应收益会被冲回（若已打款则从打款中收回），平台也会退回其分成。', { price: usd(x.price_cents), buyer: x.buyer }))) void act(x.id, async () => { await api(`/admin/purchases/${x.id}/refund`, { method: 'POST' }); await reload(); bump(); }, t('Refunded.', '已退款。')); };
+  return (
+    <Card title={t('Game sales', '游戏销售')}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.purchases?.length ? (
+          <>
+            <Table stickyEnd><thead><tr><th>{t('Game', '游戏')}</th><th>{t('Buyer', '买家')}</th><th>{t('Creator', '创作者')}</th><th className="n">{t('Price', '价格')}</th><th className="n">{t('Platform', '平台')}</th><th className="n">{t('Creator', '创作者')}</th><th>{t('Status', '状态')}</th><th>{t('When', '时间')}</th><th /></tr></thead>
+              <tbody>{data.purchases.map((x: any) => <tr key={x.id}><td>{x.item === 'skill' ? <><Link to={`/creator-store/${x.slug}`}>{x.title}</Link> <Badge dot={false} tone="accent">{t('skill', '技能')}</Badge></> : <Link to={`/g/${x.slug}`}>{x.title}</Link>}</td><td className="mute">{x.buyer}</td><td className="mute">{x.creator}</td><td className="n">{usd(x.price_cents)}</td><td className="n">{usd(x.fee_cents)}</td><td className="n">{usd(x.net_cents)}</td><td><StatusBadge status={x.status} />{x.provider === 'admin' && <Badge dot={false}>{t('granted', '赠送')}</Badge>}</td><td className="mute">{dateTime(x.created_at)}</td>
+                <td style={{ textAlign: 'right' }}>{x.status === 'paid' && x.gifted_by ? <span className="dim fs-sm">{t('Gift · non-refundable', '礼物 · 不可退款')}</span> : x.status === 'paid' && x.item === 'skill' ? <span className="dim fs-sm">{t('Non-refundable', '不可退款')}</span> : x.status === 'paid' && <Button size="sm" variant="danger" disabled={busy === x.id} onClick={() => refund(x)}>{x.provider === 'admin' ? t('Revoke', '撤销') : t('Refund', '退款')}</Button>}</td></tr>)}</tbody></Table>
+            <ListPager flush page={page} total={data.total} perPage={data.per_page || 20} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('No sales yet.', '暂无销售。')}</div>}
+    </Card>
+  );
+}
+
+function MoneyPayments({ stamp }: { stamp: number }) {
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useData<any>(`/admin/money/payments?page=${page}&per_page=20`);
+  useEffect(() => { if (stamp > 0) void reload(); }, [stamp]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Card title={t('Creator fee payments', '创作者费用')}>
+      {error && !data ? <div className="pad"><Fail error={error} retry={reload} /></div>
+        : loading && !data ? <div className="pad mute">{t('Loading…', '加载中…')}</div>
+        : data?.payments?.length ? (
+          <>
+            <Table><thead><tr><th>{t('User', '用户')}</th><th className="n">{t('Amount', '金额')}</th><th>{t('Source', '来源')}</th><th>{t('When', '时间')}</th></tr></thead>
+              <tbody>{data.payments.map((y: any) => <tr key={y.id}><td>{y.email}</td><td className="n">{usd(y.amount_cents)}</td><td className="mute">{y.provider}</td><td className="mute">{dateTime(y.created_at)}</td></tr>)}</tbody></Table>
+            <ListPager flush page={page} total={data.total} perPage={data.per_page || 20} onPage={setPage} />
+          </>
+        ) : <div className="pad mute">{t('None yet.', '暂无记录。')}</div>}
+    </Card>
+  );
+}
+
+function Money() {
+  const { busy, act } = useAct();
+  const [stamp, setStamp] = useState(0);
+  const bump = () => setStamp((n) => n + 1);
+  const [grant, setGrant] = useState({ email: '', slug: '' });
+  const doGrant = () => act('grant', async () => { await api('/admin/grant-game', { body: grant }); setGrant({ email: '', slug: '' }); bump(); }, t('Access granted.', '已授予访问权限。'));
+  return (
+    <div className="stack l">
+      <MoneyWithdrawals stamp={stamp} bump={bump} />
+      <MoneyRefunds stamp={stamp} bump={bump} />
+      <MoneySales stamp={stamp} bump={bump} />
+      <div className="cols">
+        <MoneyPayments stamp={stamp} />
+        <Card title={t('Give a player a game', '赠送游戏')}><div className="pad stack">
+          <p className="mute fs-sm">{t('For support cases and testing. No charge is made and the creator is not credited.', '用于客服或测试场景。不产生扣款，创作者也不会获得收益。')}</p>
+          <Input type="email" placeholder={t('Player email', '玩家邮箱')} value={grant.email} onChange={(e) => setGrant({ ...grant, email: e.target.value })} />
+          <Input mono placeholder={t('Game address (the part after /g/) or project id', '游戏地址（/g/ 之后的部分）或项目 ID')} value={grant.slug} onChange={(e) => setGrant({ ...grant, slug: e.target.value })} />
+          <div><Button disabled={!grant.email || !grant.slug || busy === 'grant'} onClick={doGrant}>{t('Grant access', '授予访问权限')}</Button></div>
+        </div></Card>
+      </div>
+    </div>
   );
 }
 
@@ -395,7 +486,9 @@ const REASONS = (): Record<string, string> => ({ harassment: t('Harassment or bu
 /** Games players reported (broken, low effort, …) and games hidden from the store until reviewed (src/store-quality.ts). */
 const GAME_REASONS = (): Record<string, string> => ({ broken: t('Broken', '无法运行'), low_effort: t('Low effort', '粗制滥造'), phishing: t('Phishing', '钓鱼'), malicious: t('Harmful', '有害'), stolen: t('Copied', '抄袭'), offensive: t('Offensive', '冒犯'), other: t('Other', '其他') });
 function GameReports() {
-  const { busy, act } = useAct(), { data, error, loading, reload } = useData<any>('/admin/game-reports');
+  const [page, setPage] = useState(1);
+  const { busy, act } = useAct(), { data, error, loading, reload } = useData<any>(`/admin/game-reports?page=${page}&per_page=15`);
+  useEffect(() => { if (data && page > data.pages) setPage(data.pages); }, [data, page]);
   const decide = (g: any, action: string, msg: string) => act(g.id, async () => { await api(`/admin/game-reports/${g.id}`, { body: { action } }); await reload(); }, msg);
   if (error && !data) return <Fail error={error} retry={reload} />;
   if (loading && !data) return <AdminSkeleton tab="table" />;
@@ -419,13 +512,16 @@ function GameReports() {
             </div>
           </div>
         </Card>))}
+      <ListPager page={page} total={data.total} perPage={data.per_page || 15} onPage={setPage} />
     </section>
   );
 }
 
 function Reports() {
-  const [closed, setClosed] = useState(false), { busy, act } = useAct();
-  const { data, error, loading, reload } = useData<any>(`/admin/social-reports${closed ? '?status=closed' : ''}`);
+  const [closed, setClosed] = useState(false), [page, setPage] = useState(1), { busy, act } = useAct();
+  useEffect(() => { setPage(1); }, [closed]);
+  const { data, error, loading, reload } = useData<any>(`/admin/social-reports?page=${page}&per_page=20${closed ? '&status=closed' : ''}`);
+  useEffect(() => { if (data && page > data.pages) setPage(data.pages); }, [data, page]);
   const set = (r: any, status: string) => act(String(r.id), async () => { await api(`/admin/social-reports/${r.id}`, { body: { status } }); await reload(); }, t('Updated.', '已更新。'));
   const suspend = (r: any) => act(String(r.id), async () => { await api(`/admin/users/${r.target.id}`, { method: 'PATCH', body: { status: 'suspended' } }); await api(`/admin/social-reports/${r.id}`, { body: { status: 'actioned' } }); await reload(); }, t('Player suspended.', '已停用该玩家。'));
   return (
@@ -434,25 +530,28 @@ function Reports() {
       <h2 className="h3">{t('Reported players', '被举报的玩家')}</h2>
       <div className="admin-tools row"><label className="row fs-sm"><Switch checked={closed} onChange={(e) => setClosed(e.target.checked)} /> {t('Show closed reports', '显示已处理的举报')}</label></div>
       {error && !data ? <Fail error={error} retry={reload} /> : loading && !data ? <AdminSkeleton tab="table" /> : !data.reports.length ? <Card pad><span className="mute">{closed ? t('No closed reports.', '没有已处理的举报。') : t('No open reports.', '没有待处理的举报。')}</span></Card> : (
-        <div className="stack">{data.reports.map((r: any) => (
-          <Card key={r.id} pad>
-            <div className="stack s">
-              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                <span><b>{r.target.name}</b> <span className="mute fs-sm">{r.target.email}</span> {r.target.status !== 'active' && <Badge tone="bad">{r.target.status}</Badge>} {r.target.reports > 1 && <Badge tone="accent">{t('{n} reports', '{n} 次举报', { n: r.target.reports })}</Badge>}</span>
-                <span className="mute fs-sm">{dateTime(r.created_at)}</span>
+        <div className="stack">
+          {data.reports.map((r: any) => (
+            <Card key={r.id} pad>
+              <div className="stack s">
+                <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                  <span><b>{r.target.name}</b> <span className="mute fs-sm">{r.target.email}</span> {r.target.status !== 'active' && <Badge tone="bad">{r.target.status}</Badge>} {r.target.reports > 1 && <Badge tone="accent">{t('{n} reports', '{n} 次举报', { n: r.target.reports })}</Badge>}</span>
+                  <span className="mute fs-sm">{dateTime(r.created_at)}</span>
+                </div>
+                <div><Badge>{REASONS()[r.reason] || r.reason}</Badge> <span className="fs-sm">{t('by {name}', '举报人：{name}', { name: r.reporter.name })} <span className="mute">{r.reporter.email}</span></span></div>
+                {r.detail && <p style={{ whiteSpace: 'pre-wrap' }}>{r.detail}</p>}
+                {r.messages.length > 0 && <div className="stack s fs-sm" style={{ borderLeft: '3px solid var(--line-2)', paddingLeft: 12 }}>{r.messages.map((m: any, i: number) => <div key={i}><b>{m.from === r.target.id ? r.target.name : r.reporter.name}:</b> {m.body} <span className="dim">{ago(m.at)}</span></div>)}</div>}
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  {r.status === 'open' ? <>
+                    <Button size="sm" variant="ghost" disabled={busy === String(r.id)} onClick={() => void set(r, 'dismissed')}>{t('Dismiss', '驳回')}</Button>
+                    <Button size="sm" variant="secondary" disabled={busy === String(r.id)} onClick={() => void set(r, 'actioned')}>{t('Mark handled', '标记为已处理')}</Button>
+                    {r.target.status === 'active' && <Button size="sm" variant="danger" disabled={busy === String(r.id)} onClick={() => { if (confirm(t('Suspend {name}? They are signed out everywhere.', '要停用 {name} 吗？对方将在所有设备上退出登录。', { name: r.target.name }))) void suspend(r); }}>{t('Suspend player', '停用该玩家')}</Button>}
+                  </> : <><StatusBadge status={r.status} /><Button size="sm" variant="ghost" disabled={busy === String(r.id)} onClick={() => void set(r, 'open')}>{t('Reopen', '重新打开')}</Button></>}
+                </div>
               </div>
-              <div><Badge>{REASONS()[r.reason] || r.reason}</Badge> <span className="fs-sm">{t('by {name}', '举报人：{name}', { name: r.reporter.name })} <span className="mute">{r.reporter.email}</span></span></div>
-              {r.detail && <p style={{ whiteSpace: 'pre-wrap' }}>{r.detail}</p>}
-              {r.messages.length > 0 && <div className="stack s fs-sm" style={{ borderLeft: '3px solid var(--line-2)', paddingLeft: 12 }}>{r.messages.map((m: any, i: number) => <div key={i}><b>{m.from === r.target.id ? r.target.name : r.reporter.name}:</b> {m.body} <span className="dim">{ago(m.at)}</span></div>)}</div>}
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                {r.status === 'open' ? <>
-                  <Button size="sm" variant="ghost" disabled={busy === String(r.id)} onClick={() => void set(r, 'dismissed')}>{t('Dismiss', '驳回')}</Button>
-                  <Button size="sm" variant="secondary" disabled={busy === String(r.id)} onClick={() => void set(r, 'actioned')}>{t('Mark handled', '标记为已处理')}</Button>
-                  {r.target.status === 'active' && <Button size="sm" variant="danger" disabled={busy === String(r.id)} onClick={() => { if (confirm(t('Suspend {name}? They are signed out everywhere.', '要停用 {name} 吗？对方将在所有设备上退出登录。', { name: r.target.name }))) void suspend(r); }}>{t('Suspend player', '停用该玩家')}</Button>}
-                </> : <><StatusBadge status={r.status} /><Button size="sm" variant="ghost" disabled={busy === String(r.id)} onClick={() => void set(r, 'open')}>{t('Reopen', '重新打开')}</Button></>}
-              </div>
-            </div>
-          </Card>))}</div>
+            </Card>))}
+          <ListPager page={page} total={data.total} perPage={data.per_page || 20} onPage={setPage} />
+        </div>
       )}
     </div>
   );
