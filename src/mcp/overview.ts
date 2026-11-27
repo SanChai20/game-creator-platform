@@ -34,8 +34,13 @@ export const TOOL_GROUPS: ToolGroup[] = [
     ['publish', 'make a verified version live; dry_run: true lists every release requirement with its fix'],
     ['rollback', 'make an earlier live version live again'],
     ['unpublish', 'take the game offline (versions stay)'],
-    ['list_projects', 'this account\'s games, or one in detail with links and the newest report'],
+    ['list_projects', 'this account\'s games and the ones shared with it (with your role), or one in detail with links and the newest report'],
     ['delete_project', 'remove a project that is not live and nobody bought (two calls, confirm)'],
+  ] },
+  { id: 'team', title: 'Working together (people and agents)', tools: [
+    ['collaborators', 'who works on the game and with which role (read, write, maintain, admin); invite, change roles, answer invitations sent to you'],
+    ['branches', 'a working copy per developer or agent, forked from main; bring main in (conflicts marked), resolve, delete; main\'s protection'],
+    ['change_requests', 'propose a branch for main, review it (approve, request changes, comment), merge it (three-way merge, verified as a new main version)'],
   ] },
   { id: 'store', title: 'Store page and listing', tools: [
     ['game_metadata', 'the store-page checklist: genre, tags, requirements, languages, players, content (age rating), listing and translations; check, then declare'],

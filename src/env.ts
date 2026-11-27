@@ -56,6 +56,7 @@ export interface Project {
   id: string; owner_id: string; slug: string; title: string; tagline: string; description: string; tags: string; controls: string;
   status: 'draft' | 'live' | 'offline' | 'removed'; live_version: number | null; preview_version: number | null; next_version: number;
   ws_base?: number | null;                      // the version the workspace last matched (migrations/0048_version_sync.sql)
+  protection?: string | null;                   // main's protection, JSON (src/collab-core.ts)
   cover_key: string | null; price_cents: number; trial_minutes: number; sales: number; featured: number; plays: number; seconds: number; rating_sum: number; rating_count: number;
   removed_reason: string | null; deleted_at?: number | null; created_at: number; updated_at: number; published_at: number | null;
   open_implementation: number; open_implementation_at: number | null;
@@ -76,6 +77,8 @@ export interface Version {
   review?: 'pending' | 'approved' | 'denied' | null; review_note?: string | null; reviewed_at?: number | null; reviewed_by?: string | null;
   gate?: string | null;                         // the release gate's last outcome for this version (src/release-gate.ts)
   base?: number | null;                         // the version it was built on (base_version)
+  branch?: string | null;                       // the branch id it was deployed from; null: main (src/collab.ts)
+  change_number?: number | null;                // the change request a merge version merged
   actor?: string;                               // who deployed it
 }
 
@@ -84,5 +87,5 @@ export class AppError extends Error {
   constructor(public status: number, message: string, public code = 'error', public hint?: string) { super(message); }
 }
 export const bad = (msg: string, hint?: string) => new AppError(400, msg, 'bad_request', hint);
-export const notFound = (msg = 'Not found') => new AppError(404, msg, 'not_found');
+export const notFound = (msg = 'Not found', hint?: string) => new AppError(404, msg, 'not_found', hint);
 export const forbidden = (msg = 'Forbidden', hint?: string) => new AppError(403, msg, 'forbidden', hint);

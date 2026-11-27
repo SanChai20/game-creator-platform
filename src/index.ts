@@ -31,6 +31,7 @@ import { follows } from './routes/follows';
 // @ts-ignore plain JS module
 import { creatorOf, followerCount } from './follows.js';
 import { push } from './routes/push';
+import { collab } from './routes/collab';
 import { download, upload } from './routes/upload';
 import { getSettings } from './settings';
 import { dayOf, esc, now, parseJson } from './util';
@@ -121,6 +122,7 @@ app.route('/api/device', deviceApi);
 app.route('/api/social', social);
 app.route('/api/push', push);
 app.route('/api/acp', acpApi);   // the ACP workbench in the console (src/acp.ts)
+app.route('/api/collab', collab);   // working together on a game: people, branches, change requests (src/routes/collab.ts)
 app.route('/api', follows);   // creator profiles, following, the notification bell (src/routes/follows.ts)
 app.route('/api', api);
 app.route('/download/desktop', desktop);   // the desktop app's installers and updater manifest (src/desktop.ts)

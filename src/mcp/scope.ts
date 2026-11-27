@@ -2,7 +2,8 @@
 // A grant has either unrestricted access to all projects in the account (`allowedProjects === null`),
 // or access limited to a specific set of project IDs chosen during OAuth or device authorization (`string[]`).
 import { bad, forbidden, type Env, type Project, type User } from '../env';
-import { ownedProject } from '../projects';
+import { accessProject, roleOf } from '../collab';
+import { atLeast, type Role } from '../collab-core';
 
 export interface McpAuthProps {
   userId?: string;
@@ -16,13 +17,32 @@ export interface SelectableProject {
   title: string;
   status: string;
   updated_at: number;
+  role?: string;
 }
 
 export interface ScopedCtx {
   env: Env;
   user: User;
   allowedProjects: string[] | null;
+  /** The tool being called: it decides the least role a collaborator needs (TOOL_ROLES). */
+  tool?: string;
+  /** Each project's role for this call, filled by scopedProject. */
+  roles?: Map<string, Role>;
 }
+
+/**
+ * The least role each tool needs on a project (src/collab-core.ts). A tool not listed needs the owner, so a tool added
+ * later stays the owner's until someone decides otherwise. Tools that write a workspace check main's protection or the
+ * branch themselves (src/collab.ts target), and tools with owner-only parts (prices, sales) check those parts.
+ */
+export const TOOL_ROLES: Record<string, Role> = {
+  list_projects: 'read', list_files: 'read', list_versions: 'read', pull_version: 'read', diff_versions: 'read', game_standards: 'read',
+  game_storage: 'read', upload_files: 'read', create_upload_url: 'read', checkout_version: 'read', deploy_preview: 'read',
+  game_metadata: 'read', compatibility: 'read', collaborators: 'read', branches: 'read', change_requests: 'read',
+  debug_preview: 'write',
+  update_project: 'maintain', game_data: 'maintain', game_room: 'maintain', build_skill: 'maintain',
+  publish: 'admin', rollback: 'admin', unpublish: 'admin',
+};
 
 const MAX_SELECTED_PROJECTS = 500;
 
@@ -67,29 +87,43 @@ export async function resolveAllowedProjects(env: Env, userId: string, requested
     throw bad(`At most ${MAX_SELECTED_PROJECTS} projects can be selected individually. Choose "All projects" instead.`);
   }
   const rows = await env.DB.prepare(
-    "SELECT id FROM projects WHERE owner_id = ?1 AND status != 'removed' AND id IN (SELECT value FROM json_each(?2))"
+    `SELECT id FROM projects WHERE status != 'removed' AND id IN (SELECT value FROM json_each(?2))
+       AND (owner_id = ?1 OR id IN (SELECT project_id FROM project_members WHERE user_id = ?1))`
   ).bind(userId, JSON.stringify(ids)).all<{ id: string }>();
   const owned = new Set(rows.results.map((r) => r.id));
   if (owned.size !== ids.length) {
-    throw forbidden('One or more selected projects do not belong to your account.');
+    throw forbidden('One or more selected projects are not yours or shared with you.');
   }
   return ids;
 }
 
-/** Lists all non-removed projects owned by `userId` for OAuth/device consent project pickers. */
+/** Lists the projects `userId` owns or collaborates on (not removed) for OAuth/device consent project pickers. */
 export async function listSelectableProjects(env: Env, userId: string): Promise<SelectableProject[]> {
   const rows = await env.DB.prepare(
-    "SELECT id, slug, title, status, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC"
+    `SELECT p.id, p.slug, p.title, p.status, p.updated_at, CASE WHEN p.owner_id = ?1 THEN 'owner' ELSE m.role END AS role
+       FROM projects p LEFT JOIN project_members m ON m.project_id = p.id AND m.user_id = ?1
+      WHERE (p.owner_id = ?1 OR m.user_id IS NOT NULL) AND p.status != 'removed' ORDER BY p.updated_at DESC`
   ).bind(userId).all<SelectableProject>();
   return rows.results;
 }
 
-/** Resolves a project by id or slug and enforces both account ownership and the grant's project scope. */
-export async function scopedProject(c: ScopedCtx, idOrSlug: string): Promise<Project> {
-  const p = await ownedProject(c.env, c.user, idOrSlug);
+/**
+ * Resolves a project by id or slug and enforces the user's role on it (owner, or a collaborator with at least the role
+ * the tool needs) and the grant's project scope.
+ */
+export async function scopedProject(c: ScopedCtx, idOrSlug: string, need?: Role): Promise<Project> {
+  const { p, role } = await accessProject(c.env, c.user, idOrSlug, need ?? (c.tool ? TOOL_ROLES[c.tool] ?? 'owner' : 'owner'), c.tool ? `calling ${c.tool}` : 'this');
+  let r = role;
+  if (c.allowedProjects !== null && c.user.role === 'admin' && p.owner_id !== c.user.id) {
+    // a project-scoped connection never gets the platform admin's reach: only the role the person holds on the project
+    r = (await roleOf(c.env, { id: c.user.id, role: 'user' } as any, p)) as Role;
+    const needRole = need ?? (c.tool ? TOOL_ROLES[c.tool] ?? 'owner' : 'owner');
+    if (!r || !atLeast(r, needRole)) throw forbidden(`This agent connection is limited to selected projects and cannot use platform admin access on "${p.title}".`, 'Reconnect without a project selection to act as a platform admin.');
+  }
+  c.roles?.set(p.id, r);
   if (c.allowedProjects !== null) {
     // Even if the authorizing user is an admin, a project-scoped agent may only touch the explicitly authorized projects.
-    if (p.owner_id !== c.user.id || !c.allowedProjects.includes(p.id)) {
+    if (!c.allowedProjects.includes(p.id)) {
       throw forbidden(
         `This agent connection does not have access to project "${p.title}" (${p.id}).`,
         'Call list_projects to see which projects this connection can access, or ask the creator to reconnect and include this project.',

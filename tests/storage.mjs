@@ -73,8 +73,8 @@ test('every way in goes through the storage check', () => {
   assert.match(tools, /assertFits\(s, p, before,/, 'upload_files checks the whole call');
   assert.match(tools, /assertFits\(s, p, existing,/, 'zip import checks before unpacking');
   assert.match(read('src/release-gate.ts'), /overBudget\(s, p, v\.bytes, v\.file_count\)/, 'publish (the release gate)');
-  for (const m of tools.matchAll(/putFile\([^)]*\)/g)) if (!/'gcp\.json'/.test(m[0])) assert.match(m[0], /, true\)$/, `${m[0]} skips the check only after checking`);
-  assert.match(upload, /putFile\(c\.env, project, path, buf\)/);
+  for (const m of tools.matchAll(/putFile\([^)]*\)/g)) if (!/'gcp\.json'/.test(m[0])) assert.match(m[0], /, true(, [\w.]+)?\)$/, `${m[0]} skips the check only after checking`);
+  assert.match(upload, /putFile\(c\.env, project, path, buf, false, t\.ws\)/);
 });
 
 test('agents are told: get_started, the tool, the catalog and the guides', () => {

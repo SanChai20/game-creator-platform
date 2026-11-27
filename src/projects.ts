@@ -5,6 +5,7 @@ import { getSettings } from './settings';
 import { saleOf } from './sales';
 import { assertFits, overBudget } from './storage';
 import { THREE_VERSION } from './generated/runtime-source';
+import { hasConflictMarkers } from './collab-core';
 import { cleanPath, extOf, isText, now, parseJson, rid, sha256, slugify, typeOf } from './util';
 
 import { WEB_ONLY_HINT, nonWebContent, nonWebPage } from './web-only.js';
@@ -159,19 +160,22 @@ export async function listFiles(env: Env, pid: string): Promise<FileRow[]> {
   return (await env.DB.prepare('SELECT path, size, sha, ctype, updated_at FROM files WHERE project_id = ? ORDER BY path').bind(pid).all<FileRow>()).results;
 }
 
-/** Writes one workspace file. `budgetChecked`: the caller already checked the whole change against the game's storage. */
-export async function putFile(env: Env, p: Project, rawPath: string, bytes: Uint8Array, budgetChecked = false): Promise<FileRow> {
+/**
+ * Writes one workspace file. `budgetChecked`: the caller already checked the whole change against the game's storage.
+ * `ws`: the workspace, the project id for main or "<project>~<branch id>" for a branch (src/collab.ts).
+ */
+export async function putFile(env: Env, p: Project, rawPath: string, bytes: Uint8Array, budgetChecked = false, ws: string = p.id): Promise<FileRow> {
   const s = await getSettings(env);
   const path = cleanPath(rawPath);
   if (!path) throw bad(`Path not allowed: "${rawPath}".`, `Use relative paths like "index.html" or "src/game.js" with a web file extension (html, js, css, json, png, jpg, webp, svg, mp3, ogg, wav, glb, wasm, woff2, data, pck, …). ${WEB_ONLY_HINT}`);
   const what = nonWebContent(bytes, path);
   if (what) throw bad(`${path} is ${what}, not a web file. This platform hosts web games only.`, WEB_ONLY_HINT);
-  if (!budgetChecked) assertFits(s, p, await listFiles(env, p.id), [{ path, size: bytes.byteLength }]);
+  if (!budgetChecked) assertFits(s, p, await listFiles(env, ws), [{ path, size: bytes.byteLength }]);
   const row: FileRow = { path, size: bytes.byteLength, sha: (await sha256(bytes)).slice(0, 32), ctype: typeOf(path) || 'application/octet-stream', updated_at: now() };
-  await env.FILES.put(wsKey(p.id, path), bytes, { httpMetadata: { contentType: row.ctype } });
+  await env.FILES.put(wsKey(ws, path), bytes, { httpMetadata: { contentType: row.ctype } });
   await env.DB.batch([
     env.DB.prepare('INSERT INTO files (project_id, path, size, sha, ctype, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, path) DO UPDATE SET size = excluded.size, sha = excluded.sha, ctype = excluded.ctype, updated_at = excluded.updated_at')
-      .bind(p.id, path, row.size, row.sha, row.ctype, row.updated_at),
+      .bind(ws, path, row.size, row.sha, row.ctype, row.updated_at),
     env.DB.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').bind(row.updated_at, p.id),
   ]);
   return row;
@@ -283,9 +287,9 @@ export function listingForStandards(p: Project) {
 }
 export { findingLine };
 
-export async function checkProject(env: Env, p: Project, origin: string): Promise<CheckResult> {
+export async function checkProject(env: Env, p: Project, origin: string, ws: string = p.id): Promise<CheckResult> {
   const s = await getSettings(env);
-  const files = await listFiles(env, p.id);
+  const files = await listFiles(env, ws);
   const errors: Issue[] = [], warnings: Issue[] = [];
   const err = (i: Omit<Issue, 'level'>) => { if (errors.length < 40) errors.push({ level: 'error', ...i }); };
   const warn = (i: Omit<Issue, 'level'>) => { if (warnings.length < 40) warnings.push({ level: 'warning', ...i }); };
@@ -301,9 +305,11 @@ export async function checkProject(env: Env, p: Project, origin: string): Promis
   const texts = new Map<string, string>();
   for (const f of files) {
     if (!isText(f.path) || f.size > 6 * 1024 * 1024) continue;
-    const obj = await env.FILES.get(wsKey(p.id, f.path));
+    const obj = await env.FILES.get(wsKey(ws, f.path));
     if (obj) texts.set(f.path, await obj.text());
   }
+  // a merge from main leaves both sides of a conflicting change in the file between git's markers (src/collab.ts)
+  for (const [path, text] of texts) if (hasConflictMarkers(text)) err({ file: path, message: `${path} still has merge conflict markers (<<<<<<<, =======, >>>>>>>).`, hint: 'Keep the right lines from each side, delete the markers, upload the file, then deploy again. branches {action: "status"} lists the conflicts.' });
 
   if (texts.has('gcp.json')) {
     try { const raw = JSON.parse(texts.get('gcp.json')!); manifest = resolveManifest(raw, origin); if (raw && typeof raw === 'object' && !Array.isArray(raw)) gcpRaw = raw; declared = gcpRaw.requirements; }
@@ -493,28 +499,48 @@ export async function getVersion(env: Env, pid: string, n: number): Promise<Vers
   return env.DB.prepare('SELECT * FROM versions WHERE project_id = ? AND n = ?').bind(pid, n).first<Version>();
 }
 
-/** Freezes the workspace into an immutable numbered version. */
 /**
- * Freezes the workspace as a new numbered version. `expectNewest`: the deploy said which version its changes start from
- * (base_version), so the number is taken only while that is still the newest version; two agents deploying at once
- * cannot both pass, and the one that loses gets null (src/version-sync.ts).
+ * Freezes a workspace as a new numbered version.
+ *   ws / branch: the workspace (the project id for main, "<project>~<branch id>" for a branch) and the branch id the
+ *     version belongs to (null: main). Merges freeze a scratch workspace into main (src/collab.ts).
+ *   expectNewest: the deploy said which version its changes start from (base_version), so the number is taken only while
+ *     that is still main's newest version (for main) or the branch's newest (for a branch); two agents deploying at once
+ *     cannot both pass, and the one that loses gets null (src/version-sync.ts).
+ * The number and the version's row are written in one transaction, so a check of "the newest version" made by another
+ * deploy at the same moment always sees this one; the files are copied after, while the version is still queued.
  */
-export async function snapshot(env: Env, p: Project, manifest: Manifest, note: string, opts: { base?: number | null; actor?: string; expectNewest?: number } = {}): Promise<Version | null> {
-  const files = await listFiles(env, p.id);
-  const got = opts.expectNewest === undefined
-    ? await env.DB.prepare('UPDATE projects SET next_version = next_version + 1, updated_at = ? WHERE id = ? RETURNING next_version').bind(now(), p.id).first<{ next_version: number }>()
-    : await env.DB.prepare('UPDATE projects SET next_version = next_version + 1, updated_at = ? WHERE id = ? AND next_version = ? RETURNING next_version').bind(now(), p.id, opts.expectNewest + 1).first<{ next_version: number }>();
-  if (!got) return null;
-  const n = got.next_version - 1;
-  for (const f of files) {
-    const obj = await env.FILES.get(wsKey(p.id, f.path));
-    if (!obj) throw new AppError(500, `Workspace file vanished: ${f.path}`);
-    await env.FILES.put(verKey(p.id, n, f.path), obj.body, { httpMetadata: { contentType: f.ctype } });
+export async function snapshot(env: Env, p: Project, manifest: Manifest, note: string, opts: { base?: number | null; actor?: string; expectNewest?: number; ws?: string; branch?: string | null; change?: number | null; keepWsBase?: boolean } = {}): Promise<Version | null> {
+  const ws = opts.ws ?? p.id, branch = opts.branch ?? null;
+  const files = await listFiles(env, ws), tok = rid(16), t = now();
+  const cond = opts.expectNewest === undefined ? ''
+    : branch ? ' AND COALESCE((SELECT head_version FROM branches WHERE id = ?4), 0) = ?5'
+      : ' AND COALESCE((SELECT MAX(n) FROM versions WHERE project_id = ?1 AND branch IS NULL), 0) = ?5';
+  const sigs = JSON.stringify(files.map((f) => ({ path: f.path, size: f.size, sha: f.sha })));
+  const stmts = [
+    env.DB.prepare(`UPDATE projects SET next_version = next_version + 1, alloc_token = ?2, updated_at = ?3 WHERE id = ?1${cond}`).bind(...(cond ? [p.id, tok, t, branch, opts.expectNewest ?? 0] : [p.id, tok, t])),
+    env.DB.prepare(`INSERT INTO versions (project_id, n, note, manifest, file_count, bytes, files, status, stage, created_at, base, actor, branch, change_number)
+      SELECT id, next_version - 1, ?3, ?4, ?5, ?6, ?7, 'queued', 'Copying files', ?8, ?9, ?10, ?11, ?12 FROM projects WHERE id = ?1 AND alloc_token = ?2`)
+      .bind(p.id, tok, note.slice(0, 300), JSON.stringify(manifest), files.length, files.reduce((a, f) => a + f.size, 0), sigs, t, opts.base ?? null, (opts.actor || '').slice(0, 120), branch, opts.change ?? null),
+    // the workspace now matches this version: checkout_version and list_files say what changed since
+    ...(opts.keepWsBase ? [] : branch
+      ? [env.DB.prepare('UPDATE branches SET head_version = (SELECT next_version - 1 FROM projects WHERE id = ?1 AND alloc_token = ?2), ws_base = (SELECT next_version - 1 FROM projects WHERE id = ?1 AND alloc_token = ?2), updated_at = ?3 WHERE id = ?4 AND EXISTS (SELECT 1 FROM projects WHERE id = ?1 AND alloc_token = ?2)').bind(p.id, tok, t, branch)]
+      : [env.DB.prepare('UPDATE projects SET ws_base = next_version - 1 WHERE id = ?1 AND alloc_token = ?2').bind(p.id, tok)]),
+    env.DB.prepare('SELECT next_version - 1 AS n FROM projects WHERE id = ?1 AND alloc_token = ?2').bind(p.id, tok),
+  ];
+  const res = await env.DB.batch(stmts);
+  const n = (res[res.length - 1].results?.[0] as { n?: number } | undefined)?.n;
+  if (!n) return null;
+  try {
+    for (const f of files) {
+      const obj = await env.FILES.get(wsKey(ws, f.path));
+      if (!obj) throw new AppError(500, `Workspace file vanished: ${f.path}`);
+      await env.FILES.put(verKey(p.id, n, f.path), obj.body, { httpMetadata: { contentType: f.ctype } });
+    }
+  } catch (e) {
+    await env.DB.prepare("UPDATE versions SET status = 'failed', stage = ? WHERE project_id = ? AND n = ?").bind(`Failed: ${String((e as Error).message || e).slice(0, 200)}`, p.id, n).run();
+    throw e;
   }
-  await env.DB.prepare('INSERT INTO versions (project_id, n, note, manifest, file_count, bytes, files, status, stage, created_at, base, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(p.id, n, note.slice(0, 300), JSON.stringify(manifest), files.length, files.reduce((a, f) => a + f.size, 0), JSON.stringify(files.map((f) => ({ path: f.path, size: f.size, sha: f.sha }))), 'queued', 'Queued', now(), opts.base ?? null, (opts.actor || '').slice(0, 120)).run();
-  // the workspace now matches this version: checkout_version and list_files say what changed since
-  await env.DB.prepare('UPDATE projects SET ws_base = ? WHERE id = ?').bind(n, p.id).run();
+  await env.DB.prepare("UPDATE versions SET stage = 'Queued' WHERE project_id = ? AND n = ? AND stage = 'Copying files'").bind(p.id, n).run();
   return (await getVersion(env, p.id, n))!;
 }
 

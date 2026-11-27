@@ -10,7 +10,7 @@ const { TOOL_GROUPS, SCOPE, TESTING, toolLines, toolMap } = await import('../src
 const { STANDARDS, renderStandards } = await import('../src/standards.js');
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
-const tools = read('src/mcp/tools.ts'), server = read('src/mcp/server.ts');
+const tools = read('src/mcp/tools.ts') + read('src/mcp/collab-tools.ts'), server = read('src/mcp/server.ts');
 const names = [...tools.matchAll(/^    name: '([a-z_]+)', title:/gm)].map((m) => m[1]);
 const guides = [...tools.matchAll(/\{ topic: '([\w-]+)', file: '([\w-]+)'/g)].map((m) => ({ topic: m[1], file: m[2] }));
 const SERVED = ['platform-contract', 'game-metadata', 'troubleshooting', 'saves', 'multiplayer', 'matches', 'test-bots', 'storage', 'input', 'standards', 'services', 'testing'];

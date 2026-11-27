@@ -494,3 +494,18 @@ html.app .nav { padding-top: env(safe-area-inset-top, 0px); }
 .ways { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 760px) { .ways { grid-template-columns: 1fr; } }
 @media (max-width: 420px) { .way-pick { grid-template-columns: 1fr; } }
+
+/* Team: change requests, branches and reviews (web/src/pages/Team.tsx) */
+.stack.m { gap: 14px; }
+.row.between { justify-content: space-between; }
+.row.end { justify-content: flex-end; }
+.row.wrap-row { flex-wrap: wrap; }
+.pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.table-wrap { overflow-x: auto; max-width: 100%; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: rgba(var(--text-rgb), .04); }
+pre.diff { margin: 0; padding: 10px 0; overflow-x: auto; font: 12.5px/1.5 var(--font-mono); background: rgba(var(--text-rgb), .03); border: 1px solid var(--line); border-radius: var(--r-md); max-height: 420px; }
+pre.diff > span { display: block; padding-inline: 12px; white-space: pre; min-width: max-content; }
+pre.diff > span.add { background: rgba(var(--good-rgb), .14); }
+pre.diff > span.del { background: rgba(var(--bad-rgb), .14); }
+pre.diff > span.hunk { color: var(--text-3); }

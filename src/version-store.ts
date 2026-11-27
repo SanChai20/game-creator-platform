@@ -10,8 +10,10 @@ import { now, parseJson } from './util';
 import { diffFiles, diffLine, isSame, type FileDiff, type FileSig } from './version-sync';
 
 /** Where a set of files comes from: a numbered version, or the workspace as it is now. */
-export type Source = { version: number } | { workspace: true };
-export const sourceName = (s: Source) => ('version' in s ? `version ${s.version}` : 'the workspace');
+/** ws: a branch's workspace ("<project>~<branch id>", src/collab.ts); without it, main's. label names it in answers. */
+export type Source = { version: number } | { workspace: true; ws?: string; label?: string };
+export const sourceName = (s: Source) => ('version' in s ? `version ${s.version}` : s.label ? `the workspace of ${s.label}` : 'the workspace');
+const wsOf = (p: Project, s: { ws?: string }) => s.ws || p.id;
 
 export async function versionOrThrow(env: Env, p: Project, n: number): Promise<Version> {
   const v = Number.isInteger(n) && n > 0 ? await getVersion(env, p.id, n) : null;
@@ -20,11 +22,11 @@ export async function versionOrThrow(env: Env, p: Project, n: number): Promise<V
 }
 
 export async function sourceFiles(env: Env, p: Project, s: Source): Promise<FileSig[]> {
-  if ('workspace' in s) return (await listFiles(env, p.id)).map((f) => ({ path: f.path, size: f.size, sha: f.sha }));
+  if ('workspace' in s) return (await listFiles(env, wsOf(p, s))).map((f) => ({ path: f.path, size: f.size, sha: f.sha }));
   return parseJson<FileSig[]>((await versionOrThrow(env, p, s.version)).files, []);
 }
 
-export const sourceKey = (p: Project, s: Source, path: string) => ('workspace' in s ? wsKey(p.id, path) : verKey(p.id, s.version, path));
+export const sourceKey = (p: Project, s: Source, path: string) => ('workspace' in s ? wsKey(wsOf(p, s), path) : verKey(p.id, s.version, path));
 
 export async function readSourceFile(env: Env, p: Project, s: Source, path: string): Promise<R2ObjectBody | null> {
   return env.FILES.get(sourceKey(p, s, path));
@@ -34,15 +36,15 @@ export async function readSourceFile(env: Env, p: Project, s: Source, path: stri
  * The workspace against the version it is based on: the version it last matched (deployed or checked out), or for a game
  * deployed before that was recorded, its newest version. diff is null when there is no version yet.
  */
-export async function workspaceState(env: Env, p: Project): Promise<{ base: number | null; newest: number; diff: FileDiff | null; files: number }> {
-  const newest = p.next_version - 1, base = p.ws_base ?? (newest || null), ws = await sourceFiles(env, p, { workspace: true });
+export async function workspaceState(env: Env, p: Project, t?: { ws: string; base: number | null; newest: number }): Promise<{ base: number | null; newest: number; diff: FileDiff | null; files: number }> {
+  const newest = t ? t.newest : await mainNewest(env, p), base = t ? t.base : p.ws_base ?? (newest || null), ws = await sourceFiles(env, p, { workspace: true, ws: t?.ws });
   const v = base ? await getVersion(env, p.id, base) : null;
   return { base: v ? base : null, newest, diff: v ? diffFiles(parseJson<FileSig[]>(v.files, []), ws) : null, files: ws.length };
 }
 
 /** The workspace's state as list_files and list_versions show it. */
-export async function workspaceLine(env: Env, p: Project) {
-  const w = await workspaceState(env, p);
+export async function workspaceLine(env: Env, p: Project, t?: { ws: string; base: number | null; newest: number }) {
+  const w = await workspaceState(env, p, t);
   if (!w.diff) return { based_on_version: null, changed_since_base: w.files ? `${w.files} file(s) uploaded, no version deployed yet` : 'empty' };
   return {
     based_on_version: w.base,
@@ -94,9 +96,9 @@ export function zipStream(env: Env, p: Project, s: Source, files: FileSig[]): Re
  * Makes the workspace exactly version n's files: files that differ are copied from the version, files the version does
  * not have are deleted, files already the same are left alone. The workspace's base becomes n.
  */
-export async function checkoutVersion(env: Env, p: Project, n: number): Promise<{ written: string[]; removed: string[]; unchanged: number }> {
+export async function checkoutVersion(env: Env, p: Project, n: number, ws: string = p.id, branchId: string | null = null): Promise<{ written: string[]; removed: string[]; unchanged: number }> {
   const v = await versionOrThrow(env, p, n), want = parseJson<FileSig[]>(v.files, []);
-  const have = await listFiles(env, p.id), d = diffFiles(have.map((f) => ({ path: f.path, size: f.size, sha: f.sha })), want);
+  const have = await listFiles(env, ws), d = diffFiles(have.map((f) => ({ path: f.path, size: f.size, sha: f.sha })), want);
   // the game's storage may have been lowered since this version was made
   assertFits(await getSettings(env), p, have, [...d.added, ...d.changed].map((f) => ({ path: f.path, size: f.bytes_after || 0 })), d.removed.map((f) => f.path));
   const written: string[] = [], removed: string[] = [];
@@ -104,18 +106,25 @@ export async function checkoutVersion(env: Env, p: Project, n: number): Promise<
     const obj = await env.FILES.get(verKey(p.id, n, f.path));
     if (!obj) throw new AppError(500, `Version ${n}'s file ${f.path} is missing from storage.`);
     const sig = want.find((x) => x.path === f.path)!, ctype = obj.httpMetadata?.contentType || 'application/octet-stream';
-    await env.FILES.put(wsKey(p.id, f.path), obj.body, { httpMetadata: { contentType: ctype } });
+    await env.FILES.put(wsKey(ws, f.path), obj.body, { httpMetadata: { contentType: ctype } });
     await env.DB.prepare('INSERT INTO files (project_id, path, size, sha, ctype, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, path) DO UPDATE SET size = excluded.size, sha = excluded.sha, ctype = excluded.ctype, updated_at = excluded.updated_at')
-      .bind(p.id, f.path, sig.size, sig.sha, ctype, now()).run();
+      .bind(ws, f.path, sig.size, sig.sha, ctype, now()).run();
     written.push(f.path);
   }
   for (const f of d.removed) {
-    await env.DB.prepare('DELETE FROM files WHERE project_id = ? AND path = ?').bind(p.id, f.path).run();
-    await env.FILES.delete(wsKey(p.id, f.path));
+    await env.DB.prepare('DELETE FROM files WHERE project_id = ? AND path = ?').bind(ws, f.path).run();
+    await env.FILES.delete(wsKey(ws, f.path));
     removed.push(f.path);
   }
-  await env.DB.prepare('UPDATE projects SET ws_base = ?, updated_at = ? WHERE id = ?').bind(n, now(), p.id).run();
+  if (branchId) await env.DB.prepare('UPDATE branches SET ws_base = ?, updated_at = ? WHERE id = ?').bind(n, now(), branchId).run();
+  else await env.DB.prepare('UPDATE projects SET ws_base = ?, updated_at = ? WHERE id = ?').bind(n, now(), p.id).run();
   return { written, removed, unchanged: d.unchanged };
+}
+
+/** main's newest version (versions deployed from a branch are not main's; src/collab.ts). */
+export async function mainNewest(env: Env, p: Project): Promise<number> {
+  const r = await env.DB.prepare('SELECT COALESCE(MAX(n), 0) AS n FROM versions WHERE project_id = ? AND branch IS NULL').bind(p.id).first<{ n: number }>();
+  return r?.n || 0;
 }
 
 /** Parses a source argument: a version number, or "workspace". */
