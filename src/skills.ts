@@ -6,8 +6,9 @@
 // then pay the lower cut) or sells it (the game pays the standard cut, and each skill sale pays the skill commission).
 //
 // Language policy: every build skill's canonical base text is written in English only (en), and each release also carries
-// translations for every other platform language (zh, zh-TW, ja, ko, es) so the Creator Store follows the viewer's
-// language seamlessly. The rules about what a skill may contain are in src/skill-rules.js.
+// translations for every other platform language (zh, zh-TW, ja, ko, es) stored in game_skill_i18n so the Creator Store
+// follows the viewer's language seamlessly without bloating single D1 rows or racing on parallel writes.
+// The rules about what a skill may contain are in src/skill-rules.js.
 import { listingLangs } from './listing';
 import { AppError, bad, forbidden, notFound, type Env, type Project, type User } from './env';
 import { getProject, logEvent } from './projects';
@@ -33,6 +34,15 @@ export interface SkillRow {
   updated_at: number;
 }
 
+export interface SkillTrRow {
+  project_id: string;
+  version: number;
+  lang: string;
+  description: string;
+  content: string;
+  updated_at: number;
+}
+
 export { SKILL_LANGS, SKILL_TRANSLATION_LANGS, availableSkillLangs, missingSkillLangs, normalizeSkillLang, parseSkillI18n };
 
 const usd = (c: number) => `$${(c / 100).toFixed(2)}`;
@@ -44,6 +54,39 @@ export const ENGLISH_FIRST = 'Write the canonical base build skill in English on
 /** The skill written for exactly this version, if any. */
 export const skillFor = (env: Env, pid: string, version: number) =>
   env.DB.prepare('SELECT * FROM game_skills WHERE project_id = ? AND version = ?').bind(pid, version).first<SkillRow>();
+
+/** All stored translations for one (project_id, version) from game_skill_i18n (merged with any legacy JSON column). */
+export async function skillTranslations(env: Env, pid: string, version: number, legacyI18n?: string | null): Promise<Record<string, { description: string; content: string }>> {
+  const map = skillI18nOf(legacyI18n);
+  const rows = await env.DB.prepare('SELECT lang, description, content FROM game_skill_i18n WHERE project_id = ? AND version = ?').bind(pid, version).all<{ lang: string; description: string; content: string }>();
+  for (const r of rows.results) {
+    const l = normalizeSkillLang(r.lang);
+    if (l && l !== 'en' && r.content?.trim()) map[l] = { description: r.description || '', content: r.content };
+  }
+  return map;
+}
+
+/** Lightweight language-code lookup for one (project_id, version), without loading full translation bodies. */
+export async function skillLangCodes(env: Env, pid: string, version: number, legacyI18n?: string | null): Promise<string[]> {
+  const set = new Set<string>(Object.keys(skillI18nOf(legacyI18n)));
+  const rows = await env.DB.prepare('SELECT lang FROM game_skill_i18n WHERE project_id = ? AND version = ?').bind(pid, version).all<{ lang: string }>();
+  for (const r of rows.results) {
+    const l = normalizeSkillLang(r.lang);
+    if (l && l !== 'en') set.add(l);
+  }
+  return SKILL_TRANSLATION_LANGS.filter((l: string) => set.has(l));
+}
+
+/** Computes available & missing platform languages for a game_skills row given its present translation lang codes. */
+export function skillCoverage(row: Pick<SkillRow, 'content' | 'description'> | null | undefined, trLangs: readonly string[]): { available: string[]; missing: string[] } {
+  if (!row || !row.content?.trim()) return { available: [], missing: [...SKILL_LANGS] };
+  const set = new Set(trLangs);
+  const available = ['en', ...SKILL_TRANSLATION_LANGS.filter((l: string) => set.has(l))];
+  const missing: string[] = [];
+  if (!checkSkillLanguage(row.content, 'en', row.description || '').ok) missing.push('en');
+  for (const l of SKILL_TRANSLATION_LANGS) if (!set.has(l)) missing.push(l);
+  return { available, missing };
+}
 
 /**
  * The skill that describes the live game: the one written for the live version, or (when the agent has not written one
@@ -105,8 +148,8 @@ function validateTranslationEntry(
 /**
  * Writes the skill (or one/more translations of it) for one version of the game (default: the newest deployed version,
  * the one about to be published). Base language is always English (`en`) and strictly rejects non-English text; other
- * platform languages (`zh`, `zh-TW`, `ja`, `ko`, `es`) can be written together via `translations` or one at a time via
- * `language`. Refuses code and anything too short to be useful, naming each line.
+ * platform languages (`zh`, `zh-TW`, `ja`, `ko`, `es`) are stored per-row in game_skill_i18n and can be written together
+ * via `translations` or one at a time via `language`. Refuses code and anything too short to be useful, naming each line.
  */
 export async function writeSkill(
   env: Env,
@@ -127,7 +170,6 @@ export async function writeSkill(
   }
 
   const existing = await skillFor(env, p.id, n);
-  const mergedI18n: Record<string, { description: string; content: string }> = parseSkillI18n(existing?.i18n);
   const t = now();
 
   // Case 1: writing a single non-English platform translation (language: "zh" | "zh-TW" | "ja" | "ko" | "es")
@@ -142,20 +184,21 @@ export async function writeSkill(
       );
     }
     const tr = validateTranslationEntry(lang, { content: a.content, description: a.description }, existing.content);
-    mergedI18n[lang] = tr;
-    const i18nJson = JSON.stringify(mergedI18n);
-    await env.DB.prepare('UPDATE game_skills SET i18n = ?, updated_at = ? WHERE project_id = ? AND version = ?')
-      .bind(i18nJson, t, p.id, n).run();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO game_skill_i18n (project_id, version, lang, description, content, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, version, lang) DO UPDATE SET description = excluded.description, content = excluded.content, updated_at = excluded.updated_at')
+        .bind(p.id, n, lang, tr.description, tr.content, t),
+      env.DB.prepare('UPDATE game_skills SET updated_at = ? WHERE project_id = ? AND version = ?').bind(t, p.id, n),
+    ]);
     await logEvent(env, p.id, 'skill_written', `Build skill translated to ${lang} (${headingsOf(tr.content).length} sections, ${tr.content.length} characters)`, n, actor);
-    const saved = { content: existing.content, description: existing.description, i18n: i18nJson };
+    const cov = skillCoverage(existing, await skillLangCodes(env, p.id, n, existing.i18n));
     return {
       version: n,
       language: lang,
       sections: headingsOf(tr.content),
       characters: tr.content.length,
       description: tr.description,
-      available_languages: availableSkillLangs(saved) as string[],
-      missing_languages: missingSkillLangs(saved) as string[],
+      available_languages: cov.available,
+      missing_languages: cov.missing,
     };
   }
 
@@ -183,7 +226,7 @@ export async function writeSkill(
     }
   }
 
-  const addedLangs: string[] = [];
+  const trEntries: [string, { description: string; content: string }][] = [];
   if (hasTranslations) {
     if (typeof a.translations !== 'object' || Array.isArray(a.translations)) {
       throw bad(`translations must be an object mapping platform languages (${SKILL_TRANSLATION_LANGS.join(', ')}) to {description, content}.`);
@@ -193,30 +236,43 @@ export async function writeSkill(
       if (!trLang || trLang === 'en') {
         throw bad(`Invalid translation language "${rawK}". Use platform translation codes: ${SKILL_TRANSLATION_LANGS.join(', ')}. (English goes in top-level content/description.)`);
       }
-      mergedI18n[trLang] = validateTranslationEntry(trLang, rawV, baseBody);
-      addedLangs.push(trLang);
+      trEntries.push([trLang, validateTranslationEntry(trLang, rawV, baseBody)]);
     }
   }
 
-  const i18nJson = JSON.stringify(mergedI18n);
-  await env.DB.prepare(
-    'INSERT INTO game_skills (project_id, version, description, content, i18n, written_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, version) DO UPDATE SET description = excluded.description, content = excluded.content, i18n = excluded.i18n, written_by = excluded.written_by, updated_at = excluded.updated_at',
-  ).bind(p.id, n, baseDesc, baseBody, i18nJson, actor.slice(0, 80), t, t).run();
+  const stmts: D1PreparedStatement[] = [];
+  if (hasContent) {
+    stmts.push(
+      env.DB.prepare(
+        'INSERT INTO game_skills (project_id, version, description, content, written_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, version) DO UPDATE SET description = excluded.description, content = excluded.content, written_by = excluded.written_by, updated_at = excluded.updated_at',
+      ).bind(p.id, n, baseDesc, baseBody, actor.slice(0, 80), t, t),
+    );
+  } else {
+    stmts.push(env.DB.prepare('UPDATE game_skills SET updated_at = ? WHERE project_id = ? AND version = ?').bind(t, p.id, n));
+  }
+  for (const [trLang, tr] of trEntries) {
+    stmts.push(
+      env.DB.prepare('INSERT INTO game_skill_i18n (project_id, version, lang, description, content, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, version, lang) DO UPDATE SET description = excluded.description, content = excluded.content, updated_at = excluded.updated_at')
+        .bind(p.id, n, trLang, tr.description, tr.content, t),
+    );
+  }
+  await env.DB.batch(stmts);
 
+  const addedLangs = trEntries.map(([l]) => l);
   const noteLangs = hasContent
     ? (addedLangs.length ? `en + ${addedLangs.join(', ')}` : 'en')
     : addedLangs.join(', ');
   await logEvent(env, p.id, 'skill_written', `Build skill written (${noteLangs}; ${headingsOf(baseBody).length} sections, ${baseBody.length} characters)`, n, actor);
 
-  const saved = { content: baseBody, description: baseDesc, i18n: i18nJson };
+  const cov = skillCoverage({ content: baseBody, description: baseDesc }, await skillLangCodes(env, p.id, n, existing?.i18n));
   return {
     version: n,
     language: 'en',
     sections: headingsOf(baseBody),
     characters: baseBody.length,
     description: baseDesc,
-    available_languages: availableSkillLangs(saved) as string[],
-    missing_languages: missingSkillLangs(saved) as string[],
+    available_languages: cov.available,
+    missing_languages: cov.missing,
   };
 }
 
@@ -235,7 +291,8 @@ export async function skillGate(env: Env, s: Pick<Settings, 'skill_required_to_p
   if (!enCheck.ok) {
     return `Version ${n}'s base build skill must be written in English only (no other languages). Rewrite it in English and provide translations for ${SKILL_TRANSLATION_LANGS.join(', ')}.`;
   }
-  const missing = (missingSkillLangs(row) as string[]).filter((l) => l !== 'en');
+  const cov = skillCoverage(row, await skillLangCodes(env, p.id, n, row.i18n));
+  const missing = cov.missing.filter((l) => l !== 'en');
   if (missing.length) {
     const named = missing.map((l) => `${l} (${langNameOf(l)})`).join(', ');
     return `Version ${n}'s build skill is in English, but is missing translations for platform languages: ${named}. Call build_skill {action: "write", version: ${n}, language: "<lang>", description, content} for each missing language.`;
@@ -269,15 +326,15 @@ async function access(env: Env, user: User | null, p: Project): Promise<{ can: b
 
 const STORE_SELECT = "SELECT p.*, u.name AS author, s.version AS s_version, s.description AS s_description, s.content AS s_content, s.i18n AS s_i18n, s.written_by AS s_by, s.updated_at AS s_updated FROM projects p JOIN users u ON u.id = p.owner_id LEFT JOIN game_skills s ON s.project_id = p.id AND s.version = (SELECT MAX(version) FROM game_skills x WHERE x.project_id = p.id AND x.version <= p.live_version) WHERE p.status = 'live' AND p.open_implementation = 1";
 
-function entry(origin: string, r: any, owned: boolean) {
+function entry(origin: string, r: any, owned: boolean, trMap?: Record<string, { description: string; content: string }>) {
   const generated = !r.s_version, version = r.s_version || r.live_version;
-  const trMap = generated ? {} : skillI18nOf(r.s_i18n);
+  const resolved = generated ? {} : (trMap ?? skillI18nOf(r.s_i18n));
   const skillI18n: Record<string, { description: string; sections: string[]; characters: number }> = {};
   for (const l of SKILL_TRANSLATION_LANGS) {
-    const tr = trMap[l];
+    const tr = resolved[l];
     if (tr?.content) skillI18n[l] = { description: tr.description || '', sections: headingsOf(tr.content), characters: tr.content.length };
   }
-  const languages = generated ? ['en'] : (availableSkillLangs({ content: r.s_content, i18n: trMap }) as string[]);
+  const languages = generated ? ['en'] : ['en', ...SKILL_TRANSLATION_LANGS.filter((l: string) => !!resolved[l]?.content)];
   return {
     game: { id: r.id, slug: r.slug, title: r.title, tagline: r.tagline, by: r.author, tags: parseJson<string[]>(r.tags, []), cover: r.cover_key ? `${origin}/api/media/${r.cover_key}` : null, ...listingLangs(r, ['title', 'tagline'], (k) => `${origin}/api/media/${k}`), game_page: `${origin}/g/${r.slug}`, plays: r.plays, live_version: r.live_version, price_cents: r.price_cents },
     skill: {
@@ -291,27 +348,54 @@ function entry(origin: string, r: any, owned: boolean) {
   };
 }
 
+/** Batch-loads translations from game_skill_i18n for a set of (project_id, version) pairs. */
+async function loadTranslationsBatch(env: Env, rows: { id: string; s_version: number | null; s_i18n?: string | null }[]): Promise<Map<string, Record<string, { description: string; content: string }>>> {
+  const out = new Map<string, Record<string, { description: string; content: string }>>();
+  const targets = rows.filter((r) => r.s_version != null);
+  for (const r of targets) out.set(`${r.id}:${r.s_version}`, skillI18nOf(r.s_i18n));
+  if (!targets.length) return out;
+  const pids = [...new Set(targets.map((r) => r.id))];
+  const trRows = await env.DB.prepare('SELECT project_id, version, lang, description, content FROM game_skill_i18n WHERE project_id IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify(pids)).all<SkillTrRow>();
+  for (const tr of trRows.results) {
+    const key = `${tr.project_id}:${tr.version}`;
+    const map = out.get(key);
+    const l = normalizeSkillLang(tr.lang);
+    if (map && l && l !== 'en' && tr.content?.trim()) map[l] = { description: tr.description || '', content: tr.content };
+  }
+  return out;
+}
+
 /** The Creator Store: every shared skill, listed under its game. Paid skills that have no written skill are left out. */
 export async function storeList(env: Env, origin: string, user: User | null, q: { query?: string; price?: string; sort?: string; limit?: number; offset?: number }) {
   const words = String(q.query || '').toLowerCase().split(/[^\p{L}\p{N}.+-]+/u).filter((w) => w.length > 1).slice(0, 8);
-  const rows = (await env.DB.prepare(`${STORE_SELECT} ORDER BY p.plays DESC LIMIT 5000`).all<any>()).results
+  let rows = (await env.DB.prepare(`${STORE_SELECT} ORDER BY p.plays DESC LIMIT 5000`).all<any>()).results
     .filter((r) => r.s_version || !(Number(r.skill_price_cents) > 0))
-    .filter((r) => q.price === 'free' ? !(Number(r.skill_price_cents) > 0) : q.price === 'paid' ? Number(r.skill_price_cents) > 0 : true)
-    .filter((r) => {
-      if (!words.length) return true;
-      const trs = skillI18nOf(r.s_i18n);
+    .filter((r) => q.price === 'free' ? !(Number(r.skill_price_cents) > 0) : q.price === 'paid' ? Number(r.skill_price_cents) > 0 : true);
+
+  let trBatch: Map<string, Record<string, { description: string; content: string }>> | null = null;
+  if (words.length) {
+    trBatch = await loadTranslationsBatch(env, rows);
+    rows = rows.filter((r) => {
+      const trs = r.s_version != null ? (trBatch!.get(`${r.id}:${r.s_version}`) || {}) : {};
       const trText = Object.values(trs).map((t) => `${t.description || ''} ${headingsOf(t.content).join(' ')}`).join(' ');
       const listingTr = parseJson<Record<string, { title?: string; tagline?: string }>>(r.listing_i18n || '{}', {});
       const listingText = Object.values(listingTr).map((l) => `${l.title || ''} ${l.tagline || ''}`).join(' ');
       const hay = `${r.title} ${r.tagline} ${r.tags} ${r.author} ${r.s_description || ''} ${headingsOf(r.s_content).join(' ')} ${trText} ${listingText}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
+  }
   if (q.sort === 'new') rows.sort((a, b) => (b.s_updated || b.published_at || 0) - (a.s_updated || a.published_at || 0));
   else if (q.sort === 'sales') rows.sort((a, b) => (b.skill_sales + b.skill_copies) - (a.skill_sales + a.skill_copies));
   const bought = user ? new Set((await env.DB.prepare("SELECT project_id FROM skill_purchases WHERE user_id = ? AND status = 'paid'").bind(user.id).all<{ project_id: string }>()).results.map((x) => x.project_id)) : new Set<string>();
   const limit = Math.max(1, Math.min(100, Math.round(Number(q.limit) || 24))), offset = Math.max(0, Math.round(Number(q.offset) || 0));
   const page = Math.floor(offset / limit) + 1;
-  return { total: rows.length, page, per_page: limit, pages: Math.max(1, Math.ceil(rows.length / limit)), skills: rows.slice(offset, offset + limit).map((r) => entry(origin, r, bought.has(r.id) || r.owner_id === user?.id)) };
+  const slice = rows.slice(offset, offset + limit);
+  if (!trBatch) trBatch = await loadTranslationsBatch(env, slice);
+  return {
+    total: rows.length, page, per_page: limit, pages: Math.max(1, Math.ceil(rows.length / limit)),
+    skills: slice.map((r) => entry(origin, r, bought.has(r.id) || r.owner_id === user?.id, r.s_version != null ? trBatch!.get(`${r.id}:${r.s_version}`) : undefined)),
+  };
 }
 
 /** One game's skill: its listing, and its full content and SKILL.md in the requested platform language (default English). */
@@ -324,7 +408,7 @@ export async function storeItem(env: Env, origin: string, user: User | null, slu
   const a = await access(env, user, p), s = await getSettings(env);
   if (count && user?.id !== p.owner_id) await env.DB.prepare('UPDATE projects SET skill_views = skill_views + 1 WHERE id = ?').bind(p.id).run();
   const wantedLang = normalizeSkillLang(reqLang) || 'en';
-  const trMap = live.generated ? {} : skillI18nOf(live.row.i18n);
+  const trMap = live.generated ? {} : await skillTranslations(env, p.id, live.row.version, live.row.i18n);
   const tr = wantedLang !== 'en' ? trMap[wantedLang] : null;
   const activeLang = tr ? wantedLang : 'en';
   const activeBody = tr ? tr.content : live.row.content;
@@ -333,7 +417,7 @@ export async function storeItem(env: Env, origin: string, user: User | null, slu
   const localTitle = (activeLang !== 'en' && listingTr[activeLang]?.title) || (activeLang === 'en' && listingTr.en?.title) || p.title;
   const localTagline = (activeLang !== 'en' && listingTr[activeLang]?.tagline) || (activeLang === 'en' && listingTr.en?.tagline) || p.tagline;
 
-  const base = entry(origin, { ...p, author, s_version: live.generated ? null : live.row.version, s_description: live.row.description, s_content: live.row.content, s_i18n: live.row.i18n, s_updated: live.row.updated_at }, a.why === 'bought' || a.why === 'yours');
+  const base = entry(origin, { ...p, author, s_version: live.generated ? null : live.row.version, s_description: live.row.description, s_content: live.row.content, s_i18n: live.row.i18n, s_updated: live.row.updated_at }, a.why === 'bought' || a.why === 'yours', trMap);
   const md = a.can ? skillMarkdown({ title: localTitle, slug: p.slug, by: author, version: live.row.version, description: activeDesc || localTagline, body: activeBody, origin, facts: await factsOf(env, p), lang: activeLang }) : null;
   return {
     ...base,
@@ -373,25 +457,30 @@ export async function skillForAgent(env: Env, origin: string, p: Project, versio
   const [row, live] = await Promise.all([target ? skillFor(env, p.id, target) : null, liveSkill(env, p)]);
   const newest = await env.DB.prepare('SELECT * FROM game_skills WHERE project_id = ? ORDER BY version DESC LIMIT 1').bind(p.id).first<SkillRow>();
   const refRow = row || newest;
-  const refI18n = skillI18nOf(refRow?.i18n);
-  const avail = row ? (availableSkillLangs(row) as string[]) : [];
-  const missing = row ? (missingSkillLangs(row) as string[]) : [...SKILL_LANGS];
+  const [refTrLangs, liveTrLangs, requestedTr] = await Promise.all([
+    refRow ? skillLangCodes(env, p.id, refRow.version, refRow.i18n) : Promise.resolve([] as string[]),
+    live && !live.generated ? skillLangCodes(env, p.id, live.row.version, live.row.i18n) : Promise.resolve([] as string[]),
+    refRow && reqLang && reqLang !== 'en'
+      ? skillTranslations(env, p.id, refRow.version, refRow.i18n).then((m) => m[reqLang] || null)
+      : Promise.resolve(null),
+  ]);
+  const cov = row ? skillCoverage(row, refTrLangs) : { available: [], missing: [...SKILL_LANGS] };
   return {
     game: p.slug, live_version: p.live_version, newest_version: p.preview_version, shared: !!p.open_implementation,
     price: p.skill_price_cents > 0 ? usd(p.skill_price_cents) : 'free',
     platform_languages: SKILL_LANGS,
     for_version: target ?? null, written_for_this_version: !!row,
-    available_languages: avail,
-    missing_languages: missing,
+    available_languages: cov.available,
+    missing_languages: cov.missing,
     skill: row
-      ? { version: row.version, language: 'en', description: row.description, content: row.content, translated_languages: Object.keys(refI18n) }
+      ? { version: row.version, language: 'en', description: row.description, content: row.content, translated_languages: refTrLangs }
       : newest
-        ? { version: newest.version, language: 'en', description: newest.description, content: newest.content, translated_languages: Object.keys(refI18n), note: `This is the skill written for version ${newest.version}. Update it for version ${target} in English first, then write translations for ${SKILL_TRANSLATION_LANGS.join(', ')}.` }
+        ? { version: newest.version, language: 'en', description: newest.description, content: newest.content, translated_languages: refTrLangs, note: `This is the skill written for version ${newest.version}. Update it for version ${target} in English first, then write translations for ${SKILL_TRANSLATION_LANGS.join(', ')}.` }
         : null,
-    ...(reqLang && reqLang !== 'en' ? { translation: refI18n[reqLang] ? { version: refRow!.version, language: reqLang, ...refI18n[reqLang] } : null } : {}),
-    live: live ? { version: live.row.version, in_sync: live.current, written_by_platform: live.generated, languages: live.generated ? ['en'] : availableSkillLangs(live.row) } : null,
+    ...(reqLang && reqLang !== 'en' ? { translation: requestedTr ? { version: refRow!.version, language: reqLang, ...requestedTr } : null } : {}),
+    live: live ? { version: live.row.version, in_sync: live.current, written_by_platform: live.generated, languages: live.generated ? ['en'] : skillCoverage(live.row, liveTrLangs).available } : null,
     publishing: p.open_implementation && s.skill_required_to_publish
-      ? `While the skill is shared, publish requires version ${target} to have an English-only base skill plus translations for all other platform languages (${SKILL_TRANSLATION_LANGS.join(', ')}).${missing.length ? ` Still needed for v${target}: ${missing.join(', ')}.` : ''}`
+      ? `While the skill is shared, publish requires version ${target} to have an English-only base skill plus translations for all other platform languages (${SKILL_TRANSLATION_LANGS.join(', ')}).${cov.missing.length ? ` Still needed for v${target}: ${cov.missing.join(', ')}.` : ''}`
       : 'Not shared: publishing does not wait for the skill, but keeping it current in English and all platform languages means it is ready when the user shares it.',
     how_to_write: {
       format: 'Markdown. Write the canonical base skill in English ONLY (language: "en", default): a one-line description plus a body organised under level-two headings (##). Then translate it faithfully into all other platform languages (zh, zh-TW, ja, ko, es), either one call per language with build_skill {action: "write", version, language, description, content} (recommended for long skills) or together in translations. The platform adds the front matter (name, description), title, origin and measured facts.',

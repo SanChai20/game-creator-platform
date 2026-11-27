@@ -15,7 +15,7 @@ import { devMailOn, devOutbox, testMailbox } from '../mail';
 import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
 import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
 import { gameRefundState, purchaseHistory, requestRefund, stripePay } from '../refunds';
-import { availableSkillLangs, liveSkill, missingSkillLangs, setSkillPrice, skillCopied, skillSalesOf, storeItem, storeList } from '../skills';
+import { liveSkill, setSkillPrice, skillCopied, skillCoverage, skillLangCodes, skillSalesOf, storeItem, storeList } from '../skills';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
@@ -1438,19 +1438,30 @@ api.get('/console/projects/:id', async (c) => {
     db.prepare('SELECT COUNT(*) AS n FROM events WHERE project_id = ?').bind(p.id).first<{ n: number }>(),
     db.prepare('SELECT COUNT(*) AS n FROM client_errors WHERE project_id = ?').bind(p.id).first<{ n: number }>(),
   ]);
-  const [skillSales, skillRows] = await Promise.all([
+  const [skillSales, skillRows, skillTrLangs] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
     db.prepare('SELECT version, description, content, i18n, written_by, updated_at, LENGTH(content) AS characters FROM game_skills WHERE project_id = ? ORDER BY version DESC LIMIT 10').bind(p.id).all<any>(),
+    db.prepare('SELECT version, lang FROM game_skill_i18n WHERE project_id = ?').bind(p.id).all<{ version: number; lang: string }>(),
   ]);
   const s = await getSettings(c.env), trials = await trialStats(c.env, p.id);
   // The newest version's store-page metadata: what publishing still needs (field ids), and the age rating it works out to.
   const newest = versions.results[0], vm = newest ? await ensureVersionMeta(c.env, newest).catch(() => null) : null;
   const metadata = newest ? { version: newest.n, required: s.metadata_required, missing: missingToPublish(vm?.meta, !!vm?.compat?.declared, JSON.parse(p.tags || '[]')).map((m) => m.split(' ')[0]), age: vm?.meta?.rating?.age ?? null, declared: vm?.meta?.declared ?? [] } : null;
-  const skillVersions = skillRows.results.map((r) => ({
-    version: r.version, description: r.description, written_by: r.written_by, updated_at: r.updated_at, characters: r.characters,
-    languages: availableSkillLangs(r), missing_languages: missingSkillLangs(r),
-  }));
+  const langsByVer = new Map<number, string[]>();
+  for (const r of skillTrLangs.results) {
+    const arr = langsByVer.get(r.version) || [];
+    arr.push(r.lang);
+    langsByVer.set(r.version, arr);
+  }
+  const skillVersions = skillRows.results.map((r) => {
+    const cov = skillCoverage(r, langsByVer.get(r.version) || []);
+    return {
+      version: r.version, description: r.description, written_by: r.written_by, updated_at: r.updated_at, characters: r.characters,
+      languages: cov.available, missing_languages: cov.missing,
+    };
+  });
   const liveSk = await liveSkill(c.env, p).catch(() => null);
+  const liveCov = liveSk && !liveSk.generated ? skillCoverage(liveSk.row, await skillLangCodes(c.env, p.id, liveSk.row.version, liveSk.row.i18n)) : null;
   return c.json({
     metadata,
     // the New shelf, hiding by reports and the weekly cap on new games (src/store-quality.ts)
@@ -1470,7 +1481,7 @@ api.get('/console/projects/:id', async (c) => {
     skill: {
       shared: !!p.open_implementation, price_cents: p.skill_price_cents || 0, sales: skillSales, copies: p.skill_copies, views: p.skill_views,
       split: p.skill_price_cents > 0 ? splitSkillSale(p.skill_price_cents, s) : null, versions: skillVersions,
-      live: liveSk && { version: liveSk.row.version, in_sync: liveSk.current, written_by_platform: liveSk.generated, languages: liveSk.generated ? ['en'] : availableSkillLangs(liveSk.row), missing_languages: liveSk.generated ? [] : missingSkillLangs(liveSk.row) },
+      live: liveSk && { version: liveSk.row.version, in_sync: liveSk.current, written_by_platform: liveSk.generated, languages: liveCov ? liveCov.available : ['en'], missing_languages: liveCov ? liveCov.missing : [] },
       newest_version: p.preview_version, required_to_publish: !!s.skill_required_to_publish,
     },
     trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },
