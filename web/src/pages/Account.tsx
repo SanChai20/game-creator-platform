@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import qrcode from 'qrcode-generator';
 import { announceAuth } from '../account-sync';
 import { ago, api, ApiError, navigate, t, useApp, useData } from '../lib';
@@ -81,16 +81,26 @@ const SECTIONS = [
   ['delete', () => t('Delete account', '删除账户')],
 ] as const;
 
-/** Follows which section is on screen, for the side menu. */
+/** Follows which section is on screen, for the side menu. Reads the DOM on scroll, so it works even though the sections mount after the data loads. */
 function useSpy(ids: readonly string[]) {
-  const [on, setOn] = useState(ids[0]);
+  const [on, setOn0] = useState(ids[0]);
+  const lock = useRef(0);
+  const setOn = (id: string) => { lock.current = Date.now() + 700; setOn0(id); };
   useEffect(() => {
-    if (typeof IntersectionObserver !== 'function') return;
-    const io = new IntersectionObserver((es) => { const v = es.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]; if (v) setOn(v.target.id.replace('acct-', '')); }, { rootMargin: '-15% 0px -70% 0px' });
-    ids.forEach((id) => { const el = document.getElementById('acct-' + id); if (el) io.observe(el); });
-    return () => io.disconnect();
+    const pick = () => {
+      if (Date.now() < lock.current) return;
+      const line = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--nav-h')) || 64) + 60;
+      let cur = ids[0];
+      for (const id of ids) { const el = document.getElementById('acct-' + id); if (el && el.getBoundingClientRect().top <= line) cur = id; }
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) cur = ids[ids.length - 1];
+      setOn0(cur);
+    };
+    pick();
+    window.addEventListener('scroll', pick, { passive: true });
+    window.addEventListener('resize', pick);
+    return () => { window.removeEventListener('scroll', pick); window.removeEventListener('resize', pick); };
   }, [ids]);
-  return on;
+  return [on, setOn] as const;
 }
 
 function Section({ id, title, sub, children }: { id: string; title: ReactNode; sub?: ReactNode; children: ReactNode }) {
@@ -101,7 +111,7 @@ function Section({ id, title, sub, children }: { id: string; title: ReactNode; s
 export function Account() {
   const { user } = useApp(), { data, reload } = useData<AccountData>('/account');
   const gate = useConfirmGate(!!data?.passkeys.length, reload);
-  const on = useSpy(useMemo(() => SECTIONS.map(([id]) => id), []));
+  const [on, setOn] = useSpy(useMemo(() => SECTIONS.map(([id]) => id), []));
   if (!user || !data) return <PageSkeleton />;
   const tfa = data.two_factor.enabled, keys = data.passkeys.length;
   const level = tfa && keys ? 3 : tfa || keys ? 2 : 1;
@@ -122,7 +132,7 @@ export function Account() {
       </header>
       <div className="acct-grid">
         <nav className="acct-nav" aria-label={t('Account sections', '账户版块')}>
-          {SECTIONS.map(([id, label]) => <a key={id} href={'#acct-' + id} className={on === id ? 'on' : ''} onClick={(e) => { e.preventDefault(); document.getElementById('acct-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label()}</a>)}
+          {SECTIONS.map(([id, label]) => <a key={id} href={'#acct-' + id} className={on === id ? 'on' : ''} onClick={(e) => { e.preventDefault(); setOn(id); history.replaceState(null, '', '#acct-' + id); document.getElementById('acct-' + id)?.scrollIntoView(); }}>{label()}</a>)}
         </nav>
         <div className="acct-main">
           <Section id="security" title={t('Sign-in and security', '登录与安全')} sub={t('There are no passwords. You sign in with a code we email you, or with a passkey.', '账户没有密码。你可以使用我们通过邮件发送的验证码登录，或使用通行密钥登录。')}>

@@ -281,7 +281,7 @@
 .auth-terms a:hover { color: var(--text); text-decoration-color: currentColor; }
 .auth-card { width: min(420px, 100%); display: grid; gap: 18px; align-content: center; justify-self: center; align-self: center; }
 .auth-card h1 { font: 800 var(--fs-4xl)/.94 var(--font-display); font-stretch: 78%; letter-spacing: -.02em; text-transform: uppercase; }
-.auth-card.wide { width: min(540px, 100%); padding: clamp(22px, 4vw, 38px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); box-shadow: var(--shadow-1); }
+.auth-card.wide { width: min(760px, 100%); padding: clamp(22px, 4vw, 38px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); box-shadow: var(--shadow-1); }
 .auth-card.wide h1 { font-size: var(--fs-3xl); line-height: 1.04; }
 .switch-line { text-align: center; }
 .auth-alt { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; }
