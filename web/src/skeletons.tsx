@@ -126,6 +126,7 @@ export function RouteSkeleton({ path }: { path: string }) {
   if (path === '/queue') return <div className="wrap page queue"><div className="browse-h"><Sk w={160} /><Sk kind="big" w="min(460px, 80%)" h={56} /></div><QueueSkeleton /></div>;
   if (path === '/console') return <ConsoleSkeleton />;
   if (path === '/console/earnings') return <EarningsSkeleton />;
+  if (path === '/console/workbench') return <div className="wrap page"><SkHeader tabs={3} /><SkRows n={4} /></div>;
   if (path.endsWith('/analytics')) return <AnalyticsSkeleton />;
   if (path.startsWith('/console/')) return <ProjectSkeleton />;
   if (path.startsWith('/admin')) return <div className="wrap page"><SkHeader tabs={5} /><AdminSkeleton tab="overview" /></div>;

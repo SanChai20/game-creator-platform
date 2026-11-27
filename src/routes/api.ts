@@ -1747,6 +1747,8 @@ api.get('/console/agents', async (c) => {
     if (!res.cursor) break;
     cursor = res.cursor;
   }
+  // the workbench's own grants (one per running bridge, src/acp.ts) are listed on the workbench, not here
+  for (let i = allGrants.length - 1; i >= 0; i--) if ((allGrants[i] as any).metadata?.via === 'workbench') allGrants.splice(i, 1);
   allGrants.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0));
   const slice = allGrants.slice(pg.offset, pg.offset + pg.limit);
   // Batch-resolve any project IDs stored in grant metadata for display in the console.

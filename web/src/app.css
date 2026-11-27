@@ -481,3 +481,16 @@ html.app .nav { padding-top: env(safe-area-inset-top, 0px); }
   .savebar { bottom: calc(56px + env(safe-area-inset-bottom)); }
   .sbar { padding-top: 10px; }
 }
+
+/* ---- MCP or ACP: the two ways to work with an agent (web/src/pages/Creators.tsx ConnectChoice) ---- */
+.way-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.way-pick button { display: grid; align-content: start; gap: 4px; padding: 14px 14px 13px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--text); text-align: left; cursor: pointer; transition: border-color var(--dur-fast), background var(--dur-fast); }
+.way-pick button:hover { border-color: var(--line-3); }
+.way-pick button.on { border-color: var(--accent); background: rgb(var(--accent-rgb) / .06); box-shadow: inset 0 3px 0 var(--accent); }
+.way-pick b { font-size: var(--fs-sm); line-height: 1.3; }
+.way-pick button > span:last-child { color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.way-tag { display: inline-flex; align-items: center; justify-self: start; height: 20px; padding: 0 8px; color: var(--paper); background: var(--text); font: 800 11px/1 var(--font-display); letter-spacing: .1em; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.way-pick button.on .way-tag { background: var(--accent); color: var(--on-accent); }
+.ways { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .ways { grid-template-columns: 1fr; } }
+@media (max-width: 420px) { .way-pick { grid-template-columns: 1fr; } }

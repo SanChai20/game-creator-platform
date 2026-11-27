@@ -28,6 +28,7 @@ import { License, LicenseGate } from './pages/License';
 import { Project } from './pages/Project';
 import { Analytics } from './pages/Analytics';
 import { Earnings } from './pages/Earnings';
+import { Workbench } from './pages/Workbench';
 import { Admin } from './pages/Admin';
 import { Device } from './pages/Device';
 import { Docs } from './pages/Docs';
@@ -287,6 +288,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path.startsWith('/console') && !user!.creator) return <LicenseGate />;
   if (path === '/console') return <Console />;
   if (path === '/console/earnings') return <Earnings />;
+  if (path === '/console/workbench') return <Workbench />;
   if ((m = path.match(/^\/console\/(?:p|projects)\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
   if ((m = path.match(/^\/console\/p\/([^/]+)\/analytics$/))) return <Analytics key={m[1]} id={m[1]} />;
   if (path === '/claim-admin') return <ClaimAdmin />;

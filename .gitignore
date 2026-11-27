@@ -16,3 +16,4 @@ wrangler.loadtest.jsonc
 scripts/load/tokens.json
 e2e-local/
 scripts/load/clock-tokens.json
+web/public/acp/
