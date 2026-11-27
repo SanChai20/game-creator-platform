@@ -82,7 +82,9 @@ function BuildSkill({ id, p, skill, reload }: { id: string; p: any; skill: any; 
   const { busy, act } = useAct(), [priceText, setPriceText] = useState<string | null>(null), s = useApp().config.settings;
   const cut = Number(s.platform_fee_percent), openCut = Number(s.platform_fee_open_percent ?? cut), skillCut = Number(s.skill_fee_percent ?? 5);
   const on = !!p.open_implementation, paidSkill = skill.price_cents > 0;
-  const newestHas = !!skill.versions?.some((v: any) => v.version === skill.newest_version);
+  const newestRow = skill.versions?.find((v: any) => v.version === skill.newest_version);
+  const newestHas = !!newestRow;
+  const newestMissing: string[] = newestRow ? (newestRow.missing_languages || []) : [];
   const perk = paidSkill
     ? t('A sold skill: this game keeps the standard {cut}% cut on its own sales, and the platform keeps {skill}% of each skill sale.', '付费技能：这款游戏自身销售按标准 {cut}% 收取，平台另从每笔技能销售中收取 {skill}%。', { cut, skill: skillCut })
     : p.price_cents > 0
@@ -105,12 +107,14 @@ function BuildSkill({ id, p, skill, reload }: { id: string; p: any; skill: any; 
         <p className="mute fs-sm">{t('Your agent writes this game\'s build skill: how it is made, as an agent skill other developers\' agents can follow to build something similar. No source code is ever shared. Your agent updates it before each release, so it always matches the live game.', '你的智能体会为这款游戏编写构建技能：以智能体技能的形式说明它是如何做出来的，其他开发者的智能体可以按此做出类似的游戏。源代码永远不会被分享。智能体会在每次发布前更新它，使其始终与线上游戏一致。')}</p>
         {perk && <p className={on ? 'good fs-sm' : 'fs-sm'}>{perk}</p>}
         <KeyValue items={[
-          [t('Live skill', '线上技能'), !live ? <span className="dim">{t('Not written yet', '尚未编写')}</span> : live.written_by_platform ? <span className="sig">{t('Not written by your agent yet', '你的智能体尚未编写')}</span> : <span className={live.in_sync ? undefined : 'sig'}>v{live.version} · {live.in_sync ? t('matches the live game', '与线上游戏一致') : t('behind the live game', '落后于线上游戏')}</span>],
-          skill.newest_version && [t('Newest version', '最新版本'), <span className={newestHas ? undefined : 'sig'}>v{skill.newest_version} · {newestHas ? t('skill written', '技能已编写') : t('no skill yet', '尚无技能')}</span>],
+          [t('Live skill', '线上技能'), !live ? <span className="dim">{t('Not written yet', '尚未编写')}</span> : live.written_by_platform ? <span className="sig">{t('Not written by your agent yet', '你的智能体尚未编写')}</span> : <span className={live.in_sync ? undefined : 'sig'}>v{live.version} · {live.in_sync ? t('matches the live game', '与线上游戏一致') : t('behind the live game', '落后于线上游戏')}{live.languages?.length ? ` (${live.languages.join(', ')})` : ''}</span>],
+          skill.newest_version && [t('Newest version', '最新版本'), <span className={newestHas && !newestMissing.length ? undefined : 'sig'}>v{skill.newest_version} · {!newestHas ? t('no skill yet', '尚无技能') : newestMissing.length ? t('missing languages: {langs}', '缺少语言：{langs}', { langs: newestMissing.join(', ') }) : t('skill written', '技能已编写')}</span>],
           on && [t('Copies', '复制次数'), num(skill.copies)],
           on && paidSkill && [t('Skill sales', '技能销量'), `${num(skill.sales?.n || 0)} · ${usd(skill.sales?.net || 0)}`],
         ]} />
-        {on && skill.required_to_publish && skill.newest_version && !newestHas && skill.newest_version !== p.live_version && <Notice tone="info">{t('Before version {n} can go live, ask your agent to update the build skill for it (build_skill). Publishing waits for it while the skill is shared.', '第 {n} 版上线前，请让你的智能体为它更新构建技能（build_skill）。技能分享期间，发布会等待技能就绪。', { n: skill.newest_version })}</Notice>}
+        {on && skill.required_to_publish && skill.newest_version && (!newestHas || newestMissing.length > 0) && skill.newest_version !== p.live_version && <Notice tone="info">{!newestHas
+          ? t('Before version {n} can go live, ask your agent to update the build skill for it (build_skill). Publishing waits for it while the skill is shared.', '第 {n} 版上线前，请让你的智能体为它更新构建技能（build_skill）。技能分享期间，发布会等待技能就绪。', { n: skill.newest_version })
+          : t('Before version {n} can go live, ask your agent to finish the missing build skill languages ({langs}) via build_skill.', '第 {n} 版上线前，请让你的智能体通过 build_skill 补齐构建技能缺失的语言（{langs}）。', { n: skill.newest_version, langs: newestMissing.join(', ') })}</Notice>}
         <div className="stack s">
           <b className="fs-sm">{t('Skill price', '技能价格')}</b>
           {priceText === null ? (

@@ -142,33 +142,167 @@ test('skill sales are their own: own table, own counter, own ledger kind; refund
   assert.equal(project(env).skill_sales, 1);
 });
 
-test('writing a skill: refused with code, saved per version, and the publish gate holds a shared game to it', async () => {
+const GOOD_ZH = `## 核心循环与玩法
+这是一款俯视视角的草地竞技场生存游戏：玩家操控一名小英雄在草地上移动，成群的怪物会从四周不断逼近。所有武器都会自动开火，因此玩家只需要专注于走位与拉扯；每次升级都会弹出三张强化卡牌供选择。整局节奏大约十二分钟，最后以首领战收尾。
+
+## 整体架构
+逻辑模拟固定以每秒三十步运行，与画面渲染彻底分离，渲染层在最近两步状态之间做插值。模块按职责拆分为世界、模拟、画面、界面和音频五个部分，开发时先用简单几何体把模拟跑顺，再叠加美术表现。
+
+## 渲染与美术
+所有画面都通过 WebGL 程序化几何体绘制，不依赖外部贴图。一盏带柔影的方向光配合温暖雾效构成整体氛围，首帧绘制完成后调用 \`GCP.ready()\` 通知平台。
+
+## 常见坑点
+一次性刷出上百只怪物会让手机掉帧，因此改为跨帧分批刷怪，屏幕外较远的怪物隔帧更新。`;
+
+const GOOD_ZH_TW = `## 核心迴圈與玩法
+這是一款俯視視角的草地競技場生存遊戲：玩家操控一名小英雄在草地上移動，成群的怪物會從四周不斷逼近。所有武器都會自動開火，因此玩家只需要專注於走位與拉扯；每次升級都會彈出三張強化卡牌供選擇。整局節奏大約十二分鐘，最後以首領戰收尾。
+
+## 整體架構
+邏輯模擬固定以每秒三十步運行，與畫面算繪徹底分離，算繪層在最近兩步狀態之間做插值。模組按職責拆分為世界、模擬、畫面、介面和音訊五個部分，開發時先用簡單幾何體把模擬跑順，再疊加美術表現。
+
+## 算繪與美術
+所有畫面都透過 WebGL 程式化幾何體繪製，不依賴外部貼圖。一盞帶柔影的方向光配合溫暖霧效構成整體氛圍，首幀繪製完成後呼叫 \`GCP.ready()\` 通知平台。
+
+## 常見坑點
+一次性刷出上百隻怪物會讓手機掉幀，因此改為跨幀分批刷怪，螢幕外較遠的怪物隔幀更新。`;
+
+const GOOD_JA = `## コアループと概要
+見下ろし視点の草原アリーナ型サバイバルゲームです。プレイヤーは小さなヒーローを操作して草原を動き回り、周囲から迫り来るモンスターの波を生き抜きます。武器はすべて自動で発射されるため、操作は移動に集中できます。レベルアップごとに三枚の強化カードから一枚を選び、約十二分のプレイの最後にボス戦を迎えます。
+
+## アーキテクチャ
+シミュレーションは毎秒三十ステップの固定更新で動作し、描画とは明確に分離しています。描画側は直近二ステップの間を補間します。世界、シミュレーション、描画、インターフェース、オーディオの五つにモジュールを分け、まず単純な図形でシミュレーションを完成させてから見た目を整えます。
+
+## レンダリングとアート
+すべての要素は外部画像を使わず WebGL のプロシージャルな形状で描画します。柔らかい影を落とす平行光源と温かいフォグで雰囲気を作り、最初のフレームを描画したら \`GCP.ready()\` を呼びます。
+
+## 落とし穴
+数百体の敵を一度に生成するとスマートフォンで処理落ちするため、複数フレームに分散して生成し、画面外の遠い敵は隔フレームで更新します。`;
+
+const GOOD_KO = `## 핵심 루프와 개요
+탑다운 시점의 초원 아레나 생존 게임입니다. 플레이어는 작은 영웅을 움직이며 사방에서 몰려드는 괴물 무리를 버텨냅니다. 모든 무기가 자동으로 발사되므로 이동과 회피에만 집중하면 되며, 레벨업마다 세 장의 강화 카드 중 하나를 선택합니다. 한 판은 약 십이 분 정도 이어지며 마지막 보스전으로 마무리됩니다.
+
+## 아키텍처
+시뮬레이션은 초당 삼십 스텝 고정 주기로 실행되며 렌더링과 완전히 분리되어 있습니다. 렌더링은 직전 두 스텝 사이를 보간해 부드럽게 그립니다. 월드, 시뮬레이션, 화면, 인터페이스, 오디오로 모듈을 나누고, 단순한 도형으로 시뮬레이션을 먼저 완성한 뒤 시각 요소를 입힙니다.
+
+## 렌더링과 아트
+외부 이미지 없이 WebGL 절차적 도형만으로 모든 장면을 그립니다. 부드러운 그림자를 만드는 방향광과 따뜻한 안개로 분위기를 완성하고, 첫 프레임이 그려지면 \`GCP.ready()\`를 호출합니다.
+
+## 주의할 점
+몬스터 수백 마리를 한꺼번에 생성하면 모바일에서 프레임이 떨어지므로 여러 프레임에 걸쳐 나누어 생성하고, 화면 밖 먼 적은 격프레임으로 갱신합니다.`;
+
+const GOOD_ES = `## Qué estás construyendo
+Un juego de supervivencia en arena con vista cenital: el jugador mueve a un héroe por una pradera mientras oleadas de criaturas se acercan desde todos los lados. Las armas disparan solas, así que la única entrada es el movimiento, y cada subida de nivel ofrece tres cartas de mejora. Una partida dura unos doce minutos y termina con un jefe final.
+
+## Arquitectura
+La simulación corre a treinta pasos fijos por segundo y se mantiene separada del dibujo, que interpola entre los dos últimos pasos. Cada módulo tiene una responsabilidad clara: el mundo, la simulación, la vista, la interfaz y el audio. Construye primero la simulación con formas simples y luego añade la vista.
+
+## Renderizado y arte
+Todo se dibuja con WebGL mediante geometría procedimental sin archivos de imagen externos. Una sola luz direccional con sombras suaves y una niebla cálida definen el estilo visual. Llama a \`GCP.ready()\` en cuanto se dibuje el primer fotograma.
+
+## Problemas comunes
+Generar cientos de criaturas de golpe provocaba tirones en teléfonos móviles, así que las apariciones se reparten en varios fotogramas y las criaturas muy lejos de la pantalla se actualizan cada dos pasos.`;
+
+const ALL_TR = {
+  zh: { description: '自动开火草地竞技场生存游戏制作指南', content: GOOD_ZH },
+  'zh-TW': { description: '自動開火草地競技場生存遊戲製作指南', content: GOOD_ZH_TW },
+  ja: { description: '自動攻撃アリーナ型サバイバルゲームの作り方', content: GOOD_JA },
+  ko: { description: '자동 공격 아레나 생존 게임 제작 가이드', content: GOOD_KO },
+  es: { description: 'Supervivencia en arena con armas automáticas', content: GOOD_ES },
+};
+
+test('base skill must be English only; translations are validated for their target language and no-code rules', () => {
+  assert.equal(checkSkill(GOOD, { lang: 'en', description: 'Arena survival' }).ok, true);
+  // Non-English base skills are refused
+  const zhBase = checkSkill(GOOD_ZH, { lang: 'en' });
+  assert.equal(zhBase.ok, false);
+  assert.match(zhBase.problems.map((p) => p.why).join(' '), /English only/);
+  assert.equal(checkSkill(GOOD + '\n\n这一行混入了中文。', { lang: 'en' }).ok, false, 'mixed Chinese line refused');
+  assert.equal(checkSkill(GOOD, { lang: 'en', description: '中文简介不允许' }).ok, false, 'Chinese description on English base refused');
+  assert.equal(checkSkill(GOOD_ES, { lang: 'en' }).ok, false, 'Spanish submitted as English base refused');
+  assert.equal(checkSkill(GOOD_JA, { lang: 'en' }).ok, false, 'Japanese submitted as English base refused');
+  assert.equal(checkSkill(GOOD_KO, { lang: 'en' }).ok, false, 'Korean submitted as English base refused');
+
+  // Every valid platform translation passes
+  for (const [lang, tr] of Object.entries(ALL_TR)) {
+    const r = checkSkill(tr.content, { lang, description: tr.description });
+    assert.deepEqual(r.problems, [], `${lang} should pass`);
+  }
+  // Wrong-language translations and code in translations are refused
+  assert.equal(checkSkill(GOOD, { lang: 'zh' }).ok, false, 'English rejected for zh');
+  assert.equal(checkSkill(GOOD_ZH, { lang: 'zh-TW' }).ok, false, 'Simplified Chinese rejected for zh-TW');
+  assert.equal(checkSkill(GOOD_ZH, { lang: 'ja' }).ok, false, 'Chinese rejected for ja');
+  assert.equal(checkSkill(GOOD_JA, { lang: 'ko' }).ok, false, 'Japanese rejected for ko');
+  assert.equal(checkSkill(GOOD, { lang: 'es' }).ok, false, 'English rejected for es');
+  assert.equal(checkSkill(GOOD_ZH + '\n\n```js\nconst x = 1;\n```', { lang: 'zh' }).ok, false, 'code block refused inside zh translation');
+});
+
+test('writing a skill: English-only base required, all platform translations enforced by publish gate, and Store switches by language', async () => {
   const env = await world();
   const p = project(env);
   await assert.rejects(writeSkill(env, p, { content: GOOD + '\n\n```\nx\n```' }, 'agent'), /not saved[\s\S]*Code blocks/);
+  await assert.rejects(writeSkill(env, p, { content: GOOD_ZH, description: '中文技能' }, 'agent'), /English only/);
+  // Cannot write a translation before the English base exists
+  await assert.rejects(writeSkill(env, p, { language: 'zh', content: GOOD_ZH, description: '中文技能' }, 'agent'), /canonical English build skill first/);
+
   assert.match(await skillGate(env, S, p, 3), /version 3 has no build skill/);
+  // Writing English alone saves v3, but publish gate still requires the 5 other platform languages
   const r = await writeSkill(env, p, { content: GOOD, description: 'Arena survival' }, 'agent');
   assert.equal(r.version, 3);   // the newest deployed version by default
-  assert.equal(await skillGate(env, S, p, 3), null);
+  assert.deepEqual(r.available_languages, ['en']);
+  assert.deepEqual(r.missing_languages, ['zh', 'zh-TW', 'ja', 'ko', 'es']);
+  assert.match(await skillGate(env, S, p, 3), /missing translations for platform languages/);
+
+  // Write translations one by one via language param (agent-friendly)
+  for (const [lang, tr] of Object.entries(ALL_TR)) {
+    const res = await writeSkill(env, p, { version: 3, language: lang, ...tr }, 'agent');
+    assert.equal(res.language, lang);
+  }
+  assert.equal(await skillGate(env, S, p, 3), null, 'all 6 platform languages present -> gate passes');
   assert.equal(await skillGate(env, { skill_required_to_publish: false }, p, 2), null);
   assert.equal(await skillGate(env, S, { ...p, open_implementation: 0 }, 2), null);
   await assert.rejects(writeSkill(env, p, { content: GOOD, version: 9 }, 'agent'), /does not exist/);
-  // live is v2: the store shows the newest skill at or below the live version, flagged as behind until v3 goes live
-  assert.equal((await liveSkill(env, p)).generated, true);   // none written for v2 yet: the platform's card stands in
-  assert.equal(await liveSkill(env, { ...p, open_implementation: 0 }), null);
-  await writeSkill(env, p, { content: GOOD.replace('twelve', 'ten'), version: 2 }, 'agent');
+
+  // Legacy Chinese base skill already in DB is caught by skillGate too
+  env.DB.sql.prepare("INSERT INTO game_skills (project_id, version, description, content, i18n, written_by, created_at, updated_at) VALUES ('g1', 2, '旧中文', ?, '{}', 'legacy', 0, 0)").run(GOOD_ZH);
+  assert.match(await skillGate(env, S, p, 2), /English only/);
+
+  // Writing English + all translations together in one call also works
+  await writeSkill(env, p, { content: GOOD.replace('twelve', 'ten'), description: 'Arena survival', version: 2, translations: ALL_TR }, 'agent');
+  assert.equal(await skillGate(env, S, p, 2), null);
   const l = await liveSkill(env, p);
   assert.equal(l.row.version, 2); assert.equal(l.current, true);
   const after = { ...p, live_version: 3 };
   assert.equal((await liveSkill(env, after)).row.version, 3);
+
+  // Store switches skill language cleanly when reqLang changes
+  const enItem = await storeItem(env, 'https://h.test', user('u_maker'), 'bloom', false, 'en');
+  assert.equal(enItem.active_lang, 'en');
+  assert.deepEqual(enItem.skill.languages, ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es']);
+  assert.match(enItem.skill_md, /# Building a game like Bloom/);
+
+  const zhItem = await storeItem(env, 'https://h.test', user('u_maker'), 'bloom', false, 'zh');
+  assert.equal(zhItem.active_lang, 'zh');
+  assert.match(zhItem.content, /核心循环与玩法/);
+  assert.match(zhItem.skill_md, /# 制作类似《Bloom》的游戏/);
+
+  const jaItem = await storeItem(env, 'https://h.test', user('u_maker'), 'bloom', false, 'ja');
+  assert.equal(jaItem.active_lang, 'ja');
+  assert.match(jaItem.content, /コアループと概要/);
+  assert.match(jaItem.skill_md, /「Bloom」のようなゲームを作る/);
+
+  // Search matches translated descriptions too
+  const foundZh = await storeList(env, 'https://h.test', null, { query: '草地竞技场' });
+  assert.equal(foundZh.total, 1);
+  assert.deepEqual(foundZh.skills[0].skill.languages, ['en', 'zh', 'zh-TW', 'ja', 'ko', 'es']);
 });
 
 test('a paid skill shows its content only to buyers, the creator and admins; a free one to everyone', async () => {
   const env = await world();
-  await writeSkill(env, project(env), { content: GOOD, version: 2 }, 'agent');
+  await writeSkill(env, project(env), { content: GOOD, version: 2, translations: ALL_TR }, 'agent');
   const locked = await storeItem(env, 'https://h.test', user('u_other'), 'bloom');
   assert.equal(locked.locked, true); assert.equal(locked.content, null); assert.equal(locked.skill_md, null);
   assert.deepEqual(locked.skill.sections, ['What you are building', 'Architecture', 'Rendering and art', 'Pitfalls']);
+  assert.deepEqual(locked.skill.i18n.zh.sections, ['核心循环与玩法', '整体架构', '渲染与美术', '常见坑点']);
   assert.equal((await storeItem(env, 'https://h.test', null, 'bloom')).buy.sign_in, true);
   assert.equal((await storeItem(env, 'https://h.test', user('u_maker'), 'bloom')).locked, false);
   assert.equal((await storeItem(env, 'https://h.test', user('u_admin', 'admin'), 'bloom')).locked, false);

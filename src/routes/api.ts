@@ -15,7 +15,7 @@ import { devMailOn, devOutbox, testMailbox } from '../mail';
 import { answerChallenge, beginSetup, confirmSetup, disableTwoFactor, replaceRecoveryCodes, startChallenge, twoFactorOn, twoFactorState, useCode } from '../two-factor';
 import { holdMs, balanceOf, disputePurchase, disputeWon, freeSkillShared, owns, ownsSkill, partialRefund, recordPurchase, refundPurchase, splitSale, splitSkillSale } from '../earnings';
 import { gameRefundState, purchaseHistory, requestRefund, stripePay } from '../refunds';
-import { liveSkill, setSkillPrice, skillCopied, skillSalesOf, storeItem, storeList } from '../skills';
+import { availableSkillLangs, liveSkill, missingSkillLangs, setSkillPrice, skillCopied, skillSalesOf, storeItem, storeList } from '../skills';
 import { enqueue } from '../pipeline';
 import { matureOf } from '../../web/src/gamemeta';
 import { liveMature, matureList } from '../mature';
@@ -982,7 +982,9 @@ api.get('/creator-store', async (c) => {
 });
 api.get('/creator-store/:slug', async (c) => {
   c.header('cache-control', 'private, no-store');
-  return c.json(await storeItem(c.env, c.get('origin'), c.get('user'), c.req.param('slug')));
+  const lang = c.req.query('lang') || pageLang(c.req.raw);
+  const count = c.req.query('count') !== '0';
+  return c.json(await storeItem(c.env, c.get('origin'), c.get('user'), c.req.param('slug'), count, lang));
 });
 api.post('/creator-store/:slug/copied', async (c) => {
   const u = c.get('user');
@@ -1438,12 +1440,17 @@ api.get('/console/projects/:id', async (c) => {
   ]);
   const [skillSales, skillRows] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(price_cents), 0) AS gross, COALESCE(SUM(net_cents), 0) AS net FROM skill_purchases WHERE project_id = ? AND status = 'paid'").bind(p.id).first(),
-    db.prepare('SELECT version, description, written_by, updated_at, LENGTH(content) AS characters FROM game_skills WHERE project_id = ? ORDER BY version DESC LIMIT 10').bind(p.id).all(),
+    db.prepare('SELECT version, description, content, i18n, written_by, updated_at, LENGTH(content) AS characters FROM game_skills WHERE project_id = ? ORDER BY version DESC LIMIT 10').bind(p.id).all<any>(),
   ]);
   const s = await getSettings(c.env), trials = await trialStats(c.env, p.id);
   // The newest version's store-page metadata: what publishing still needs (field ids), and the age rating it works out to.
   const newest = versions.results[0], vm = newest ? await ensureVersionMeta(c.env, newest).catch(() => null) : null;
   const metadata = newest ? { version: newest.n, required: s.metadata_required, missing: missingToPublish(vm?.meta, !!vm?.compat?.declared, JSON.parse(p.tags || '[]')).map((m) => m.split(' ')[0]), age: vm?.meta?.rating?.age ?? null, declared: vm?.meta?.declared ?? [] } : null;
+  const skillVersions = skillRows.results.map((r) => ({
+    version: r.version, description: r.description, written_by: r.written_by, updated_at: r.updated_at, characters: r.characters,
+    languages: availableSkillLangs(r), missing_languages: missingSkillLangs(r),
+  }));
+  const liveSk = await liveSkill(c.env, p).catch(() => null);
   return c.json({
     metadata,
     // the New shelf, hiding by reports and the weekly cap on new games (src/store-quality.ts)
@@ -1462,8 +1469,8 @@ api.get('/console/projects/:id', async (c) => {
     sale: (() => { const v = saleView(p, s); return { ...v, split: v.running ? splitSale(v.running.price_cents, s, freeSkillShared(p)) : null }; })(),
     skill: {
       shared: !!p.open_implementation, price_cents: p.skill_price_cents || 0, sales: skillSales, copies: p.skill_copies, views: p.skill_views,
-      split: p.skill_price_cents > 0 ? splitSkillSale(p.skill_price_cents, s) : null, versions: skillRows.results,
-      live: await liveSkill(c.env, p).then((l) => l && { version: l.row.version, in_sync: l.current, written_by_platform: l.generated }).catch(() => null),
+      split: p.skill_price_cents > 0 ? splitSkillSale(p.skill_price_cents, s) : null, versions: skillVersions,
+      live: liveSk && { version: liveSk.row.version, in_sync: liveSk.current, written_by_platform: liveSk.generated, languages: liveSk.generated ? ['en'] : availableSkillLangs(liveSk.row), missing_languages: liveSk.generated ? [] : missingSkillLangs(liveSk.row) },
       newest_version: p.preview_version, required_to_publish: !!s.skill_required_to_publish,
     },
     trial: { minutes: p.trial_minutes, active: trialMinutes(p, s) > 0, ...trials },

@@ -2511,5 +2511,8 @@
  "{n} selected": "{n} seleccionados",
  "Select all": "Seleccionar todo",
  "No matching projects.": "No hay proyectos que coincidan.",
- "Select at least one project to continue.": "Selecciona al menos un proyecto para continuar."
+ "Select at least one project to continue.": "Selecciona al menos un proyecto para continuar.",
+ "This build skill is not yet translated into your language; showing the English original.": "Esta skill de construcción aún no está traducida a tu idioma; se muestra el original en inglés.",
+ "missing languages: {langs}": "idiomas faltantes: {langs}",
+ "Before version {n} can go live, ask your agent to finish the missing build skill languages ({langs}) via build_skill.": "Antes de publicar la versión {n}, pide a tu agente que complete los idiomas faltantes de la skill ({langs}) con build_skill."
 }

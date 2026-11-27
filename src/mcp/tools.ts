@@ -4,7 +4,7 @@
 import { unzipSync } from 'fflate';
 import { AppError, bad, forbidden, type Env, type User } from '../env';
 import { balanceOf, freeSkillShared, splitSale, splitSkillSale } from '../earnings';
-import { NO_CODE, setSkillPrice, skillForAgent, skillGate, storeItem, writeSkill } from '../skills';
+import { ENGLISH_FIRST, NO_CODE, SKILL_LANGS, setSkillPrice, skillForAgent, skillGate, storeItem, writeSkill } from '../skills';
 import { enqueue } from '../pipeline';
 import {
   assetText, checkProject, chooseTags, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion,
@@ -1488,27 +1488,33 @@ The whole set as one page: get_started {topic: "standards"}.`,
   },
   {
     name: 'build_skill', title: 'Write this game\'s build skill',
-    description: `The build skill is an agent skill (a SKILL.md) about how this game is built, written by you, its development agent, so other developers' agents can build a similar game. It is what the game shares in the Creator Store when Open Implementation is on, free or for a price the user sets. Write it from what you know of the game: architecture, rendering and art, the loop and feel, controls and devices, content and progression, platform services, performance, testing and release, and pitfalls. ${NO_CODE} A skill is written for one version and the store always shows the one for the live version: before each release, call get, revise the skill for what changed, and write it for the version you are about to publish. While sharing is on, publish refuses a version without one. Actions: get (the current skill, whether it matches, and the outline with what to cover), write (content in Markdown, a one-line description; version defaults to the newest deployed version).`,
+    description: `The build skill is an agent skill (a SKILL.md) about how this game is built, written by you, its development agent, so other developers' agents can build a similar game. It is what the game shares in the Creator Store when Open Implementation is on, free or for a price the user sets. Write it from what you know of the game: architecture, rendering and art, the loop and feel, controls and devices, content and progression, platform services, performance, testing and release, and pitfalls. ${NO_CODE} ${ENGLISH_FIRST} A skill is written for one version and the store always shows the one for the live version in the viewer's chosen platform language (falling back to English): before each release, call get, write the canonical English skill (language: "en", default; non-English text is refused), and write faithful translations for all other platform languages (zh, zh-TW, ja, ko, es) either one language per call via language or together via translations. While sharing is on, publish refuses a version whose skill is missing, non-English, or missing any platform language translation. Actions: get (the current skill, language coverage, and the outline), write (content in Markdown, a one-line description, optional language or translations; version defaults to the newest deployed version).`,
     inputSchema: obj({
       project: PROJECT,
       action: { type: 'string', enum: ['get', 'write'] },
       version: { type: 'integer', description: 'The game version the skill describes. Default: the newest deployed version (the one you are about to publish).' },
-      description: { type: 'string', description: 'write: one line, what the skill helps an agent build (at most 300 characters).' },
-      content: { type: 'string', description: 'write: the skill in Markdown, organised under level-two headings (##), 600 to 60000 characters, no code. The platform adds the front matter, the title and the facts it measured.' },
+      language: { type: 'string', enum: [...SKILL_LANGS], description: 'Language for get or write. Default: "en" (canonical English base, required first and English-only). Use "zh", "zh-TW", "ja", "ko" or "es" to read or write one platform translation at a time.' },
+      description: { type: 'string', description: 'write: one line in the target language, what the skill helps an agent build (at most 300 characters).' },
+      content: { type: 'string', description: 'write: the skill in Markdown in the target language, organised under level-two headings (##), no code. English/Spanish: 600 to 60000 characters; zh/zh-TW/ja/ko: 200 to 30000 characters. The platform adds front matter, title and measured facts.' },
+      translations: { type: 'object', description: 'write (with language omitted or "en"): optional map of other platform languages (zh, zh-TW, ja, ko, es) to {description, content}. For long skills, writing one language per call with the language parameter avoids output truncation.' },
     }, ['project', 'action']),
     run: async (a, c) => {
       const p = await scopedProject(c, a.project);
       const v = a.version === undefined || a.version === null ? undefined : Math.round(Number(a.version));
-      if (a.action === 'get') return skillForAgent(c.env, c.origin, p, v);
+      if (a.action === 'get') return skillForAgent(c.env, c.origin, p, v, typeof a.language === 'string' ? a.language : undefined);
       if (a.action !== 'write') throw bad('action must be get or write.');
       const r = await writeSkill(c.env, p, a, c.client);
       const q = await ownedProject(c.env, c.user, p.id);
+      const missing = r.missing_languages || [];
       return {
         ok: true, ...r,
         matches_live_game: q.live_version === r.version,
         shared: !!q.open_implementation, store_page: `${c.origin}/creator-store/${q.slug}`,
-        next: q.live_version === r.version ? 'The Creator Store now shows this skill for the live game.'
-          : `Saved for version ${r.version}. It shows in the Creator Store once version ${r.version} is live: publish {project, version: ${r.version}}.`,
+        next: missing.length
+          ? `Saved ${r.language} for version ${r.version}. Still missing platform language translations: ${missing.join(', ')}. Call build_skill {project, action: "write", version: ${r.version}, language: "${missing[0]}", description, content} for each remaining language before publishing.`
+          : q.live_version === r.version
+            ? 'The Creator Store now shows this skill in all platform languages for the live game.'
+            : `Saved all platform languages for version ${r.version}. It shows in the Creator Store once version ${r.version} is live: publish {project, version: ${r.version}}.`,
         ...(q.open_implementation ? {} : { not_shared: 'Open Implementation is off, so nothing is shared yet. Ask the user before turning it on (update_project {open_implementation: true}).' }),
       };
     },
@@ -1528,7 +1534,10 @@ The whole set as one page: get_started {topic: "standards"}.`,
   {
     name: 'get_implementation', title: 'Read how one game was built',
     description: `Returns the implementation card of one live game whose creator shares it: engine and libraries, rendering and graphics techniques, input, audio, art approach, platform services (saves, leaderboards, rooms, server code), loop and performance techniques, code structure in numbers, the verified play-through, and a summary for building something similar. Your own games can always be read (marked as a preview when not shared). ${NEVER_SHARED}`,
-    inputSchema: obj({ game: { type: 'string', description: 'The game slug from find_implementations or its marketplace address (/g/<slug>).' } }, ['game']), annotations: { readOnlyHint: true },
+    inputSchema: obj({
+      game: { type: 'string', description: 'The game slug from find_implementations or its marketplace address (/g/<slug>).' },
+      language: { type: 'string', enum: [...SKILL_LANGS], description: 'Optional platform language for the build skill (default: "en", canonical English).' },
+    }, ['game']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       // When project-scoped, do not grant owner/admin bypass on out-of-scope projects of this account.
       const slug = String(a.game || '').trim().replace(/^.*\/(?:g|creator-store)\//, '').replace(/[/?#].*$/, '');
@@ -1537,11 +1546,11 @@ The whole set as one page: get_started {topic: "standards"}.`,
         ? null
         : c.user;
       const card = await implementationCard(c.env, c.origin, reader, a.game);
-      // the game's build skill: in full when it is free (or yours, or bought), otherwise where to get it
-      const skill = await storeItem(c.env, c.origin, reader, card.game.slug, false).catch(() => null);
+      // the game's build skill: in full when it is free (or yours, or bought), otherwise where to get it; defaults to English
+      const skill = await storeItem(c.env, c.origin, reader, card.game.slug, false, typeof a.language === 'string' ? a.language : 'en').catch(() => null);
       return { ...card, build_skill: !skill ? null : skill.locked
-        ? { price: usd(skill.skill.price_cents), sections: skill.skill.sections, version: skill.skill.version, store_page: skill.skill.page, note: 'This build skill is sold. The user can buy it in the Creator Store; it then shows here in full.' }
-        : { name: skill.skill.name, version: skill.skill.version, in_sync: skill.skill.in_sync, written_by: skill.skill.written_by_platform ? 'the platform (the game\'s agent has not written one yet)' : 'the game\'s development agent', skill_md: skill.skill_md, store_page: skill.skill.page, how_to_use: 'Save skill_md as SKILL.md in a folder named after the skill in your skills directory, or follow it directly.' } };
+        ? { price: usd(skill.skill.price_cents), sections: skill.skill.sections, version: skill.skill.version, languages: skill.skill.languages, store_page: skill.skill.page, note: 'This build skill is sold. The user can buy it in the Creator Store; it then shows here in full.' }
+        : { name: skill.skill.name, version: skill.skill.version, language: skill.active_lang, languages: skill.skill.languages, in_sync: skill.skill.in_sync, written_by: skill.skill.written_by_platform ? 'the platform (the game\'s agent has not written one yet)' : 'the game\'s development agent', skill_md: skill.skill_md, store_page: skill.skill.page, how_to_use: 'Save skill_md as SKILL.md in a folder named after the skill in your skills directory, or follow it directly.' } };
     },
   },
 ];

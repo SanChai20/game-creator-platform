@@ -2512,5 +2512,8 @@
  "{n} selected": "{n} 件選択中",
  "Select all": "すべて選択",
  "No matching projects.": "一致するプロジェクトがありません。",
- "Select at least one project to continue.": "続行するにはプロジェクトを1つ以上選択してください。"
+ "Select at least one project to continue.": "続行するにはプロジェクトを1つ以上選択してください。",
+ "This build skill is not yet translated into your language; showing the English original.": "このビルドスキルはまだ現在の言語に翻訳されていないため、英語の原文を表示しています。",
+ "missing languages: {langs}": "未翻訳の言語: {langs}",
+ "Before version {n} can go live, ask your agent to finish the missing build skill languages ({langs}) via build_skill.": "バージョン {n} を公開する前に、エージェントに build_skill で未翻訳の言語（{langs}）を追加してもらってください。"
 }

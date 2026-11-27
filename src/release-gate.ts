@@ -54,7 +54,7 @@ export const RULES: { id: string; title: string; modes: GateMode[]; waivable: bo
   { id: 'listing_languages', title: 'Its store listing is in every language it is played in', modes: ['publish'], waivable: true, what: 'Everything about the game outside the game follows the player\'s platform language. For every platform language (English, Simplified and Traditional Chinese, Japanese, Korean, Spanish) the version declares in languages, the store listing has the title, and the tagline and description when the game\'s own listing has them, in that language (game_metadata listing_translations; a cover per language is optional, update_project covers).' },
   { id: 'publish_cap', title: 'It fits the creator\'s weekly cap on new games', modes: ['publish'], waivable: true, what: 'A creator can put a few new games live in any 7 days (3 by default), one more for each of their live games that players rate well (5 or more ratings averaging 4 stars), up to 10. Updates to games that are already live are never limited.' },
   { id: 'storage', title: 'It fits the game\'s storage', modes: ['publish'], waivable: false, what: 'All of its files fit the game\'s storage and file count. An admin can give the game more storage instead.' },
-  { id: 'build_skill', title: 'Its build skill is up to date', modes: ['publish'], waivable: true, what: 'A game that shares its build skill in the Creator Store has one written for this exact version.' },
+  { id: 'build_skill', title: 'Its build skill is up to date', modes: ['publish'], waivable: true, what: 'A game that shares its build skill in the Creator Store has one written for this exact version: canonical base in English only, plus translations for every other platform language (zh, zh-TW, ja, ko, es).' },
   { id: 'original', title: 'It is original work and safe for players', modes: ['publish', 'rollback', 'restore'], waivable: false, what: 'Compared again with every other creator\'s live game right before it goes live, and reviewed for content when it never was. Copies and content that is never allowed are refused.' },
 ];
 const RULE = new Map(RULES.map((r) => [r.id, r]));
@@ -208,7 +208,7 @@ export async function releaseGate(env: Env, p: Project, v: Version, input: GateI
   if (has('build_skill')) {
     const shared = typeof input.openImplementation === 'boolean' ? input.openImplementation : !!p.open_implementation;
     const gate = await skillGate(env, s, { ...p, open_implementation: shared ? 1 : 0 }, v.n);
-    rule('build_skill', gate ? { code: 'skill_missing', http: 409, reason: gate, fix: `build_skill {project, action: "get"} returns the current skill and the outline; revise it for what changed and call build_skill {project, action: "write", version: ${v.n}, content}. Then publish again.` } : null);
+    rule('build_skill', gate ? { code: 'skill_missing', http: 409, reason: gate, fix: `build_skill {project, action: "get"} returns the current skill, missing languages and the outline; write the canonical English skill first (build_skill {project, action: "write", version: ${v.n}, description, content}) and translate it into every other platform language (zh, zh-TW, ja, ko, es) using build_skill {project, action: "write", version: ${v.n}, language: "<lang>", description, content}. Then publish again.` } : null);
   } else rule('build_skill', null);
 
   // the comparison with other creators' live games is the expensive one: it runs once everything else holds

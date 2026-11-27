@@ -2,24 +2,27 @@
 // the game's own development agent wrote about how it is built (never its code), kept in step with the live version.
 // Free skills show in full; a paid one shows its outline until it is bought. Copy skill puts a complete SKILL.md on the
 // clipboard for the reader's own agent. Served by src/skills.ts.
-import { useEffect, useState } from 'react';
-import { api, artStyle, date, shown, type ListingI18n, Fail, Link, loginUrl, navigate, num, query, t, usd, useAct, useApp, useData } from '../lib';
+import { useEffect, useRef, useState } from 'react';
+import { api, artStyle, date, shown, type ListingI18n, Fail, Link, loginUrl, navigate, num, query, t, usd, useAct, useApp, useData, useLang } from '../lib';
+import { LANGS } from '../i18n/langs';
 import { Badge, Button, Card, Crumbs, EmptyState, KeyValue, ListPager, Notice, PageHeader, Segmented, Stat, StatGrid, Steps, Ticks } from '../ui';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { SkillMarkdown } from '../skill-md';
 
 const PER = 24;
 
+interface SkillLangMeta { description: string; sections: string[]; characters: number }
 interface SkillEntry {
   game: { id: string; slug: string; title: string; tagline: string; by: string; tags: string[]; cover: string | null; lang?: string; i18n?: ListingI18n; game_page: string; plays: number; live_version: number; price_cents: number };
-  skill: { name: string; price_cents: number; free: boolean; version: number; in_sync: boolean; written_by_platform: boolean; description: string; sections: string[]; characters: number; sales: number; copies: number; updated_at: number; page: string; owned?: boolean };
+  skill: { name: string; price_cents: number; free: boolean; version: number; in_sync: boolean; written_by_platform: boolean; lang?: string; languages?: string[]; i18n?: Record<string, SkillLangMeta>; description: string; sections: string[]; characters: number; sales: number; copies: number; updated_at: number; page: string; owned?: boolean };
 }
 interface SkillItem extends SkillEntry {
-  shared: boolean; access: 'free' | 'yours' | 'admin' | 'bought' | null; locked: boolean; content: string | null; skill_md: string | null;
+  shared: boolean; access: 'free' | 'yours' | 'admin' | 'bought' | null; locked: boolean; active_lang?: string; content: string | null; skill_md: string | null;
   buy: { price_cents: number; sign_in: boolean } | null; never_shared: string;
   yours?: { sales: number; copies: number; views: number; creator_receives_per_sale: number | null };
 }
 
+const langLabel = (code: string) => LANGS.find((l) => l.code === code)?.name || code;
 const priceTag = (s: SkillEntry['skill']) => (s.free ? <Badge tone="good" dot={false}>{t('Free', '免费')}</Badge> : <Badge tone="accent" dot={false}>{usd(s.price_cents)}</Badge>);
 const syncTag = (e: SkillEntry) => (e.skill.in_sync
   ? <span className="dim fs-sm">{t('Matches live v{v}', '对应线上 v{v}', { v: e.game.live_version })}</span>
@@ -71,15 +74,19 @@ export function CreatorStore() {
 }
 
 function SkillCard({ e: raw }: { e: SkillEntry }) {
+  const lang = useLang();
   const e = { ...raw, game: shown(raw.game) };
+  const tr = lang !== 'en' ? e.skill.i18n?.[lang] : undefined;
+  const desc = tr?.description || e.skill.description || e.game.tagline;
+  const sections = tr?.sections?.length ? tr.sections : e.skill.sections;
   return (
     <Link to={`/creator-store/${e.game.slug}`} className="skill-card">
       <div className="thumb" style={e.game.cover ? undefined : artStyle(e.game.slug)}>{e.game.cover && <img src={e.game.cover} alt="" loading="lazy" />}</div>
       <div className="skill-card-body">
         <div className="row s"><b className="clip">{e.game.title}</b>{priceTag(e.skill)}{e.skill.owned && <Badge tone="good" dot={false}>{t('Yours', '已拥有')}</Badge>}</div>
         <span className="mono fs-sm mute clip">{e.skill.name}</span>
-        <p className="mute fs-sm skill-desc">{e.skill.description || e.game.tagline}</p>
-        <div className="row s wrapx">{syncTag(e)}<span className="dim fs-sm">· {t('by {name}', '作者 {name}', { name: e.game.by })}</span>{e.skill.sections.length > 0 && <span className="dim fs-sm">· {t('{n} sections', '{n} 个章节', { n: e.skill.sections.length })}</span>}</div>
+        <p className="mute fs-sm skill-desc">{desc}</p>
+        <div className="row s wrapx">{syncTag(e)}<span className="dim fs-sm">· {t('by {name}', '作者 {name}', { name: e.game.by })}</span>{sections.length > 0 && <span className="dim fs-sm">· {t('{n} sections', '{n} 个章节', { n: sections.length })}</span>}</div>
       </div>
     </Link>
   );
@@ -87,8 +94,12 @@ function SkillCard({ e: raw }: { e: SkillEntry }) {
 
 /** One game's skill. */
 export function SkillPage({ slug }: { slug: string }) {
+  const lang = useLang();
   const { user, toast } = useApp(), { busy, act } = useAct();
-  const { data, error, loading, reload } = useData<SkillItem>(`/creator-store/${encodeURIComponent(slug)}`);
+  const countedView = useRef<string | null>(null);
+  const countParam = countedView.current === slug ? '&count=0' : '';
+  const { data, error, loading, reload } = useData<SkillItem>(`/creator-store/${encodeURIComponent(slug)}?lang=${encodeURIComponent(lang)}${countParam}`);
+  useEffect(() => { if (data && countedView.current !== slug) countedView.current = slug; }, [data, slug]);
   const [copied, setCopied] = useState(false);
   // back from checkout: confirm the payment so the skill opens without waiting for the webhook
   useEffect(() => {
@@ -100,6 +111,12 @@ export function SkillPage({ slug }: { slug: string }) {
   if (error && !data) return <div className="wrap page"><Fail error={error} retry={reload} /></div>;
   if (loading && !data) return <div className="wrap page"><Skeleton><SkRows n={6} /></Skeleton></div>;
   const d = data!, g = shown(d.game), s = d.skill;
+  const activeLang = d.active_lang || 'en';
+  const trMeta = activeLang !== 'en' ? s.i18n?.[activeLang] : undefined;
+  const desc = trMeta?.description || s.description || g.tagline;
+  const sections = trMeta?.sections?.length ? trMeta.sections : s.sections;
+  const chars = trMeta?.characters || s.characters;
+  const langs = s.languages?.length ? s.languages : ['en'];
   const counted = () => { void api(`/creator-store/${encodeURIComponent(slug)}/copied`, { method: 'POST' }).catch(() => {}); };
   const copy = async () => {
     try { await navigator.clipboard.writeText(d.skill_md || ''); setCopied(true); setTimeout(() => setCopied(false), 1600); toast(t('Skill copied. Paste it into your agent.', '技能已复制，粘贴到你的智能体中即可。')); counted(); }
@@ -115,7 +132,7 @@ export function SkillPage({ slug }: { slug: string }) {
     <div className="wrap page">
       <Crumbs items={[{ to: '/creator-store', label: t('Creator Store', '创作者商店') }, g.title]} />
       <PageHeader eyebrow={t('Build skill', '构建技能')} title={t('Build a game like {title}', '做一款像 {title} 一样的游戏', { title: g.title })}
-        sub={<>{s.description || g.tagline} <span className="dim">· {t('by {name}', '作者 {name}', { name: g.by })}</span></>}
+        sub={<>{desc} <span className="dim">· {t('by {name}', '作者 {name}', { name: g.by })}</span></>}
         badge={priceTag(s)}
         actions={!d.locked ? <><Button variant="primary" onClick={() => void copy()}>{copied ? t('Copied', '已复制') : t('Copy skill', '复制技能')}</Button><Button onClick={download}>{t('Download SKILL.md', '下载 SKILL.md')}</Button></>
           : d.buy?.sign_in ? <Button variant="primary" to={loginUrl()}>{t('Sign in to buy', '登录后购买')}</Button>
@@ -124,13 +141,14 @@ export function SkillPage({ slug }: { slug: string }) {
         <div className="stack l">
           {!s.in_sync && <Notice tone="info">{t('This skill was written for version {v}; the live game is version {live}. The next release brings it up to date.', '该技能写于第 {v} 版，线上游戏是第 {live} 版。下次发布时会更新。', { v: s.version, live: g.live_version })}</Notice>}
           {s.written_by_platform && <Notice tone="info">{t('The game\'s agent has not written its skill yet, so this one was put together by the platform from facts about the build.', '游戏的智能体尚未编写技能，这份内容由平台根据构建信息整理而成。')}</Notice>}
+          {!s.written_by_platform && lang !== 'en' && activeLang === 'en' && <Notice tone="info">{t('This build skill is not yet translated into your language; showing the English original.', '该构建技能尚未翻译为你当前的语言，暂显示英文原版。')}</Notice>}
           {d.locked ? (
             <Card title={t('What is inside', '内容概览')} pad>
               <div className="stack">
-                <p className="mute">{t('The full skill shows after purchase. It is written in {n} sections:', '购买后可查看完整技能。共 {n} 个章节：', { n: s.sections.length })}</p>
-                <ol className="skill-outline">{s.sections.map((h) => <li key={h}>{h}</li>)}</ol>
+                <p className="mute">{t('The full skill shows after purchase. It is written in {n} sections:', '购买后可查看完整技能。共 {n} 个章节：', { n: sections.length })}</p>
+                <ol className="skill-outline">{sections.map((h) => <li key={h}>{h}</li>)}</ol>
                 <p className="dim fs-sm">{t('Build skills are non-refundable: the full skill shows the moment you pay. Only games can be refunded.', '构建技能不可退款：付款后立即显示完整技能。只有游戏可以退款。')}</p>
-                <p className="dim fs-sm">{t('About {n} words. You keep access for good, and it updates with every release of the game.', '约 {n} 词。购买后永久可用，并随游戏每次发布更新。', { n: num(Math.round(s.characters / 6)) })}</p>
+                <p className="dim fs-sm">{t('About {n} words. You keep access for good, and it updates with every release of the game.', '约 {n} 词。购买后永久可用，并随游戏每次发布更新。', { n: num(Math.round(chars / 6)) })}</p>
               </div>
             </Card>
           ) : (
@@ -146,6 +164,7 @@ export function SkillPage({ slug }: { slug: string }) {
             <KeyValue items={[
               [t('Skill', '技能'), <span className="mono">{s.name}</span>],
               [t('Matches', '对应版本'), <span className={s.in_sync ? undefined : 'sig'}>v{s.version}{s.in_sync ? ` · ${t('live', '线上')}` : ''}</span>],
+              [t('Languages', '语言'), langs.map(langLabel).join(' · ')],
               [t('Updated', '更新于'), date(s.updated_at)],
               [t('Price', '价格'), s.free ? t('Free', '免费') : usd(s.price_cents)],
               [t('Used by', '使用次数'), t('{n} copies', '{n} 次复制', { n: num(s.copies) }) + (s.free ? '' : ` · ${t('{n} sold', '售出 {n}', { n: num(s.sales) })}`)],

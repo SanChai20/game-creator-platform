@@ -2533,5 +2533,8 @@
  "{n} selected": "已選 {n} 個",
  "Select all": "全選",
  "No matching projects.": "沒有符合的專案。",
- "Select at least one project to continue.": "請至少選擇一個專案以繼續。"
+ "Select at least one project to continue.": "請至少選擇一個專案以繼續。",
+ "This build skill is not yet translated into your language; showing the English original.": "此建置技能尚未翻譯為你目前的語言，暫顯示英文原版。",
+ "missing languages: {langs}": "缺少語言：{langs}",
+ "Before version {n} can go live, ask your agent to finish the missing build skill languages ({langs}) via build_skill.": "第 {n} 版上線前，請讓你的 AI 代理透過 build_skill 補齊建置技能缺少的語言（{langs}）。"
 }

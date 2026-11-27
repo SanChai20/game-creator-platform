@@ -37,7 +37,7 @@ Verification is one of several requirements a version meets before it goes live.
 | metadata | `metadata_incomplete` | Genre, tags, requirements, languages, players and content are on record. |
 | listing_languages | `listing_untranslated` | For every platform language (en, zh, zh-TW, ja, ko, es) the version declares in `languages`, the store listing has the title, and the tagline and description when the game's own listing has them, in that language. Add them with `game_metadata` `listing_translations` (no deploy needed). |
 | storage | `storage_full` | The version fits the game's storage. |
-| build_skill | `skill_missing` | A game that shares its build skill has one written for this exact version. |
+| build_skill | `skill_missing` | A game that shares its build skill has one written for this exact version: canonical base in English only, plus translations for every other platform language (zh, zh-TW, ja, ko, es) via `build_skill`. |
 | original | `not_original` | Compared again with other creators' live games right before it goes live. |
 
 Rollbacks and bringing a game back online are held only to the requirements that still matter for a version that was live before (account, license, files, verification, originality). A platform admin can make a written, time-limited exception for one version where a check can be wrong (a heavy game too slow for the verification browser's software GPU, for example); content, conduct, originality, the files and the account are never excepted.
