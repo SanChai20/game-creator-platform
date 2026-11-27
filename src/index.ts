@@ -211,12 +211,37 @@ form{display:grid;gap:12px}
 .row button.go{color:var(--on-accent)}.row button.go::before{border-color:transparent;background:var(--accent) linear-gradient(105deg,transparent 0 49.8%,rgb(0 0 0 / .16) 50% 100%) 22% 0 / 300% 100% no-repeat}.row button.go:hover:not(:disabled)::before{border-color:transparent;background-position:62% 0}
 .row button.go::after{content:"";position:absolute;inset:0;z-index:-2;border-radius:3px;background:rgb(var(--accent-rgb) / .3);transform:skewX(-12deg) translate(3px,3px)}
 .row button:disabled{opacity:.45;cursor:not-allowed}
-small{display:block;color:var(--text-3);font-size:12.5px}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}:lang(zh) h1,:lang(ja) h1,:lang(ko) h1{letter-spacing:0;line-height:1.25}`;
+small{display:block;color:var(--text-3);font-size:12.5px}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}:lang(zh) h1,:lang(ja) h1,:lang(ko) h1{letter-spacing:0;line-height:1.25}
+body.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);place-items:stretch;gap:16px;padding:16px;min-height:100dvh}
+.split-side{background:var(--ink);color:var(--text);isolation:isolate;overflow:hidden;border-radius:var(--r-2xl,22px);display:grid;grid-template-rows:auto 1fr auto;gap:28px;padding:clamp(28px,4vw,56px);min-height:calc(100dvh - 32px);position:sticky;top:16px;align-self:start;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .08),var(--shadow-2)}
+.split-side::before{content:"";position:absolute;z-index:-1;width:560px;height:560px;right:-180px;top:-200px;border-radius:50%;background:radial-gradient(circle at 38% 36%,rgb(var(--accent-rgb) / .55),rgb(var(--accent-rgb) / .12) 52%,transparent 70%)}
+.split-side::after{content:"";position:absolute;z-index:-1;inset:auto -10% -18% -10%;height:46%;background:repeating-linear-gradient(-62deg,rgb(255 255 255 / .045) 0 14px,transparent 14px 46px);transform:skewY(-6deg)}
+.split-side .mark{margin:0}
+.split-copy{align-self:center;display:grid;gap:18px;max-width:520px}
+.kicker{font:700 12px/1 var(--font-display);letter-spacing:.14em;text-transform:uppercase;color:var(--accent-text,var(--accent))}
+.split-copy h2{margin:0;font:800 clamp(34px,4.2vw,56px)/.94 var(--font-display);font-stretch:76%;letter-spacing:-.025em;text-transform:uppercase;text-wrap:balance}
+.split-copy>p{font-size:var(--fs-lg,17px);max-width:44ch}
+ol.steps{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:10px;counter-reset:s}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:44px 1fr;gap:2px 14px;align-items:center;padding:12px 14px;border-radius:var(--r-sm);background:rgb(255 255 255 / .05);border:1px solid rgb(255 255 255 / .08)}
+ol.steps li::before{content:"0" counter(s);grid-row:span 2;display:grid;place-items:center;height:38px;font:800 17px/1 var(--font-display);color:var(--on-accent);background:var(--accent);clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)}
+ol.steps b{font:700 15px/1.2 var(--font-display);letter-spacing:.04em;text-transform:uppercase;color:var(--text)}ol.steps span{font-size:13.5px;color:var(--text-2);line-height:1.4}
+.split-foot{font-size:13px;color:var(--text-3)}
+.split-main{display:grid;place-items:center;padding:clamp(8px,3vw,40px) clamp(4px,2vw,24px)}
+body.split main{width:min(540px,100%);background:none;border:0;box-shadow:none;padding:8px 0}
+body.split main::before{display:none}
+body.split main h1{font-size:clamp(27px,2.6vw,34px)}
+:lang(zh) .split-copy h2,:lang(ja) .split-copy h2,:lang(ko) .split-copy h2{letter-spacing:0;line-height:1.15}
+@media (max-width:900px){body.split{grid-template-columns:minmax(0,1fr);gap:12px;padding:12px}.split-side{position:relative;top:0;min-height:0;gap:14px;padding:22px}.split-side .split-copy{gap:10px}.split-copy h2{font-size:28px}.split-copy>p,ol.steps,.split-foot{display:none}.split-main{padding:4px 6px 20px}body.split main{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-lg);padding:clamp(20px,5vw,30px);box-shadow:var(--shadow-3)}}`;
 // The same start-up line as the web app: the visitor's chosen theme, or the system's.
 const THEME_JS = `try{var t=localStorage.getItem('gcp.theme');document.documentElement.dataset.theme=t==='day'||t==='night'?t:matchMedia('(prefers-color-scheme: dark)').matches?'night':'day'}catch(e){document.documentElement.dataset.theme='day'}`;
 function page(title: string, body: string, lang: Lang = 'en'): string {
   return `<!doctype html><html lang="${langTag(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><script>${THEME_JS}</script>
 <style>${TOKENS_CSS}${PAGE_CSS}</style></head><body><main>${body}</main></body></html>`;
+}
+/** A page in the sign-in page's shape: the platform on an ink panel on the left, the task (`body`) on the right. Phones stack them. */
+function splitPage(title: string, side: string, body: string, lang: Lang = 'en'): string {
+  return `<!doctype html><html lang="${langTag(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><script>${THEME_JS}</script>
+<style>${TOKENS_CSS}${PAGE_CSS}</style></head><body class="split"><aside class="split-side ink">${side}</aside><div class="split-main"><main>${body}</main></div></body></html>`;
 }
 
 const CONSENT_SCOPE_JS = `(function(){
@@ -277,8 +302,11 @@ function consentPage(brand: string, d: ConsentDescription, handle: string, user:
   <div class="scope-err" id="scope-err" hidden>${esc(T.scopePickOne)}</div>
 </div>
 </div>` : `<input type="hidden" name="project_scope" value="all"><small>${esc(T.scopeNoProjects)}</small>`;
-  return page(T.connect(d.clientName), `<div class="mark"><i></i>${esc(brand)}</div>
-<h1>${T.heading(app)}</h1>
+  const side = `<div class="mark"><i></i>${esc(brand)}</div>
+<div class="split-copy"><div class="kicker">${esc(T.sideKicker)}</div><h2>${esc(T.sideTitle)}</h2><p>${esc(T.sideBody)}</p>
+<ol class="steps">${T.sideSteps.map(([b, t]) => `<li><b>${esc(b)}</b><span>${esc(t)}</span></li>`).join('')}</ol></div>
+<div class="split-foot">${esc(T.sideFoot)}</div>`;
+  return splitPage(T.connect(d.clientName), side, `<h1>${T.heading(app)}</h1>
 <p>${who} ${T.sentTo(esc(d.redirectHost))}</p>
 ${d.redirectIsLoopback ? `<div class="warn"><strong>${T.loopback[0]}</strong> ${T.loopback[1]}</div>` : ''}
 <p>${T.signedInAs(esc(user.name), esc(user.email))}</p>
