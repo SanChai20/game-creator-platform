@@ -50,6 +50,12 @@ export async function purgeOldVersions(env: Env, max = 20): Promise<string[]> {
     WHERE v.purged_at IS NULL AND v.created_at < ?1
       AND v.n != COALESCE(p.live_version, 0) AND v.n != COALESCE(p.preview_version, 0)
       AND v.n <= p.next_version - 1 - ?2
+      AND v.n != COALESCE(p.ws_base, 0)
+      -- versions collaboration still needs (src/collab.ts): main's newest, and each open branch's merge base, newest and
+      -- the version its workspace is based on, since merges and updates read their files
+      AND v.n != COALESCE((SELECT MAX(x.n) FROM versions x WHERE x.project_id = v.project_id AND x.branch IS NULL), 0)
+      AND NOT EXISTS (SELECT 1 FROM branches b WHERE b.project_id = v.project_id AND b.status = 'open'
+        AND v.n IN (COALESCE(b.base_version, 0), COALESCE(b.head_version, 0), COALESCE(b.ws_base, 0)))
       AND (v.published_at IS NULL OR v.published_at < ?3)
       AND v.status NOT IN ('queued', 'deploying', 'verifying') AND (v.review IS NULL OR v.review != 'pending')
     ORDER BY v.created_at LIMIT ?4`).bind(t - VERSION_MIN_AGE_DAYS * DAY, KEEP_VERSIONS, t - LIVE_KEEP_DAYS * DAY, max).all<{ project_id: string; n: number }>();

@@ -27,6 +27,7 @@ import { Console } from './pages/Console';
 import { License, LicenseGate } from './pages/License';
 import { Project } from './pages/Project';
 import { Analytics } from './pages/Analytics';
+import { Team, TeamProject } from './pages/Team';
 import { Earnings } from './pages/Earnings';
 import { Workbench } from './pages/Workbench';
 import { Admin } from './pages/Admin';
@@ -194,6 +195,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                     <Link to="/gifts">{t('Gifts', '礼物')}</Link>
                     {/* the creator's side, only for creators: a player-only account has no console or earnings to look at */}
                     {user.makes_games && <><Link to="/console">{t('Console', '控制台')}</Link><Link to="/console/earnings">{t('Earnings', '收益')}</Link></>}
+                    <Link to="/team">{t('Team projects', '团队项目')}</Link>
                     <Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link>
                     <Link to="/docs">{t('Docs', '文档')}</Link>
                     <Link to="/account">{t('Account', '账户')}</Link>
@@ -259,7 +261,7 @@ function ToLogin() { useEffect(() => navigate('/login', true), []); return null;
 
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
-  const needUser = path === '/library' || path === '/purchases' || path === '/gifts' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account';
+  const needUser = path === '/library' || path === '/purchases' || path === '/gifts' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account' || path === '/team' || path.startsWith('/team/');
   useEffect(() => { if (needUser && !user) navigate(loginUrl(), true); }, [needUser, user, loc]);
   if (needUser && !user) return <RouteSkeleton path={path} />;
   let m: RegExpMatchArray | null;
@@ -284,6 +286,9 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/docs') return <Docs />;
   if (path === '/download') return <Download />;
   if (path === '/license') return <License />;
+  // Collaborators need no creator license: a project shared with you is worked on from /team.
+  if (path === '/team') return <Team />;
+  if ((m = path.match(/^\/team\/([^/]+)$/))) return <TeamProject key={m[1]} id={decodeURIComponent(m[1])} />;
   // The console is for creators only: without a valid license every console page is the Get License page.
   if (path.startsWith('/console') && !user!.creator) return <LicenseGate />;
   if (path === '/console') return <Console />;
@@ -291,6 +296,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/console/workbench') return <Workbench />;
   if ((m = path.match(/^\/console\/(?:p|projects)\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
   if ((m = path.match(/^\/console\/p\/([^/]+)\/analytics$/))) return <Analytics key={m[1]} id={m[1]} />;
+  if ((m = path.match(/^\/console\/p\/([^/]+)\/team$/))) return <TeamProject key={m[1]} id={m[1]} inConsole />;
   if (path === '/claim-admin') return <ClaimAdmin />;
   if (path === '/device') return <Device />;
   if (path === '/legal') return <Legal doc="terms" />;

@@ -7,7 +7,7 @@ import { balanceOf, freeSkillShared, splitSale, splitSkillSale } from '../earnin
 import { ENGLISH_FIRST, NO_CODE, SKILL_LANGS, setSkillPrice, skillForAgent, skillGate, storeItem, writeSkill } from '../skills';
 import { enqueue } from '../pipeline';
 import {
-  assetText, checkProject, chooseTags, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion,
+  assetText, checkProject, chooseTags, createProject, defaultImports, deleteFile, ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, publicVersion,
   putFile, readFile, snapshot, updateProjectMeta, versionEligible, type Issue,
   listingForStandards,
 } from '../projects';
@@ -37,14 +37,18 @@ import { OPERATOR } from '../../web/src/operator';
 import type { Project, Version } from '../env';
 import { addDays, clamp, cleanPath, dayOf, extOf, isText, now, parseJson, sha256, token as randomToken, unb64, usd } from '../util';
 import { actDebug, closeDebug, openDebug, type DebugResult } from '../debug';
+import { userById } from '../auth';
 import { feedbackProject, pendingFeedback, takeFeedback } from '../feedback';
 // @ts-ignore plain JS module
 import { DEBUG_LIMITS, VIEWPORTS } from '../debug-core.js';
 // @ts-ignore plain JS module
 import { FEEDBACK_LIMITS } from '../feedback-rules.js';
 import { assertCanCreateProject, isProjectAllowed, scopedProject } from './scope';
+import { assertCan, autoResolve, branchWs, mainHead, target, withLock, type Target } from '../collab';
+import type { Role } from '../collab-core';
+import { COLLAB_TOOLS } from './collab-tools';
 
-export interface ToolCtx { env: Env; user: User; origin: string; client: string; allowedProjects: string[] | null }
+export interface ToolCtx { env: Env; user: User; origin: string; client: string; allowedProjects: string[] | null; tool?: string; roles?: Map<string, Role> }
 /** A tool answer with pictures: the JSON part is sent as text, each image as an MCP image block after it. */
 export class WithImages { constructor(public data: unknown, public images: { data: Uint8Array; type: string }[]) {} }
 interface Tool {
@@ -240,9 +244,24 @@ const actorOf = (c: ToolCtx, by: unknown) => {
   return label ? `${c.client} (${label})` : c.client;
 };
 
-async function versionsAfter(env: Env, pid: string, base: number): Promise<VersionLite[]> {
-  return (await env.DB.prepare('SELECT n, note, actor, created_at FROM versions WHERE project_id = ? AND n > ? ORDER BY n LIMIT 20').bind(pid, Number.isFinite(base) ? base : 0).all<VersionLite>()).results;
+/** Versions after `base` on one line of history: main's (no branch) or one branch's. */
+async function versionsAfter(env: Env, pid: string, base: number, branch: string | null = null): Promise<VersionLite[]> {
+  return (await env.DB.prepare(`SELECT n, note, actor, created_at FROM versions WHERE project_id = ? AND n > ? AND ${branch ? 'branch = ?' : 'branch IS NULL'} ORDER BY n LIMIT 20`)
+    .bind(...[pid, Number.isFinite(base) ? base : 0, ...(branch ? [branch] : [])]).all<VersionLite>()).results;
 }
+
+/** The project read again after a change, for an answer (access was checked by scopedProject). */
+async function fresh(c: ToolCtx, id: string): Promise<Project> { return (await getProject(c.env, id))!; }
+const roleIn = (c: ToolCtx, p: Project): Role => c.roles?.get(p.id) ?? 'owner';
+/** The workspace a call names with its branch argument (main when omitted), checked for this caller's role. */
+const wsTarget = (c: ToolCtx, p: Project, branch: unknown, mode: 'read' | 'write'): Promise<Target> => target(c.env, p, roleIn(c, p), branch, mode);
+/** The newest version on a target's line of history and the version its workspace is based on. */
+async function lineOf(c: ToolCtx, p: Project, t: Target) {
+  const newest = t.branch ? (t.branch.head_version ?? 0) : await mainHead(c.env, p.id);
+  const base = t.branch ? (t.branch.ws_base ?? t.branch.base_version) : (p.ws_base ?? (newest || null));
+  return { ws: t.ws, base, newest };
+}
+const BRANCH_ARG = { type: 'string', description: 'Optional. The branch to work on (branches {action: "list"} lists them); omit for main. On a project shared with you, main is usually protected: work on a branch of your own and propose it with change_requests.' };
 
 /** A deploy whose base_version is no longer the newest: nothing is deployed, and the answer says what came in between. */
 async function baseConflict(c: ToolCtx, p: Project, base: number, verdict: BaseVerdict) {
@@ -513,12 +532,16 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
     v = await getVersion(c.env, p.id, n);
     if (!v) throw bad(`Version ${n} does not exist.`, 'Call list_versions to see the versions this game has.');
   } else {
-    const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 20').bind(p.id).all<any>();
+    const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? AND branch IS NULL ORDER BY n DESC LIMIT 20').bind(p.id).all<any>();
     v = rows.results.find((x) => versionEligible(x, s.verify_browser_required).ok) || rows.results[0] || null;
   }
   if (!v) throw bad('There is no version to publish.', 'Call deploy_preview first.');
+  // only main goes live: a branch's version reaches players through a change request merged into main (src/collab.ts)
+  if (v.branch && !rollback) throw bad(`Version ${v.n} was deployed from a branch, and only main's versions go live.`, 'Open a change request for the branch (change_requests {action: "open"}), merge it, and publish the merged version.');
+  // the license is the owner's: an admin collaborator publishes the owner's game under the owner's license
+  const licensee = p.owner_id === c.user.id ? c.user : ((await userById(c.env, p.owner_id)) || c.user);
   // Input is checked before the license, so a wrong version number is reported as such for any account.
-  if (s.creator_fee_required && !c.user.creator && !a.dry_run) throw forbidden(`Publishing needs a valid creator license (${licenseText(c.user)} on this account).`, `Ask the user to get one at ${c.origin}/license: ${offersText(s)}. Then call publish again. Preview stays available meanwhile.`);
+  if (s.creator_fee_required && !licensee.creator && !a.dry_run) throw forbidden(`Publishing needs a valid creator license (${licenseText(licensee)} on ${licensee.id === c.user.id ? 'this account' : 'the owner\'s account'}).`, `Ask the user to get one at ${c.origin}/license: ${offersText(s)}. Then call publish again. Preview stays available meanwhile.`);
   // Every platform requirement, checked on the server (src/release-gate.ts). The pipeline checks them again right before
   // the switch, so this answer is for the agent: every rule that fails, with what to do.
   const openAfter = typeof a.open_implementation === 'boolean' ? a.open_implementation : undefined;
@@ -562,8 +585,8 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
   const end = Date.now() + 45000;
   // the pipeline checks every requirement again before the switch; if it refuses, say why instead of "taking longer"
   const failedSince = () => c.env.DB.prepare("SELECT detail FROM events WHERE project_id = ? AND version = ? AND kind = 'publish_failed' AND created_at >= ? ORDER BY id DESC LIMIT 1").bind(p.id, v.n, gate.checked_at).first<{ detail: string }>();
-  let q = await ownedProject(c.env, c.user, p.id), refused: { detail: string } | null = null;
-  while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await ownedProject(c.env, c.user, p.id); if (!(q.status === 'live' && q.live_version === v.n) && (refused = await failedSince())) break; }
+  let q = await fresh(c, p.id), refused: { detail: string } | null = null;
+  while (!(q.status === 'live' && q.live_version === v.n) && Date.now() < end) { await sleep(2000); q = await fresh(c, p.id); if (!(q.status === 'live' && q.live_version === v.n) && (refused = await failedSince())) break; }
   const live = q.status === 'live' && q.live_version === v.n;
   if (refused) {
     const later = storedGate((await getVersion(c.env, p.id, v.n)) as any);
@@ -635,6 +658,7 @@ export const TOOLS: Tool[] = [
           '4b. Look at the game and listen to the creator: debug_preview opens the preview in a browser you drive (screenshots, clicks, keys, the game\'s state), and creator_feedback returns the annotated screenshots and notes the creator left while playing the preview. Read creator_feedback at the start of every session and whenever an answer carries creator_feedback; each item is removed once you read it.',
           '4c. If the game shares its build skill (Open Implementation on), update it before every release: build_skill {project, action: "get"}, revise it for what changed, then build_skill {project, action: "write", version, content}. publish refuses a version without one while sharing is on.',
           '4d. Working from another machine or agent on the same account, as with git: pull_version downloads any version\'s complete files (or the workspace) and gives its base_version; checkout_version puts a version back into the workspace; diff_versions shows what changed between versions. Deploy with deploy_preview {base_version}: it is refused, and says what came in between, when someone deployed a newer version since. list_versions says who deployed each version and what it was built on.',
+          '4e. Working with other people and other agents, as on GitHub: the owner invites collaborators with a role (collaborators {action: "invite"}: read, write, maintain, admin). Each developer or agent works on a branch of its own (branches {action: "create", name}; then upload_files, deploy_preview, list_files, diff_versions and pull_version take {branch}), proposes it for main with change_requests {action: "open", branch, title}, others review it (approve, request_changes, comment), and a maintainer merges it: a three-way merge into a new main version that is verified like any deploy. A conflict refuses the merge with the files; branches {action: "update"} brings main in and marks conflicts with <<<<<<< ======= >>>>>>>. main is protected for collaborators (required approvals, verification); list_projects shows projects shared with you.',
           '5. publish: the verified version goes live in the marketplace. rollback, unpublish and get_stats afterwards. update_project sets the listing, price and cover (and a cover per language); game_data and game_room manage the game\'s data and multiplayer rooms.',
         ],
         services: {
@@ -692,9 +716,14 @@ export const TOOLS: Tool[] = [
         const rows = c.allowedProjects === null
           ? await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, CASE WHEN price_cents > 0 THEN trial_minutes ELSE 0 END AS trial_minutes, plays, sales, updated_at FROM projects WHERE owner_id = ? AND status != 'removed' ORDER BY updated_at DESC").bind(c.user.id).all<any>()
           : await c.env.DB.prepare("SELECT id, slug, title, tagline, tags, status, CASE WHEN status = 'live' THEN live_version ELSE NULL END AS live_version, preview_version, price_cents, CASE WHEN price_cents > 0 THEN trial_minutes ELSE 0 END AS trial_minutes, plays, sales, updated_at FROM projects WHERE owner_id = ?1 AND status != 'removed' AND id IN (SELECT value FROM json_each(?2)) ORDER BY updated_at DESC").bind(c.user.id, JSON.stringify(c.allowedProjects)).all<any>();
+        // projects other creators shared with this account (src/collab.ts), with the role it has on each
+        const shared = (await c.env.DB.prepare(`SELECT p.id, p.slug, p.title, p.tagline, p.tags, p.status, CASE WHEN p.status = 'live' THEN p.live_version ELSE NULL END AS live_version, p.preview_version, p.updated_at, m.role, u.name AS owner
+            FROM project_members m JOIN projects p ON p.id = m.project_id JOIN users u ON u.id = p.owner_id WHERE m.user_id = ?1 AND p.status != 'removed' ORDER BY p.updated_at DESC LIMIT 200`).bind(c.user.id).all<any>()).results
+          .filter((r) => isProjectAllowed(c.allowedProjects, r.id));
         // the genre and secondary genres are stored among the tags; split them out as every other answer does
         return {
-          projects: rows.results.map((r) => { const { tags, ...rest } = r; return { ...rest, ...tagAnswer({ tags } as Project, undefined) }; }),
+          projects: rows.results.map((r) => { const { tags, ...rest } = r; return { ...rest, role: 'owner', ...tagAnswer({ tags } as Project, undefined) }; }),
+          ...(shared.length ? { shared_with_you: shared.map((r) => { const { tags, ...rest } = r; return { ...rest, ...tagAnswer({ tags } as Project, undefined) }; }), shared_note: 'Projects other creators invited you to, with your role on each. Work on a branch of your own (branches {action: "create"}) and propose it with change_requests; collaborators {action: "list"} shows the team.' } : {}),
           ...(c.allowedProjects !== null ? { access_scope: 'selected', note: 'This agent connection is limited to selected projects chosen during authorization.' } : {}),
         };
       }
@@ -728,7 +757,7 @@ export const TOOLS: Tool[] = [
       if (a.tags !== undefined) chooseTags(a.tags);
       if (a.genre !== undefined && !normGenre(a.genre)) throw bad(`genre "${a.genre}" is not one of the platform genres.`, `Genres: ${GENRES.join(', ')}. Put anything more specific in tags.`);
       let p = await createProject(c.env, c.user, { ...(a as any), ...(a.genre !== undefined ? { tags: undefined } : {}) }, c.client);
-      if (a.genre !== undefined) { await updateProjectMeta(c.env, p, { genre: a.genre, ...(a.tags !== undefined ? { tags: a.tags } : {}) }); p = await ownedProject(c.env, c.user, p.id); }
+      if (a.genre !== undefined) { await updateProjectMeta(c.env, p, { genre: a.genre, ...(a.tags !== undefined ? { tags: a.tags } : {}) }); p = await fresh(c, p.id); }
       return {
         project: p.id, slug: p.slug, title: p.title, ...tagAnswer(p, a.tags), console_page: `${c.origin}/console/projects/${p.id}`, storage: await storageLine(c.env, p, []),
         tell_the_developer: `This game has ${mb(budgetOf(p, await getSettings(c.env)).bytes)} of storage for all its files. Plan assets around it: generate content from code and load large or optional content at run time (game_storage {project} explains how).`,
@@ -756,6 +785,9 @@ export const TOOLS: Tool[] = [
     }, ['project']),
     run: async (a, c) => {
       const p = await scopedProject(c, a.project);
+      // the listing is the maintainers'; money and sharing the build stay the owner's (src/collab-core.ts)
+      const ownerOnly = (['price_cents', 'trial_minutes', 'sale', 'skill_price_cents', 'open_implementation'] as const).filter((k) => a[k] !== undefined);
+      if (ownerOnly.length) assertCan(roleIn(c, p), 'pricing', `changing ${ownerOnly.join(', ')}`);
       let cover: string | undefined;
       const coverChecks: Record<string, unknown> = {};
       const storeCover = async (raw: unknown, tag: string) => {
@@ -781,8 +813,8 @@ export const TOOLS: Tool[] = [
       }
       const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, sale: saleIn, ...meta } = a;
       await updateProjectMeta(c.env, p, meta);
-      if (saleIn !== undefined) await applySale(c.env, await ownedProject(c.env, c.user, p.id), saleIn, c.client);
-      const fresh = await ownedProject(c.env, c.user, p.id), own = baseListingLang(fresh), langCovers: Record<string, string | null> = {};
+      if (saleIn !== undefined) await applySale(c.env, await fresh(c, p.id), saleIn, c.client);
+      const now1 = await fresh(c, p.id), own = baseListingLang(now1), langCovers: Record<string, string | null> = {};
       // the cover of the listing's own language is the main cover
       const mainPath = a.cover || perLang.find(([l, v]) => l === own && v)?.[1];
       if (mainPath) {
@@ -791,7 +823,7 @@ export const TOOLS: Tool[] = [
         cover = `${c.origin}/api/media/${key}`;
       }
       if (perLang.some(([l]) => l !== own)) {
-        const cur = JSON.parse(fresh.listing_i18n || '{}') as Record<string, Record<string, string>>;
+        const cur = JSON.parse(now1.listing_i18n || '{}') as Record<string, Record<string, string>>;
         for (const [l, v] of perLang) {
           if (l === own) continue;
           if (v === null) { if (cur[l]) { delete cur[l].cover_key; if (!Object.keys(cur[l]).length) delete cur[l]; } langCovers[l] = null; continue; }
@@ -802,7 +834,7 @@ export const TOOLS: Tool[] = [
       }
       if (skillPrice !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, skillPrice, c.client);
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
-      const q = await ownedProject(c.env, c.user, p.id), s = await getSettings(c.env);
+      const q = await fresh(c, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
       return { ok: true, title: q.title, ...(a.tags !== undefined || a.genre !== undefined || a.genres !== undefined ? tagAnswer(q, a.tags) : {}), price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
@@ -815,9 +847,11 @@ export const TOOLS: Tool[] = [
       files: { type: 'array', maxItems: 40, description: 'Whole files to create or replace, as {path, content} objects. Up to 40 per call.', items: UPLOAD_ITEMS.files },
       edits: { type: 'array', maxItems: 40, description: 'Exact text replacements in text files already in the workspace. old_string must match exactly (spaces and newlines included) and appear once, unless replace_all is true. Applied after files. An unknown key refuses the call.', items: UPLOAD_ITEMS.edits },
       delete: { type: 'array', items: { type: 'string' }, description: 'Paths to delete. A path that is not in the workspace refuses the whole call (nothing is saved).' },
+      branch: BRANCH_ARG,
     }, ['project']),
     run: async (a, c) => {
-      const p = await scopedProject(c, a.project);
+      const p = await scopedProject(c, a.project), t = await wsTarget(c, p, a.branch, 'write');
+      return withLock(c.env, t.ws, async () => {
       // each file and edit is held to its item schema like the call itself: old/new are read as old_string/new_string,
       // and a key still unknown refuses the call instead of reading as a missing old_string
       const items = (k: 'files' | 'edits', aliases: Record<string, string>) => (Array.isArray(a[k]) ? a[k] : []).map((it: unknown, i: number) => {
@@ -839,7 +873,7 @@ export const TOOLS: Tool[] = [
       for (const e of edits) {
         const path = cleanPath(e.path) || '';
         if (!isText(path)) throw bad(`${e.path}: edits only work on text files.`);
-        const cur = pending.get(path) ?? (await readFile(c.env, p.id, path)).bytes;
+        const cur = pending.get(path) ?? (await readFile(c.env, t.ws, path)).bytes;
         const src = new TextDecoder().decode(cur), old = String(e.old_string);
         if (!old) throw bad(`${path}: old_string must not be empty.`);
         const count = src.split(old).length - 1;
@@ -850,7 +884,7 @@ export const TOOLS: Tool[] = [
         edited.push({ path, replaced: e.replace_all ? count : 1 });
       }
       // The whole call against the game's storage, deletes included, so a call that swaps a big file for a smaller one fits.
-      const before = await listFiles(c.env, p.id), s = await getSettings(c.env);
+      const before = await listFiles(c.env, t.ws), s = await getSettings(c.env);
       // a delete of a path that is not there is refused like an edit whose old_string is not found: nothing is saved
       const have = new Set([...before.map((f) => f.path), ...pending.keys()]);
       const missing = dels.map((d: unknown) => String(d)).filter((d: string) => { const path = cleanPath(d); return !path || !have.has(path); });
@@ -858,26 +892,30 @@ export const TOOLS: Tool[] = [
       assertFits(s, p, before, [...pending].map(([path, bytes]) => ({ path, size: bytes.byteLength })), dels.map((d: unknown) => cleanPath(String(d)) || String(d)));
       // Every part passed: write.
       const rows = new Map<string, Awaited<ReturnType<typeof putFile>>>();
-      for (const [path, bytes] of pending) rows.set(path, await putFile(c.env, p, path, bytes, true));
+      for (const [path, bytes] of pending) rows.set(path, await putFile(c.env, p, path, bytes, true, t.ws));
       const written = [...new Set(files.map((f) => cleanPath(f.path)!))].map((path) => ({ path, bytes: rows.get(path)!.size, sha: rows.get(path)!.sha }));
       const deleted: string[] = [];
       const notFound: string[] = [];   // only a path removed by another call in the meantime
-      for (const d of dels) { const path = cleanPath(String(d)); if (path && await deleteFile(c.env, p.id, path)) deleted.push(path); else notFound.push(String(d)); }
+      for (const d of dels) { const path = cleanPath(String(d)); if (path && await deleteFile(c.env, t.ws, path)) deleted.push(path); else notFound.push(String(d)); }
+      const resolved = await autoResolve(c.env, t.branch, [...pending.keys()], t.ws);
       return {
+        ...(t.branch ? { branch: t.branch.name } : {}),
+        ...(resolved.length ? { conflicts_resolved: resolved } : {}),
         written, edited: edited.map((e) => ({ path: e.path, bytes: rows.get(e.path)!.size, sha: rows.get(e.path)!.sha, replaced: e.replaced })), deleted,
         ...(notFound.length ? { not_deleted: notFound, not_deleted_why: 'Not in the workspace (paths are case sensitive and relative to the bundle root). list_files shows every path.' } : {}),
-        storage: await storageLine(c.env, p),
-        next: 'Call deploy_preview when the changes are complete (dry_run: true for only the static checks).',
+        storage: await storageLine(c.env, p, await listFiles(c.env, t.ws)),
+        next: `Call deploy_preview${t.branch ? ` {branch: "${t.branch.name}"}` : ''} when the changes are complete (dry_run: true for only the static checks).`,
       };
+      });
     },
   },
   {
     name: 'create_upload_url', title: 'Get a direct upload URL',
     description: 'Returns a short-lived URL for uploading files straight from a shell with curl, without passing their contents through this conversation. Use it for large or binary files, or a whole folder as a zip (an engine\'s web export folder, for example). Valid for 30 minutes.',
-    inputSchema: obj({ project: PROJECT }, ['project']),
+    inputSchema: obj({ project: PROJECT, branch: BRANCH_ARG }, ['project']),
     run: async (a, c) => {
-      const p = await scopedProject(c, a.project), t = randomToken(24);
-      await c.env.DB.prepare('INSERT INTO uploads (token_hash, project_id, user_id, expires_at) VALUES (?, ?, ?, ?)').bind(await sha256(t), p.id, c.user.id, now() + 30 * 60000).run();
+      const p = await scopedProject(c, a.project), w = await wsTarget(c, p, a.branch, 'write'), t = randomToken(24);
+      await c.env.DB.prepare('INSERT INTO uploads (token_hash, project_id, user_id, expires_at, ws) VALUES (?, ?, ?, ?, ?)').bind(await sha256(t), p.id, c.user.id, now() + 30 * 60000, w.branch ? w.ws : null).run();
       const base = `${c.origin}/api/upload/${t}`;
       return {
         expires_in_minutes: 30,
@@ -891,8 +929,11 @@ export const TOOLS: Tool[] = [
   {
     name: 'list_files', title: 'List workspace files',
     description: 'Lists every file in the project workspace with its size and sha (the first 32 hex characters of its SHA-256), so you can see which local files differ from what was uploaded, and which version the workspace is based on and what changed in it since. To get the files themselves, use pull_version.',
-    inputSchema: obj({ project: PROJECT }, ['project']), annotations: { readOnlyHint: true },
-    run: async (a, c) => { const p = await scopedProject(c, a.project), files = await listFiles(c.env, p.id); return { files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0), workspace: await workspaceLine(c.env, p), storage: await storageLine(c.env, p, files) }; },
+    inputSchema: obj({ project: PROJECT, branch: BRANCH_ARG }, ['project']), annotations: { readOnlyHint: true },
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project), t = await wsTarget(c, p, a.branch, 'read'), files = await listFiles(c.env, t.ws);
+      return { ...(t.branch ? { branch: t.branch.name, conflicts: parseJson<string[]>(t.branch.conflicts, []) } : {}), files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })), total_bytes: files.reduce((x, f) => x + f.size, 0), workspace: await workspaceLine(c.env, p, await lineOf(c, p, t)), storage: await storageLine(c.env, p, files) };
+    },
   },
   {
     name: 'game_storage', title: 'Check the game\'s storage or ask for more',
@@ -905,7 +946,7 @@ export const TOOLS: Tool[] = [
     }, ['project']),
     run: async (a, c) => {
       const p = await scopedProject(c, a.project), action = a.action || 'check';
-      if (action === 'request') return { project: p.id, ...(await requestStorage(c.env, c.user, p, a.megabytes, a.reason, c.client)), storage: await storageLine(c.env, await ownedProject(c.env, c.user, p.id)) };
+      if (action === 'request') return { project: p.id, ...(await requestStorage(c.env, c.user, p, a.megabytes, a.reason, c.client)), storage: await storageLine(c.env, await fresh(c, p.id)) };
       if (action !== 'check') throw bad('action must be "check" or "request".');
       const files = await listFiles(c.env, p.id), report = await storageReport(c.env, p, files);
       return {
@@ -972,9 +1013,11 @@ The whole set as one page: get_started {topic: "standards"}.`,
       accessibility: { type: 'array', items: { type: 'string', enum: [...ACCESSIBILITY] }, description: 'Accessibility features the game has; [] when none.' },
       content: CONTENT_SCHEMA,
       version: { type: 'integer', description: 'Optional. Show what this version went out with.' },
+      branch: BRANCH_ARG,
     }, ['project']), annotations: { idempotentHint: true },
     run: async (a, c) => {
       let p = await scopedProject(c, a.project);
+      const t = await wsTarget(c, p, a.branch, a.action === 'declare' ? 'write' : 'read');
       if (a.version !== undefined && a.version !== null) {
         const v = await getVersion(c.env, p.id, Number(a.version));
         if (!v) throw bad(`Version ${a.version} does not exist.`, 'Call list_versions.');
@@ -997,17 +1040,18 @@ The whole set as one page: get_started {topic: "standards"}.`,
         if (a.session_minutes !== undefined && a.session_minutes !== null && !(Number(a.session_minutes) >= 1 && Number(a.session_minutes) <= 600)) issues.push({ level: 'error', field: 'session_minutes', message: 'session_minutes must be from 1 to 600.' });
         const errs = issues.filter((i) => i.level === 'error');
         if (errs.length) throw bad(errs.map((i) => `${i.field}: ${i.message}${i.hint ? ` (${i.hint})` : ''}`).join(' · '), 'Nothing was saved. Fix those fields and declare again.');
+        if (listing.length) assertCan(roleIn(c, p), 'edit_listing', `declaring listing fields (${listing.join(', ')})`);
         if (listing.length) { await updateProjectMeta(c.env, p, Object.fromEntries(listing.map((f) => [f, a[f]]))); written.push(...listing); }
         if (build.length) {
-          const gcp = await workspaceManifest(c, p.id);
+          const gcp = await workspaceManifest(c, t.ws);
           for (const f of build) if (a[f] === null) delete gcp[f]; else gcp[f] = f === 'requirements' ? parseRequirements(a[f]).value : f === 'languages' ? parseLanguages(a[f]).value : a[f];
-          await putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify(gcp, null, 2) + '\n'));
+          await withLock(c.env, t.ws, () => putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify(gcp, null, 2) + '\n'), false, t.ws));
           written.push(...build);
         }
         await logEvent(c.env, p.id, 'metadata', `Game metadata declared: ${written.join(', ')}`, null, c.client);
-        p = await ownedProject(c.env, c.user, p.id);
+        p = await fresh(c, p.id);
       }
-      const check = await checkProject(c.env, p, c.origin), cp = check.manifest.compat!, mr = check.manifest.meta!;
+      const check = await checkProject(c.env, p, c.origin, t.ws), cp = check.manifest.compat!, mr = check.manifest.meta!;
       const summary = metaSummary(p, cp, mr), issues = [...check.compatIssues, ...check.metaIssues].map(metaIssueLine);
       const suggest: Record<string, unknown> = {};
       if (!cp.declared) suggest.requirements = requirementsBlock(cp.detected);
@@ -1037,9 +1081,10 @@ The whole set as one page: get_started {topic: "standards"}.`,
       use_detected: { type: 'boolean', description: 'For "declare": start from the detected requirements, then apply requirements on top.' },
       replace: { type: 'boolean', description: 'For "declare": replace the whole declaration instead of only the fields given.' },
       version: { type: 'integer', description: 'Optional. Show what this version went out with.' },
+      branch: BRANCH_ARG,
     }, ['project']), annotations: { idempotentHint: true },
     run: async (a, c) => {
-      const p = await scopedProject(c, a.project);
+      const p = await scopedProject(c, a.project), t = await wsTarget(c, p, a.branch, a.action === 'declare' ? 'write' : 'read');
       if (a.version !== undefined && a.version !== null) {
         const v = await getVersion(c.env, p.id, Number(a.version));
         if (!v) throw bad(`Version ${a.version} does not exist.`, 'Call list_versions.');
@@ -1052,22 +1097,22 @@ The whole set as one page: get_started {topic: "standards"}.`,
         const parsed = parseRequirements(a.requirements ?? {});
         const errors = parsed.issues.filter((i) => i.level === 'error');
         if (errors.length) throw bad(`requirements: ${errors.map((i) => `${i.field}: ${i.message}${i.hint ? ` (${i.hint})` : ''}`).join(' · ')}`, 'Nothing was written. Fix those fields and call declare again.');
-        const gcp = await workspaceManifest(c, p.id);
+        const gcp = await workspaceManifest(c, t.ws);
         const before = a.replace ? {} : (gcp.requirements && typeof gcp.requirements === 'object' ? gcp.requirements as Record<string, unknown> : {});
-        const base = a.use_detected ? requirementsBlock((await checkProject(c.env, p, c.origin)).manifest.compat!.detected) : {};
+        const base = a.use_detected ? requirementsBlock((await checkProject(c.env, p, c.origin, t.ws)).manifest.compat!.detected) : {};
         const next = { ...before, ...base, ...(a.requirements || {}) };
         const check = parseRequirements(next);
         if (check.issues.some((i) => i.level === 'error')) throw bad(`requirements: ${check.issues.filter((i) => i.level === 'error').map((i) => `${i.field}: ${i.message}`).join(' · ')}`, 'Nothing was written. With replace: true the whole declaration is replaced.');
         // "both" is what agents and the store page say; the parser's internal "any" means the same and is never written
         const written = { ...check.value, ...(check.value.orientation === 'any' ? { orientation: 'both' } : {}) };
-        await putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify({ ...gcp, requirements: written }, null, 2) + '\n'));
+        await withLock(c.env, t.ws, () => putFile(c.env, p, 'gcp.json', new TextEncoder().encode(JSON.stringify({ ...gcp, requirements: written }, null, 2) + '\n'), false, t.ws));
         await logEvent(c.env, p.id, 'requirements', 'Compatibility requirements declared', null, c.client);
       }
-      const check = await checkProject(c.env, p, c.origin), cp = check.manifest.compat!;
+      const check = await checkProject(c.env, p, c.origin, t.ws), cp = check.manifest.compat!;
       const issues = check.compatIssues.map((i) => `${i.level.toUpperCase()} ${i.field}: ${i.message}${i.hint ? `\n  fix: ${i.hint}` : ''}`);
       return {
         ...(action === 'declare' ? { written: 'gcp.json', takes_effect: 'with the next deploy_preview', ...await declaredNotInVersion(c, p, await newestVersion(c, p)) } : {}),
-        declared: cp.declared ? bothNotAny((await workspaceManifest(c, p.id)).requirements) : null,
+        declared: cp.declared ? bothNotAny((await workspaceManifest(c, t.ws)).requirements) : null,
         detected: requirementsBlock(cp.detected), evidence: cp.evidence,
         store_page_will_show: describeRequirements(cp.requirements), download_size_bytes: cp.download_bytes,
         issues,
@@ -1086,30 +1131,41 @@ The whole set as one page: get_started {topic: "standards"}.`,
       base_version: { type: 'integer', description: 'The version your changes start from (the one you pulled or checked out; 0 before the first). The deploy is refused when a newer version was deployed since, by another agent or machine, so its changes are never silently left out; the answer says which versions and what they changed. Strongly recommended whenever more than one agent or machine works on the game.' },
       force: { type: 'boolean', description: 'With base_version: deploy the workspace as it is even though newer versions exist (their changes are left out of this version unless the workspace has them).' },
       by: { type: 'string', description: 'Optional. A short name for this machine or agent (e.g. "laptop", "ci"), shown with the agent app\'s name as who deployed the version.' },
+      branch: { ...BRANCH_ARG, description: 'Optional. Deploy this branch\'s workspace as a version of the branch instead of main. It is verified like any deploy and shows on the shared preview address; change_requests proposes it for main.' },
     }, ['project']),
     run: async (a, c) => {
-      const p = await scopedProject(c, a.project);
+      const p = await scopedProject(c, a.project), t = await wsTarget(c, p, a.branch, 'write');
+      if (t.branch) assertCan(roleIn(c, p), 'deploy_branch', `deploying branch ${t.branch.name}`);
       if (a.retry_version !== undefined && a.retry_version !== null) return retryPreview(c, p, Number(a.retry_version), a.wait_seconds);
-      const check = await checkProject(c.env, p, c.origin);
-      const storage = await storageLine(c.env, p);
-      if (a.dry_run) return { ok: check.ok, files: check.files, bytes: check.bytes, storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: check.ok ? 'No errors. Call deploy_preview without dry_run.' : 'Fix the errors above, then check again.' };
-      if (!check.ok) return { deployed: false, reason: 'Static checks failed, so nothing was deployed.', storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
-      const busy = await c.env.DB.prepare("SELECT n FROM versions WHERE project_id = ? AND status IN ('queued','deploying','verifying') AND created_at > ?").bind(p.id, now() - 10 * 60000).first<{ n: number }>();
-      if (busy) throw new AppError(409, `Version ${busy.n} is still being deployed.`, 'busy', `Call list_versions {project, version: ${busy.n}} and wait for it to finish first.`);
-      const by = actorOf(c, a.by);
-      let base: number | null = p.ws_base ?? null, expectNewest: number | undefined;
+      const conflicts = t.branch ? parseJson<string[]>(t.branch.conflicts, []) : [];
+      if (conflicts.length && !a.dry_run) return { deployed: false, branch: t.branch!.name, reason: `The branch has unresolved conflicts from bringing main in: ${conflicts.join(', ')}.`, conflicts, next: 'Fix each file (no <<<<<<< ======= >>>>>>> markers left) and upload it, or branches {action: "resolve", path, take: "main"|"branch"}. Then deploy again.' };
+      return withLock(c.env, t.ws, async () => {
+      const check = await checkProject(c.env, p, c.origin, t.ws);
+      const storage = await storageLine(c.env, p, await listFiles(c.env, t.ws));
+      const where = t.branch ? { branch: t.branch.name } : {};
+      if (a.dry_run) return { ...where, ok: check.ok, files: check.files, bytes: check.bytes, storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: check.ok ? 'No errors. Call deploy_preview without dry_run.' : 'Fix the errors above, then check again.' };
+      if (!check.ok) return { ...where, deployed: false, reason: 'Static checks failed, so nothing was deployed.', storage, errors: check.errors.map(issueLine), warnings: check.warnings.map(issueLine), next: 'Fix the errors, then call deploy_preview again.' };
+      const busy = await c.env.DB.prepare("SELECT n FROM versions WHERE project_id = ?2 AND status IN ('queued','deploying','verifying') AND created_at > ?3 AND ((?1 IS NULL AND branch IS NULL) OR branch = ?1)")
+        .bind(t.branch?.id ?? null, p.id, now() - 10 * 60000).first<{ n: number }>();
+      if (busy) throw new AppError(409, `Version ${busy.n} of ${t.label} is still being deployed.`, 'busy', `Call list_versions {project, version: ${busy.n}} and wait for it to finish first.`);
+      const by = actorOf(c, a.by), line = await lineOf(c, p, t), bid = t.branch?.id ?? null;
+      let base: number | null = line.base ?? null, expectNewest: number | undefined;
       if (a.base_version !== undefined && a.base_version !== null) {
         base = Number(a.base_version);
-        const newest = p.next_version - 1, verdict = checkBase(base, newest, await versionsAfter(c.env, p.id, base));
+        const verdict = checkBase(base, line.newest, await versionsAfter(c.env, p.id, base, bid));
         if (!verdict.ok && (verdict.code === 'unknown_base' || a.force !== true)) return await baseConflict(c, p, base, verdict);
-        if (verdict.ok) expectNewest = newest;
+        if (verdict.ok) expectNewest = line.newest;
       }
-      const v = await snapshot(c.env, p, check.manifest, String(a.note || ''), { base, actor: by, expectNewest });
-      if (!v) { const q = await ownedProject(c.env, c.user, p.id); return await baseConflict(c, q, base!, checkBase(base!, q.next_version - 1, await versionsAfter(c.env, p.id, base!))); }
-      await logEvent(c.env, p.id, 'preview_requested', String(a.note || ''), v.n, c.client);
+      const v = await snapshot(c.env, p, check.manifest, String(a.note || ''), { base, actor: by, expectNewest, ws: t.ws, branch: bid });
+      if (!v) { const q = await fresh(c, p.id), now2 = t.branch ? (await c.env.DB.prepare('SELECT head_version FROM branches WHERE id = ?').bind(bid).first<{ head_version: number | null }>())?.head_version ?? 0 : await mainHead(c.env, p.id); return await baseConflict(c, q, base!, checkBase(base!, now2, await versionsAfter(c.env, p.id, base!, bid))); }
+      await logEvent(c.env, p.id, 'preview_requested', `${t.branch ? `[${t.branch.name}] ` : ''}${String(a.note || '')}`, v.n, c.client);
       await enqueue(c.env, { kind: 'preview', pid: p.id, n: v.n, origin: c.origin, actor: c.client });
-      const done = await waitVersion(c, p.id, v.n, waitMs(a.wait_seconds, DEPLOY_WAIT_MS));
-      return { deployed: true, storage, warnings: check.warnings.map(issueLine), ...waitNote(a.wait_seconds), ...(await versionReport(c, p, v.n, done)) };
+      return { v, storage, warnings: check.warnings.map(issueLine) };
+      }).then(async (r: any) => {
+        if (!r || !r.v) return r;
+        const done = await waitVersion(c, p.id, r.v.n, waitMs(a.wait_seconds, DEPLOY_WAIT_MS));
+        return { deployed: true, ...(t.branch ? { branch: t.branch.name, next_step: `When it is verified, propose it for main: change_requests {project, action: "open", branch: "${t.branch.name}", title}. An open change request picks up each new version of the branch by itself.` } : {}), storage: r.storage, warnings: r.warnings, ...waitNote(a.wait_seconds), ...(await versionReport(c, p, r.v.n, done)) };
+      });
     },
   },
   {
@@ -1120,9 +1176,11 @@ The whole set as one page: get_started {topic: "standards"}.`,
       const p = await scopedProject(c, a.project), s = await getSettings(c.env);
       if (a.version) return { ...waitNote(a.wait_seconds), ...(await versionReport(c, p, Number(a.version), await waitVersion(c, p.id, Number(a.version), waitMs(a.wait_seconds, LIST_WAIT_MS)))) };
       const rows = await c.env.DB.prepare('SELECT * FROM versions WHERE project_id = ? ORDER BY n DESC LIMIT 50').bind(p.id).all<any>();
-      const versions = rows.results.map((v) => ({ version: v.n, note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), ...(v.actor ? { by: v.actor } : {}), ...(v.base ? { based_on: v.base } : {}), live: v.n === p.live_version && p.status === 'live' }));
+      const bnames = new Map((await c.env.DB.prepare('SELECT id, name FROM branches WHERE project_id = ?').bind(p.id).all<{ id: string; name: string }>()).results.map((b) => [b.id, b.name]));
+      const versions = rows.results.map((v) => ({ version: v.n, branch: v.branch ? bnames.get(v.branch) || 'deleted branch' : 'main', ...(v.change_number ? { merged_change: v.change_number } : {}), note: v.note, status: v.status, summary: v.stage || parseJson<{ summary?: string }>(v.report, {}).summary || '', ...failedChecks(v), can_publish: versionEligible(v, s.verify_browser_required).ok && currentChecks(v, s).ok, created_at: new Date(v.created_at).toISOString(), ...(v.actor ? { by: v.actor } : {}), ...(v.base ? { based_on: v.base } : {}), live: v.n === p.live_version && p.status === 'live' }));
       const failed = versions.find((v) => v.status === 'failed');
-      return { live_version: p.live_version, preview_version: p.preview_version, newest_version: p.next_version - 1 || null, status: p.status, workspace: await workspaceLine(c.env, p), versions, next: failed ? `Call list_versions {project, version: ${failed.version}} for the full report of a version (every check with its detail and hint).` : 'Call list_versions {project, version} for the full report of one version.' };
+      const mh = await mainHead(c.env, p.id);
+      return { live_version: p.live_version, preview_version: p.preview_version, newest_version: mh || null, ...(bnames.size ? { main_newest_version: mh || null, note_on_branches: 'Versions deployed from a branch are listed with it; main\'s newest version is the newest without one. branches {action: "list"} shows each branch.' } : {}), status: p.status, workspace: await workspaceLine(c.env, p), versions, next: failed ? `Call list_versions {project, version: ${failed.version}} for the full report of a version (every check with its detail and hint).` : 'Call list_versions {project, version} for the full report of one version.' };
     },
   },
   {
@@ -1132,13 +1190,14 @@ The whole set as one page: get_started {topic: "standards"}.`,
       project: PROJECT,
       version: { type: 'integer', description: 'Optional. The version to download. Default: the newest.' },
       workspace: { type: 'boolean', description: 'Optional. true: the workspace as it is now instead of a version.' },
+      branch: { ...BRANCH_ARG, description: 'Optional. With workspace: true, that branch\'s workspace; without, the branch\'s newest version (when no version is given).' },
       paths: { type: 'array', items: { type: 'string' }, description: `Optional. Text files to return in the answer itself (up to ${PULL_INLINE.files} files and ${PULL_INLINE.bytes / 1024} KB in all).` },
     }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      const p = await scopedProject(c, a.project), newest = p.next_version - 1;
+      const p = await scopedProject(c, a.project), t = await wsTarget(c, p, a.branch, 'read'), line = await lineOf(c, p, t), newest = line.newest;
       if (a.workspace === true && a.version !== undefined && a.version !== null) throw bad('Pass version or workspace, not both.');
       if (a.workspace !== true && !newest) throw bad('This game has no version yet.', 'Pass workspace: true to download the workspace, or deploy_preview to make the first version.');
-      const source: Source = a.workspace === true ? { workspace: true } : { version: a.version ? Number(a.version) : newest };
+      const source: Source = a.workspace === true ? { workspace: true, ...(t.branch ? { ws: t.ws, label: t.label } : {}) } : { version: a.version ? Number(a.version) : newest };
       const v = 'version' in source ? await versionOrThrow(c.env, p, source.version) : null;
       const files = await sourceFiles(c.env, p, source);
       // text in the answer, all checked before any is read
@@ -1154,33 +1213,35 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (inlineBytes > PULL_INLINE.bytes) throw bad(`paths: those files are ${mb(inlineBytes)} together; the answer holds up to ${PULL_INLINE.bytes / 1024} KB.`, 'Ask for fewer files, or use the zip URL.');
       const contents: Record<string, string> = {};
       for (const f of pick) { const o = await readSourceFile(c.env, p, source, f.path); if (o) contents[f.path] = await o.text(); }
-      const t = randomToken(24);
-      await c.env.DB.prepare('INSERT INTO downloads (token_hash, project_id, user_id, version, expires_at) VALUES (?, ?, ?, ?, ?)').bind(await sha256(t), p.id, c.user.id, v ? v.n : null, now() + 30 * 60000).run();
-      const url = `${c.origin}/api/download/${t}`, base = v ? v.n : (p.ws_base ?? newest);
+      const tk = randomToken(24);
+      await c.env.DB.prepare('INSERT INTO downloads (token_hash, project_id, user_id, version, expires_at, ws) VALUES (?, ?, ?, ?, ?, ?)').bind(await sha256(tk), p.id, c.user.id, v ? v.n : null, now() + 30 * 60000, !v && t.branch ? t.ws : null).run();
+      const url = `${c.origin}/api/download/${tk}`, base = v ? v.n : (line.base ?? newest);
       const folder = v ? `${p.slug}-v${v.n}` : `${p.slug}-workspace`;
       await logEvent(c.env, p.id, 'pulled', v ? `Version ${v.n} downloaded` : 'Workspace downloaded', v ? v.n : null, c.client);
       return {
         pulled: v ? `version ${v.n}` : 'the workspace',
-        ...(v ? { version: v.n, note: v.note, status: v.status, ...(v.actor ? { by: v.actor } : {}), ...(v.base ? { based_on: v.base } : {}), created_at: new Date(v.created_at).toISOString() } : { workspace: await workspaceLine(c.env, p) }),
+        ...(v ? { version: v.n, note: v.note, status: v.status, ...(v.actor ? { by: v.actor } : {}), ...(v.base ? { based_on: v.base } : {}), created_at: new Date(v.created_at).toISOString() } : { workspace: await workspaceLine(c.env, p, line) }),
         newest_version: newest || null, base_version: base,
         file_count: files.length, total_bytes: files.reduce((x, f) => x + f.size, 0), files: files.map((f) => ({ path: f.path, bytes: f.size, sha: f.sha })),
         expires_in_minutes: 30, zip_url: url, file_url: `${url}?path=`,
         download: `curl -fsS -o /tmp/${folder}.zip "${url}" && mkdir -p ${folder} && unzip -oq /tmp/${folder}.zip -d ${folder}`,
         ...(pick.length ? { contents } : {}),
         note: 'The zip holds every file at its workspace path (index.html at the root). file_url takes a path, URL-encoded, for one file. Each file\'s sha is the first 32 hex characters of its SHA-256, as list_files shows it.',
-        next: `Change the files, upload them (create_upload_url, and its zip URL with ?clean=1 makes the workspace exactly your folder; or upload_files), then deploy_preview {project, base_version: ${base}}. If another agent deployed a newer version in the meantime, that deploy is refused and says what changed, so you can merge it first. To edit the platform's copy in place with upload_files edits instead, first checkout_version {project, version: ${base}} so the workspace matches.`,
+        next: `Change the files, upload them (create_upload_url, and its zip URL with ?clean=1 makes the workspace exactly your folder; or upload_files), then deploy_preview {project, ${t.branch ? `branch: "${t.branch.name}", ` : ''}base_version: ${base}}. If another agent deployed a newer version in the meantime, that deploy is refused and says what changed, so you can merge it first. To edit the platform's copy in place with upload_files edits instead, first checkout_version {project, version: ${base}} so the workspace matches.`,
       };
     },
   },
   {
     name: 'checkout_version', title: 'Put a version\'s files back into the workspace',
     description: 'Makes the workspace exactly the files of one version: files that differ are replaced, files the version does not have are deleted. Use it to carry on from a version with upload_files edits, or to go back to an older version and build on it. The live game and the preview do not change until you deploy_preview and publish. If the workspace has changes that are in no version yet (uploaded but not deployed, perhaps by another agent), nothing is changed and the answer lists them; force: true discards them.',
-    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'The version to check out.' }, force: { type: 'boolean', description: 'Discard workspace changes that are in no version yet.' } }, ['project', 'version']), annotations: { destructiveHint: true },
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'The version to check out.' }, force: { type: 'boolean', description: 'Discard workspace changes that are in no version yet.' }, branch: BRANCH_ARG }, ['project', 'version']), annotations: { destructiveHint: true },
     run: async (a, c) => {
-      const p = await scopedProject(c, a.project), n = Number(a.version);
+      const p = await scopedProject(c, a.project), t = await wsTarget(c, p, a.branch, 'write'), n = Number(a.version);
       await versionOrThrow(c.env, p, n);
-      const w = await workspaceState(c.env, p);
-      const unsaved = w.diff ? (isSame(w.diff) ? null : w.diff) : (w.files ? diffFiles([], await sourceFiles(c.env, p, { workspace: true })) : null);
+      return withLock(c.env, t.ws, async () => {
+      const line = await lineOf(c, p, t);
+      const w = await workspaceState(c.env, p, line);
+      const unsaved = w.diff ? (isSame(w.diff) ? null : w.diff) : (w.files ? diffFiles([], await sourceFiles(c.env, p, { workspace: true, ws: t.ws })) : null);
       if (unsaved && a.force !== true) {
         return {
           checked_out: false,
@@ -1189,16 +1250,17 @@ The whole set as one page: get_started {topic: "standards"}.`,
           next: 'Keep them by deploying them first (deploy_preview) or downloading them (pull_version {project, workspace: true}). To discard them, call again with force: true.',
         };
       }
-      const r = await checkoutVersion(c.env, p, n);
-      await logEvent(c.env, p.id, 'checkout', `Workspace set to version ${n}${unsaved ? ' (unsaved changes discarded)' : ''}`, n, c.client);
-      const q = await ownedProject(c.env, c.user, p.id), newest = q.next_version - 1;
+      const r = await checkoutVersion(c.env, p, n, t.ws, t.branch?.id ?? null);
+      await logEvent(c.env, p.id, 'checkout', `${t.branch ? `[${t.branch.name}] ` : ''}Workspace set to version ${n}${unsaved ? ' (unsaved changes discarded)' : ''}`, n, c.client);
+      const q = await fresh(c, p.id), newest = line.newest;
       return {
         checked_out: n, written: r.written, removed: r.removed, unchanged: r.unchanged, ...(unsaved ? { discarded: diffLine(unsaved) } : {}),
-        newest_version: newest, base_version: newest, storage: await storageLine(c.env, q),
+        ...(t.branch ? { branch: t.branch.name } : {}), newest_version: newest, base_version: newest, storage: await storageLine(c.env, q, await listFiles(c.env, t.ws)),
         next: n === newest
           ? `The workspace is now version ${n}. Make your changes, then deploy_preview {project, base_version: ${n}}.`
           : `The workspace is now version ${n}, older than the newest, version ${newest}. Deploying it leaves out what versions ${n + 1} to ${newest} changed (diff_versions {project, from: ${n}, to: ${newest}} shows it). Having chosen that, deploy with base_version: ${newest}, so a version someone deploys meanwhile is still caught.`,
       };
+      });
     },
   },
   {
@@ -1210,12 +1272,14 @@ The whole set as one page: get_started {topic: "standards"}.`,
       to: { type: ['integer', 'string'], description: 'A version number, or "workspace". Default: the newest version.' },
       paths: { type: 'array', items: { type: 'string' }, description: 'Optional. Only these files.' },
       text: { type: 'boolean', description: 'Default true: include line diffs of changed text files.' },
+      branch: { ...BRANCH_ARG, description: 'Optional. Which workspace "workspace" means (and the default "to": the branch\'s newest version); omit for main.' },
     }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
-      const p = await scopedProject(c, a.project), newest = p.next_version - 1;
-      const to: Source = parseSource(a.to, 'to') ?? (newest ? { version: newest } : { workspace: true });
-      const fromDefault: Source | null = 'workspace' in to ? ((p.ws_base ?? newest) ? { version: (p.ws_base ?? newest)! } : null) : (to.version > 1 ? { version: to.version - 1 } : null);
-      const from = parseSource(a.from, 'from') ?? fromDefault;
+      const p = await scopedProject(c, a.project), t = await wsTarget(c, p, a.branch, 'read'), line = await lineOf(c, p, t), newest = line.newest;
+      const wsSrc = (s0: Source | null): Source | null => (s0 && 'workspace' in s0 && t.branch ? { workspace: true, ws: t.ws, label: t.label } : s0);
+      const to: Source = wsSrc(parseSource(a.to, 'to')) ?? (newest ? { version: newest } : wsSrc({ workspace: true })!);
+      const fromDefault: Source | null = 'workspace' in to ? ((line.base ?? newest) ? { version: (line.base ?? newest)! } : null) : (to.version > 1 ? { version: to.version - 1 } : null);
+      const from = wsSrc(parseSource(a.from, 'from')) ?? fromDefault;
       if (!from) throw bad('There is no earlier version to compare with.', 'Pass from and to, e.g. {from: 1, to: "workspace"}.');
       const [A, B] = await Promise.all([sourceFiles(c.env, p, from), sourceFiles(c.env, p, to)]);
       const only = Array.isArray(a.paths) && a.paths.length ? new Set(a.paths.map((x: unknown) => String(x))) : null;
@@ -1504,7 +1568,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (a.action === 'get') return skillForAgent(c.env, c.origin, p, v, typeof a.language === 'string' ? a.language : undefined);
       if (a.action !== 'write') throw bad('action must be get or write.');
       const r = await writeSkill(c.env, p, a, c.client);
-      const q = await ownedProject(c.env, c.user, p.id);
+      const q = await fresh(c, p.id);
       const missing = r.missing_languages || [];
       return {
         ok: true, ...r,
@@ -1553,11 +1617,13 @@ The whole set as one page: get_started {topic: "standards"}.`,
         : { name: skill.skill.name, version: skill.skill.version, language: skill.active_lang, languages: skill.skill.languages, in_sync: skill.skill.in_sync, written_by: skill.skill.written_by_platform ? 'the platform (the game\'s agent has not written one yet)' : 'the game\'s development agent', skill_md: skill.skill_md, store_page: skill.skill.page, how_to_use: 'Save skill_md as SKILL.md in a folder named after the skill in your skills directory, or follow it directly.' } };
     },
   },
+  ...(COLLAB_TOOLS as unknown as Tool[]),
 ];
 
 /** Unzips an uploaded archive into the workspace. */
-export async function importZip(env: Env, user: User, projectId: string, zip: Uint8Array, clean: boolean) {
-  const p = await ownedProject(env, user, projectId), s = await getSettings(env);
+/** Unzips into a workspace: main's (ws = the project id) or a branch's. The caller holds the workspace's lease. */
+export async function importZip(env: Env, p: Project, zip: Uint8Array, clean: boolean, ws: string = p.id) {
+  const s = await getSettings(env);
   // First read only the zip's directory (nothing is unpacked), so a zip that would not fit is refused before it fills memory.
   const sizes: Record<string, number> = {};
   try { unzipSync(zip, { filter: (f) => { sizes[f.name] = f.originalSize; return false; } }); } catch (e) { throw bad(`Not a readable zip file: ${(e as Error).message}`); }
@@ -1567,7 +1633,7 @@ export async function importZip(env: Env, user: User, projectId: string, zip: Ui
   const strip = tops.size === 1 && names.every((n) => n.includes('/')) && !names.includes('index.html') ? [...tops][0] + '/' : '';
   const target = new Map<string, string>(), skipped: string[] = [];
   for (const n of names) { const path = cleanPath(strip ? n.slice(strip.length) : n); if (path) target.set(n, path); else skipped.push(n); }
-  const existing = await listFiles(env, p.id), incoming = new Set(target.values());
+  const existing = await listFiles(env, ws), incoming = new Set(target.values());
   // gcp.json holds what game_metadata and compatibility declared (requirements, languages, players, content…), which a local
   // build folder usually does not have: a clean upload keeps it rather than silently dropping those declarations.
   const keptManifest = clean && !incoming.has(MANIFEST) && existing.some((f) => f.path === MANIFEST);
@@ -1579,20 +1645,20 @@ export async function importZip(env: Env, user: User, projectId: string, zip: Ui
   let carried: string[] = [];
   const zipManifest = [...target].find(([, path]) => path === MANIFEST);
   if (zipManifest && existing.some((f) => f.path === MANIFEST)) {
-    const before = await readFile(env, p.id, MANIFEST).then((f) => f.bytes).catch(() => null);
+    const before = await readFile(env, ws, MANIFEST).then((f) => f.bytes).catch(() => null);
     const merged = before && mergeManifest(before, entries[zipManifest[0]]);
     if (merged) { entries[zipManifest[0]] = merged.bytes; carried = merged.carried; }
   }
   // the directory's sizes are the zip's own claim: check again with what actually came out
   assertFits(s, p, existing, [...target].map(([n, path]) => ({ path, size: entries[n]?.byteLength ?? 0 })), removing);
   const written: string[] = [];
-  for (const [n, path] of target) { await putFile(env, p, path, entries[n], true); written.push(path); }
+  for (const [n, path] of target) { await putFile(env, p, path, entries[n], true, ws); written.push(path); }
   const removed: string[] = [];
-  for (const path of removing) { await deleteFile(env, p.id, path); removed.push(path); }
+  for (const path of removing) { await deleteFile(env, ws, path); removed.push(path); }
   const notes = [
     ...(keptManifest ? ['gcp.json is not in the zip, so the workspace copy was kept with its declared build metadata. To remove it, pass delete: ["gcp.json"] to upload_files.'] : []),
     ...(carried.length ? [`The zip's gcp.json leaves out ${carried.join(', ')}, so those were carried over from the workspace copy. To drop one, declare it again with game_metadata.`] : []),
   ];
-  return { written, skipped, removed, ...(keptManifest ? { kept: [MANIFEST] } : {}), ...(carried.length ? { carried_over: carried } : {}), ...(notes.length ? { notes } : {}), storage: await storageLine(env, p), next: 'Call deploy_preview (dry_run: true runs only the static checks).' };
+  return { written, skipped, removed, ...(keptManifest ? { kept: [MANIFEST] } : {}), ...(carried.length ? { carried_over: carried } : {}), ...(notes.length ? { notes } : {}), storage: await storageLine(env, p, await listFiles(env, ws)), next: 'Call deploy_preview (dry_run: true runs only the static checks).' };
 }
 

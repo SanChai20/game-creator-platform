@@ -50,12 +50,15 @@ test('line diffs: the changed lines with context, deletions before additions, bi
 test('deploy_preview refuses a stale base_version, and takes the number only while the base is still the newest', () => {
   const d = entry('deploy_preview');
   assert.match(d, /base_version: \{ type: 'integer'/); assert.match(d, /force: \{ type: 'boolean'/); assert.match(d, /by: \{ type: 'string'/);
-  assert.match(d, /checkBase\(base, newest, await versionsAfter/);
+  assert.match(d, /checkBase\(base, line\.newest, await versionsAfter/);
   assert.match(d, /verdict\.code === 'unknown_base' \|\| a\.force !== true\)\) return await baseConflict/);
-  assert.match(d, /snapshot\(c\.env, p, check\.manifest, String\(a\.note \|\| ''\), \{ base, actor: by, expectNewest \}\)/);
+  assert.match(d, /snapshot\(c\.env, p, check\.manifest, String\(a\.note \|\| ''\), \{ base, actor: by, expectNewest, ws: t\.ws, branch: bid \}\)/);
   assert.match(d, /if \(!v\) \{/, 'losing the race is a conflict too');
-  assert.match(projects, /WHERE id = \? AND next_version = \? RETURNING next_version'\)\.bind\(now\(\), p\.id, opts\.expectNewest \+ 1\)/);
-  assert.match(projects, /UPDATE projects SET ws_base = \? WHERE id = \?/);
+  // the number is taken in one batch with the row, and only while main's (or the branch's) newest is still the base
+  assert.match(projects, /COALESCE\(\(SELECT MAX\(n\) FROM versions WHERE project_id = \?1 AND branch IS NULL\), 0\) = \?5/);
+  assert.match(projects, /COALESCE\(\(SELECT head_version FROM branches WHERE id = \?4\), 0\) = \?5/);
+  assert.match(projects, /FROM projects WHERE id = \?1 AND alloc_token = \?2/);
+  assert.match(projects, /UPDATE projects SET ws_base = next_version - 1 WHERE id = \?1 AND alloc_token = \?2/);
   assert.match(tools, /conflict: 'newer_version'/);
 });
 
@@ -69,7 +72,7 @@ test('pull_version, checkout_version and diff_versions are read-only, guarded an
   assert.match(entry('diff_versions'), /DIFF_LIMITS\.file_bytes/);
   const up = read('src/routes/upload.ts');
   assert.match(up, /FROM downloads WHERE token_hash = \?/);
-  assert.match(up, /ownedProject\(env, user, g\.project_id\)/, 'a download is the owner\'s');
+  assert.match(up, /accessProject\(env, user, g\.project_id, 'read'\)/, 'a download needs a role on the project');
   assert.match(read('src/index.ts'), /DELETE FROM downloads WHERE expires_at < \?/);
   assert.match(read('src/version-store.ts'), /new ZipPassThrough\(f\.path\)/, 'the zip is streamed, not built in memory');
 });

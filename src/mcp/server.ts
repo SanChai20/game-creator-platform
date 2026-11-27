@@ -66,7 +66,7 @@ async function dispatch(msg: any, c: ToolCtx): Promise<unknown | null> {
         const wrong = checkArgs(tool.inputSchema as any, args);
         if (wrong) throw new AppError(400, `${wrong} Nothing was changed.`, 'bad_request', signature(tool.inputSchema as any));
         await callAllowance(c);
-        const result = await tool.run(args, c);
+        const result = await tool.run(args, { ...c, tool: tool.name, roles: new Map() });
         if (result instanceof WithImages) {
           return ok({ content: [{ type: 'text', text: JSON.stringify(result.data, null, 1) }, ...result.images.map((i) => ({ type: 'image', data: b64(i.data), mimeType: i.type }))], isError: false });
         }

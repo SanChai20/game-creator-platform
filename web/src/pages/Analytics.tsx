@@ -8,8 +8,8 @@ const LENGTH: Record<string, () => string> = { 'under 30 s': () => t('under 30 s
 const mins = (m: number) => (m >= 120 ? `${num(m / 60)} ${t('h', '小时')}` : `${num(m)} ${t('min', '分钟')}`);
 const pct = (v: number) => `${v}%`;
 
-export const projectTabs = (id: string, on: 'overview' | 'analytics') => (
-  <Tabs active={on} items={[{ key: 'overview', to: `/console/p/${id}`, label: t('Overview', '概览') }, { key: 'analytics', to: `/console/p/${id}/analytics`, label: t('Analytics', '数据分析') }]} />
+export const projectTabs = (id: string, on: 'overview' | 'analytics' | 'team') => (
+  <Tabs active={on} items={[{ key: 'overview', to: `/console/p/${id}`, label: t('Overview', '概览') }, { key: 'analytics', to: `/console/p/${id}/analytics`, label: t('Analytics', '数据分析') }, { key: 'team', to: `/console/p/${id}/team`, label: t('Team', '团队') }]} />
 );
 
 /** Players online now, refreshed every 15 seconds. */

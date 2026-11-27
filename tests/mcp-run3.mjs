@@ -18,7 +18,8 @@ const entry = (name) => { const i = tools.indexOf(`name: '${name}'`); assert.ok(
 test('#1 list_projects splits the genre out of the stored tags, with and without project', () => {
   const lp = entry('list_projects');
   assert.doesNotMatch(lp, /tags: JSON\.parse\(/, 'never the raw stored list, where the genre lives');
-  assert.equal((lp.match(/tagAnswer\(/g) || []).length, 2);
+  // the list (own and shared projects) and one project
+  assert.equal((lp.match(/tagAnswer\(/g) || []).length, 3);
 });
 
 const metaFailure = (missing) => ({ id: 'metadata', title: 'Store metadata', status: 'fail', waivable: false, missing, reason: `Version 1 cannot be published until its store metadata is complete. Missing: ${missing.join('; ')}.`, fix: 'game_metadata …' });

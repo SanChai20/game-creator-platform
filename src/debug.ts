@@ -6,6 +6,8 @@
 // It shares Browser Rendering with verification, so it is kept small: one browser per account, a few across the platform
 // (debug_max_sessions), a daily allowance per account, a hard lifetime (debug_session_minutes) and an idle timeout, and
 // one call at a time per browser. Only the game's owner can open one, on their own preview.
+import { roleOf } from './collab';
+import { atLeast } from './collab-core';
 import puppeteer from '@cloudflare/puppeteer';
 import { AppError, bad, forbidden, type Env, type Project, type User } from './env';
 import { rateLimit } from './auth';
@@ -105,7 +107,7 @@ async function markClosed(env: Env, id: string) { await env.DB.prepare('UPDATE d
 export async function openDebug(env: DebugEnv, origin: string, user: User, p: Project, o: { viewport?: unknown; autostart?: boolean; steps?: unknown }, actor: string): Promise<DebugResult> {
   const s = await getSettings(env);
   if (!s.debug_enabled) throw new AppError(403, 'Agent debugging is switched off on this platform.', 'disabled');
-  if (p.owner_id !== user.id) throw forbidden('Only the game\'s creator can debug its preview.');
+  if (!atLeast(await roleOf(env, user, p), 'write')) throw forbidden('Only the game\'s creator and its collaborators with write access can debug its preview.');
   if (!p.preview_version) throw new AppError(409, 'No preview has been deployed yet.', 'no_preview', 'Call deploy_preview first.');
   const vp = wrap(() => viewportOf(o.viewport)), steps = wrap(() => checkSteps(o.steps, vp));
   const old = await openRow(env, user);
