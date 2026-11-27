@@ -27,6 +27,10 @@ type Text = {
   scopeNoProjects: string;
   scopePrev: string; scopeNext: string;
   statusLabels: Record<string, string>;
+  // The platform half of the split consent page
+  sideKicker: string; sideTitle: string; sideBody: string;
+  sideSteps: [[string, string], [string, string], [string, string]];
+  sideFoot: string;
 };
 
 // Strings take HTML-escaped arguments; the <strong> markup is part of each sentence so word order can change.
@@ -55,6 +59,11 @@ export const TEXT: Record<Lang, Text> = {
     scopeNoProjects: 'You do not have any projects yet, so this agent will have access to all projects you create.',
     scopePrev: 'Prev', scopeNext: 'Next',
     statusLabels: { live: 'Live', draft: 'Draft', offline: 'Offline' },
+    sideKicker: 'Agent connection · MCP',
+    sideTitle: 'Make web games with your own agent.',
+    sideBody: 'HearthCade plugs into the agent you already use. It builds, tests and ships; you stay in charge of what goes live.',
+    sideSteps: [['Build', 'Your agent creates the project and uploads its files.'], ['Check', 'Every version gets a private preview and automatic checks.'], ['Ship', 'Publish to the store, roll back or take it offline any time.']],
+    sideFoot: 'You can see and revoke connected agents in your console.',
   },
   zh: {
     connect: (a) => `连接 ${a}`, heading: (a) => `允许 ${a} 为你发布网页游戏吗？`,
@@ -80,6 +89,11 @@ export const TEXT: Record<Lang, Text> = {
     scopeNoProjects: '你目前还没有项目，该智能体将拥有你之后创建的所有项目的访问权限。',
     scopePrev: '上一页', scopeNext: '下一页',
     statusLabels: { live: '已上线', draft: '草稿', offline: '已下线' },
+    sideKicker: '智能体连接 · MCP',
+    sideTitle: '用你自己的智能体制作网页游戏。',
+    sideBody: 'HearthCade 接入你正在使用的智能体。它负责构建、测试和发布，上线什么始终由你决定。',
+    sideSteps: [['构建', '智能体创建项目并上传文件。'], ['检查', '每个版本都有私有预览和自动检查。'], ['发布', '随时上架到商店、回滚或下线。']],
+    sideFoot: '你可以在控制台查看并撤销已连接的智能体。',
   },
   'zh-TW': {
     connect: (a) => `連接 ${a}`, heading: (a) => `允許 ${a} 為你發布網頁遊戲嗎？`,
@@ -105,6 +119,11 @@ export const TEXT: Record<Lang, Text> = {
     scopeNoProjects: '你目前還沒有專案，此 AI 代理將可存取你之後建立的所有專案。',
     scopePrev: '上一頁', scopeNext: '下一頁',
     statusLabels: { live: '已上線', draft: '草稿', offline: '已下架' },
+    sideKicker: '智慧體連接 · MCP',
+    sideTitle: '用你自己的智慧體製作網頁遊戲。',
+    sideBody: 'HearthCade 接入你正在使用的智慧體。它負責建置、測試和發布，上線什麼始終由你決定。',
+    sideSteps: [['建置', '智慧體建立專案並上傳檔案。'], ['檢查', '每個版本都有私人預覽和自動檢查。'], ['發布', '隨時上架到商店、回滾或下架。']],
+    sideFoot: '你可以在控制台查看並撤銷已連接的智慧體。',
   },
   ja: {
     connect: (a) => `${a} を接続`, heading: (a) => `${a} にWebゲームの公開を許可しますか？`,
@@ -130,6 +149,11 @@ export const TEXT: Record<Lang, Text> = {
     scopeNoProjects: 'まだプロジェクトがないため、今後作成するすべてのプロジェクトにアクセスできます。',
     scopePrev: '前へ', scopeNext: '次へ',
     statusLabels: { live: '公開中', draft: '下書き', offline: '非公開' },
+    sideKicker: 'エージェント接続 · MCP',
+    sideTitle: 'いつものエージェントで Web ゲームを作ろう。',
+    sideBody: 'HearthCade は普段使っているエージェントにつながります。ビルド、テスト、公開はエージェントが行い、何を公開するかはあなたが決めます。',
+    sideSteps: [['作る', 'エージェントがプロジェクトを作成し、ファイルをアップロードします。'], ['確かめる', 'すべてのバージョンに非公開プレビューと自動チェックが付きます。'], ['届ける', 'ストアへの公開、ロールバック、非公開化はいつでも可能です。']],
+    sideFoot: '接続中のエージェントはコンソールで確認・取り消しできます。',
   },
   ko: {
     connect: (a) => `${a} 연결`, heading: (a) => `${a}이(가) 웹 게임을 게시하도록 허용할까요?`,
@@ -155,6 +179,11 @@ export const TEXT: Record<Lang, Text> = {
     scopeNoProjects: '아직 프로젝트가 없으므로 앞으로 만드는 모든 프로젝트에 접근할 수 있습니다.',
     scopePrev: '이전', scopeNext: '다음',
     statusLabels: { live: '게시됨', draft: '초안', offline: '비공개' },
+    sideKicker: '에이전트 연결 · MCP',
+    sideTitle: '내 에이전트로 웹 게임을 만드세요.',
+    sideBody: 'HearthCade는 이미 쓰고 있는 에이전트에 연결됩니다. 빌드, 테스트, 배포는 에이전트가 하고, 무엇을 게시할지는 직접 정합니다.',
+    sideSteps: [['빌드', '에이전트가 프로젝트를 만들고 파일을 업로드합니다.'], ['확인', '모든 버전에 비공개 미리보기와 자동 검사가 제공됩니다.'], ['출시', '언제든 스토어에 게시하고, 롤백하거나 비공개로 전환하세요.']],
+    sideFoot: '연결된 에이전트는 콘솔에서 확인하고 취소할 수 있습니다.',
   },
   es: {
     connect: (a) => `Conectar ${a}`, heading: (a) => `¿Permitir que ${a} publique juegos web por ti?`,
@@ -180,5 +209,10 @@ export const TEXT: Record<Lang, Text> = {
     scopeNoProjects: 'Todavía no tienes proyectos, así que este agente tendrá acceso a todos los que crees.',
     scopePrev: 'Ant.', scopeNext: 'Sig.',
     statusLabels: { live: 'Publicado', draft: 'Borrador', offline: 'Desconectado' },
+    sideKicker: 'Conexión de agente · MCP',
+    sideTitle: 'Crea juegos web con tu propio agente.',
+    sideBody: 'HearthCade se conecta al agente que ya usas. Él construye, prueba y publica; tú decides qué sale en vivo.',
+    sideSteps: [['Construir', 'Tu agente crea el proyecto y sube sus archivos.'], ['Revisar', 'Cada versión tiene una vista previa privada y comprobaciones automáticas.'], ['Publicar', 'Publica en la tienda, revierte o desconecta cuando quieras.']],
+    sideFoot: 'Puedes ver y revocar los agentes conectados desde tu consola.',
   },
 };
