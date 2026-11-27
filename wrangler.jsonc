@@ -39,10 +39,12 @@
       { "name": "PLAY_CLOCK", "class_name": "PlayClock" },
       { "name": "GAME_TALLY", "class_name": "GameTally" },
       // friends: one per account, its open pages, presence and live delivery (src/social.ts)
-      { "name": "SOCIAL", "class_name": "SocialHub" }
+      { "name": "SOCIAL", "class_name": "SocialHub" },
+      // the ACP workbench: one per account, relays between the creator's agents (bridges) and console pages (src/acp.ts)
+      { "name": "ACP", "class_name": "AcpHub" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }, { "tag": "v2", "new_sqlite_classes": ["Matchmaker"] }, { "tag": "v3", "new_sqlite_classes": ["PlayClock", "GameTally"] }, { "tag": "v4", "new_sqlite_classes": ["SocialHub"] }, { "tag": "v5", "new_sqlite_classes": ["BotFleet"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom", "Pipeline"] }, { "tag": "v2", "new_sqlite_classes": ["Matchmaker"] }, { "tag": "v3", "new_sqlite_classes": ["PlayClock", "GameTally"] }, { "tag": "v4", "new_sqlite_classes": ["SocialHub"] }, { "tag": "v5", "new_sqlite_classes": ["BotFleet"] }, { "tag": "v6", "new_sqlite_classes": ["AcpHub"] }],
   // Game service calls (saves, stats, scores, heartbeats, server store) per play session and per game Worker, without a
   // database write per check (src/routes/rt.ts). Counted per Cloudflare location, so the limits are generous.
   "ratelimits": [

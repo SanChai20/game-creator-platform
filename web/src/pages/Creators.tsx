@@ -1,6 +1,51 @@
 import { useState } from 'react';
 import { price, t, usd, useApp } from '../lib';
 import { Button, Card, CelScene, Code, Eyebrow, Segmented, Steps } from '../ui';
+import BRIDGE_PKG from '../../../acp-bridge/package.json';
+
+/** The command that starts the workbench's bridge with an agent (src/acp.ts bridgeCommand says the same). */
+export function acpCommand(origin: string, agent = 'claude', custom?: string) {
+  const base = `npx -y ${origin}/acp/hearthcade-acp-${BRIDGE_PKG.version}.tgz`, server = origin === 'https://hearthcade.com' ? '' : ` --server ${origin}`;
+  return custom !== undefined ? `${base}${server} -- ${custom}` : `${base} ${agent}${server}`;
+}
+
+type Way = 'mcp' | 'acp';
+const WAY_KEY = 'gcp.way';
+/** The two ways to work with an agent, side by side: the creator picks one. MCP brings HearthCade into the agent they
+    already use; ACP brings their agent into HearthCade's workbench. Both reach the same tools and games. */
+export function ConnectChoice({ initial }: { initial?: Way }) {
+  const { config } = useApp();
+  const [way, setWay] = useState<Way>(() => { if (initial) return initial; try { return (localStorage.getItem(WAY_KEY) as Way) || 'mcp'; } catch { return 'mcp'; } });
+  const pick = (w: Way) => { setWay(w); try { localStorage.setItem(WAY_KEY, w); } catch { /* private mode */ } };
+  const ways: [Way, string, string, string][] = [
+    ['mcp', 'MCP', t('HearthCade in your agent', '把 HearthCade 接入你的智能体'), t('Keep working in Claude, ChatGPT, Codex or Cursor. They call HearthCade\'s tools.', '继续在 Claude、ChatGPT、Codex 或 Cursor 中工作，由它们调用 HearthCade 的工具。')],
+    ['acp', 'ACP', t('Your agent in HearthCade', '把你的智能体接入 HearthCade'), t('Run your agent on your computer and work with it in the console\'s workbench.', '在你的电脑上运行智能体，在控制台的工作台中与它协作。')],
+  ];
+  return (
+    <div className="stack l">
+      <div className="way-pick" role="radiogroup" aria-label={t('How you work with your agent', '你与智能体协作的方式')}>
+        {ways.map(([k, tag, title, sub]) => (
+          <button key={k} type="button" role="radio" aria-checked={way === k} className={way === k ? 'on' : ''} onClick={() => pick(k)}>
+            <span className="way-tag">{tag}</span><b>{title}</b><span>{sub}</span>
+          </button>
+        ))}
+      </div>
+      <p className="dim fs-sm">{t('Pick one. Both reach the same tools, games and versions, and you can switch at any time.', '任选其一。两种方式使用相同的工具、游戏和版本，随时可以切换。')}</p>
+      {way === 'mcp' ? <ConnectAgent /> : (
+        <div className="stack">
+          <Code text={acpCommand(config.origin)} />
+          <Steps items={[
+            t('Run this in your game\'s folder (Node.js 22 or newer). Swap "claude" for codex, gemini, copilot, cursor, opencode or any of 36 ACP agents.', '在你的游戏文件夹中运行（需要 Node.js 22 或更高版本）。可把 “claude” 换成 codex、gemini、copilot、cursor、opencode 等 36 个 ACP 智能体中的任意一个。'),
+            t('Approve the code it shows, once per computer.', '确认它显示的代码，每台电脑只需一次。'),
+            t('Work with the agent in the workbench: it edits your files, asks before it acts, and deploys with HearthCade\'s tools.', '在工作台中与智能体协作：它修改你的文件、行动前征求你的同意，并用 HearthCade 的工具部署。'),
+          ]} />
+          <div className="row wrapx"><Button variant="primary" size="sm" to="/console/workbench">{t('Open the workbench', '打开工作台')} <em aria-hidden="true">→</em></Button></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 /** How to add the MCP server in each agent. The server uses OAuth, so no key is ever pasted anywhere. */
 export function ConnectAgent() {
@@ -96,10 +141,23 @@ export function Creators() {
 
         <section className="stack l">
           <h2 className="rule">{t('Connect your agent', '连接你的智能体')}</h2>
-          <Card tone="accent" pad>
-            <Code text={`claude mcp add --transport http game-creator ${config.mcp_url}`} />
-            <div className="row wrapx"><span className="mute grow wide">{t('Claude, ChatGPT, Codex, Cursor, OpenCode or any MCP client. No API keys: you approve it by signing in.', 'Claude、ChatGPT、Codex、Cursor、OpenCode 或任何 MCP 客户端。无需 API 密钥，登录授权即可。')}</span><Button to="/docs#connect" size="sm">{t('Setup for every agent', '各智能体的设置方法')} <em aria-hidden="true">→</em></Button></div>
-          </Card>
+          <div className="ways">
+            <Card tone="accent" pad>
+              <div className="stack">
+                <div className="row"><span className="way-tag">MCP</span><b>{t('HearthCade in your agent', '把 HearthCade 接入你的智能体')}</b></div>
+                <Code text={`claude mcp add --transport http game-creator ${config.mcp_url}`} />
+                <span className="mute">{t('Claude, ChatGPT, Codex, Cursor, OpenCode or any MCP client. No API keys: you approve it by signing in.', 'Claude、ChatGPT、Codex、Cursor、OpenCode 或任何 MCP 客户端。无需 API 密钥，登录授权即可。')}</span>
+              </div>
+            </Card>
+            <Card pad>
+              <div className="stack">
+                <div className="row"><span className="way-tag">ACP</span><b>{t('Your agent in HearthCade', '把你的智能体接入 HearthCade')}</b></div>
+                <Code text={acpCommand(config.origin)} />
+                <span className="mute">{t('Run Claude Agent, Codex, Gemini CLI, Copilot, Cursor or 30 more ACP agents on your computer and work with them in the console\'s workbench.', '在你的电脑上运行 Claude Agent、Codex、Gemini CLI、Copilot、Cursor 等 30 多个 ACP 智能体，在控制台的工作台中与它们协作。')}</span>
+              </div>
+            </Card>
+          </div>
+          <div className="row wrapx"><span className="dim grow wide">{t('Pick one. Both reach the same tools, games and versions.', '任选其一。两种方式使用相同的工具、游戏和版本。')}</span><Button to="/docs#connect" size="sm">{t('Setup for every agent', '各智能体的设置方法')} <em aria-hidden="true">→</em></Button></div>
         </section>
       </div>
     </>

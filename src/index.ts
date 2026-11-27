@@ -59,12 +59,14 @@ import { giftCleanupStmts } from './gifts';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
 import { engagementStmt, graduate, tuneStmts } from './store-quality';
 import { desktop } from './desktop';
+import { acpApi, acpCleanupStmts, acpMachine, BRIDGE_FILE } from './acp';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
 export { BotFleet } from './bots';
 export { Pipeline } from './pipeline';
 export { SocialHub } from './social';
 export { PlayClock, GameTally } from './clock-do';
+export { AcpHub } from './acp';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 const app = new Hono<App>();
@@ -73,7 +75,7 @@ const originOf = (env: Env, req: Request) => env.PUBLIC_ORIGIN || new URL(req.ur
 // Machine endpoints that keep answering on the Worker's other hosts (workers.dev, www): game Workers deployed before a
 // domain move call back to the address they were deployed with, and agents keep their configured MCP URL. None of them
 // sets a cookie. Everything else (pages, cookie-session API) moves to PUBLIC_ORIGIN, so sign-in only ever happens there.
-const MACHINE_PATHS = /^\/(api\/rt\/|api\/upload\/|api\/download\/|api\/stripe\/webhook$|mcp(\/|$)|oauth\/(token|register|device(\/token)?)$|\.well-known\/|sdk\/|kits\/|vendor\/|guides\/|templates\/|__game\/)/;
+const MACHINE_PATHS = /^\/(acp\/|api\/rt\/|api\/upload\/|api\/download\/|api\/stripe\/webhook$|mcp(\/|$)|oauth\/(token|register|device(\/token)?)$|\.well-known\/|sdk\/|kits\/|vendor\/|guides\/|templates\/|__game\/)/;
 export function canonicalRedirect(env: Pick<Env, 'PUBLIC_ORIGIN'>, url: URL): Response | null {
   if (!env.PUBLIC_ORIGIN || url.origin === env.PUBLIC_ORIGIN || MACHINE_PATHS.test(url.pathname)) return null;
   return new Response(null, { status: 308, headers: { location: env.PUBLIC_ORIGIN + url.pathname + url.search, 'cache-control': 'no-store' } });
@@ -118,6 +120,7 @@ app.route('/api/admin', admin);
 app.route('/api/device', deviceApi);
 app.route('/api/social', social);
 app.route('/api/push', push);
+app.route('/api/acp', acpApi);   // the ACP workbench in the console (src/acp.ts)
 app.route('/api', follows);   // creator profiles, following, the notification bell (src/routes/follows.ts)
 app.route('/api', api);
 app.route('/download/desktop', desktop);   // the desktop app's installers and updater manifest (src/desktop.ts)
@@ -129,6 +132,15 @@ const exchange: TokenExchange = async (env, ctx, origin, form) => {
   return provider(origin, s.oauth_access_ttl_s, s.oauth_grant_ttl_s).fetch(new Request(`${origin}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form.toString() }), env, ctx);
 };
 app.route('/oauth/device', deviceOAuth(exchange));
+// The ACP workbench's bridge: pairing, starting a run, and its end of the relay (src/acp.ts).
+app.route('/acp/v1', acpMachine(exchange));
+// The bridge itself, a tarball npx installs. Versioned names, so a cached copy is never a stale one.
+app.get('/acp/:file{hearthcade-acp-[0-9.]+\\.tgz}', async (c) => {
+  if (c.req.param('file') !== BRIDGE_FILE) return c.text('Not found. Copy the current command from the workbench in your console.', 404);
+  const r = await c.env.ASSETS.fetch(new Request(new URL(`/acp/${BRIDGE_FILE}`, c.req.url)));
+  if (!r.ok) return c.text('Not found', 404);
+  return new Response(r.body, { headers: { 'content-type': 'application/gzip', 'cache-control': 'public, max-age=86400', 'access-control-allow-origin': '*' } });
+});
 
 // Platform-hosted modules that games import cross-origin.
 app.get('/:kind{sdk|kits|vendor|guides|templates}/*', async (c) => {
@@ -620,6 +632,7 @@ const handler = {
       env.DB.prepare('DELETE FROM uploads WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM downloads WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM device_codes WHERE expires_at < ?').bind(t - 86400000),
+      ...acpCleanupStmts(env, t),
       env.DB.prepare('DELETE FROM rate_limits WHERE reset_at < ?').bind(t),
       env.DB.prepare('DELETE FROM login_challenges WHERE expires_at < ?').bind(t),
       env.DB.prepare('DELETE FROM email_codes WHERE expires_at < ?').bind(t),

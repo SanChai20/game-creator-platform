@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { bytes, price, t, usd, useApp } from '../lib';
 import { termLength } from './License';
 import { Card, Code, PageHeader, Ticks } from '../ui';
-import { ConnectAgent, starterPrompt } from './Creators';
+import { ConnectChoice, starterPrompt } from './Creators';
 
 const DOC_IDS = ['connect', 'prompt', 'rules', 'features', 'progress', 'metadata', 'services', 'storage', 'money'] as const;
 
@@ -33,8 +33,8 @@ export function Docs() {
         <div className="docs-body">
           <section id="connect">
             <h2>{t('Connect your agent', '连接你的智能体')}</h2>
-            <p>{t('The platform is an MCP server. Add it to your agent once; it signs in through your browser.', '平台是一个 MCP 服务器。在智能体中添加一次即可，登录通过浏览器完成。')}</p>
-            <Card pad><ConnectAgent /></Card>
+            <p>{t('There are two ways, and you pick one. With MCP, HearthCade is a server your agent calls: add it to Claude, ChatGPT, Codex, Cursor or any MCP client and keep working there. With ACP (the Agent Client Protocol), your agent runs on your computer and you work with it in the console\'s workbench, next to your games. Both reach the same tools, games and versions.', '有两种方式，任选其一。使用 MCP 时，HearthCade 是智能体调用的服务器：把它添加到 Claude、ChatGPT、Codex、Cursor 或任何 MCP 客户端，继续在那里工作。使用 ACP（Agent Client Protocol）时，智能体在你的电脑上运行，你在控制台的工作台中、在你的游戏旁边与它协作。两种方式使用相同的工具、游戏和版本。')}</p>
+            <Card pad><ConnectChoice /></Card>
           </section>
 
           <section id="prompt">

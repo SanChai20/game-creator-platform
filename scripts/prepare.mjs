@@ -63,6 +63,32 @@ writeFileSync(join(pub, 'kits/baseline.bin'), Buffer.from(Int32Array.from([...ba
 // and the names in them (characters, items, places of the templates), so two games on one template do not share names
 writeFileSync(join(pub, 'kits/baseline-names.json'), JSON.stringify([...baseNames].sort()));
 
+// the ACP workbench's bridge (acp-bridge/), as the tarball `npx -y <site>/acp/hearthcade-acp-<version>.tgz` installs
+{
+  const { gzipSync } = await import('node:zlib');
+  const pkgDir = join(root, 'acp-bridge'), pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
+  const files = ['package.json', ...pkg.files.flatMap((f) => existsSync(join(pkgDir, f)) ? (statSync(join(pkgDir, f)).isDirectory() ? walk(join(pkgDir, f)).map((x) => f + '/' + x.path) : [f]) : [])];
+  const blocks = [];
+  const field = (buf, off, len, str) => { buf.write(str, off, Math.min(len, Buffer.byteLength(str)), 'utf8'); };
+  for (const f of files) {
+    const data = readFileSync(join(pkgDir, f)), h = Buffer.alloc(512);
+    field(h, 0, 100, 'package/' + f);
+    field(h, 100, 8, (f.startsWith('bin/') ? '0000755' : '0000644') + '\0');
+    field(h, 108, 8, '0000000\0'); field(h, 116, 8, '0000000\0');
+    field(h, 124, 12, data.length.toString(8).padStart(11, '0') + '\0');
+    field(h, 136, 12, '14000000000\0');            // a fixed time: the same sources give the same tarball
+    h.fill(0x20, 148, 156); h[156] = 0x30;
+    field(h, 257, 6, 'ustar\0'); field(h, 263, 2, '00');
+    let sum = 0; for (const b of h) sum += b;
+    field(h, 148, 8, sum.toString(8).padStart(6, '0') + '\0 ');
+    blocks.push(h, data, Buffer.alloc((512 - (data.length % 512)) % 512));
+  }
+  blocks.push(Buffer.alloc(1024));
+  rmSync(join(pub, 'acp'), { recursive: true, force: true });
+  mkdirSync(join(pub, 'acp'), { recursive: true });
+  writeFileSync(join(pub, 'acp', `hearthcade-acp-${pkg.version}.tgz`), gzipSync(Buffer.concat(blocks), { level: 9 }));
+}
+
 mkdirSync(join(root, 'src/generated'), { recursive: true });
 const runtime = readFileSync(join(root, 'src/runtime/game-worker.js'), 'utf8');
 const intrinsics = readFileSync(join(root, 'src/runtime/gcp-intrinsics.js'), 'utf8');

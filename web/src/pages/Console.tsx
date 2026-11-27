@@ -3,7 +3,7 @@ import { ago, api, artStyle, date, Fail, Link, num, price, Stars, t, usd, useAct
 import { Badge, Button, Card, Code, ListPager, ListRow, Notice, PageHeader, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
 import { ConsoleSkeleton } from '../skeletons';
 import { Skeleton, SkRows } from '../ui/skeleton';
-import { ConnectAgent, starterPrompt } from './Creators';
+import { ConnectChoice, starterPrompt } from './Creators';
 import { LicensePass } from './License';
 
 const PER = 20;
@@ -15,8 +15,8 @@ interface AgentGrant {
   project_scope?: 'all' | 'selected'; projects?: AgentProject[] | null;
 }
 
-export function ConsoleTabs({ on }: { on: 'games' | 'earnings' }) {
-  return <Tabs active={on} items={[{ key: 'games', to: '/console', label: t('Games', '游戏') }, { key: 'earnings', to: '/console/earnings', label: t('Earnings', '收益') }]} />;
+export function ConsoleTabs({ on }: { on: 'games' | 'workbench' | 'earnings' }) {
+  return <Tabs active={on} items={[{ key: 'games', to: '/console', label: t('Games', '游戏') }, { key: 'workbench', to: '/console/workbench', label: t('Workbench', '工作台') }, { key: 'earnings', to: '/console/earnings', label: t('Earnings', '收益') }]} />;
 }
 
 export function Console() {
@@ -103,7 +103,7 @@ export function Console() {
                 <div className="row wrapx"><Button size="sm" variant="primary" to="/creator-store">{t('Open the Creator Store', '打开创作者商店')}</Button><Button size="sm" to="/console/earnings">{t('Skill sales', '技能销量')}</Button></div>
               </div>
             </Card>
-            <Card title={t('Connect your agent', '连接你的智能体')} pad><ConnectAgent /></Card>
+            <div id="connect"><Card title={t('Work with your agent', '与你的智能体协作')} pad><ConnectChoice /></Card></div>
             <Card title={t('Connected agents', '已连接的智能体')} aside={agents.data && agents.data.total > 0 ? num(agents.data.total) : undefined}>
               {agents.data?.agents.length ? agents.data.agents.map((a) => {
                 const scoped = a.project_scope === 'selected';
