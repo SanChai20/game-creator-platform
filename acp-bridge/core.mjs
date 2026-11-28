@@ -48,14 +48,14 @@ export class BridgeCore {
     this.watchDownload = o.watchDownload === undefined ? watchNpxDownload : o.watchDownload;   // null: no download watch
     this.stallMs = o.stallMs || STALL_MS;
     this.progress = null;                 // while starting: { phase, bytes, total, line, stalled }
-    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.3' };
+    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.4' };
     this.status = 'idle'; this.statusDetail = '';
     this.init = null;                     // the agent's initialize result
     this.sessions = new Map();            // sessionId → session
     this.pending = new Map();             // our request id → { resolve, reject, view?, viewId? }
     this.asks = new Map();                // key → { agentId, sessionId, params, at }
     this.nextId = 1; this.nextAsk = 1; this.seq = 0;
-    this.stderr = [];
+    this.stderr = []; this.stderrTotal = 0;
     this.proc = null; this.buf = '';
     this.closed = false;
   }
@@ -95,7 +95,7 @@ export class BridgeCore {
     proc.stdout.on('data', (d) => this.onStdout(d, gen));
     proc.stderr.setEncoding('utf8');
     proc.stderr.on('data', (d) => {
-      for (const line of String(d).split(/\r?\n/)) if (line.trim()) { this.stderr.push(line.slice(0, 2000)); this.log('agent', line); if (this.proc === gen && this.status === 'starting') this.bumpProgress({ line: line.trim().slice(0, 300) }); }
+      for (const line of String(d).split(/\r?\n/)) if (line.trim()) { this.stderr.push(line.slice(0, 2000)); this.stderrTotal++; this.log('agent', line); if (this.proc === gen && this.status === 'starting') this.bumpProgress({ line: line.trim().slice(0, 300) }); }
       if (this.stderr.length > 200) this.stderr.splice(0, this.stderr.length - 200);
     });
     proc.stdin.on('error', () => {});
@@ -198,7 +198,7 @@ export class BridgeCore {
       const id = this.nextId++;
       let timer = null;
       if (timeout) timer = setTimeout(() => { if (this.pending.delete(id)) reject(new Error(`${method} timed out`)); }, timeout);
-      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method, params });
+      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method, params, mark: this.stderrTotal });
       try { this.write({ jsonrpc: '2.0', id, method, params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); reject(e); }
     });
   }
@@ -212,7 +212,15 @@ export class BridgeCore {
       const p = this.pending.get(msg.id);
       if (!p) return;
       this.pending.delete(msg.id);
-      if (msg.error) p.reject(Object.assign(new Error(msg.error.message || 'Agent error'), { rpc: msg.error }));
+      if (msg.error) {
+        // what the agent printed while it handled this request often says more than the error ("Internal error")
+        // (stderr is another pipe: give its last lines a moment to arrive)
+        setTimeout(() => {
+          const n = Math.min(40, this.stderrTotal - p.mark);
+          const err = agentError(msg.error, n > 0 ? this.stderr.slice(-n) : []);
+          p.reject(Object.assign(new Error(err.message), { rpc: err }));
+        }, 150);
+      }
       else p.resolve(msg.result ?? null);
       return;
     }
@@ -403,9 +411,9 @@ export class BridgeCore {
     } catch (e) {
       if (method === 'session/prompt') {
         const s = this.sessions.get(sid);
-        if (s) { s.running = false; s.stopReason = 'error'; this.record(sid, { sessionUpdate: '_turn_end', stopReason: 'error', error: e?.rpc?.message || String(e?.message || e) }); this.emitSession(s); }
+        if (s) { s.running = false; s.stopReason = 'error'; this.record(sid, { sessionUpdate: '_turn_end', stopReason: 'error', error: e?.rpc?.message || String(e?.message || e), code: e?.rpc?.code ?? null, log: e?.rpc?.log || this.stderr.slice(-12) }); this.emitSession(s); }
       }
-      done(undefined, e?.rpc || { code: -32603, message: String(e?.message || e) });
+      done(undefined, { ...(e?.rpc || { code: -32603, message: String(e?.message || e), log: this.stderr.slice(-12) }), ...(method === 'session/prompt' && this.sessions.has(sid) ? { recorded: true } : {}) });
     }
   }
 
@@ -441,7 +449,32 @@ export class BridgeCore {
   }
 }
 
-/** Splits a command line the way a shell would for simple cases: spaces, and single or double quotes. */
+/**
+ * An agent's JSON-RPC error with its real reason in the message. Agents built on the ACP SDK answer an unexpected
+ * exception with "Internal error" and put the exception's text in `data.details`; the console shows `message`, so the
+ * details move into it. `log` is what the agent printed on stderr while it handled the request.
+ */
+export function agentError(e, log = []) {
+  const code = typeof e?.code === 'number' ? e.code : -32603;
+  let message = String(e?.message || 'Agent error').trim();
+  const d = e?.data;
+  let detail = typeof d === 'string' ? d : d && typeof d === 'object' ? (typeof d.details === 'string' ? d.details : typeof d.message === 'string' ? d.message : typeof d.error === 'string' ? d.error : Object.keys(d).length ? JSON.stringify(d) : '') : '';
+  detail = detail.trim().slice(0, 1500);
+  if (detail && !message.includes(detail)) message = `${message.replace(/[.:]\s*$/, '')}: ${detail}`;
+  // nothing more than "Internal error": the last error-looking line the agent printed is the best reason there is
+  if (/^internal error\.?$/i.test(message)) {
+    const why = [...log].reverse().find((l) => /\b(err|error|fail|failed|denied|EPERM|EACCES|ENOENT|exception|invalid|unauthori[sz]ed|forbidden)\b/i.test(l));
+    if (why) message = `${message}: ${why.trim().slice(0, 500)}`;
+  }
+  return { code, message, ...(d !== undefined ? { data: d } : {}), log: log.slice(-20) };
+}
+
+/** Folders an agent should not work in: a terminal opened as administrator on Windows starts in System32. */
+export function systemFolder(cwd) {
+  const p = String(cwd || '').replace(/[\\/]+$/, '');
+  return /^[a-z]:\\windows(\\|$)/i.test(p) || /^[a-z]:\\program files/i.test(p) || /^[a-z]:$/i.test(p) || p === '' || /^\/(bin|sbin|usr|etc|System|Library|private\/var|proc|dev)(\/|$)/.test(p);
+}
+
 /** One command line for cmd.exe: arguments with spaces or cmd's special characters are quoted. */
 export function winCommandLine(command, args) {
   const q = (a) => {

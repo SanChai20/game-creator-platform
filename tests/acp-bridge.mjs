@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { estimateSize, watchNpxDownload } from '../acp-bridge/download.mjs';
-import { BridgeCore, VIEW_METHODS, launchOf, splitCommand, winCommandLine } from '../acp-bridge/core.mjs';
+import { BridgeCore, VIEW_METHODS, agentError, launchOf, splitCommand, systemFolder, winCommandLine } from '../acp-bridge/core.mjs';
 
 const MOCK = fileURLToPath(new URL('./acp-mock-agent.mjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -302,6 +302,39 @@ test('starting: download progress, a stall offers Retry, a forced retry, a faile
   assert.match(st.detail, /npm error network request failed/);
   assert.ok(st.stderr.some((l) => /ETIMEDOUT/.test(l)));
   h.core.stop();
+});
+
+test('errors: the agent\'s real reason reaches the page, with what it printed', async (t) => {
+  // the shapes agents send
+  assert.equal(agentError({ code: -32603, message: 'Internal error', data: { details: 'Query closed before response received' } }).message, 'Internal error: Query closed before response received');
+  assert.equal(agentError({ code: -32603, message: 'Internal error: Invalid API key · Fix external API key' }).message, 'Internal error: Invalid API key · Fix external API key');
+  assert.equal(agentError({ code: -32603, message: 'Internal error', data: 'spawn EPERM' }).message, 'Internal error: spawn EPERM');
+  assert.equal(agentError({ code: -32603, message: 'Internal error' }, ['loading', 'Error: EACCES: permission denied']).message, 'Internal error: Error: EACCES: permission denied');
+  assert.equal(agentError({ code: -32000, message: 'Authentication required' }).code, -32000);
+  assert.ok(systemFolder('C:\\Windows\\System32') && systemFolder('C:\\Windows') && systemFolder('/') && systemFolder('/usr/bin'));
+  assert.ok(!systemFolder('C:\\Users\\me\\games\\star') && !systemFolder('/home/me/game'));
+
+  // session/new fails with "Internal error" and the reason in data: the page gets the reason and the log
+  const h = harness({ MOCK_NEW_ERROR: 'Claude Code process exited with code 1' });
+  t.after(() => h.core.stop());
+  await h.core.start();
+  const r = await h.rpc('v1', 'session/new', {});
+  assert.equal(r.error.code, -32603);
+  assert.equal(r.error.message, 'Internal error: Claude Code process exited with code 1');
+  assert.ok(r.error.log.some((l) => /spawn failed/.test(l)), 'what the agent printed comes along');
+
+  // a turn that fails with a bare "Internal error": the stderr line becomes the reason, in the transcript as well
+  const g = harness();
+  t.after(() => g.core.stop());
+  await g.core.start();
+  const sid = (await g.rpc('v1', 'session/new', {})).result.sessionId;
+  const p = await g.rpc('v1', 'session/prompt', { sessionId: sid, prompt: [{ type: 'text', text: 'fail' }] });
+  assert.match(p.error.message, /^Internal error: Error: EPERM: operation not permitted/);
+  assert.equal(p.error.recorded, true, 'the page knows the transcript shows it');
+  const end = g.out.find((m) => m.type === 'update' && m.entry.sessionUpdate === '_turn_end');
+  assert.equal(end.entry.stopReason, 'error');
+  assert.match(end.entry.error, /EPERM/);
+  assert.ok(end.entry.log.length >= 1);
 });
 
 test('stress: 8 sessions in parallel, a 2 MB answer, 500 quick prompts in a row', async () => {

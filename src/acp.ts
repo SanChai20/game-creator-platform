@@ -362,6 +362,7 @@ export class AcpHub extends DurableObject<Env> {
       const meta = m.meta && typeof m.meta === 'object' ? m.meta as Record<string, unknown> : {};
       const safe: Record<string, unknown> = {};
       for (const k of ['agent', 'agentId', 'host', 'cwd', 'os', 'version', 'startedAt']) if (meta[k] !== undefined) safe[k] = typeof meta[k] === 'string' ? (meta[k] as string).slice(0, 300) : meta[k];
+      for (const k of ['launch', 'child']) if (meta[k] === true) safe[k] = true;   // it can start more agents / it was started by one
       t.meta = safe; ws.serializeAttachment(t);
       this.announce();
       return;

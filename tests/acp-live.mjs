@@ -5,7 +5,7 @@
 //   node tests/acp-live.mjs            (BASE defaults to http://127.0.0.1:8787)
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -58,9 +58,13 @@ function view(cl, origin = BASE) {
   return { ws, got, until, opened, send, rpc };
 }
 
+// the catalog the bridges see: one known agent, the mock, so "Add an agent" can start it from a page
+const CATALOG_FILE = join(mkdtempSync(join(tmpdir(), 'acp-cat-')), 'agents.json');
+writeFileSync(CATALOG_FILE, JSON.stringify({ agents: [{ id: 'mock2', name: 'Mock Two', description: 'test', launch: { bin: process.execPath, args: [MOCK] } }] }));
+
 function startBridge(home, extra = []) {
   const out = [];
-  const p = spawn(process.execPath, [BRIDGE, '--server', BASE, ...extra, '--', process.execPath, MOCK], { env: { ...process.env, HOME: home, USERPROFILE: home, HEARTHCADE_NO_BROWSER: '1', NO_COLOR: '1' }, cwd: home, stdio: ['ignore', 'pipe', 'pipe'] });
+  const p = spawn(process.execPath, [BRIDGE, '--server', BASE, ...extra, '--', process.execPath, MOCK], { env: { ...process.env, HOME: home, USERPROFILE: home, HEARTHCADE_NO_BROWSER: '1', NO_COLOR: '1', HEARTHCADE_ACP_AGENTS: CATALOG_FILE }, cwd: home, stdio: ['ignore', 'pipe', 'pipe'] });
   p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
   p.stdout.on('data', (d) => out.push(d)); p.stderr.on('data', (d) => out.push(d));
   const text = () => out.join('');
@@ -184,6 +188,30 @@ async function main() {
   assert.ok(res.every((r) => r.result?.stopReason === 'end_turn'));
   for (let n = 0; n < 200; n++) assert.equal((await v2.rpc(B, 'session/prompt', { sessionId: sids[1], prompt: [{ type: 'text', text: 'n' + n }] })).result.stopReason, 'end_turn');
   ok(`stress: 6 parallel sessions, a 3 MB answer and 200 turns in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+
+  // ---- Add an agent: a page starts another known agent in the same folder; one of each; the page can stop it ------
+  assert.equal(bridges.find((b) => b.id === B).launch, true, 'the first bridge in a folder can start others');
+  v1.send({ b: B, type: 'launch', id: 'L1', agentId: 'mock2' });
+  assert.equal((await v1.until((m) => m.type === 'launch_result' && m.id === 'L1')).ok, true);
+  const two = (await v1.until((m) => m.type === 'bridges' && m.bridges.some((b) => b.agentId === 'mock2'), 20000)).bridges;
+  const C = two.find((b) => b.agentId === 'mock2');
+  assert.equal(C.child, true); assert.ok(!C.launch); assert.equal(C.cwd, two.find((b) => b.id === B).cwd);
+  v1.send({ b: C.id, type: 'hello' });
+  await v1.until((m) => m.type === 'state' && m.b === C.id && m.status === 'ready', 20000).catch(async () => { v1.send({ b: C.id, type: 'hello' }); return v1.until((m) => m.b === C.id && m.type === 'status' && m.status === 'ready', 20000); });
+  const cs = await v1.rpc(C.id, 'session/new', {});
+  assert.equal((await v1.rpc(C.id, 'session/prompt', { sessionId: cs.result.sessionId, prompt: [{ type: 'text', text: 'hi' }] })).result.stopReason, 'end_turn');
+  v1.send({ b: B, type: 'launch', id: 'L2', agentId: 'mock2' });
+  assert.match((await v1.until((m) => m.type === 'launch_result' && m.id === 'L2')).error, /already running/);
+  v1.send({ b: B, type: 'launch', id: 'L3', agentId: 'not-in-the-list' });
+  assert.match((await v1.until((m) => m.type === 'launch_result' && m.id === 'L3')).error, /Unknown agent/);
+  v1.send({ b: C.id, type: 'launch', id: 'L4', agentId: 'mock2' });
+  assert.equal((await v1.until((m) => m.type === 'launch_result' && m.id === 'L4')).ok, false, 'a started agent does not start others');
+  v1.send({ b: B, type: 'quit' });   // the first one ignores it: it stops only from its terminal
+  v1.send({ b: C.id, type: 'quit' });
+  await v1.until((m) => m.type === 'bridges' && !m.bridges.some((b) => b.agentId === 'mock2'), 20000);
+  await b1.wait(/Mock Two stopped/);
+  assert.ok(v1.got.filter((m) => m.type === 'bridges').at(-1).bridges.some((b) => b.id === B), 'the first agent keeps running');
+  ok('a page starts another known agent in the same folder, one of each, and stops it');
 
   // ---- a second agent on the same machine, then removing the machine --------------------------------------------
   const b2 = startBridge(home);

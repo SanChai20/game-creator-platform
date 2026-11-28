@@ -7,7 +7,8 @@
 //   "mcp"       calls the MCP server it was given (http) and reports the answer to initialize
 //   "crash"     exits with code 3
 //   "big N"     streams N KB of text in 1 KB chunks
-// MOCK_INIT_DELAY=ms: initialize answers late. MOCK_NO_HTTP=1: does not offer HTTP MCP servers (tests the stdio proxy). MOCK_AUTH=1: session/new needs authenticate.
+// MOCK_INIT_DELAY=ms: initialize answers late. MOCK_NO_HTTP=1: does not offer HTTP MCP servers (tests the stdio proxy). MOCK_AUTH=1: session/new needs authenticate. MOCK_NEW_ERROR=text: session/new fails with "Internal error" and that text in data.
+// A prompt of "fail" prints an error to stderr and fails with a bare "Internal error".
 import { spawn } from 'node:child_process';
 
 // settings shaped like a real agent's (Codex shows five): the model and mode, plus named ones
@@ -46,6 +47,8 @@ async function handle(m) {
       case 'authenticate': authed = true; return ok({});
       case 'session/new': {
         if (!authed) return fail(-32000, 'Authentication required');
+        // MOCK_NEW_ERROR=text: session/new fails the way an agent built on the ACP SDK does: "Internal error", the reason in data
+        if (process.env.MOCK_NEW_ERROR) { process.stderr.write('[mock] spawn failed: ' + process.env.MOCK_NEW_ERROR + '\n'); return send({ id, error: { code: -32603, message: 'Internal error', data: { details: process.env.MOCK_NEW_ERROR } } }); }
         const sid = 'sess_' + Math.random().toString(36).slice(2, 10);
         sessions.set(sid, { cwd: params.cwd, mcp: params.mcpServers, system: params.systemPrompt, cancel: false, mode: 'ask' });
         setTimeout(() => update(sid, { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'test', description: 'Run the tests' }, { name: 'plan', description: 'Make a plan', input: { hint: 'what to plan' } }] }), 5);
@@ -76,6 +79,7 @@ async function prompt({ sessionId, prompt: blocks }) {
   const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join(' ').trim();
   const say = async (t, msgId = 'm' + Date.now()) => { for (const part of t.match(/.{1,7}/gs) || []) { update(sessionId, { sessionUpdate: 'agent_message_chunk', messageId: msgId, content: { type: 'text', text: part } }); await sleep(1); } };
   update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Thinking about it.' } });
+  if (text === 'fail') { process.stderr.write('Error: EPERM: operation not permitted, open C:\\Windows\\System32\\.claude\n'); throw new Error('Internal error'); }
   if (text === 'crash') { setTimeout(() => process.exit(3), 10); return new Promise(() => {}); }
   if (text === 'edit') {
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'call_1', title: 'Write index.html', kind: 'edit', status: 'pending', locations: [{ path: s.cwd + '/index.html' }] });

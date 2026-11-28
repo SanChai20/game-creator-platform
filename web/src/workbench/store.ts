@@ -4,7 +4,7 @@
 // requests waiting for an answer.
 import { useSyncExternalStore } from 'react';
 
-export interface BridgeInfo { id: string; link?: string; at: number; agent?: string; agentId?: string; host?: string; cwd?: string; os?: string; version?: string; startedAt?: number }
+export interface BridgeInfo { id: string; link?: string; at: number; agent?: string; agentId?: string; host?: string; cwd?: string; os?: string; version?: string; startedAt?: number; launch?: boolean; child?: boolean }
 export interface SessionInfo {
   sessionId: string; title: string; cwd: string; createdAt: number; updatedAt: number; running: boolean; attached: boolean; stopReason: string | null; trimmed?: boolean;
   modes: { currentModeId: string; availableModes: { id: string; name: string; description?: string }[] } | null;
@@ -76,7 +76,12 @@ function onMessage(m: any) {
   if (!id) return;
   if (m.type === 'rpc_result') {
     const p = pending.get(id + '|' + m.id);
-    if (p) { pending.delete(id + '|' + m.id); m.error ? p.reject(Object.assign(new Error(m.error.message || 'Error'), { code: m.error.code, data: m.error.data })) : p.resolve(m.result); }
+    if (p) { pending.delete(id + '|' + m.id); m.error ? p.reject(Object.assign(new Error(m.error.message || 'Error'), { code: m.error.code, data: m.error.data, log: m.error.log || [], recorded: !!m.error.recorded })) : p.resolve(m.result); }
+    return;
+  }
+  if (m.type === 'launch_result') {
+    const p = pending.get(id + '|' + m.id);
+    if (p) { pending.delete(id + '|' + m.id); m.ok ? p.resolve(undefined) : p.reject(new Error(m.error || 'Could not start it.')); }
     return;
   }
   if (!bridges.has(id)) return;
@@ -162,6 +167,18 @@ export function rpc<T = any>(b: string, method: string, params: Record<string, u
     send({ b, type: 'rpc', id, method, params });
   });
 }
+/** Starts another agent from the catalog in the same folder, on the computer that runs bridge `b`. */
+export function launchAgent(b: string, agentId: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== 1) { reject(new Error('Not connected to the workbench.')); return; }
+    const id = 'l' + ++rid, key = b + '|' + id;
+    pending.set(key, { resolve, reject });
+    send({ b, type: 'launch', id, agentId });
+    setTimeout(() => { if (pending.delete(key)) reject(new Error('That computer did not answer.')); }, 15_000);
+  });
+}
+/** Stops an agent that was started from the console. */
+export const quitAgent = (b: string) => send({ b, type: 'quit' });
 export const answer = (b: string, key: string, optionId: string | null) => send({ b, type: 'answer', key, optionId });
 export const cancel = (b: string, sessionId: string) => send({ b, type: 'cancel', sessionId });
 export const restart = (b: string, force = false) => send({ b, type: 'restart', ...(force ? { force: true } : {}) });
@@ -173,7 +190,7 @@ export type Item =
   | { kind: 'agent'; key: string; text: string; blocks: any[] }
   | { kind: 'thought'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall }
-  | { kind: 'end'; key: string; stopReason: string; error?: string }
+  | { kind: 'end'; key: string; stopReason: string; error?: string; code?: number | null; log?: string[] }
   | { kind: 'notice'; key: string; text: string };
 export interface ToolCall { toolCallId: string; title: string; kind: string; status: string; content: any[]; locations: { path: string; line?: number }[]; rawInput?: unknown; rawOutput?: unknown }
 export type Plan = { content: string; priority: string; status: string }[] | { markdown: string };
@@ -227,7 +244,7 @@ export function fold(entries: Entry[]): { items: Item[]; plan: Plan | null; file
       case 'plan': plan = Array.isArray(e.entries) ? e.entries : null; break;
       case 'plan_update': if (e.plan?.planId) { plans.set(e.plan.planId, e.plan.type === 'markdown' ? { markdown: String(e.plan.content || '') } : (e.plan.entries || [])); plan = plans.get(e.plan.planId)!; } break;
       case 'plan_removed': plans.delete(e.planId); plan = [...plans.values()].pop() || null; break;
-      case '_turn_end': items.push({ kind: 'end', key: 'e' + i, stopReason: e.stopReason, error: e.error }); break;
+      case '_turn_end': items.push({ kind: 'end', key: 'e' + i, stopReason: e.stopReason, error: e.error, code: e.code ?? null, log: e.log || [] }); break;
       case 'current_mode_update': break;
       default: break;
     }
