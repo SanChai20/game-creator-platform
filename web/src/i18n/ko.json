@@ -2834,5 +2834,6 @@
   "The agents of the": "",
   "ACP Registry": "ACP 레지스트리",
   ", the same list Zed offers.": "의 에이전트로, Zed가 제공하는 목록과 같습니다.",
-  "ID: {id}": "ID: {id}"
+  "ID: {id}": "ID: {id}",
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host}의 커넥터는 이전 버전({version})이라 {name}을(를) 시작할 수 없습니다. Ctrl+C로 중지한 뒤 명령을 다시 실행해(아래 \"다른 컴퓨터나 폴더?\") 최신 버전을 받으세요."
 }

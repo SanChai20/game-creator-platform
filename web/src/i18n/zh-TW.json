@@ -2855,5 +2855,6 @@
   "The agents of the": "來自",
   "ACP Registry": "ACP 登錄表",
   ", the same list Zed offers.": "，與 Zed 提供的清單相同。",
-  "ID: {id}": "ID：{id}"
+  "ID: {id}": "ID：{id}",
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host} 上的連接程式是舊版本（{version}），無法啟動 {name}。請按 Ctrl+C 停止它，然後重新執行命令（見下方「其他電腦或資料夾？」）以取得最新版本。"
 }
