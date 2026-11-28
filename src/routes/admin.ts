@@ -22,10 +22,19 @@ import { grantLicense, isPlan, revokeLicense } from '../license';
 import { RULES, RULESET, gateView, recordGate, releaseGate, unwaive, waive } from '../release-gate';
 import { reportQueuePage, reviewReports, type ReviewAction } from '../store-quality';
 import { pageMeta, parsePage } from '../paging';
+import { CollectionError, moderate as moderateList } from '../collections.js';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
 // An admin picks the daily challenge of a day (src/challenges.js): a free, live game and one of its leaderboards.
+// Curated collections: mark a staff pick for the home page, or take a list down.
+admin.put('/collections/:slug', async (c) => {
+  requireAdmin(c as any);
+  const b = await c.req.json<{ staff_pick?: boolean; hidden?: boolean }>().catch(() => ({} as { staff_pick?: boolean; hidden?: boolean }));
+  try { return c.json(await moderateList(c.env.DB, c.req.param('slug'), b)); }
+  catch (e) { if (e instanceof CollectionError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; }
+});
+
 admin.put('/challenges/:day', async (c) => {
   const me = requireAdmin(c as any), b = await c.req.json<{ project?: string; board?: string }>().catch(() => ({} as { project?: string; board?: string }));
   try { return c.json(await setDaily(c.env.DB, c.req.param('day'), String(b.project || ''), String(b.board || 'default'), me.id)); }

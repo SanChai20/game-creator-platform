@@ -22,6 +22,7 @@ import { ShareCard } from '../share-ui';
 import { ComingSoonPanel, WishButton } from '../wishlist-ui';
 import { CouponField, type Applied } from '../coupon-ui';
 import { BundleLines, type BundleLine } from '../bundle-ui';
+import { AddToList } from '../collection-ui';
 
 
 export { Stage } from '../player';
@@ -315,6 +316,7 @@ export function Game({ slug }: { slug: string }) {
                 {canGift && <GiftRequests gift={data.gift as GameGift} locked={locked} onGive={(to) => setGiftMode({ mode: 'give', to })} />}
                 {data.refund && !data.is_owner && <RefundBox st={data.refund as RefundState} title={title} onDone={reload} compact />}
                 {user && paid && locked && !data.is_owner && (data.can_wish || wished) && <WishButton slug={slug} wished={wished} onChange={setWished} block />}
+                {live && <AddToList slug={g.slug} />}
                 {user && !paid && <Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>}
                 {(data.compat || meta) && <div className="gp-pills">{data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}{meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}</div>}
                 <p className="gp-fine">

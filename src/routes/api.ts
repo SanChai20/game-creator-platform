@@ -58,6 +58,7 @@ import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
 import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
+import { CollectionError, addGame as addToList, browse as browseLists, createCollection, deleteCollection, follow as followList, listsFor, removeGame as removeFromList, reorder as reorderList, staffPicks, updateCollection, view as listView } from '../collections.js';
 import { BundleError, LIMITS as BUNDLE_LIMITS, bundleable, bundleDiscount, bundlesOf, bundleView, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
 import { CouponError, LIMITS as COUPON_LIMITS, batchKeys, checkDiscount, countDiscountUse, createDiscount, createKeys, disable as disableCoupon, discounted, listCoupons, redeemKey } from '../coupons.js';
 import { LIMITS as PLAYTEST_LIMITS, PlaytestError, answer, byCode, canPlay, closeExpired, closePlaytest, inviteView, join, listPlaytests, openPlaytest, results } from '../playtests.js';
@@ -994,6 +995,55 @@ api.put('/jams/:slug/votes/:pid', async (c) => {
   await rateLimit(c.env, 'jamvote:' + u.id, 300, 3600);
   const b = await c.req.json<{ scores?: Record<string, number> }>().catch(() => ({} as { scores?: Record<string, number> }));
   return c.json(await vote(c.env.DB, j, u.id, c.req.param('pid'), b.scores).catch(jamErr));
+});
+
+// Curated collections (src/collections.js): lists of games that players and staff put together, followed and shared.
+const listErr = (e: unknown): never => { if (e instanceof CollectionError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const listCard = (origin: string, l: any) => ({ ...l, covers: l.covers.map((x: any) => ({ slug: x.slug, title: x.title, cover: media(origin, x.cover_key) })) });
+api.get('/collections', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const u = c.get('user'), b = await browseLists(c.env.DB, u && !isGuestId(u.id) ? u.id : null), o = c.get('origin');
+  return c.json(Object.fromEntries(Object.entries(b).map(([k, v]) => [k, (v as any[]).map((l) => listCard(o, l))])));
+});
+api.get('/collections/featured', async (c) => c.json({ lists: (await staffPicks(c.env.DB, 6)).map((l: any) => listCard(c.get('origin'), l)) }));
+api.post('/collections', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'list:' + u.id, 30, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  const r = await createCollection(c.env.DB, u.id, b).catch(listErr);
+  if (b.game) await addToList(c.env.DB, u.id, r.id, String(b.game)).catch(listErr);
+  return c.json({ ok: true, ...r });
+});
+api.get('/collections/:slug', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const u = c.get('user'), o = c.get('origin');
+  const v = await listView(c.env.DB, c.req.param('slug'), u?.id || null, u?.role === 'admin').catch(listErr);
+  return c.json({ ...v, collection: listCard(o, v.collection), games: v.games.map((g: any) => ({ ...card(o, g), note: g.note })) });
+});
+api.put('/collections/:slug', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await updateCollection(c.env.DB, u.id, c.req.param('slug'), b).catch(listErr));
+});
+api.delete('/collections/:slug', async (c) => c.json(await deleteCollection(c.env.DB, requireUser(c).id, c.req.param('slug')).catch(listErr)));
+api.post('/collections/:slug/games', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ game?: string; note?: string }>().catch(() => ({} as { game?: string; note?: string }));
+  await rateLimit(c.env, 'listadd:' + u.id, 300, 3600);
+  return c.json(await addToList(c.env.DB, u.id, c.req.param('slug'), String(b.game || ''), b.note).catch(listErr));
+});
+api.delete('/collections/:slug/games/:game', async (c) => c.json(await removeFromList(c.env.DB, requireUser(c).id, c.req.param('slug'), c.req.param('game')).catch(listErr)));
+api.put('/collections/:slug/order', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ ids?: string[] }>().catch(() => ({} as { ids?: string[] }));
+  return c.json(await reorderList(c.env.DB, u.id, c.req.param('slug'), b.ids || []).catch(listErr));
+});
+api.post('/collections/:slug/follow', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ on?: boolean }>().catch(() => ({} as { on?: boolean }));
+  return c.json(await followList(c.env.DB, u.id, c.req.param('slug'), b.on !== false).catch(listErr));
+});
+// the game page's "Add to list": the viewer's lists, each saying whether this game is on it
+api.get('/me/lists', async (c) => {
+  const u = requireUser(c), p = await getProject(c.env, String(c.req.query('game') || ''));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ lists: p ? await listsFor(c.env.DB, u.id, p.id) : [] });
 });
 
 // Bundles (src/bundles.js): a creator groups their paid games; owning one lowers the price of the rest.
