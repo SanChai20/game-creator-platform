@@ -42,6 +42,7 @@ export const TOOL_ROLES: Record<string, Role> = {
   debug_preview: 'write',
   update_project: 'maintain', game_data: 'maintain', game_room: 'maintain', build_skill: 'maintain',
   publish: 'admin', rollback: 'admin', unpublish: 'admin',
+  jam: 'admin', // enters the game in a public event under the owner's name
   playtest: 'maintain', // opens the preview to outside players
   devlog: 'admin', // posts news to the game's players, like a release
 };

@@ -18,6 +18,7 @@ import { actBots, botOptions, botStatus, inviteBotFor, startBots, stopBots } fro
 import { getSettings } from '../settings';
 import { applySale, saleView } from '../sales';
 // @ts-ignore plain JS module
+import { JamError, bySlug as jamBySlug, eligibleGames as jamEligible, entriesOf as jamEntries, listJams, publicView as jamView, submit as jamSubmit, withdraw as jamWithdraw } from '../jams.js';
 import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
 import { WishError, announceIssues, isComingSoon, setComingSoon, wishCount } from '../wishlist.js';
 import { licenseText, offersText } from '../license';
@@ -1629,6 +1630,34 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (a.action === 'edit') return guard(() => editDevlog(c.env.DB, p.id, a.id, { title: a.title, body: a.body }));
       if (a.action === 'delete') return guard(() => deleteDevlog(c.env.DB, p.id, a.id));
       throw bad('action must be list, post, edit or delete.');
+    },
+  },
+  {
+    name: 'jam', title: 'Game jams and festivals',
+    description: 'Game jams and festivals on HearthCade (the /jams page). A jam has a theme (hidden until it starts), a window for entries, then a window in which players who played an entry score it on the host\'s criteria; a festival shows live and coming soon games together for a few days. Actions: list (what is on, coming and recently ended), get (slug: the event, its entries, and which of your games could enter), enter (slug, project: one of your live games; a festival also takes a coming soon game; a jam that says new_only takes only games created after it started; at most 3 per creator) and withdraw (slug, project; only while entries are open). Ask the user before entering: the entry shows on a public page under their name. Hosting is done on the /jams page.',
+    inputSchema: obj({
+      action: { type: 'string', enum: ['list', 'get', 'enter', 'withdraw'] },
+      slug: { type: 'string', description: 'get, enter and withdraw: the event\'s slug from list (its /jams/<slug> address).' },
+      project: { type: 'string', description: 'enter and withdraw: your game\'s project id or slug.' },
+    }, ['action']),
+    run: async (a, c) => {
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof JamError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return listJams(c.env.DB);
+      const j = await jamBySlug(c.env.DB, String(a.slug || '')) as any;
+      if (!j || j.status === 'cancelled') throw bad('No such jam or festival.', 'Run jam {action: "list"} for the slugs.');
+      const page = `${c.origin}/jams/${j.slug}`;
+      if (a.action === 'get') {
+        const entries = (await jamEntries(c.env.DB, j, c.user.id) as any[]).map((e) => ({ game: { id: e.game.id, slug: e.game.slug, title: e.game.title, author: e.game.author }, voters: e.voters, mine: e.mine, ...(e.rank !== undefined ? { rank: e.rank, overall: e.overall, scores: e.scores } : {}) }));
+        return { jam: jamView(j, c.user.id), entries, your_eligible_games: await jamEligible(c.env.DB, j, c.user.id), page };
+      }
+      const p = await scopedProject(c, a.project);
+      if (a.action === 'enter') {
+        const r = await guard(() => jamSubmit(c.env.DB, j, c.user.id, p));
+        await logEvent(c.env, p.id, 'jam', `Entered ${j.kind === 'festival' ? 'festival' : 'jam'}: ${j.title}`, null, c.client);
+        return { ok: true, ...r, page };
+      }
+      if (a.action === 'withdraw') return guard(() => jamWithdraw(c.env.DB, j, c.user.id, p.id));
+      throw bad('action must be list, get, enter or withdraw.');
     },
   },
   {

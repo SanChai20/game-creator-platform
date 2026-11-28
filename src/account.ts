@@ -39,6 +39,7 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     db.prepare('DELETE FROM event_players WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM wishlists WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM playtest_testers WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM jam_votes WHERE voter_id = ?').bind(userId),
     db.prepare('DELETE FROM player_profiles WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM rec_dismissed WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM trials WHERE user_id = ?').bind(userId),

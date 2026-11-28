@@ -8,6 +8,7 @@ import { HomeSkeleton } from '../skeletons';
 import { ContinueRow } from '../continue';
 import { ComingSoonShelf } from '../wishlist-ui';
 import { ForYouShelf } from '../foryou-ui';
+import { JamShelf } from '../jam-ui';
 import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, type Genre, type StoreStats } from '../store';
 
 interface HomeData { stats: StoreStats; shelves: { picks?: GameCard[]; trending: GameCard[]; playing: GameCard[]; new: GameCard[]; new_shelf?: GameCard[]; top: GameCard[]; free: GameCard[]; sale?: GameCard[] }; genres: Genre[] }
@@ -61,6 +62,8 @@ export function Home() {
         ]} />
         {/* picked from this player's own history (src/recommend.js); nothing for visitors and new players */}
         <ForYouShelf />
+        {/* the platform's jam or festival that is on now (src/jams.js) */}
+        <JamShelf />
         {!!sh.sale?.length && <Shelf title={t('On sale', '限时特价')} note={t('Limited-time prices, for a few days only.', '限时折扣，仅限几天。')} to="/browse?price=sale" games={sh.sale} />}
         <Shelf live title={t('Playing right now', '正在热玩')} note={t('Games with players in them this minute.', '此刻有玩家在线的游戏。')} to="/browse?sort=playing" games={sh.playing} />
         <Shelf rank title={t('Trending this week', '本周热门')} note={t('Most played and talked about in the last seven days.', '过去七天游玩与讨论最多。')} to="/browse" games={sh.trending} />

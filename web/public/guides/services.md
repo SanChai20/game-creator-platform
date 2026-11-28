@@ -39,6 +39,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Player accounts and play sessions | available | `GCP.player`, `GCP.lang`, `GCP.onLang` | none | saves |
 | Cloud saves | available | `GCP.save` | `game_data` (summary) | saves |
 | Player stats | available | `GCP.playerStats` | `game_data` (summary) | saves |
+| Game jams and festivals | available | none | `jam` | metadata |
 | Devlogs and patch notes | available | none | `devlog`, `publish` (`patch_notes`) | metadata |
 | Achievements | available | `GCP.achievements` | `deploy_preview` (checks `gcp.json` `achievements`) | saves |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
