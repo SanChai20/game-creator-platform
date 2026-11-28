@@ -504,7 +504,7 @@ function GameReports() {
               <span className="mute fs-sm">{t('{n} open of {th} that hide it · {players} players', '{n} 条待处理（达到 {th} 条隐藏）· {players} 位玩家', { n: g.open, th: g.threshold ?? '—', players: g.players })}</span>
             </div>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Object.entries(g.reasons).map(([k, n]) => <Badge key={k}>{(GAME_REASONS()[k] || k) + ' ' + n}</Badge>)}</div>
-            {g.reports.length > 0 && <div className="stack s fs-sm" style={{ borderLeft: '3px solid var(--line-2)', paddingLeft: 12 }}>{g.reports.map((r: any, i: number) => <div key={i}><b>{GAME_REASONS()[r.reason] || r.reason}</b> · {r.name}{r.version ? ` · v${r.version}` : ''}{r.detail ? `: ${r.detail}` : ''} <span className="dim">{ago(r.created_at)}</span></div>)}</div>}
+            {g.reports.length > 0 && <div className="stack s fs-sm" style={{ background: 'var(--sunk)', borderRadius: 'var(--r-sm)', padding: '10px 12px' }}>{g.reports.map((r: any, i: number) => <div key={i}><b>{GAME_REASONS()[r.reason] || r.reason}</b> · {r.name}{r.version ? ` · v${r.version}` : ''}{r.detail ? `: ${r.detail}` : ''} <span className="dim">{ago(r.created_at)}</span></div>)}</div>}
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
               <Button size="sm" variant="secondary" disabled={busy === g.id} onClick={() => void decide(g, 'dismiss', t('Reports dismissed; the game is back in the store.', '已驳回举报，游戏已回到商店。'))}>{t('Dismiss reports and show it', '驳回举报并恢复显示')}</Button>
               {!g.hidden_at || g.open > 0 ? <Button size="sm" variant="danger" disabled={busy === g.id} onClick={() => void decide(g, 'hide', t('The game stays hidden from the store.', '游戏将继续在商店中隐藏。'))}>{t('Uphold and keep it hidden', '维持举报并保持隐藏')}</Button> : null}
@@ -541,7 +541,7 @@ function Reports() {
                 </div>
                 <div><Badge>{REASONS()[r.reason] || r.reason}</Badge> <span className="fs-sm">{t('by {name}', '举报人：{name}', { name: r.reporter.name })} <span className="mute">{r.reporter.email}</span></span></div>
                 {r.detail && <p style={{ whiteSpace: 'pre-wrap' }}>{r.detail}</p>}
-                {r.messages.length > 0 && <div className="stack s fs-sm" style={{ borderLeft: '3px solid var(--line-2)', paddingLeft: 12 }}>{r.messages.map((m: any, i: number) => <div key={i}><b>{m.from === r.target.id ? r.target.name : r.reporter.name}:</b> {m.body} <span className="dim">{ago(m.at)}</span></div>)}</div>}
+                {r.messages.length > 0 && <div className="stack s fs-sm" style={{ background: 'var(--sunk)', borderRadius: 'var(--r-sm)', padding: '10px 12px' }}>{r.messages.map((m: any, i: number) => <div key={i}><b>{m.from === r.target.id ? r.target.name : r.reporter.name}:</b> {m.body} <span className="dim">{ago(m.at)}</span></div>)}</div>}
                 <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                   {r.status === 'open' ? <>
                     <Button size="sm" variant="ghost" disabled={busy === String(r.id)} onClick={() => void set(r, 'dismissed')}>{t('Dismiss', '驳回')}</Button>
