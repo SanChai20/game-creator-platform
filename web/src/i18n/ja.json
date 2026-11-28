@@ -3264,5 +3264,8 @@
   "Write a reply": "返信を書く",
   "This thread is locked.": "このスレッドはロックされています。",
   "{name} replied to your review of {game}": "{name} が {game} のあなたのレビューに返信しました",
-  "{name} replied to your thread on {game}": "{name} が {game} のあなたのスレッドに返信しました"
+  "{name} replied to your thread on {game}": "{name} が {game} のあなたのスレッドに返信しました",
+  "{name} stopped this turn itself. Nothing was asked here.": "{name} がこのターンを自分で止めました。ここでは何も尋ねられていません。",
+  "In {mode} mode it decides on tools without asking you; choose another mode in the menu under the message box to be asked first.": "{mode} モードでは、ツールを使うかどうかをあなたに尋ねずに決めます。先に確認してほしい場合は、メッセージ欄の下のメニューで別のモードを選んでください。",
+  "The agent": "エージェント"
 }

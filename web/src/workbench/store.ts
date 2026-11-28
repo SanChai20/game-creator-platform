@@ -190,7 +190,7 @@ export type Item =
   | { kind: 'agent'; key: string; text: string; blocks: any[] }
   | { kind: 'thought'; key: string; text: string }
   | { kind: 'tool'; key: string; call: ToolCall }
-  | { kind: 'end'; key: string; stopReason: string; error?: string; code?: number | null; log?: string[] }
+  | { kind: 'end'; key: string; stopReason: string; by?: 'you' | 'agent'; error?: string; code?: number | null; log?: string[] }
   | { kind: 'notice'; key: string; text: string };
 export interface ToolCall { toolCallId: string; title: string; kind: string; status: string; content: any[]; locations: { path: string; line?: number }[]; rawInput?: unknown; rawOutput?: unknown }
 export type Plan = { content: string; priority: string; status: string }[] | { markdown: string };
@@ -244,7 +244,7 @@ export function fold(entries: Entry[]): { items: Item[]; plan: Plan | null; file
       case 'plan': plan = Array.isArray(e.entries) ? e.entries : null; break;
       case 'plan_update': if (e.plan?.planId) { plans.set(e.plan.planId, e.plan.type === 'markdown' ? { markdown: String(e.plan.content || '') } : (e.plan.entries || [])); plan = plans.get(e.plan.planId)!; } break;
       case 'plan_removed': plans.delete(e.planId); plan = [...plans.values()].pop() || null; break;
-      case '_turn_end': items.push({ kind: 'end', key: 'e' + i, stopReason: e.stopReason, error: e.error, code: e.code ?? null, log: e.log || [] }); break;
+      case '_turn_end': items.push({ kind: 'end', key: 'e' + i, stopReason: e.stopReason, by: e.by === 'you' || e.by === 'agent' ? e.by : undefined, error: e.error, code: e.code ?? null, log: e.log || [] }); break;
       case 'current_mode_update': break;
       default: break;
     }

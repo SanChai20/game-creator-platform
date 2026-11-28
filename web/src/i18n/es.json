@@ -3263,5 +3263,8 @@
   "Write a reply": "Escribe una respuesta",
   "This thread is locked.": "Este hilo está cerrado.",
   "{name} replied to your review of {game}": "{name} respondió a tu reseña de {game}",
-  "{name} replied to your thread on {game}": "{name} respondió a tu hilo en {game}"
+  "{name} replied to your thread on {game}": "{name} respondió a tu hilo en {game}",
+  "{name} stopped this turn itself. Nothing was asked here.": "{name} detuvo este turno por su cuenta. Aquí no se te preguntó nada.",
+  "In {mode} mode it decides on tools without asking you; choose another mode in the menu under the message box to be asked first.": "En el modo {mode} decide sobre las herramientas sin preguntarte; elige otro modo en el menú bajo el cuadro de mensaje para que te pregunte antes.",
+  "The agent": "El agente"
 }

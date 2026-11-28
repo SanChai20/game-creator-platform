@@ -80,6 +80,7 @@ async function prompt({ sessionId, prompt: blocks }) {
   const say = async (t, msgId = 'm' + Date.now()) => { for (const part of t.match(/.{1,7}/gs) || []) { update(sessionId, { sessionUpdate: 'agent_message_chunk', messageId: msgId, content: { type: 'text', text: part } }); await sleep(1); } };
   update(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Thinking about it.' } });
   if (text === 'fail') { process.stderr.write('Error: EPERM: operation not permitted, open C:\\Windows\\System32\\.claude\n'); throw new Error('Internal error'); }
+  if (text === 'give up') { update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'call_9', title: 'list_files', kind: 'read', status: 'failed' }); return { stopReason: 'cancelled' }; }   // ends the turn itself, as Claude's Auto mode can
   if (text === 'crash') { setTimeout(() => process.exit(3), 10); return new Promise(() => {}); }
   if (text === 'edit') {
     update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'call_1', title: 'Write index.html', kind: 'edit', status: 'pending', locations: [{ path: s.cwd + '/index.html' }] });

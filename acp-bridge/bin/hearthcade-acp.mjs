@@ -183,7 +183,7 @@ function startProxy() {
 // ----- the agent and the relay ------------------------------------------------------------------------------------------
 let ws = null, wsOpen = false;
 const core = new BridgeCore({
-  agent, cwd, systemPrompt: S.system_prompt || '',
+  agent, cwd, systemPrompt: S.system_prompt || '', readOnlyTools: Array.isArray(S.read_only_tools) ? S.read_only_tools.filter((n) => /^[\w-]{1,64}$/.test(n)) : [],
   mcp: proxyUrl ? { http: proxyUrl, stdio: { command: process.execPath, args: [fileURLToPath(import.meta.url), '--mcp-stdio', proxyUrl] } } : null,
   clientInfo: { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: PKG.version },
   send: (m) => { if (wsOpen) { try { ws.send(JSON.stringify(m)); } catch { /* reconnecting */ } } },
