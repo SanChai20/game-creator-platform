@@ -8,6 +8,7 @@ import { readLobby } from '../lobby';
 import { presenceOfUser, pushTo, socialHub, type Presence } from '../social';
 // @ts-ignore plain JS module
 import * as R from '../social-rules.js';
+import * as P from '../parties.js';
 
 type App = { Bindings: Env; Variables: { user: User | null; origin: string } };
 export const social = new Hono<App>();
@@ -236,6 +237,105 @@ social.patch('/profile', async (c) => {
   let me: Presence | null = null;
   if (c.env.SOCIAL) me = await socialHub(c.env, u.id).setProfile(await hubProfile(c.env, u)).catch(() => null);
   return c.json({ profile: v, me });
+});
+
+// ---- parties and voice (src/parties.js) ------------------------------------------------------------------------------
+const partyErr = (e: unknown): never => { if (e instanceof P.PartyError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+async function partiesOn(env: Env, voice = false) {
+  const s = await enabled(env);
+  if (s.parties_enabled === false) throw new AppError(403, 'Parties are switched off on this platform.', 'parties_off');
+  if (voice && s.party_voice_enabled === false) throw new AppError(403, 'Party voice chat is switched off on this platform.', 'voice_off');
+  return s;
+}
+/** Tells these accounts' pages that their party changed (they fetch it again). No push notification: it is not news. */
+async function partyChanged(env: Env, ids: (string | null | undefined)[], extra: Record<string, unknown> = {}) {
+  if (!env.SOCIAL) return;
+  await Promise.all([...new Set(ids.filter(Boolean) as string[])].map((id) => socialHub(env, id).push({ kind: 'party', ...extra }).catch(() => 0)));
+}
+const membersOf = async (env: Env, pid: string | null) => (pid ? await P.memberIds(env.DB, pid) : []);
+social.get('/party', async (c) => {
+  const u = requireUser(c); const s = await enabled(c.env);
+  c.header('cache-control', 'private, no-store');
+  return c.json({ ...(await P.view(c.env.DB, u.id)), enabled: s.parties_enabled !== false, voice: s.party_voice_enabled !== false });
+});
+social.post('/party', async (c) => {
+  const u = requireUser(c); await partiesOn(c.env);
+  await P.create(c.env.DB, u.id).catch(partyErr);
+  return c.json(await P.view(c.env.DB, u.id));
+});
+social.post('/party/invite', async (c) => {
+  const u = requireUser(c), b = await body(c), to = idParam(b.to), s = await partiesOn(c.env);
+  await rateLimit(c.env, 'pinvite:' + u.id, Math.max(1, Number(s.invites_per_10min) || 30), 600);
+  const r = await P.invite(c.env.DB, u.id, to).catch(partyErr);
+  const size = (await membersOf(c.env, r.party)).length;
+  await pushTo(c.env, to, { kind: 'party_invite', invite: { id: r.party, from: { id: u.id, name: u.name }, size, expires_at: r.expires_at } });
+  await partyChanged(c.env, await membersOf(c.env, r.party));
+  return c.json({ ok: true, party: r.party });
+});
+social.post('/party/:id/:answer{accept|decline}', async (c) => {
+  const u = requireUser(c), pid = idParam(c.req.param('id'));
+  if (c.req.param('answer') === 'decline') { await P.decline(c.env.DB, u.id, pid); await partyChanged(c.env, [u.id, ...(await membersOf(c.env, pid))]); return c.json({ ok: true }); }
+  await partiesOn(c.env);
+  const r = await P.accept(c.env.DB, u.id, pid).catch(partyErr);
+  if (r.left) await partyChanged(c.env, r.left.members, { left: u.id });
+  await partyChanged(c.env, await membersOf(c.env, pid), { joined: { id: u.id, name: u.name } });
+  return c.json(await P.view(c.env.DB, u.id));
+});
+social.post('/party/leave', async (c) => {
+  const u = requireUser(c), r = await P.leave(c.env.DB, u.id);
+  await partyChanged(c.env, [u.id, ...r.members], { left: u.id });
+  return c.json({ ok: true });
+});
+social.post('/party/kick', async (c) => {
+  const u = requireUser(c), b = await body(c), who = idParam(b.id);
+  const r = await P.kick(c.env.DB, u.id, who).catch(partyErr);
+  await partyChanged(c.env, [who, ...(await membersOf(c.env, r.party))], { left: who });
+  return c.json({ ok: true });
+});
+social.post('/party/lead', async (c) => {
+  const u = requireUser(c), b = await body(c), who = idParam(b.id);
+  const r = await P.promote(c.env.DB, u.id, who).catch(partyErr);
+  await partyChanged(c.env, await membersOf(c.env, r.party));
+  return c.json({ ok: true });
+});
+// the leader brings everyone into a game: members get "Play with the party" (or the game changes under the party's name)
+social.post('/party/game', async (c) => {
+  const u = requireUser(c), b = await body(c); await partiesOn(c.env);
+  const r = await P.setGame(c.env.DB, u.id, b.slug ? String(b.slug).slice(0, 80) : null).catch(partyErr);
+  const ids = (await membersOf(c.env, r.party)).filter((x) => x !== u.id);
+  await partyChanged(c.env, [u.id]);
+  if (c.env.SOCIAL) await Promise.all(ids.map((id) => socialHub(c.env, id).push({ kind: 'party', game: r.game ? { slug: r.game.slug, title: r.game.title } : null, by: { id: u.id, name: u.name } }).catch(() => 0)));
+  return c.json({ ok: true, game: r.game });
+});
+social.post('/party/voice', async (c) => {
+  const u = requireUser(c), b = await body(c); if (b.on !== false) await partiesOn(c.env, true);
+  const r = await P.setVoice(c.env.DB, u.id, b.on !== false).catch(partyErr);
+  await partyChanged(c.env, await membersOf(c.env, r.party));
+  return c.json(r);
+});
+// voice connection messages (WebRTC offers, answers and ICE candidates) between two members of the same party
+social.post('/party/signal', async (c) => {
+  const u = requireUser(c), b = await body(c), to = idParam(b.to);
+  await rateLimit(c.env, 'psignal:' + u.id, 600, 60);
+  if (!(await P.canSignal(c.env.DB, u.id, to))) throw new AppError(403, 'They are not in your party.', 'not_member');
+  const data = b.data && typeof b.data === 'object' ? b.data : null;
+  if (!data || JSON.stringify(data).length > 12000) throw bad('Bad voice message.');
+  if (c.env.SOCIAL) await socialHub(c.env, to).push({ kind: 'rtc', from: u.id, data }).catch(() => 0);
+  return c.json({ ok: true });
+});
+// where voice connects through: public STUN, and TURN for strict networks when the platform has a key for it
+social.get('/party/ice', async (c) => {
+  requireUser(c); await partiesOn(c.env, true);
+  c.header('cache-control', 'private, no-store');
+  const servers: Record<string, unknown>[] = [{ urls: ['stun:stun.cloudflare.com:3478'] }];
+  if (c.env.TURN_KEY_ID && c.env.TURN_KEY_TOKEN) {
+    try {
+      const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${c.env.TURN_KEY_ID}/credentials/generate`, { method: 'POST', headers: { authorization: `Bearer ${c.env.TURN_KEY_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ ttl: 4 * 3600 }) });
+      const j = await r.json<{ iceServers?: Record<string, unknown> | Record<string, unknown>[] }>();
+      if (r.ok && j.iceServers) servers.push(...(Array.isArray(j.iceServers) ? j.iceServers : [j.iceServers]));
+    } catch (e) { console.warn('turn credentials', String((e as Error).message || e)); }
+  }
+  return c.json({ iceServers: servers });
 });
 
 // ---- reports ------------------------------------------------------------------------------------------------------------

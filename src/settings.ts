@@ -143,6 +143,8 @@ export const SETTING_DEFS = {
   friend_requests_per_day: { v: 50, type: 'int', group: 'Friends and chat', label: 'Friend requests one account may send per day' },
   messages_per_minute: { v: 30, type: 'int', group: 'Friends and chat', label: 'Chat messages one account may send per minute' },
   invites_per_10min: { v: 30, type: 'int', group: 'Friends and chat', label: 'Game invites one account may send per 10 minutes' },
+  parties_enabled: { v: true, type: 'bool', group: 'Friends and chat', label: 'Parties: groups of friends that move between games together', public: true },
+  party_voice_enabled: { v: true, type: 'bool', group: 'Friends and chat', label: 'Voice chat in parties (peer to peer between members)', public: true },
   dm_keep_days: { v: 365, type: 'int', group: 'Friends and chat', label: 'Days chat messages are kept', public: true },
 
   oauth_access_ttl_s: { v: 3600, type: 'int', group: 'Agent access (OAuth)', label: 'Access token lifetime (seconds)' },

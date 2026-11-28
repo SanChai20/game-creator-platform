@@ -31,6 +31,8 @@ export interface Env {
   STRIPE_API_BASE: string;
   SESSION_SECRET: string;
   CF_API_TOKEN?: string;
+  TURN_KEY_ID?: string;             // optional: a Cloudflare Realtime TURN key for party voice behind strict networks (src/routes/social.ts /party/ice)
+  TURN_KEY_TOKEN?: string;
   CF_ACCOUNT_ID?: string;
   ADMIN_CLAIM_TOKEN?: string;
   STRIPE_SECRET_KEY?: string;
