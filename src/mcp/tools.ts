@@ -1533,8 +1533,8 @@ The whole set as one page: get_started {topic: "standards"}.`,
   },
   {
     name: 'get_stats', title: 'Players online, analytics and marketplace numbers',
-    description: 'Returns how the game is doing. now: players online at this moment (live and preview) and players in multiplayer rooms. analytics, over the last days (default 30, at most 90): sessions, unique, new and returning players, play time with average and median session length, session-length spread, players per day and per hour for the last 24 hours, a breakdown by version, device, browser and operating system. Every play number is measured by the platform itself (it starts each session, and the page that shows the game checks in every 30 seconds), never taken from the game; what the game reports about itself (whether it reached GCP.ready, the errors it caught) is under analytics.reported_by_game and in runtime_errors, apart from the rest. Also plays, ratings and recent reviews, and sales. Pass only_now: true for just the live counts, which is cheap enough to poll.',
-    inputSchema: obj({ project: PROJECT, days: { type: 'integer', description: 'Window for analytics, 1 to 90 days. Default 30.' }, only_now: { type: 'boolean', description: 'Return only players online now and room occupancy.' } }, ['project']), annotations: { readOnlyHint: true },
+    description: 'Returns how the game is doing. now: players online at this moment (live and preview) and players in multiplayer rooms. analytics, over the last days (default 30, at most 90): sessions, unique, new and returning players, play time with average and median session length, session-length spread, players per day and per hour for the last 24 hours, a breakdown by version, device, browser and operating system, retention (day 1, 7 and 30, weekly cohorts), how long new players\' first session lasted, the store funnel from page views to returning players, and the events the game counts with GCP.track with its gcp.json funnel (pass funnel to try other steps). Every play number is measured by the platform itself (it starts each session, and the page that shows the game checks in every 30 seconds), never taken from the game; what the game reports about itself (whether it reached GCP.ready, the errors it caught) is under analytics.reported_by_game and in runtime_errors, apart from the rest. Also plays, ratings and recent reviews, and sales. Pass only_now: true for just the live counts, which is cheap enough to poll.',
+    inputSchema: obj({ project: PROJECT, days: { type: 'integer', description: 'Window for analytics, 1 to 90 days. Default 30.' }, only_now: { type: 'boolean', description: 'Return only players online now and room occupancy.' }, funnel: { type: 'array', items: { type: 'string' }, description: 'Event names in order for the events funnel, instead of the live version\'s gcp.json "funnel".' } }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (a.only_now) { const p = await scopedProject(c, a.project); return { status: p.status, ...(await onlineNow(c.env, p.id)) }; }
       const p = await scopedProject(c, a.project), db = c.env.DB;
@@ -1551,7 +1551,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
         last_14_days: daily.results.map((d) => ({ day: d.day, sessions: d.sessions, plays: d.plays, minutes: Math.round(d.seconds / 60) })),
         runtime_errors: errors.results,   // reported by the game, not observed by the platform
         recent_reviews: reviews.results,
-        analytics: await gameAnalytics(c.env, p.id, Number(a.days) || 30),
+        analytics: await gameAnalytics(c.env, p.id, Number(a.days) || 30, Array.isArray(a.funnel) ? a.funnel.map(String) : undefined),
         console_page: `${c.origin}/console/p/${p.id}/analytics`,
       };
     },

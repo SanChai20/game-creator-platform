@@ -61,7 +61,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Publish checks (originality, content, web only) | automatic | none | `publish`, `list_versions` | versions |
 | Marketplace listing, ratings and reviews | available | none | `update_project`, `game_metadata` | metadata |
 | Paid games, free trials and payouts | available unless switched off | none (handled by the platform) | `update_project`, `get_stats` | none |
-| Analytics and runtime errors | automatic | none (heartbeats are automatic) | `get_stats` | none |
+| Analytics and runtime errors | automatic | `GCP.track(name, value)` (optional) | `get_stats` | none |
 | Open implementations | available | none | `find_implementations`, `get_implementation`, `build_skill` | none |
 | Agent access (MCP and OAuth) | available | none | every tool | versions |
 
@@ -415,7 +415,9 @@ Ask the user before setting or changing a price.
 
 ## Analytics and runtime errors
 
-`get_stats` returns players online now, room occupancy, sessions, unique, new and returning players, play time and session lengths, devices, browsers, versions, trials, sales, ratings, recent reviews and the errors real players' browsers reported, over 1 to 90 days. Only real players of the live game count; your own plays and the verifier do not. There are no custom events: count what matters with player stats, which `game_data {action: "summary"}` aggregates.
+`get_stats` returns players online now, room occupancy, sessions, unique, new and returning players, play time and session lengths, devices, browsers, versions, trials, sales, ratings, recent reviews and the errors real players' browsers reported, over 1 to 90 days. Only real players of the live game count; your own plays and the verifier do not. It also returns `retention` (day 1, 7 and 30 rolling retention of the players who first played in the window, and weekly cohorts), `first_session` (how long new players' first session lasted, as the share still playing at each minute), and `store_funnel` (store page loads, players who started, players with a counted play, players who came back).
+
+Custom events: `GCP.track('tutorial_done')` or `GCP.track('coins_spent', 40)` counts an event and adds up its value. The SDK batches them (at most every 10 seconds, and when the tab is hidden). `get_stats` lists each event with its count, unique players, total and average, per day too. List event names in order in `gcp.json` `"funnel": ["tutorial_start", "tutorial_done", "level_3"]` and the console's Analytics tab and `get_stats` show how many new players reached each step after the one before. Limits: 50 event names per game and environment (names of 1 to 40 characters: `a-z`, `0-9`, `_`, `.`, `-`), 10 funnel steps. Only signed-in players of the live game count; the verifier sends none.
 
 ## Open implementations
 
@@ -453,7 +455,6 @@ Plan around these instead of looking for them.
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |
 | Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store` for data. A key can live in `server/` (never served), but there is no secrets store or rotation: prefer keys you can revoke. |
 | Asset hosting beyond the game's storage (a CDN or bucket for large downloads) | Generate content from code, or load it at run time from a host the developer controls (any HTTPS host with CORS). `game_storage` explains both and asks for more storage when a game truly needs it. |
-| Custom analytics events | Count with player stats; `game_data summary` aggregates them. |
 | Uploads from players (screenshots, levels, avatars) | Small player-made content as JSON in saves, or in shared data through server code. |
 | Push notifications and email to players | None; use shared data for in-game announcements. |
 | Camera, microphone and geolocation | Blocked in the play frame. |

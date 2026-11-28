@@ -7,6 +7,9 @@
 import type { Env } from './env';
 import { addDays, dayOf, now } from './util';
 import { getSettings } from './settings';
+// @ts-ignore plain JS module
+import { eventDaily, eventSummary, funnel, retentionOf } from './events.js';
+export { retentionOf };
 
 export const ONLINE_WINDOW_MS = 90_000;        // three check-ins of the page showing the game missed and a player no longer counts as online
 const ROOM_STALE_MS = 12 * 3600_000;    // presence rows older than this are from a room that never said goodbye
@@ -45,7 +48,7 @@ export async function onlineNow(env: Env, pid: string) {
 }
 
 /** The full picture for the console's analytics tab and the get_stats tool. */
-export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
+export async function gameAnalytics(env: Env, pid: string, daysIn = 30, funnelSteps?: string[]) {
   const days = Math.max(1, Math.min(90, Math.round(daysIn) || 30)), t = now(), today = dayOf(t), firstDay = addDays(today, -(days - 1));
   const since = Date.parse(firstDay + 'T00:00:00Z'), db = env.DB;
   const base = "FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player' AND started_at >= ?2";
@@ -61,6 +64,16 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
     db.prepare(`SELECT ua, COUNT(*) AS sessions, COALESCE(SUM(seconds), 0) AS seconds ${base} GROUP BY ua ORDER BY sessions DESC LIMIT 500`).bind(pid, since).all<{ ua: string | null; sessions: number; seconds: number }>(),
     db.prepare("SELECT version, message, count, first_at, last_at FROM client_errors WHERE project_id = ? AND env = 'live' AND last_at >= ? ORDER BY count DESC, last_at DESC LIMIT 15").bind(pid, since).all<{ version: number; message: string; count: number; first_at: number; last_at: number }>(),
     db.prepare("SELECT COUNT(*) AS kinds, COALESCE(SUM(count), 0) AS total FROM client_errors WHERE project_id = ? AND env = 'live' AND last_at >= ?").bind(pid, since).first<{ kinds: number; total: number }>(),
+  ]);
+  const [cohort, firstLens, views, events, eventDays, declared] = await Promise.all([
+    // every player whose first live session is in the window: when they first played and the last time they did
+    db.prepare("SELECT user_id, MIN(started_at) AS first_at, MAX(started_at) AS last_at FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player' GROUP BY user_id HAVING MIN(started_at) >= ?2").bind(pid, since).all<{ user_id: string; first_at: number; last_at: number }>(),
+    // how long each of those players' first session lasted
+    db.prepare("SELECT seconds FROM (SELECT seconds, started_at, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at) AS rn FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player') WHERE rn = 1 AND started_at >= ?2").bind(pid, since).all<{ seconds: number }>(),
+    db.prepare('SELECT COALESCE(SUM(views), 0) AS views FROM game_daily WHERE project_id = ? AND day >= ?').bind(pid, firstDay).first<{ views: number }>(),
+    eventSummary(db, pid, since) as Promise<{ name: string; count: number; players: number; total: number; average: number }[]>,
+    eventDaily(db, pid, since) as Promise<{ day: string; name: string; count: number }[]>,
+    funnelSteps ? Promise.resolve(null) : db.prepare("SELECT json_extract(v.manifest, '$.funnel') AS f FROM projects p JOIN versions v ON v.project_id = p.id AND v.n = p.live_version WHERE p.id = ?").bind(pid).first<{ f: string | null }>(),
   ]);
   const tot = totals || { sessions: 0, players: 0, seconds: 0, plays: 0, error_sessions: 0, never_started: 0 };
 
@@ -85,6 +98,11 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
   };
 
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+  const retention = retentionOf(cohort.results, t);
+  const first = firstLens.results.map((r) => r.seconds);
+  const quitCurve = Array.from({ length: 16 }, (_, m) => ({ minute: m, still_playing: pct(first.filter((s) => s >= m * 60).length, first.length) }));
+  const counted = await db.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player' AND started_at >= ?2 AND counted = 1").bind(pid, since).first<{ n: number }>();
+  const steps = funnelSteps?.length ? funnelSteps : (() => { try { const f = JSON.parse(declared?.f || 'null'); return Array.isArray(f) ? f as string[] : []; } catch { return []; } })();
   return {
     now: live,
     window: { days, from: firstDay, to: today },
@@ -98,6 +116,19 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
     session_lengths: buckets,
     versions: versions.results.map((v) => ({ version: v.version, sessions: v.sessions, players: v.players, avg_minutes: v.sessions ? Math.round((v.seconds / v.sessions / 60) * 10) / 10 : 0 })),
     devices: tally('device'), browsers: tally('browser'), systems: tally('os'),
+    // Do players come back? Of the players who first played in this window, the share who played again N days or more later.
+    retention,
+    // How long new players' first session lasted: the share still playing at each minute (minute 0 is everyone).
+    first_session: { players: first.length, median_minutes: first.length ? Math.round(([...first].sort((a, b) => a - b)[Math.floor(first.length / 2)] / 60) * 10) / 10 : 0, quick_quit_share: pct(first.filter((s) => s < 60).length, first.length), curve: quitCurve },
+    // From the store page to a player who stays: page loads, players who pressed Play, who played long enough to count, who came back.
+    store_funnel: [
+      { step: 'store_page_loads', count: views?.views || 0 },
+      { step: 'players_started', count: tot.players },
+      { step: 'players_counted', count: counted?.n || 0 },
+      { step: 'players_returned', count: retention.returned },
+    ],
+    // What the game counts with GCP.track(name, value), and its funnel (gcp.json "funnel", or the steps asked for).
+    events: { names: events, daily: eventDays, funnel: steps.length ? await funnel(db, pid, steps, since) as { step: string; players: number; share: number; from_previous: number }[] : [], funnel_steps: steps },
     // What the game says about itself, through its heartbeat. Useful for finding bugs; never used for any number above.
     reported_by_game: {
       note: 'Reported by the game through its heartbeat, not observed by the platform. Shown to help find bugs; the play numbers above never use it.',
@@ -112,6 +143,9 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30) {
       returning_player: 'A player in this window who had played on an earlier day too.',
       device: 'From the browser that pressed Play on the platform\'s page.',
       never_started: 'Reported by the game: sessions where it never said it was running (it did not reach GCP.ready, or the player left first).',
+      retention: 'Of the players whose first session was in this window, the share who started another session N days or more after it (rolling retention). Only players who first played at least N days ago are counted for day N.',
+      store_page_loads: 'Loads of the game\'s store page by anyone but its creator, counted by the platform.',
+      events: 'Counted from GCP.track(name, value) calls by signed-in players of the live game: reported by the game. Unique players reached the event in this window.',
     },
   };
 }

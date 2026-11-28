@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ago, api, count, Fail, num, t, useData } from '../lib';
 import { Badge, Bars, Card, ChartBlock, EmptyState, ListPager, Notice, PageHeader, Segmented, Share, Stat, StatGrid, StatusBadge, Table, Tabs, useClientPage } from '../ui';
 import { AnalyticsSkeleton } from '../skeletons';
+import { EventsCard, FirstSessionCard, RetentionCard, StoreFunnelCard } from '../retention-ui';
 
 const DEVICE: Record<string, () => string> = { phone: () => t('Phone', '手机'), tablet: () => t('Tablet', '平板'), desktop: () => t('Desktop', '桌面电脑'), other: () => t('Other', '其他') };
 const LENGTH: Record<string, () => string> = { 'under 30 s': () => t('under 30 s', '30 秒以内'), '30 s to 2 min': () => t('30 s to 2 min', '30 秒至 2 分钟'), '2 to 5 min': () => t('2 to 5 min', '2 至 5 分钟'), '5 to 15 min': () => t('5 to 15 min', '5 至 15 分钟'), '15 to 30 min': () => t('15 to 30 min', '15 至 30 分钟'), 'over 30 min': () => t('over 30 min', '30 分钟以上') };
@@ -97,6 +98,10 @@ export function Analytics({ id }: { id: string }) {
                   <ChartBlock label={t('Minutes played', '游玩分钟数')} value={mins(x.minutes_played)}><Bars data={bar('minutes')} tip={(d) => `${d.label} · ${d.value} min`} height={88} /></ChartBlock>
                 </div>
               </Card>
+              <RetentionCard d={data} />
+              <FirstSessionCard d={data} />
+              <StoreFunnelCard d={data} />
+              <EventsCard d={data} />
               <Card title={t('Last 24 hours', '最近 24 小时')} aside={t('sessions started per hour, UTC', '每小时开始的会话数（UTC）')} pad>
                 <Bars data={data.last_24_hours.map((h: any) => ({ label: h.hour.slice(11, 16), value: h.sessions }))} tip={(d) => `${d.label} · ${d.value}`} height={96} />
               </Card>

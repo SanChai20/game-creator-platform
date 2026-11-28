@@ -26,6 +26,8 @@ import { botFriends, followCreator, inviteBot } from '../bots';
 // @ts-ignore plain JS module
 import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
+import { EventError, trackOp } from '../events.js';
+// @ts-ignore plain JS module
 import { declaredFor, keepsUnlocks, rarityOf, reachedBy, unlock, unlocksOf, viewOf } from '../achievements.js';
 // @ts-ignore plain JS module
 import { bindingProblem } from '../session-binding.js';
@@ -213,6 +215,14 @@ rt.post('/stats', async (c) => {
     }
   }
   return c.json(r);
+});
+
+// GCP.track: the game's own analytics events, batched by the SDK (src/events.js). Counted for the creator's funnels.
+rt.post('/track', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  await roomForGameData(c.env);
+  try { return c.json(await trackOp(c.env.DB, scopeOf(tok.g, tok.e), playerOf(tok), b.events, now(), keepsUnlocks(tok))); }
+  catch (e) { if (e instanceof EventError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; }
 });
 
 // GCP.achievements: unlock what the version declares in gcp.json "achievements", list them with the player's unlocks and rarity.

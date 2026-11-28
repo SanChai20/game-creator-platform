@@ -676,6 +676,10 @@ api.get('/games/:slug', async (c) => {
     const pg = await c.env.DB.prepare('SELECT last_at, resume, (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = ?1 AND s.user_id = ?2) AS saved_at FROM player_games WHERE project_id = ?1 AND user_id = ?2').bind(p.id, u.id).first<{ last_at: number; resume: string | null; saved_at: number | null }>();
     if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
   }
+  // a store page load for the creator's store funnel (src/analytics.ts); the creator's own and crawlers' are not counted
+  if (p.status === 'live' && (!u || u.id !== p.owner_id) && !/bot|crawl|spider|preview|headless/i.test(c.req.header('user-agent') || '')) {
+    c.executionCtx.waitUntil(c.env.DB.prepare('INSERT INTO game_daily (project_id, day, views) VALUES (?, ?, 1) ON CONFLICT(project_id, day) DO UPDATE SET views = views + 1').bind(p.id, dayOf(now())).run().catch(() => {}));
+  }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
   // the buyer's refund: whether the Refund button is enabled, and every reason it is not (src/refunds.ts)
   const refund = u && p.price_cents > 0 && u.id !== p.owner_id ? await gameRefundState(c.env, s, u.id, p.id) : null;
@@ -1605,7 +1609,7 @@ export async function trialStats(env: Env, pid: string): Promise<{ players: numb
 // Analytics: the full picture for a window of days, and the cheap live count the dashboard polls.
 api.get('/console/projects/:id/analytics', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
-  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30)) });
+  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30, c.req.query('funnel') ? String(c.req.query('funnel')).split(',').slice(0, 10) : undefined)) });
 });
 api.get('/console/projects/:id/online', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));

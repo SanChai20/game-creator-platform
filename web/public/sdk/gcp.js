@@ -32,7 +32,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.13.0', fixes: {} };
+  var RT = S.runtime = { version: '2.14.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -1815,6 +1815,25 @@
     return api('resume', b).then(function () { return true; }).catch(function () { return false; });
   }
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && resumeNext) resumeFlush(); });
+  // ---- custom analytics events (GCP.track) ----
+  // Counted per name and summed here, then sent together at most every 10 seconds and when the tab is hidden, so a game
+  // can call track() freely. Offline or in a standalone page they are dropped.
+  var trackBuf = {}, trackTimer = 0, TRACK_NAME = /^[a-z0-9][a-z0-9_.-]{0,39}$/;
+  function trackFlush() {
+    clearTimeout(trackTimer); trackTimer = 0;
+    var list = Object.keys(trackBuf).map(function (k) { return trackBuf[k]; }); trackBuf = {};
+    for (var i = 0; i < list.length; i += 20) api('track', { events: list.slice(i, i + 20) }).catch(function () { /* analytics never get in the way */ });
+  }
+  function track(name, value) {
+    name = String(name == null ? '' : name);
+    if (!TRACK_NAME.test(name)) { note(S.errors, 'GCP.track: "' + name.slice(0, 50) + '" is not a valid event name (1 to 40 characters of a-z, 0-9, _, . and -).'); return false; }
+    if (standalone) return false;
+    var v = value == null ? 0 : +value, e = trackBuf[name] || (trackBuf[name] = { name: name, n: 0, sum: 0 });
+    e.n++; if (isFinite(v)) e.sum += v;
+    if (!trackTimer) trackTimer = setTimeout(trackFlush, 10000);
+    return true;
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && trackTimer) trackFlush(); });
 
   // The platform language can change while the game runs (the player picks another one on the page around it): GCP.lang
   // follows, the address keeps it (a game that reloads itself opens in it), and GCP.onLang handlers hear about it.
@@ -2096,6 +2115,11 @@
       get: function (name) { return api('stats', { op: 'get', name: name }).then(function (r) { return r.value; }).catch(function () { return null; }); },
       all: function () { return api('stats', { op: 'all' }).then(function (r) { return r.stats; }).catch(function () { return {}; }); },
     },
+    /** Counts an analytics event for the creator's charts and funnels (get_stats, the console's Analytics tab): a name of
+        1 to 40 characters of a-z, 0-9, _, . and -, and an optional number added up per name (coins spent, seconds taken).
+        Batched and sent at most every 10 seconds. Returns false for an invalid name. List names in order in gcp.json
+        "funnel" to see how many new players reach each step. */
+    track: track,
     /** Achievements declared in gcp.json "achievements" ({ id, name, description?, hidden?, stat?, goal? }). The platform
         unlocks one with stat and goal by itself when GCP.playerStats makes that stat reach the goal. */
     achievements: {
