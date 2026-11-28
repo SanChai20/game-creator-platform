@@ -114,6 +114,9 @@ export async function applySale(env: Env, p: Project, raw: unknown, actor: strin
   if (raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) throw bad('sale must be {price_cents, days} to start or change a sale, or null to end it.');
   const before = saleOf(p, at), sale = await setSale(env, s, p, raw as SaleInput | null, at);
   const insert = (detail: string) => env.DB.prepare('INSERT INTO events (project_id, kind, detail, version, actor, created_at) VALUES (?, ?, ?, NULL, ?, ?)').bind(p.id, 'sale', detail, actor.slice(0, 80), at).run();
+  // a new sale is news for the players who wished for the game (src/wishlist-news.ts)
+  // (loaded on demand: it reaches players' open pages through the social Durable Object)
+  if (sale && !before && p.status === 'live') await import('./wishlist-news').then((m) => m.wishSale(env, p.id, sale.starts_at)).catch((e) => console.warn('wishlist sale', String(e)));
   if (sale) await insert(`${before ? 'Sale changed' : 'Sale started'}: ${usd(sale.price_cents)} (${sale.percent_off}% off ${usd(sale.regular_cents)}) until ${new Date(sale.ends_at).toISOString().slice(0, 16).replace('T', ' ')} UTC`);
   else if (before) await insert('Sale ended early');
   return sale;

@@ -57,6 +57,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Compatibility requirements | available | none | `compatibility` | contract |
 | Verification and test hooks | automatic | `GCP.test.*` | `deploy_preview`, `list_versions`, `debug_preview` | versions |
 | Preview debugging in a browser | available unless switched off | `GCP.test.onState` | `debug_preview` | versions |
+| Playtests with real players | available | `GCP.track` | `playtest`, `deploy_preview` | testing |
 | Creator feedback queue | available unless switched off | `GCP.test.onState` | `creator_feedback` | versions |
 | Publish checks (originality, content, web only) | automatic | none | `publish`, `list_versions` | versions |
 | Marketplace listing, ratings and reviews | available | none | `update_project`, `game_metadata` | metadata |

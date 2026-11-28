@@ -427,13 +427,13 @@ app.get('/llms-full.txt', async (c) => {
 
 /** A live game as a link card, an embed and oEmbed show it (src/share.ts), with the players in it right now. Embeds
     leave out games taken off the store listings (listed); the game's own page keeps its link card. */
-async function shareGame(env: Env, origin: string, slug: string, listed = true): Promise<(ShareGame & { tags: string; description: string | null; published_at: number | null; updated_at: number | null }) | null> {
-  const g = await env.DB.prepare(`SELECT p.id, p.slug, p.title, p.tagline, p.description, p.tags, p.price_cents, p.rating_sum, p.rating_count, p.cover_key, p.age, p.published_at, p.updated_at, p.plays, p.owner_id, u.name AS author
-    FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ? AND p.status = 'live'${listed ? ' AND p.hidden_at IS NULL' : ''}`).bind(slug).first<Record<string, any>>().catch(() => null);
+async function shareGame(env: Env, origin: string, slug: string, listed = true, soon = false): Promise<(ShareGame & { coming_soon: boolean; release_note: string | null; tags: string; description: string | null; published_at: number | null; updated_at: number | null }) | null> {
+  const g = await env.DB.prepare(`SELECT p.id, p.slug, p.title, p.tagline, p.description, p.tags, p.price_cents, p.rating_sum, p.rating_count, p.cover_key, p.age, p.published_at, p.updated_at, p.plays, p.owner_id, p.status, p.release_note, u.name AS author
+    FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ? AND (p.status = 'live'${soon ? " OR (p.coming_soon_at IS NOT NULL AND p.published_at IS NULL AND p.status != 'removed' AND p.hidden_at IS NULL)" : ''})${listed ? ' AND p.hidden_at IS NULL' : ''}`).bind(slug).first<Record<string, any>>().catch(() => null);
   if (!g) return null;
-  const playing = await onlineNow(env, g.id).then((o) => o.online.live, () => 0);
+  const live = g.status === 'live', playing = live ? await onlineNow(env, g.id).then((o) => o.online.live, () => 0) : 0;
   return { slug: g.slug, title: g.title, tagline: g.tagline, description: g.description, tags: g.tags, author: g.author, author_id: g.owner_id, price_cents: g.price_cents, rating_sum: g.rating_sum, rating_count: g.rating_count,
-    cover: g.cover_key ? `${origin}/api/media/${g.cover_key}` : null, age: g.age, playing, plays: g.plays, published_at: g.published_at, updated_at: g.updated_at };
+    cover: g.cover_key ? `${origin}/api/media/${g.cover_key}` : null, age: g.age, playing, plays: g.plays, published_at: g.published_at, updated_at: g.updated_at, coming_soon: !live, release_note: g.release_note || null };
 }
 
 // The embeddable game card: the one page any site may frame. Play opens the game on HearthCade in a new tab.
@@ -468,13 +468,15 @@ async function pageMeta(env: Env, origin: string, path: string): Promise<PageMet
   }
   const m = path.match(/^\/g\/([^/]+)$/);
   if (m) {
-    const g = await shareGame(env, origin, decodeURIComponent(m[1]), false);
+    const g = await shareGame(env, origin, decodeURIComponent(m[1]), false, true);
     if (!g) return null;
     const tags = normalizeStoredTags(parseJson<string[]>(g.tags, []));
     const meta = gamePage(origin, brand, { slug: g.slug, title: g.title, tagline: g.tagline, description: g.description, genre: tags[0] || null, tags: tags.slice(1), price_cents: g.price_cents, author: g.author,
       rating_sum: g.rating_sum, rating_count: g.rating_count, cover: (g.age || 0) >= 18 ? null : g.cover, age: g.age, published_at: g.published_at, updated_at: g.updated_at, plays: g.plays,
       multiplayer: tags.some((x) => ['multiplayer', 'co-op', 'pvp', 'local-multiplayer'].includes(x)) });
     // the link card other sites show: players in it now, rating and price, and the embed for sites that read oEmbed
+    // a coming soon page (src/wishlist.js): no play facts yet, just when
+    if (g.coming_soon) return { ...meta, title: `${g.title}: coming soon | ${brand}`, description: `${g.tagline ? g.tagline.replace(/[.!?]?$/, '.') : ''} Coming soon${g.release_note ? ` (${g.release_note})` : ''} on ${brand}. Wishlist it to hear when it is out.`.trim(), jsonld: site };
     return { ...meta, description: shareDescription(g, brand), oembed: `${origin}/oembed?url=${encodeURIComponent(`${origin}/g/${g.slug}`)}&format=json`, jsonld: [...(meta.jsonld || []), ...site] };
   }
   const cm = path.match(/^\/creator\/([A-Za-z0-9_-]{2,64})$/);

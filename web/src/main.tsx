@@ -48,6 +48,8 @@ import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 import { FriendsButton, SocialRoot } from './social';
 import { NotificationsButton } from './follow';
 import { Creator } from './pages/Creator';
+import { Profile } from './pages/Profile';
+import { PlaytestPage } from './playtest-ui';
 import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
 import { pushLanguage, startPwa } from './pwa';
@@ -190,6 +192,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                 {open && (
                   <div className="pop" role="menu">
                     <div className="who"><b className="clip">{user.name}</b><div className="mute clip fs-sm">{user.email}</div></div>
+                    <Link to={`/u/${encodeURIComponent(user.id)}`}>{t('Your profile', '我的资料')}</Link>
                     <Link to="/library">{t('Library', '游戏库')}</Link>
                     <Link to="/purchases">{t('Purchases and refunds', '购买记录与退款')}</Link>
                     <Link to="/gifts">{t('Gifts', '礼物')}</Link>
@@ -272,6 +275,8 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if ((m = path.match(/^\/creator\/([^/]+)$/))) return <Creator key={m[1]} id={decodeURIComponent(m[1])} />;
+  if ((m = path.match(/^\/u\/([^/]+)$/))) return <Profile key={m[1]} id={decodeURIComponent(m[1])} />;
+  if ((m = path.match(/^\/playtest\/([a-z0-9]{6,20})$/))) return <PlaytestPage key={m[1]} code={m[1]} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
   if (path === '/verify') return <Verify />;
   // passwords are gone: old reset links and bookmarks land on the sign-in page

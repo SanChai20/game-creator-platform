@@ -17,6 +17,9 @@ import type { GameRoom } from '../room';
 import { actBots, botOptions, botStatus, inviteBotFor, startBots, stopBots } from '../bots';
 import { getSettings } from '../settings';
 import { applySale, saleView } from '../sales';
+// @ts-ignore plain JS module
+import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
+import { WishError, announceIssues, isComingSoon, setComingSoon, wishCount } from '../wishlist.js';
 import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
 import { gameAnalytics, onlineNow } from '../analytics';
@@ -788,6 +791,8 @@ export const TOOLS: Tool[] = [
       skill_price_cents: { type: 'integer', description: 'The build skill\'s price in US cents, or 0 to share it for free. A free skill lowers the game\'s own platform cut; a sold one keeps the standard cut and pays the skill commission on skill sales. Only when the user has chosen.' },
       genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
       listing_translations: TRANSLATIONS_SCHEMA,
+      coming_soon: { type: 'boolean', description: 'Before the first release only: true puts up a public coming soon page (needs a title, tagline and cover), where players wishlist the game and see its devlogs; false takes it down. The first release ends it and tells everyone who wishlisted it.' },
+      release_note: { type: ['string', 'null'], description: 'The coming soon page\'s "when", in your own words, up to 40 characters: "Spring 2027", "Soon". null clears it.' },
     }, ['project']),
     run: async (a, c) => {
       const p = await scopedProject(c, a.project);
@@ -817,7 +822,7 @@ export const TOOLS: Tool[] = [
           perLang.push([l, v]);
         }
       }
-      const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, sale: saleIn, ...meta } = a;
+      const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, sale: saleIn, coming_soon: soonIn, release_note: noteIn, ...meta } = a;
       await updateProjectMeta(c.env, p, meta);
       if (saleIn !== undefined) await applySale(c.env, await fresh(c, p.id), saleIn, c.client);
       const now1 = await fresh(c, p.id), own = baseListingLang(now1), langCovers: Record<string, string | null> = {};
@@ -840,9 +845,19 @@ export const TOOLS: Tool[] = [
       }
       if (skillPrice !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, skillPrice, c.client);
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
+      // the coming soon page goes up last, so a cover or tagline set in this same call counts (src/wishlist.js)
+      let comingSoon: Record<string, unknown> | undefined;
+      if (soonIn !== undefined || noteIn !== undefined) {
+        const before = await fresh(c, p.id), was = isComingSoon(before);
+        try { await setComingSoon(c.env.DB, before, { on: typeof soonIn === 'boolean' ? soonIn : undefined, release_note: noteIn }); }
+        catch (e) { if (e instanceof WishError) throw bad(e.message, announceIssues(before).map((i: { message: string }) => i.message).join(' ') || undefined); throw e; }
+        const after = await fresh(c, p.id), on = isComingSoon(after);
+        if (on !== was) await logEvent(c.env, p.id, on ? 'coming_soon' : 'coming_soon_off', on ? 'Coming soon page is up' : 'Coming soon page taken down', null, c.client);
+        comingSoon = { on, release_note: after.release_note || null, page: `${c.origin}/g/${encodeURIComponent(after.slug)}`, ...(await wishCount(c.env.DB, p.id)) };
+      }
       const q = await fresh(c, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
-      return { ok: true, title: q.title, ...(a.tags !== undefined || a.genre !== undefined || a.genres !== undefined ? tagAnswer(q, a.tags) : {}), price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
+      return { ok: true, title: q.title, ...(comingSoon ? { coming_soon: comingSoon } : {}), ...(a.tags !== undefined || a.genre !== undefined || a.genres !== undefined ? tagAnswer(q, a.tags) : {}), price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
   },
   {
@@ -1551,6 +1566,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
         last_14_days: daily.results.map((d) => ({ day: d.day, sessions: d.sessions, plays: d.plays, minutes: Math.round(d.seconds / 60) })),
         runtime_errors: errors.results,   // reported by the game, not observed by the platform
         recent_reviews: reviews.results,
+        wishlists: await wishCount(db, p.id, now() - 7 * 86400_000),   // players who wishlisted the game: total, and in the last 7 days
         analytics: await gameAnalytics(c.env, p.id, Number(a.days) || 30, Array.isArray(a.funnel) ? a.funnel.map(String) : undefined),
         console_page: `${c.origin}/console/p/${p.id}/analytics`,
       };
@@ -1613,6 +1629,38 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (a.action === 'edit') return guard(() => editDevlog(c.env.DB, p.id, a.id, { title: a.title, body: a.body }));
       if (a.action === 'delete') return guard(() => deleteDevlog(c.env.DB, p.id, a.id));
       throw bad('action must be list, post, edit or delete.');
+    },
+  },
+  {
+    name: 'playtest', title: 'Playtest the preview with real players',
+    description: 'Invite real players to the game\'s preview through a link, ask them up to 5 questions afterwards, and read how each tester played: sessions, minutes, the custom events they reached (GCP.track) and their answers, with an enjoyment score from 1 to 5. Testers\' play is preview play and never counts toward the live game. Actions: list (the game\'s playtests with their links), open (title, optional note on what to try, questions, seats 1 to 500 default 50, days 1 to 30 default 7; needs a verified preview and no other open playtest), close (id) and results (id). Testers play whatever preview is deployed while the playtest is open, so deploy fixes to the preview as you go. Ask the user before opening one: they share the link with their players.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'open', 'close', 'results'] },
+      id: { type: 'string', description: 'close and results: the playtest\'s id from list.' },
+      title: { type: 'string', description: 'open: what this round tests, up to 80 characters, e.g. "Level 2 balance".' },
+      note: { type: 'string', description: 'open: what testers should try, up to 600 characters.' },
+      questions: { type: 'array', items: { type: 'string' }, description: 'open: up to 5 questions asked after playing, each up to 160 characters.' },
+      seats: { type: 'integer', description: 'open: how many testers it takes, 1 to 500. Default 50.' },
+      days: { type: 'integer', description: 'open: how long it stays open, 1 to 30 days. Default 7.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof PlaytestError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      const link = (code: string) => `${c.origin}/playtest/${code}`;
+      if (a.action === 'list') return { playtests: ((await listPlaytests(c.env.DB, p.id)) as any[]).map((x) => ({ ...x, link: link(x.code) })) };
+      if (a.action === 'open') {
+        const row = await guard(() => openPlaytest(c.env.DB, p, a));
+        await logEvent(c.env, p.id, 'playtest', `Playtest opened: ${row.title} (preview v${row.version})`, null, c.client);
+        return { ok: true, id: row.id, link: link(row.code), closes_at: row.closes_at, next: 'Give the user the link to share with their testers. Read results {id} as they play.' };
+      }
+      if (a.action === 'close') return guard(() => closePlaytest(c.env.DB, p.id, a.id));
+      if (a.action === 'results') {
+        const pt = await c.env.DB.prepare('SELECT * FROM playtests WHERE id = ? AND project_id = ?').bind(String(a.id || ''), p.id).first();
+        if (!pt) throw bad('No playtest with that id on this game.', 'Run playtest {action: "list"} for the ids.');
+        return { ...(await playtestResults(c.env.DB, pt)), link: link((pt as any).code) };
+      }
+      throw bad('action must be list, open, close or results.');
     },
   },
   {

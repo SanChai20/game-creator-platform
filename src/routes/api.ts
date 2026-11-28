@@ -52,13 +52,20 @@ import { publishDevlog } from '../devlog-news';
 // @ts-ignore plain JS module
 import { DevlogError, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.js';
 // @ts-ignore plain JS module
+import { ProfileError, access, profileOf, publicIds, setSettings, settingsOf, showcaseChoices } from '../profiles.js';
+// @ts-ignore plain JS module
+import { dismiss, forYou } from '../recommend.js';
+// @ts-ignore plain JS module
+import { LIMITS as PLAYTEST_LIMITS, PlaytestError, answer, byCode, canPlay, closeExpired, closePlaytest, inviteView, join, listPlaytests, openPlaytest, results } from '../playtests.js';
+import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
+// @ts-ignore plain JS module
 import { declaredFor, rarityOf, unlocksOf, viewOf } from '../achievements.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
 import { pushTo, socialHub } from '../social';
 import { askForGift, cancelGiftRequest, checkGift, declineGift, gameGiftState, giftDelivered, giftableFriends, giftOverview, giftsOn } from '../gifts';
 // @ts-ignore plain JS module
-import { ensureProfile } from '../social-rules.js';
+import { ensureProfile, relation } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 import { deleteFacts, deleteProject, deleteVerdict } from '../project-delete';
 import { pageMeta, parsePage } from '../paging';
@@ -659,8 +666,21 @@ async function liveGame(c: Ctx, slug: string): Promise<Project & { author: strin
   return p;
 }
 
+/** Reviews as the game page shows them: a reviewer whose profile is public gets a link to it (src/profiles.js). */
+async function withProfiles(db: D1Database, rows: Record<string, any>[], me?: string) {
+  const open = await publicIds(db, rows.map((r) => r.user_id)) as Set<string>;
+  return rows.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!me && r.user_id === me, profile: open.has(r.user_id) || r.user_id === me ? r.user_id : null }));
+}
+
+/** A game whose page anyone may open: live, or announced on a coming soon page (src/wishlist.js). */
+async function pageGame(c: Ctx, slug: string): Promise<Project & { author: string }> {
+  const p = await c.env.DB.prepare('SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ?').bind(slug).first<Project & { author: string }>();
+  if (p && isComingSoon(p)) return p;
+  return liveGame(c, slug);
+}
+
 api.get('/games/:slug', async (c) => {
-  const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
+  const p = await pageGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
   const [reviews, revTot, dist] = await Promise.all([
     c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 10').bind(p.id).all<Record<string, any>>(),
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
@@ -696,10 +716,14 @@ api.get('/games/:slug', async (c) => {
   ]);
   return c.json({
     game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: listingLangs(p, ['title', 'tagline', 'description', 'controls'], (k) => media(origin, k)).i18n || {}, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
-    reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    reviews: await withProfiles(c.env.DB, reviews.results, u?.id),
     reviews_total: revTot?.n || 0,
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // a game announced before release (src/wishlist.js): its page has no Play button, and players wishlist it
+    coming_soon: isComingSoon(p) ? { release_note: p.release_note || null, announced_at: p.coming_soon_at } : null,
+    wished: u ? await isWished(c.env.DB, u.id, p.id) : false,
+    can_wish: u ? await canWish(c.env.DB, u.id, p) : isComingSoon(p) || (p.status === 'live' && p.price_cents > 0),
     // whether the game is in this player's library: 'bought' (a paid game, from its purchase), 'added' (a free game they added) or null
     library,
     // where this player left off (null when they have nothing saved here): the page's Continue button
@@ -732,7 +756,7 @@ api.get('/games/:slug/reviews', async (c) => {
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
   ]);
   return c.json({
-    reviews: rows.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    reviews: await withProfiles(c.env.DB, rows.results, u?.id),
     ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
   });
 });
@@ -807,13 +831,158 @@ api.get('/games/:slug/progress', async (c) => {
 // A game's devlog: news posts and patch notes, newest first (src/devlogs.js). Everyone can read a live game's.
 const devlogErr = (e: unknown): never => { if (e instanceof DevlogError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
 api.get('/games/:slug/devlogs', async (c) => {
-  const p = await liveGame(c, c.req.param('slug'));
+  const p = await pageGame(c, c.req.param('slug'));
   return c.json(await listDevlogs(c.env.DB, p.id, { before: c.req.query('before') || null, limit: Number(c.req.query('limit')) || undefined }));
 });
 // The owner writes, edits and deletes posts from the console; posting to a live game tells its players.
+// Player profiles (src/profiles.js): shown to whom their owner chose; the owner edits theirs on the Account page.
+const profileErr = (e: unknown): never => { if (e instanceof ProfileError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/players/:id', async (c) => {
+  const u = c.get('user'), id = c.req.param('id'), origin = c.get('origin');
+  const a = await access(c.env.DB, u?.id || null, id) as { state: string; user?: { id: string; name: string; created_at: number } };
+  if (a.state === 'hidden' || !a.user) throw notFound('No such player.');
+  const head = { id: a.user.id, name: a.user.name, joined_at: a.user.created_at, self: a.state === 'self' };
+  // a private profile shows the name, and whether a friend request can be sent (src/social-rules.js relation)
+  const rel = u && a.state !== 'self' ? await relation(c.env.DB, u.id, id) : null;
+  if (a.state === 'private') return c.json({ ...head, private: true, relation: rel });
+  const pr = await profileOf(c.env.DB, id, { self: a.state === 'self', lang: c.req.query('lang') || pageLang(c.req.raw) }) as any;
+  return c.json({ ...head, private: false, relation: rel, ...pr,
+    showcase: pr.showcase.map((g: any) => ({ ...listingLangs(g, ['title', 'tagline'], (k) => media(origin, k)), id: g.id, slug: g.slug, title: g.title, tagline: g.tagline, cover: media(origin, g.cover_key), minutes: g.minutes, achievements: g.achievements, last_played: g.last_at || null, age: g.age || null })),
+    reviews: pr.reviews.map((r: any) => ({ ...r, game: { slug: r.game.slug, title: r.game.title, cover: media(origin, r.game.cover_key) } })) });
+});
+api.get('/me/profile', async (c) => {
+  const u = requireUser(c);
+  return c.json({ id: u.id, ...(await settingsOf(c.env.DB, u.id)), choices: await showcaseChoices(c.env.DB, u.id) });
+});
+api.put('/me/profile', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'profile:' + u.id, 60, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json({ id: u.id, ...(await setSettings(c.env.DB, u.id, { visibility: b.visibility, bio: b.bio, showcase: b.showcase }).catch(profileErr)) });
+});
+
+// For you (src/recommend.js): picked from the player's own history; each card says why it is there.
+api.get('/me/for-you', async (c) => {
+  const u = requireUser(c), origin = c.get('origin');
+  const picks = await forYou(c.env.DB, u.id, Math.min(24, Number(c.req.query('limit')) || 12)) as { id: string; score: number; reason: { kind: string; game?: string; tag?: string } }[];
+  if (!picks.length) return c.json({ games: [] });
+  const ids = [...new Set([...picks.map((x) => x.id), ...picks.map((x) => x.reason.game).filter(Boolean) as string[]])];
+  const rows = (await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>()).results;
+  const by = new Map(rows.map((r) => [r.id, r]));
+  c.header('cache-control', 'private, max-age=60');
+  return c.json({ games: picks.filter((x) => by.has(x.id)).map((x) => {
+    const src = x.reason.game ? by.get(x.reason.game) : null;
+    return { ...card(origin, by.get(x.id)!), reason: { kind: x.reason.kind, ...(x.reason.tag ? { tag: x.reason.tag } : {}), ...(src ? { game: { slug: src.slug, title: src.title, ...listingLangs(src, ['title'], (k) => media(origin, k)) } } : {}) } };
+  }) });
+});
+api.post('/me/for-you/:slug/dismiss', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  return c.json(await dismiss(c.env.DB, u.id, p.id));
+});
+
+// Wishlists and coming soon pages (src/wishlist.js)
+const wishErr = (e: unknown): never => { if (e instanceof WishError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.post('/games/:slug/wishlist', async (c) => {
+  const u = requireUser(c), p = await pageGame(c, c.req.param('slug'));
+  await rateLimit(c.env, 'wish:' + u.id, 120, 3600);
+  return c.json({ ok: true, ...(await addWish(c.env.DB, u.id, p).catch(wishErr)) });
+});
+api.delete('/games/:slug/wishlist', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  return c.json({ ok: true, ...(await removeWish(c.env.DB, u.id, p.id)) });
+});
+api.get('/me/wishlist', async (c) => {
+  const u = requireUser(c), origin = c.get('origin');
+  const rows = await wishlistOf(c.env.DB, u.id) as Record<string, any>[];
+  return c.json({ games: rows.map((r) => ({ ...card(origin, r), wished_at: r.wished_at, coming_soon: isComingSoon(r) ? { release_note: r.release_note || null } : null })) });
+});
+api.get('/coming-soon', (c) => edgeCached(c, 60, async () => {
+  const origin = c.get('origin'), rows = await comingSoonGames(c.env.DB, Math.min(48, Number(c.req.query('limit')) || 12)) as Record<string, any>[];
+  return c.json({ games: rows.map((r) => ({ ...card(origin, r), coming_soon: { release_note: r.release_note || null, wishlists: r.wishes } })) });
+}));
+const comingSoonView = async (c: Ctx, p: Project) => {
+  const fresh = await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(p.id).first<Project>() || p;
+  return { coming_soon: isComingSoon(fresh), release_note: fresh.release_note || null, coming_soon_at: fresh.coming_soon_at || null, released: !!fresh.published_at,
+    issues: fresh.published_at ? [] : announceIssues(fresh), ...(await wishCount(c.env.DB, p.id, now() - 7 * 86400_000)), page: `${c.get('origin')}/g/${encodeURIComponent(fresh.slug)}` };
+};
+api.get('/console/projects/:id/coming-soon', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await comingSoonView(c, p));
+});
+api.put('/console/projects/:id/coming-soon', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ on?: boolean; release_note?: string | null }>().catch(() => ({} as { on?: boolean; release_note?: string | null }));
+  const before = isComingSoon(p);
+  await setComingSoon(c.env.DB, p, { on: typeof b.on === 'boolean' ? b.on : undefined, release_note: b.release_note }).catch(wishErr);
+  const v = await comingSoonView(c, p);
+  if (v.coming_soon !== before) await logEvent(c.env, p.id, v.coming_soon ? 'coming_soon' : 'coming_soon_off', v.coming_soon ? `Coming soon page is up${v.release_note ? ` (${v.release_note})` : ''}` : 'Coming soon page taken down', null, 'console');
+  return c.json(v);
+});
+
+// Playtests (src/playtests.js): the creator opens the preview to real players through an invite link and reads how
+// each tester played and what they answered. The console side is the owner's; the tester side is anyone with the link.
+const playtestErr = (e: unknown): never => { if (e instanceof PlaytestError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const inviteLink = (c: Ctx, code: string) => `${c.get('origin')}/playtest/${code}`;
+api.get('/console/projects/:id/playtests', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const v = p.preview_version ? await c.env.DB.prepare('SELECT status FROM versions WHERE project_id = ? AND n = ?').bind(p.id, p.preview_version).first<{ status: string }>() : null;
+  const list = (await listPlaytests(c.env.DB, p.id)) as any[];
+  return c.json({ preview_version: p.preview_version || null, preview_ready: v?.status === 'verified', limits: PLAYTEST_LIMITS, playtests: list.map((x) => ({ ...x, link: inviteLink(c, x.code) })) });
+});
+api.post('/console/projects/:id/playtests', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await rateLimit(c.env, 'playtest:' + u.id, 20, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const row = await openPlaytest(c.env.DB, p, b).catch(playtestErr);
+  await logEvent(c.env, p.id, 'playtest', `Playtest opened: ${row.title} (preview v${row.version})`, null, 'console');
+  return c.json({ ok: true, id: row.id, code: row.code, link: inviteLink(c, row.code), closes_at: row.closes_at });
+});
+api.post('/console/projects/:id/playtests/:pt/close', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await closePlaytest(c.env.DB, p.id, c.req.param('pt')).catch(playtestErr));
+});
+api.get('/console/projects/:id/playtests/:pt', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await closeExpired(c.env.DB, p.id);
+  const pt = await c.env.DB.prepare('SELECT * FROM playtests WHERE id = ? AND project_id = ?').bind(c.req.param('pt'), p.id).first<any>();
+  if (!pt) throw new AppError(404, 'No such playtest.', 'not_found');
+  return c.json({ ...(await results(c.env.DB, pt)), link: inviteLink(c, pt.code) });
+});
+async function playtestOf(c: Ctx) {
+  const pt = await byCode(c.env.DB, c.req.param('code')) as any;
+  if (!pt) throw new AppError(404, 'This playtest link does not work. Ask the creator for a new one.', 'not_found');
+  return pt;
+}
+api.get('/playtests/:code', async (c) => {
+  const pt = await playtestOf(c), u = c.get('user') as User | undefined;
+  return c.json({ ...(await inviteView(c.env.DB, pt, u?.id)), cover: media(c.get('origin'), pt.cover_key) });
+});
+api.post('/playtests/:code/join', async (c) => {
+  const u = requireUser(c), pt = await playtestOf(c);
+  return c.json({ ok: true, ...(await join(c.env.DB, pt, u.id).catch(playtestErr)) });
+});
+api.post('/playtests/:code/play', async (c) => {
+  const u = requireUser(c), pt = await playtestOf(c);
+  await rateLimit(c.env, 'play:' + u.id, 240, 3600);
+  if (!(await canPlay(c.env.DB, pt, u.id))) throw new AppError(403, 'Join the playtest first. It may also have closed.', 'not_joined');
+  const p = await getProject(c.env, pt.project_id);
+  if (!p || !p.preview_version) throw new AppError(409, 'The creator has no preview deployed right now.', 'no_preview');
+  await ensurePreview(c.env, c.get('origin'), p);
+  const v = await getVersion(c.env, p.id, p.preview_version);
+  const m = v ? await ensureVersionMeta(c.env, v).then(({ compat, controls }) => ({ orientation: compat.requirements?.orientation ?? 'any', controls }), () => ({ orientation: 'any', controls: null })) : { orientation: 'any', controls: null };
+  return c.json({ ...(await startPlay(c, p, 'preview', p.preview_version, u)), ...m });
+});
+api.put('/playtests/:code/answers', async (c) => {
+  const u = requireUser(c), pt = await playtestOf(c);
+  const b = await c.req.json<{ fun?: number; answers?: string[] }>().catch(() => ({}));
+  return c.json(await answer(c.env.DB, pt, u.id, b).catch(playtestErr));
+});
+
 api.post('/console/projects/:id/devlogs', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
-  if (p.status !== 'live') throw new AppError(409, 'Publish the game first: a post is for its players.', 'not_live');
+  if (p.status !== 'live' && !isComingSoon(p)) throw new AppError(409, 'Publish the game, or put up its coming soon page, first: a post is for its players.', 'not_live');
   await rateLimit(c.env, 'devlog:' + u.id, 20, 3600);
   const b = await c.req.json<{ title?: string; body?: string }>().catch(() => ({} as { title?: string; body?: string }));
   const r = await publishDevlog(c.env, p, u.id, { title: b.title, body: b.body }).catch(devlogErr);
@@ -953,12 +1122,13 @@ api.get('/media/*', async (c) => {
   if (!m || key.includes('..')) throw notFound();
   // Public only for a live game's cover and the pictures of versions that went live. A draft's, a removed game's or the
   // verifier's frames of an unpublished version are for the creator and admins.
-  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key, listing_i18n FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null; listing_i18n: string | null }>();
+  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key, listing_i18n, coming_soon_at, published_at, hidden_at FROM projects WHERE id = ?').bind(m[2]).first<Project>();
   if (!p) throw notFound();
   const n = m[1] === 'shots' ? Number((m[3].match(/^(\d+)/) || [])[1]) : NaN;
   // a live game's covers: the main one and each listing language's (update_project covers)
   const langCover = m[1] === 'covers' && Object.values(parseJson<Record<string, { cover_key?: string }>>(p.listing_i18n || '{}', {})).some((x) => x?.cover_key === key);
-  const published = p.status === 'live' && (key === p.cover_key || langCover || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
+  // ...and the covers of a game announced on a coming soon page (src/wishlist.js); its frames stay private until release
+  const published = (p.status === 'live' && (key === p.cover_key || langCover || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())))) || ((isComingSoon(p) || (key === p.cover_key && !!(await c.env.DB.prepare("SELECT 1 FROM playtests WHERE project_id = ? AND status = 'open' AND closes_at > ?").bind(m[2], now()).first()))) && (key === p.cover_key || langCover));
   const u = c.get('user');
   if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
   // Only pictures, typed by their name, never by what was stored with them: this is the platform's own origin, so an

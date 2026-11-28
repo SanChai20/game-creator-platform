@@ -180,7 +180,7 @@ export function artStyle(seed: string): CSSProperties {
   const a = h % 360, b = (a + 28 + ((h >> 9) % 40)) % 360, x = 18 + ((h >> 4) % 64), y = 22 + ((h >> 13) % 40), cut = 38 + ((h >> 17) % 30), tilt = 100 + ((h >> 21) % 50);
   return { background: `radial-gradient(circle at ${x}% ${y}%, hsl(${a} 95% 88%) 0 11%, transparent 11.4%), linear-gradient(${tilt}deg, hsl(${a} 78% 62%) 0 ${cut}%, hsl(${b} 62% 44%) ${cut}.3% ${cut + 22}%, hsl(${b} 52% 26%) ${cut + 22}.3%)` };
 }
-export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; lang?: string; i18n?: ListingI18n; price_cents: number; sale?: SaleInfo | null; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; author_id?: string; featured: boolean; published_at: number | null; status: string; playing?: number; age?: number | null; mature?: string[]; pick?: 'featured' | 'trending' | 'rising' | 'new' | 'gem' | 'free' | 'more' }
+export interface GameCard { id: string; slug: string; title: string; tagline: string; tags: string[]; cover: string | null; lang?: string; i18n?: ListingI18n; price_cents: number; sale?: SaleInfo | null; trial_minutes?: number; plays: number; minutes: number; rating: number | null; rating_count: number; author: string; author_id?: string; featured: boolean; published_at: number | null; status: string; playing?: number; age?: number | null; mature?: string[]; pick?: 'featured' | 'trending' | 'rising' | 'new' | 'gem' | 'free' | 'more'; coming_soon?: { release_note: string | null; wishlists?: number } | null }
 /** How rare a game is as a collectible: earned from ratings and plays (featured games are Legendary). */
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 export function rarity(g: Pick<GameCard, 'rating' | 'rating_count' | 'plays' | 'featured'>): Rarity {
@@ -313,19 +313,19 @@ export function GameTile({ g: raw, to, fresh }: { g: GameCard; to?: string; fres
       <div className="art" style={g.cover ? undefined : artStyle(g.slug)}>
         {g.cover ? <CoverImg g={g} src={g.cover} /> : <div className="mono-title">{g.title}</div>}
         <MatureTag g={g} />
-        {fresh ? <span className="stick">{t('New', '新上架')}</span> : g.featured ? <span className="stick alt">{t('Featured', '精选')}</span> : null}
+        {g.coming_soon ? <span className="stick">{t('Coming soon', '即将推出')}</span> : fresh ? <span className="stick">{t('New', '新上架')}</span> : g.featured ? <span className="stick alt">{t('Featured', '精选')}</span> : null}
         {!!g.playing && <span className="live-pill"><i className="live-dot" aria-hidden="true" />{num(g.playing)}</span>}
         {!!trial && <span className="art-trial">{trialLabel(trial, true)}</span>}
         <SaleTag g={g} />
       </div>
       <div className="game-b">
         <h3 className="clip">{g.title}</h3>
-        <PriceTag g={g} className={'price' + (g.price_cents > 0 ? ' paid' : '')} />
+        {g.coming_soon ? <span className="price soon">{g.coming_soon.release_note || t('Coming soon', '即将推出')}</span> : <PriceTag g={g} className={'price' + (g.price_cents > 0 ? ' paid' : '')} />}
         <div className="meta">
           {rar !== 'common' && <span className="rar" title={rarityHint()}>{RARITY[rar].name()}</span>}
           <Verdict g={g} />
           {genre && <span className="gen">{genreName(genre)}</span>}
-          <span className="num plays">{count(g.plays, 'play', 'plays', '次游玩')}</span>
+          {g.coming_soon ? (g.coming_soon.wishlists ? <span className="num plays">{count(g.coming_soon.wishlists, 'wishlist', 'wishlists', '人想玩')}</span> : null) : <span className="num plays">{count(g.plays, 'play', 'plays', '次游玩')}</span>}
         </div>
       </div>
     </Link>

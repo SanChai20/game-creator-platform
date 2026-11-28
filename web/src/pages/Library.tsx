@@ -4,6 +4,7 @@
 // their own, from their account.
 import { useEffect, useRef, useState } from 'react';
 import { api, Fail, GameTile, Link, t, useAct, useData } from '../lib';
+import { WishlistSection } from '../wishlist-ui';
 import { Badge, Button, EmptyState, ListPager, PageHeader, Segmented } from '../ui';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { ContinueCard, useHide, type ContinueGame } from '../continue';
@@ -134,6 +135,8 @@ export function Library() {
           )}
         </div>
       )}
+      {/* games coming soon, and paid games to buy later (src/wishlist.js) */}
+      <WishlistSection />
       {/* the creators this player follows: their new games show up under the bell (web/src/follow.tsx) */}
       <section id="following" className="lib-following">
         <SectionHead title={t('Creators you follow', '你关注的创作者')} note={t('When one of them publishes a new game, it shows up under the bell.', '他们发布新游戏时，会出现在通知中。')} />

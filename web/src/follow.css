@@ -150,3 +150,21 @@
 .hero-by:hover { color: var(--accent-text); }
 .cp-hero:not(.has-art) { min-height: 0; }
 .gp-facts .by-creator { justify-content: flex-end; }
+
+/* Player profiles (web/src/pages/Profile.tsx) */
+.prof-head { align-items: flex-start; gap: 20px; }
+.prof-head .mono-av.xl { flex: none; }
+.prof-bio { max-width: 60ch; }
+.prof-show { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+.prof-game { display: grid; gap: 6px; color: inherit; text-decoration: none; min-width: 0; }
+.prof-game .art { aspect-ratio: 16 / 9; border-radius: 10px; background: var(--line, #ddd) center / cover no-repeat; }
+.prof-game:hover b { text-decoration: underline; }
+
+/* playtests (playtest-ui.tsx) */
+.pt-fun { gap: 4px; }
+.pt-fun button { font-size: 28px; line-height: 1; background: none; border: 0; padding: 2px; cursor: pointer; color: var(--line-3); }
+.pt-fun button.on { color: var(--accent); }
+.pt-note { white-space: pre-wrap; }
+.pt-cover { aspect-ratio: 16 / 9; max-width: 520px; border-radius: var(--r-md); background: var(--sunk) center / cover no-repeat; }
+.pt-row { padding-top: 12px; border-top: 1px solid var(--line); }
+.pt-answers { margin: 0; padding-left: 18px; display: grid; gap: 6px; }

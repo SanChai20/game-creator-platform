@@ -354,6 +354,16 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'metadata',
     },
     {
+      id: 'playtests', name: 'Playtests with real players', category: 'quality', status: 'available',
+      what: 'An invite link that lets real players play the preview before release, with a short survey afterwards.',
+      how_it_works: 'playtest {action: "open"} on a verified preview gives a link (/playtest/<code>). Signed-in players who open it join (up to the seats), play the preview deployed at that moment, and answer an enjoyment score (1 to 5) and up to 5 questions. Results list each tester by display name with their sessions, minutes on the preview, the custom events they reached and their answers. Preview play never counts toward the live game. A playtest closes after its days, or when closed.',
+      use_for: ['Testing a new level or mechanic before it goes live', 'Checking that strangers understand the first minutes', 'Hearing what players think before the price is set'],
+      sdk: ['GCP.track'], mcp_tools: ['playtest', 'deploy_preview'],
+      limits: { questions: 5, seats: '1 to 500', days: '1 to 30', open_per_game: 1 },
+      guidelines: ['Track the moments you want to learn about with GCP.track, so the results show how far testers got.', 'Ask the user before opening a playtest: they choose who gets the link.'],
+      guide: 'testing',
+    },
+    {
       id: 'devlog', name: 'Devlogs and patch notes', category: 'business', status: 'available',
       what: 'News posts and patch notes on the game page, announced to the game\'s players under the bell and by push.',
       how_it_works: 'devlog {action: "post"} writes a post on a live game (title up to 120 characters, plain-text body up to 5000, at most 3 a day); publish {patch_notes: {title?, body}} stores notes with the version and posts them when it goes live. Players who follow the creator, keep the game in their library, bought it, or played it in the last 90 days get a notification for each post (a first release\'s notes are not announced: the new game is the news). The newest posts show in a News and updates section on the game page; the creator also writes and deletes posts from the console.',

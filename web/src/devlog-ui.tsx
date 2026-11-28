@@ -58,7 +58,7 @@ export function DevlogCard({ id, slug, live }: { id: string; live: boolean; slug
   const remove = (d: Devlog) => { if (confirm(t('Delete "{title}"? Players will no longer see it.', '删除“{title}”？玩家将不再看到它。', { title: d.title }))) void act('del:' + d.id, async () => { await api(`/console/projects/${id}/devlogs/${d.id}`, { method: 'DELETE' }); await reload(); }); };
   return (
     <Card title={t('News for players', '给玩家的动态')} pad>
-      {!live ? <p className="mute fs-sm">{t('Once the game is live, post news and updates here. Players who follow you, keep the game, bought it or played it lately are told under the bell. Your agent adds patch notes when it publishes an update.', '游戏上线后，可在这里发布新闻和更新。关注你、收藏、购买或最近玩过这款游戏的玩家会在通知中收到。智能体在发布更新时会附上更新说明。')}</p> : <>
+      {!live ? <p className="mute fs-sm">{t('Once the game is live, or its coming soon page is up, post news and updates here. Players who follow you, wishlisted, keep, bought or lately played the game are told under the bell. Your agent adds patch notes when it publishes an update.', '游戏上线或即将推出页面上线后，可在这里发布新闻和更新。关注你、加入愿望单、收藏、购买或最近玩过这款游戏的玩家会在通知中收到。智能体在发布更新时会附上更新说明。')}</p> : <>
         {writing ? (
           <div className="stack s">
             <Input value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} placeholder={t('Headline', '标题')} aria-label={t('Headline', '标题')} autoFocus />

@@ -683,3 +683,11 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 
 /* Share card on the game page (web/src/share-ui.tsx) */
 .share-to { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+
+/* Coming soon pages and wishlists (web/src/wishlist-ui.tsx) */
+.soon-note { font-size: 1.15rem; }
+.game .price.soon { color: var(--accent, #e8243c); font-weight: 600; }
+
+/* For you shelf (web/src/foryou-ui.tsx) */
+.foryou .fy-why { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; margin-top: 6px; min-width: 0; }
+.foryou .fy-why button { flex: none; }
