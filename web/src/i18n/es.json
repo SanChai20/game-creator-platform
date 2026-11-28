@@ -2818,5 +2818,6 @@
   "Restart agent": "Reiniciar agente",
   "This is a system folder": "Es una carpeta del sistema",
   "The agent works in {folder}, where a terminal opened as administrator starts. Agents often cannot work there. Stop it with Ctrl+C, open a terminal in your game's folder, and run the command again.": "El agente trabaja en {folder}, donde empieza una terminal abierta como administrador. Los agentes a menudo no pueden trabajar ahí. Detenlo con Ctrl+C, abre una terminal en la carpeta de tu juego y vuelve a ejecutar el comando.",
-  "Stop this agent": "Detener este agente"
+  "Stop this agent": "Detener este agente",
+  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} rechazó un ajuste de su propio archivo de configuración que una copia antigua no conoce. Reinicia el agente: el banco de trabajo ahora inicia la última versión."
 }
