@@ -2789,5 +2789,6 @@
  "Run it in your game's folder. Needs Node.js 22 or newer. Sign in to the agent the way it asks (for example its own login or API key).": "게임 폴더에서 실행하세요. Node.js 22 이상이 필요합니다. 에이전트가 요청하는 방식으로 로그인하세요(예: 자체 로그인 또는 API 키).",
  "Show agents and sessions": "에이전트와 세션 보기",
  "Hide agents and sessions": "에이전트와 세션 숨기기",
- "Plan, files and agent": "계획, 파일, 에이전트"
+ "Plan, files and agent": "계획, 파일, 에이전트",
+  "Any program that speaks ACP": "ACP를 지원하는 모든 프로그램"
 }

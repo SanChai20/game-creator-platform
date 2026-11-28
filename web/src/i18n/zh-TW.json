@@ -2810,5 +2810,6 @@
  "Run it in your game's folder. Needs Node.js 22 or newer. Sign in to the agent the way it asks (for example its own login or API key).": "在你的遊戲資料夾中執行。需要 Node.js 22 或更新版本。依智慧體要求的方式登入（例如它自己的登入或 API 金鑰）。",
  "Show agents and sessions": "顯示智慧體與工作階段",
  "Hide agents and sessions": "隱藏智慧體與工作階段",
- "Plan, files and agent": "計畫、檔案與智慧體"
+ "Plan, files and agent": "計畫、檔案與智慧體",
+  "Any program that speaks ACP": "任何支援 ACP 的程式"
 }

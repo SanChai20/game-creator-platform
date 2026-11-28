@@ -262,18 +262,22 @@
 }
 
 /* ---- choosing an agent: a list --------------------------------------------------------------------------------------- */
-.wb-alist { display: grid; max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
-.wb-alist button { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); text-align: left; font-size: 13.5px; cursor: pointer; }
-.wb-alist button:last-child { border-bottom: 0; }
-.wb-alist button:hover { background: rgb(var(--text-rgb) / .04); }
-.wb-alist button.on { background: rgb(var(--accent-rgb) / .08); box-shadow: inset 3px 0 0 var(--accent); }
-.wb-alist button > b { flex: none; max-width: 40%; font-weight: 600; }
-.wb-alist button > .dim { font-size: 12.5px; }
-.wb-other { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 6px 12px; border: 1px dashed var(--line-3); border-radius: var(--r-md); background: none; color: var(--text); text-align: left; font-size: 13.5px; cursor: pointer; }
-.wb-other:hover { border-color: var(--text-3); }
-.wb-other.on { border-style: solid; border-color: var(--accent); background: rgb(var(--accent-rgb) / .06); }
-.wb-other > .dim { font-size: 12.5px; }
-.wb-tag { flex: none; height: 20px; padding: 0 7px; border-radius: 999px; background: var(--sunk); color: var(--text-3); font-size: 11px; line-height: 20px; white-space: nowrap; }
+.wb-asel { position: relative; }
+.wb-asel-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; min-height: 40px; padding: 6px 12px; border: 1px solid var(--line-3); border-radius: var(--r-md); background: var(--surface); color: var(--text); text-align: left; font-size: 13.5px; cursor: pointer; }
+.wb-asel-btn:hover { border-color: var(--text-3); }
+.wb-asel-btn[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / .15); }
+.wb-asel-btn > b { flex: none; max-width: 40%; font-weight: 600; }
+.wb-asel-btn > .dim { font-size: 12.5px; }
+.wb-chev { flex: none; color: var(--text-3); transition: transform .15s; }
+.wb-asel-btn[aria-expanded="true"] .wb-chev { transform: rotate(180deg); }
+.wb-asel-pop { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; display: grid; gap: 6px; padding: 6px; border: 1px solid var(--line-3); border-radius: var(--r-md); background: var(--surface); box-shadow: 0 12px 32px rgb(0 0 0 / .18); }
+.wb-asel-list { display: grid; max-height: 260px; overflow: auto; }
+.wb-asel-list > div, .wb-asel-other { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 36px; padding: 5px 10px; border-radius: var(--r-sm, 6px); font-size: 13.5px; cursor: pointer; }
+.wb-asel-list > div > b { flex: none; max-width: 40%; font-weight: 600; }
+.wb-asel-list .dim, .wb-asel-other .dim { font-size: 12.5px; }
+.wb-asel-other { border-top: 1px solid var(--line); border-radius: 0 0 var(--r-sm, 6px) var(--r-sm, 6px); }
+.wb-asel-list > div.hi, .wb-asel-other.hi { background: rgb(var(--text-rgb) / .06); }
+.wb-asel-list > div.on, .wb-asel-other.on { box-shadow: inset 3px 0 0 var(--accent); }
+@media (max-width: 760px) { .wb-asel .dim { display: none; } .wb-asel b { max-width: none !important; flex: 1 !important; } }
 .wb-custom { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); background: rgb(var(--text-rgb) / .03); border: 1px solid var(--line); }
 .wb-custom p { margin: 0; }
-@media (max-width: 760px) { .wb-alist button > .dim { display: none; } .wb-alist button > b { max-width: none; flex: 1; } }

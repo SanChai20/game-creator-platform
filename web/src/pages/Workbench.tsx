@@ -110,33 +110,73 @@ function PairApproval({ code, onDone }: { code: string; onDone: () => void }) {
   );
 }
 
-/** Pick an agent and get the one command that starts it. */
-function AgentPicker({ ov, value, onChange, custom, setCustom }: { ov: Overview; value: string; onChange: (id: string) => void; custom: string; setCustom: (s: string) => void }) {
-  const [q, setQ] = useState(''), [name, setName] = useState('');
+/** A dropdown of the known agents with a search box, and "Another agent" for anything else. */
+function AgentSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const [open, setOpen] = useState(false), [q, setQ] = useState(''), [hi, setHi] = useState(0);
+  const box = useRef<HTMLDivElement>(null), listRef = useRef<HTMLDivElement>(null);
   const needle = q.trim().toLowerCase();
   const shown = needle ? AGENTS.filter((x) => (x.name + ' ' + x.id + ' ' + (x.description || '')).toLowerCase().includes(needle)) : AGENTS;
+  const ids = [...shown.map((x) => x.id), 'custom'];
+  const cur = agentById(value);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', off);
+    return () => document.removeEventListener('mousedown', off);
+  }, [open]);
+  useEffect(() => { setHi(0); }, [needle]);
+  useEffect(() => { listRef.current?.querySelector<HTMLElement>(`[data-i="${hi}"]`)?.scrollIntoView({ block: 'nearest' }); }, [hi, open]);
+  const toggle = () => { setQ(''); setHi(Math.max(0, ids.indexOf(value))); setOpen((o) => !o); };
+  const choose = (id: string) => { onChange(id); setOpen(false); };
+  const key = (e: KeyboardEvent) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHi((i) => Math.min(ids.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((i) => Math.max(0, i - 1)); }
+    else if (e.key === 'Enter') { e.preventDefault(); choose(ids[hi]); }
+    else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+  };
+  return (
+    <div className="wb-asel" ref={box}>
+      <button type="button" className="wb-asel-btn" aria-haspopup="listbox" aria-expanded={open} onClick={toggle}
+        onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); toggle(); } }}>
+        {cur ? <AgentMark id={cur.id} name={cur.name} size="s" /> : <span className="wb-mark s plain" aria-hidden="true">+</span>}
+        <b className="clip">{cur ? cur.name : t('Another agent', '其他智能体')}</b>
+        <span className="dim clip grow">{cur ? cur.description : t('Any program that speaks ACP', '任何支持 ACP 的程序')}</span>
+        <svg className="wb-chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <div className="wb-asel-pop">
+          <input className="input" type="search" autoFocus placeholder={t('Search {n} agents', '搜索 {n} 个智能体', { n: AGENTS.length })} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={key} aria-label={t('Search agents', '搜索智能体')} />
+          <div className="wb-asel-list" role="listbox" aria-label={t('Agent', '智能体')} ref={listRef}>
+            {shown.map((x, i) => (
+              <div key={x.id} data-i={i} role="option" aria-selected={value === x.id} className={`${value === x.id ? 'on' : ''}${hi === i ? ' hi' : ''}`} onMouseEnter={() => setHi(i)} onClick={() => choose(x.id)}>
+                <AgentMark id={x.id} name={x.name} size="s" />
+                <b className="clip">{x.name}</b>
+                <span className="dim clip grow">{x.description}</span>
+                {isBin(x) && <span className="wb-tag" title={t('Install it first', '需要先安装')}>{t('Install first', '需先安装')}</span>}
+              </div>
+            ))}
+            {!shown.length && <p className="dim fs-sm pad-s">{t('No agent in the list matches. Add it as another agent below.', '列表中没有匹配的智能体。可以在下方把它添加为其他智能体。')}</p>}
+          </div>
+          <div data-i={shown.length} role="option" aria-selected={value === 'custom'} className={`wb-asel-other${value === 'custom' ? ' on' : ''}${hi === shown.length ? ' hi' : ''}`} onMouseEnter={() => setHi(shown.length)} onClick={() => choose('custom')}>
+            <span className="wb-mark s plain" aria-hidden="true">+</span>
+            <b>{t('Another agent', '其他智能体')}</b>
+            <span className="dim clip grow">{t('Any program that speaks ACP: give its command', '任何支持 ACP 的程序：填写它的启动命令')}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Pick an agent and get the one command that starts it. */
+function AgentPicker({ ov, value, onChange, custom, setCustom }: { ov: Overview; value: string; onChange: (id: string) => void; custom: string; setCustom: (s: string) => void }) {
+  const [name, setName] = useState('');
   const a = agentById(value);
   const isCustom = value === 'custom';
   const cmd = isCustom ? acpCommand(ov.server, '', custom.trim() || '<command>', name) : acpCommand(ov.server, value);
   return (
     <div className="stack">
-      <input className="input" type="search" placeholder={t('Search {n} agents', '搜索 {n} 个智能体', { n: AGENTS.length })} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Search agents', '搜索智能体')} />
-      <div className="wb-alist" role="radiogroup" aria-label={t('Agent', '智能体')}>
-        {shown.map((x) => (
-          <button key={x.id} type="button" role="radio" aria-checked={value === x.id} className={value === x.id ? 'on' : ''} onClick={() => onChange(x.id)}>
-            <AgentMark id={x.id} name={x.name} size="s" />
-            <b className="clip">{x.name}</b>
-            <span className="dim clip grow">{x.description}</span>
-            {isBin(x) && <span className="wb-tag" title={t('Install it first', '需要先安装')}>{t('Install first', '需先安装')}</span>}
-          </button>
-        ))}
-        {!shown.length && <p className="dim fs-sm pad-s">{t('No agent in the list matches. Add it as another agent below.', '列表中没有匹配的智能体。可以在下方把它添加为其他智能体。')}</p>}
-      </div>
-      <button type="button" role="radio" aria-checked={isCustom} className={`wb-other${isCustom ? ' on' : ''}`} onClick={() => onChange('custom')}>
-        <span className="wb-mark s plain" aria-hidden="true">+</span>
-        <b>{t('Another agent', '其他智能体')}</b>
-        <span className="dim clip grow">{t('Any program that speaks ACP: give its command', '任何支持 ACP 的程序：填写它的启动命令')}</span>
-      </button>
+      <AgentSelect value={value} onChange={onChange} />
       {isCustom && (
         <div className="wb-custom">
           <label className="stack s"><span className="fs-sm"><b>{t('Command', '命令')}</b> <span className="dim">{t('starts the agent in ACP mode, as you would type it in a terminal', '以 ACP 模式启动智能体，与在终端中输入的一样')}</span></span>
