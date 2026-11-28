@@ -36,15 +36,15 @@
 .fr-inviting { display: grid; gap: 4px; margin: 12px 14px 0; padding: 12px 14px; border-radius: var(--r-md); background: rgb(var(--accent-rgb) / .1); border: 1px solid rgb(var(--accent-rgb) / .35); font-size: 13.5px; flex: none; }
 .fr-inviting span { color: var(--text-2); }
 .fr-invites { display: grid; gap: 8px; padding: 12px 14px 0; flex: none; max-height: 34vh; overflow-y: auto; }
-.fr-invite { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-md); background: rgb(var(--accent-rgb) / .08); border-left: 4px solid var(--accent); }
+.fr-invite { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-md); background: rgb(var(--accent-rgb) / .1); }
 .fr-invite-text { display: grid; gap: 2px; flex: 1; min-width: 0; font-size: 13.5px; }
 .fr-invite-text span, .fr-invite-text small { color: var(--text-2); overflow-wrap: anywhere; }
 
-.fr-tabs { display: flex; gap: 2px; padding: 10px 14px 0; border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; scrollbar-width: none; }
+.fr-tabs { display: flex; gap: 2px; padding: 10px 14px 8px; flex: none; overflow-x: auto; scrollbar-width: none; }
 .fr-tabs::-webkit-scrollbar { display: none; }
-.fr-tabs button { display: inline-flex; align-items: center; height: 38px; padding: 0 12px; font: 700 13px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); border-bottom: 3px solid transparent; white-space: nowrap; }
+.fr-tabs button { display: inline-flex; align-items: center; height: 38px; padding: 0 12px; font: 700 13px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); border-radius: var(--r-sm); white-space: nowrap; }
 .fr-tabs button:hover { color: var(--text); }
-.fr-tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.fr-tabs button.on { color: var(--text); background: rgb(var(--text-rgb) / .08); }
 
 .fr-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 8px 8px 20px; }
 .fr-group { display: grid; gap: 2px; margin-top: 8px; }
@@ -79,7 +79,7 @@ button.fr-main:hover { background: rgb(var(--text-rgb) / .055); }
 .fr-older { align-self: center; padding: 6px 12px; border-radius: 14px; font-size: 12.5px; color: var(--text-2); background: rgb(var(--text-rgb) / .06); }
 .fr-bubble { align-self: flex-start; max-width: 82%; padding: 9px 13px; border-radius: 14px 14px 14px 4px; background: rgb(var(--text-rgb) / .07); font-size: 14.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fr-bubble.mine { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: var(--accent); color: var(--on-accent); box-shadow: 0 4px 12px -4px rgb(var(--accent-rgb) / .4); }
-.fr-bubble.invite { display: grid; gap: 6px; border-radius: var(--r-md); background: rgb(var(--accent-rgb) / .1); color: var(--text); border-left: 4px solid var(--accent); white-space: normal; }
+.fr-bubble.invite { display: grid; gap: 6px; border-radius: var(--r-md); background: rgb(var(--accent-rgb) / .12); color: var(--text); white-space: normal; }
 .fr-bubble.invite.mine { background: rgb(var(--text-rgb) / .06); }
 .fr-bubble.invite small, .fr-bubble.invite span { color: var(--text-2); font-size: 12.5px; }
 .fr-compose { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); background: rgb(var(--text-rgb) / .015); flex: none; }
@@ -93,7 +93,6 @@ button.fr-main:hover { background: rgb(var(--text-rgb) / .055); }
 /* Like the site's dialogs: a surface card under the striped accent band, a small slanted-marker label, the sender's
    initial, and the site's own buttons. */
 .fr-toast { position: relative; display: grid; gap: 10px; padding: 12px 14px 14px; border: 1px solid var(--line-2); border-top: 0; border-radius: 0 0 var(--r-md) var(--r-md); background: var(--surface); color: var(--text); box-shadow: var(--shadow-3); font-size: 13.5px; pointer-events: auto; animation: fr-in var(--dur) var(--ease) both; }
-.fr-toast::before { content: ""; position: absolute; left: -1px; right: -1px; top: -4px; height: 4px; background: repeating-linear-gradient(-60deg, var(--accent) 0 12px, var(--accent-lo) 12px 18px); }
 .fr-toast.bad::before { background: var(--bad); }
 .fr-toast-head { display: flex; align-items: center; gap: 8px; margin: -2px -6px -2px 0; }
 .fr-toast-kick { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; color: var(--text-2); font: 700 11px/1 var(--font-display); letter-spacing: .1em; text-transform: uppercase; }

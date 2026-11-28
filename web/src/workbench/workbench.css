@@ -54,7 +54,7 @@
 
 .wb-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 .wb-modes > div { display: grid; align-content: start; gap: 4px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
-.wb-modes > div.on { border-color: var(--accent); box-shadow: inset 0 3px 0 var(--accent); }
+.wb-modes > div.on { border-color: var(--accent); background: rgb(var(--accent-rgb) / .08); }
 .wb-modes b { font: 800 var(--fs-lg, 20px)/1 var(--font-display); letter-spacing: .02em; }
 .wb-modes span { font-weight: 700; font-size: var(--fs-sm); }
 .wb-modes p { margin: 4px 0 0; color: var(--text-2); font-size: var(--fs-sm); }
@@ -153,7 +153,7 @@
 .wb-locs { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-res > summary { cursor: pointer; font-size: 12px; }
 
-.wb-ask { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); background: rgb(var(--warn-rgb) / .09); box-shadow: inset 4px 0 0 var(--warn); }
+.wb-ask { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); background: rgb(var(--warn-rgb) / .12); }
 .wb-ask-h { display: flex; align-items: center; gap: 10px; }
 
 .wb-welcome { margin: auto; max-width: 620px; display: grid; justify-items: center; gap: 12px; text-align: center; padding: 20px 0; }
@@ -221,7 +221,7 @@
 .wb-md ul, .wb-md ol { padding-left: 22px; display: grid; gap: 4px; }
 .wb-md li.task { list-style: none; display: flex; gap: 8px; margin-left: -20px; }
 .wb-md code { font: 0.9em var(--font-mono); padding: 1px 5px; border-radius: 4px; background: rgb(var(--text-rgb) / .07); }
-.wb-md blockquote { margin: 0; padding-left: 12px; border-left: 3px solid var(--line-2); color: var(--text-2); }
+.wb-md blockquote { margin: 0; padding: 8px 12px; border-radius: var(--r-sm); background: var(--sunk); color: var(--text-2); }
 .wb-md hr { border: 0; border-top: 1px solid var(--line); }
 .wb-md a { color: var(--accent-text); }
 .wb-pre { margin: 0; padding: 12px 14px; border-radius: var(--r-md); background: var(--ink); color: #eae6df; font: 12.5px/1.6 var(--font-mono); overflow: auto; max-height: 420px; white-space: pre; }
