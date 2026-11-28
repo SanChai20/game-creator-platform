@@ -28,7 +28,7 @@ Templates: [cover](/guides/cover-template.png) · [safe area on a phone](/guides
 | [Store badges](#badges) | The store | platform |
 | [Trailers and video](#no-trailer) | What the platform does not take | game_standards check |
 | [Icons, logos and title art](#no-icons) | What the platform does not take | game_standards check |
-| [Achievements](#no-achievements) | What the platform does not take | game_standards check |
+| [Achievements](#achievements) | While the game plays | game_standards check |
 | [Platform splash and the loading screen](#splash-loading) | While the game plays | game_standards check |
 | [The platform menu button](#menu-button) | While the game plays | by looking |
 | [Safe areas: notch, rounded corners, home bar](#safe-area) | While the game plays | game_standards check |
@@ -270,23 +270,25 @@ More: [standards.md#no-trailer](/guides/standards.md#no-trailer)
 
 More: [standards.md#no-icons](/guides/standards.md#no-icons)
 
-<a id="no-achievements"></a>
+## While the game plays
+
+<a id="achievements"></a>
 
 ### Achievements
 
-**Where:** Nowhere: there is no achievements service or page.
+**Where:** The game page (an Achievements card with how rare each one is), the player's library (unlocked of total per game) and a short corner notice inside the game when one unlocks.
 
-- Track milestones with GCP.playerStats (players see them on the game page) and show them in the game's own interface.
+- Declare them in gcp.json "achievements" ({ id, name, description?, hidden?, stat?, goal? }, at most 100) and unlock them with GCP.achievements.unlock(id), or give a stat and a goal so the platform unlocks it when GCP.playerStats reaches the goal.
+- Names up to 60 characters and descriptions up to 160, in every language the game is listed in (a string, or one string per platform language).
+- The corner notice sits at the bottom right for about 4 seconds; set GCP.achievements.toast = false when the game shows its own.
 
-**Do:** Name stats the way a player would read them.
+**Do:** Keep ids stable across versions. Name achievements the way a player would read them.
 
-**Don't:** Promise platform achievements in the description.
+**Don't:** Keep achievements only on the device, where they are lost on another browser. Promise achievements in the description that the game does not declare.
 
-**Recommendation, checked:** game_standards check notes achievement code without player stats.
+**Recommendation, checked:** deploy_preview refuses an invalid list; game_standards check notes achievement code with none declared.
 
-More: [services.md#what-the-platform-does-not-provide](/guides/services.md#what-the-platform-does-not-provide)
-
-## While the game plays
+More: [services.md#achievements](/guides/services.md#achievements)
 
 <a id="splash-loading"></a>
 

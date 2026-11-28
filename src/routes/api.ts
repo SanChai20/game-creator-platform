@@ -49,6 +49,8 @@ import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
 // @ts-ignore plain JS module
+import { declaredFor, rarityOf, unlocksOf, viewOf } from '../achievements.js';
+// @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
 import { pushTo, socialHub } from '../social';
 import { askForGift, cancelGiftRequest, checkGift, declineGift, gameGiftState, giftDelivered, giftableFriends, giftOverview, giftsOn } from '../gifts';
@@ -790,6 +792,13 @@ api.post('/games/:slug/play', async (c) => {
 api.get('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   return c.json(await playerSummary(c.env.DB, scopeOf(p.id, 'live'), u.id));
+});
+// A live game's achievements: everyone sees the list and how rare each one is; a signed-in player also sees their own unlocks.
+api.get('/games/:slug/achievements', async (c) => {
+  const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), db = c.env.DB, scope = scopeOf(p.id, 'live');
+  c.header('cache-control', 'private, no-store');
+  const [defs, mine, rarity] = await Promise.all([declaredFor(db, p.id, 'live'), u ? unlocksOf(db, scope, u.id) : {}, rarityOf(db, scope)]);
+  return c.json(viewOf(defs, mine, rarity, c.req.query('lang') || pageLang(c.req.raw)));
 });
 api.delete('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));

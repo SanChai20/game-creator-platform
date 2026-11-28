@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, getLang, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, ListPager, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -44,6 +44,36 @@ function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
       {(data.saves.keys > 0 || stats.length > 0 || best.length > 0) && (sure
         ? <div className="row"><span className="mute fs-sm grow">{t('Delete your saves, stats and scores in this game?', '删除你在这款游戏中的存档、统计和分数？')}</span><Button size="sm" variant="ghost" onClick={() => setSure(false)}>{t('Cancel', '取消')}</Button><Button size="sm" onClick={reset} disabled={busy === 'reset'}>{t('Reset', '重置')}</Button></div>
         : <div><Button size="sm" variant="ghost" onClick={() => setSure(true)}>{t('Reset my progress', '重置我的进度')}</Button></div>)}
+    </Card>
+  );
+}
+
+interface Ach { id: string; name: string; description: string; hidden: boolean; unlocked_at: number | null; percent: number; stat?: string; goal?: number }
+/** The game's achievements: everyone sees the list and how rare each one is; a signed-in player also sees which they unlocked. */
+function Achievements({ slug, playing }: { slug: string; playing: boolean }) {
+  const { data, reload } = useData<{ achievements: Ach[]; total: number; unlocked: number; players: number }>(`/games/${encodeURIComponent(slug)}/achievements?lang=${getLang()}`);
+  const [all, setAll] = useState(false);
+  useEffect(() => { if (!playing) void reload(); }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data || !data.total) return null;
+  // unlocked first (newest first), then the rest from the most common to the rarest
+  const list = [...data.achievements].sort((a, b) => (b.unlocked_at || 0) - (a.unlocked_at || 0) || b.percent - a.percent);
+  const shownList = all ? list : list.slice(0, 6);
+  return (
+    <Card title={t('Achievements', '成就')} aside={<span className="dim fs-sm">{data.unlocked ? t('{n} of {total} unlocked', '已解锁 {n}/{total}', { n: data.unlocked, total: data.total }) : count(data.total, 'achievement', 'achievements', '个成就')}</span>} pad>
+      {data.unlocked > 0 && <span className="cont-bar" aria-hidden="true"><b style={{ width: `${Math.round((data.unlocked / data.total) * 100)}%` }} /></span>}
+      <ul className="ach-list">
+        {shownList.map((a) => (
+          <li key={a.id} className={a.unlocked_at ? 'on' : ''}>
+            <span className="ach-ico" aria-hidden="true">{a.unlocked_at ? '★' : a.hidden ? '?' : '☆'}</span>
+            <span className="grow">
+              <b>{a.name || t('Hidden achievement', '隐藏成就')}</b>
+              <span className="mute fs-sm">{a.description || (a.hidden && !a.unlocked_at ? t('Keep playing to find it.', '继续游玩来发现它。') : '')}</span>
+            </span>
+            <span className="dim fs-sm num" title={t('Share of players who unlocked it', '解锁该成就的玩家比例')}>{data.players ? `${a.percent}%` : ''}</span>
+          </li>
+        ))}
+      </ul>
+      {list.length > 6 && <div><Button size="sm" variant="ghost" onClick={() => setAll(!all)}>{all ? t('Show fewer', '收起') : t('Show all {n}', '显示全部 {n} 个', { n: list.length })}</Button></div>}
     </Card>
   );
 }
@@ -326,6 +356,7 @@ export function Game({ slug }: { slug: string }) {
               <Stat label={t('Rating', '评分')} value={g.rating != null ? `★ ${g.rating.toFixed(1)}` : '—'} />
             </StatGrid>
             {user && live && <MyProgress slug={slug} playing={!!url} />}
+            {live && <Achievements slug={slug} playing={!!url} />}
             <Card title={t('What players think', '玩家怎么看')} aside={count(g.rating_count, 'rating', 'ratings', '个评分')} pad>
               <div className="dist">{[5, 4, 3, 2, 1].map((n) => <div key={n}><span>{n}★</span><i><b style={{ width: `${total ? (data.rating_dist[n - 1] / total) * 100 : 0}%` }} /></i><span className="num">{data.rating_dist[n - 1]}</span></div>)}</div>
             </Card>

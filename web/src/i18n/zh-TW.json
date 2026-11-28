@@ -2855,5 +2855,14 @@
   "The agents of the": "來自",
   "ACP Registry": "ACP 登錄表",
   ", the same list Zed offers.": "，與 Zed 提供的清單相同。",
-  "ID: {id}": "ID：{id}"
+  "ID: {id}": "ID：{id}",
+  "Achievements": "成就",
+  "{n} of {total} unlocked": "已解鎖 {n}/{total}",
+  "Hidden achievement": "隱藏成就",
+  "Keep playing to find it.": "繼續遊玩來發現它。",
+  "Share of players who unlocked it": "解鎖該成就的玩家比例",
+  "achievement": "個成就",
+  "achievements": "個成就",
+  "Not provided: AI models for games, in-game purchases, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.": "不提供：供遊戲使用的 AI 模型、遊戲內購買、遊戲內聊天頻道、推播通知，以及伺服器端程式碼的密鑰。服務指南說明了替代做法。",
+  "Declare achievements in gcp.json and unlock them from the game, or let a player stat reach a goal. Players see them on the game page with how rare each one is.": "在 gcp.json 中宣告成就，由遊戲解鎖，或在玩家統計達到目標時自動解鎖。玩家可在遊戲頁面看到成就及其稀有度。"
 }

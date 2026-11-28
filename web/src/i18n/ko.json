@@ -2834,5 +2834,14 @@
   "The agents of the": "",
   "ACP Registry": "ACP 레지스트리",
   ", the same list Zed offers.": "의 에이전트로, Zed가 제공하는 목록과 같습니다.",
-  "ID: {id}": "ID: {id}"
+  "ID: {id}": "ID: {id}",
+  "Achievements": "업적",
+  "{n} of {total} unlocked": "{total}개 중 {n}개 달성",
+  "Hidden achievement": "숨겨진 업적",
+  "Keep playing to find it.": "계속 플레이해서 찾아보세요.",
+  "Share of players who unlocked it": "이 업적을 달성한 플레이어 비율",
+  "achievement": "개 업적",
+  "achievements": "개 업적",
+  "Not provided: AI models for games, in-game purchases, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.": "제공하지 않는 것: 게임용 AI 모델, 게임 내 구매, 게임 내 채팅 채널, 푸시 알림, 서버 코드용 비밀 값. 대신 쓸 방법은 서비스 가이드에 있습니다.",
+  "Declare achievements in gcp.json and unlock them from the game, or let a player stat reach a goal. Players see them on the game page with how rare each one is.": "gcp.json에 업적을 선언하고 게임에서 달성 처리하거나, 플레이어 통계가 목표에 도달하면 자동으로 달성됩니다. 플레이어는 게임 페이지에서 업적과 희귀도를 볼 수 있습니다."
 }

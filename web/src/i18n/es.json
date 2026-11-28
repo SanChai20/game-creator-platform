@@ -2833,5 +2833,14 @@
   "The agents of the": "Los agentes del",
   "ACP Registry": "Registro ACP",
   ", the same list Zed offers.": ", la misma lista que ofrece Zed.",
-  "ID: {id}": "ID: {id}"
+  "ID: {id}": "ID: {id}",
+  "Achievements": "Logros",
+  "{n} of {total} unlocked": "{n} de {total} desbloqueados",
+  "Hidden achievement": "Logro oculto",
+  "Keep playing to find it.": "Sigue jugando para descubrirlo.",
+  "Share of players who unlocked it": "Porcentaje de jugadores que lo desbloquearon",
+  "achievement": "logro",
+  "achievements": "logros",
+  "Not provided: AI models for games, in-game purchases, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.": "No se ofrece: modelos de IA para juegos, compras dentro del juego, canales de chat dentro de los juegos, notificaciones push ni secretos para el código de servidor. La guía de servicios explica qué usar en su lugar.",
+  "Declare achievements in gcp.json and unlock them from the game, or let a player stat reach a goal. Players see them on the game page with how rare each one is.": "Declara logros en gcp.json y desbloquéalos desde el juego, o deja que una estadística del jugador alcance una meta. Los jugadores los ven en la página del juego con lo raro que es cada uno."
 }

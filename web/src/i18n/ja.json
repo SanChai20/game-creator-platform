@@ -2834,5 +2834,14 @@
   "The agents of the": "",
   "ACP Registry": "ACP レジストリ",
   ", the same list Zed offers.": "のエージェント。Zed と同じリストです。",
-  "ID: {id}": "ID：{id}"
+  "ID: {id}": "ID：{id}",
+  "Achievements": "実績",
+  "{n} of {total} unlocked": "{total}個中{n}個解除",
+  "Hidden achievement": "隠し実績",
+  "Keep playing to find it.": "プレイを続けて見つけよう。",
+  "Share of players who unlocked it": "この実績を解除したプレイヤーの割合",
+  "achievement": "個の実績",
+  "achievements": "個の実績",
+  "Not provided: AI models for games, in-game purchases, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.": "提供しないもの: ゲーム用の AI モデル、ゲーム内課金、ゲーム内のチャットチャンネル、プッシュ通知、サーバーコード用のシークレット。代わりの方法はサービスガイドにあります。",
+  "Declare achievements in gcp.json and unlock them from the game, or let a player stat reach a goal. Players see them on the game page with how rare each one is.": "実績を gcp.json で宣言し、ゲームから解除するか、プレイヤー統計が目標に達したときに自動で解除します。プレイヤーはゲームページで実績とその珍しさを確認できます。"
 }

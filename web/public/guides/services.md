@@ -39,6 +39,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Player accounts and play sessions | available | `GCP.player`, `GCP.lang`, `GCP.onLang` | none | saves |
 | Cloud saves | available | `GCP.save` | `game_data` (summary) | saves |
 | Player stats | available | `GCP.playerStats` | `game_data` (summary) | saves |
+| Achievements | available | `GCP.achievements` | `deploy_preview` (checks `gcp.json` `achievements`) | saves |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
 | Continue playing | automatic | `GCP.launch.continue`, `GCP.resume` | none | saves |
 | Shared game data | available | `GCP.shared.get` | `game_data` (set, get, list, delete) | saves |
@@ -142,6 +143,25 @@ const record = await GCP.playRecord();   // sessions, seconds, first and last pl
 - Offline, saves fall back to a per-player copy in `localStorage` and `set` resolves to `false`; stats resolve to `null`.
 
 Limits: 64 save keys and 64 stat names per player; 256 KB per value; save keys up to 120 characters, stat names up to 60. Details and save-format advice: `get_started {topic: "saves"}`.
+
+## Achievements
+
+Declare them in `gcp.json`; each version freezes its own list and `deploy_preview` checks it:
+
+```json
+"achievements": [
+  { "id": "first_win", "name": { "en": "First win", "zh": "首胜" }, "description": "Win a match" },
+  { "id": "kills_100", "name": "Centurion", "description": "Defeat 100 enemies", "stat": "kills", "goal": 100 },
+  { "id": "cave", "name": "Behind the waterfall", "hidden": true }
+]
+```
+
+- `GCP.achievements.unlock('first_win')` unlocks one (or an array). It resolves to the ids that were new, `[]` when already unlocked, or `null` offline. An id the version does not declare is refused.
+- An entry with `stat` and `goal` unlocks by itself when `GCP.playerStats` makes that stat reach the goal or pass it.
+- `GCP.achievements.list()` returns every achievement in the player's language with `unlocked_at` and `percent` (the share of the live game's players who unlocked it). A hidden one has no name or description until it is unlocked.
+- `GCP.achievements.on(fn)` runs for each unlock in the session. The SDK shows a short corner notice for each one; set `GCP.achievements.toast = false` when the game shows its own.
+- Players see the list with rarity on the game page and a count per game in their library. Unlocks are kept for good per id; a player's progress reset clears them. The verification browser keeps none, and preview and live are separate.
+- Limits: 100 per version, ids of 1 to 40 characters (`a-z`, `0-9`, `_`, `-`), names up to 60 characters, descriptions up to 160. Names and descriptions are a string or one string per platform language (`en`, `zh`, `zh-TW`, `ja`, `ko`, `es`).
 
 ## Continue playing
 
@@ -424,7 +444,6 @@ Plan around these instead of looking for them.
 | AI models for games (text, images, speech) | The platform uses Workers AI only for its own checks. Generate assets while building, or call an outside API from server code (never served to players); never put a key in a client file. |
 | In-game purchases, currencies sold for money, subscriptions | Sell the whole game or offer a free trial. Currencies earned by play live in saves or stats. |
 | Checking from game code whether the player bought the game | Not needed: only owners and trial players can open a paid game. |
-| Achievements and badges | Track milestones with `GCP.playerStats` and show them in the game. |
 | Player profiles, avatars and in-game chat channels | Players have platform friends and direct chat (`GCP.friends`). For chat inside a match or room, relay text over `room.send` and moderate what players type. |
 | A list of open rooms | Invite friends with `GCP.friends`, or use fixed room names for public play; for a lobby list, players join a `lobby` room and advertise their room names there. Competitive games use `GCP.match.find()`, which matches players by itself. |
 | Server-authoritative simulation inside rooms | Rooms stay host-authoritative. For a neutral server use server-run matches (`server/match.js` with `GCP.match.find`). |
