@@ -2835,5 +2835,8 @@
   "ACP Registry": "ACP 레지스트리",
   ", the same list Zed offers.": "의 에이전트로, Zed가 제공하는 목록과 같습니다.",
   "ID: {id}": "ID: {id}",
-  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host}의 커넥터는 이전 버전({version})이라 {name}을(를) 시작할 수 없습니다. Ctrl+C로 중지한 뒤 명령을 다시 실행해(아래 \"다른 컴퓨터나 폴더?\") 최신 버전을 받으세요."
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host}의 커넥터는 이전 버전({version})이라 {name}을(를) 시작할 수 없습니다. Ctrl+C로 중지한 뒤 명령을 다시 실행해(아래 \"다른 컴퓨터나 폴더?\") 최신 버전을 받으세요.",
+  "{name} stopped this turn itself. Nothing was asked here.": "{name}이(가) 이번 턴을 스스로 중단했습니다. 여기서 묻지 않았습니다.",
+  "In {mode} mode it decides on tools without asking you; choose another mode in the menu under the message box to be asked first.": "{mode} 모드에서는 도구 사용을 묻지 않고 스스로 결정합니다. 먼저 확인받으려면 메시지 입력란 아래 메뉴에서 다른 모드를 선택하세요.",
+  "The agent": "에이전트"
 }

@@ -185,7 +185,24 @@ test('cancel: the turn stops and its open permission request is answered "cancel
   h.core.onView({ type: 'cancel', from: 'v1', sessionId: sid });
   const r2 = await h.until((m) => m.type === 'rpc_result' && m.id === 8);
   assert.equal(r2.result.stopReason, 'cancelled');
+  const ends = () => h.core.sessions.get(sid).entries.filter((e) => e.sessionUpdate === '_turn_end');
+  assert.equal(ends().at(-1).by, 'you', 'stopped from a page');
+  // a turn the agent ends "cancelled" by itself says so
+  const r3 = await h.rpc('v1', 'session/prompt', { sessionId: sid, prompt: [{ type: 'text', text: 'give up' }] });
+  assert.equal(r3.result.stopReason, 'cancelled');
+  assert.equal(ends().at(-1).by, 'agent');
   h.core.stop();
+});
+
+test('Claude Agent options: the platform read-only tools are allowed up front; a page cannot set them', () => {
+  const core = new BridgeCore({ agent: { id: 'claude-acp', name: 'Claude Agent', command: 'x' }, cwd: '/w', send: () => {}, readOnlyTools: ['list_files', 'read_file'], mcp: { http: 'http://127.0.0.1:9/mcp/x' } });
+  core.init = { agentCapabilities: { mcpCapabilities: { http: true } } };
+  const p = core.withPlatform({ cwd: '/etc', _meta: { claudeCode: { options: { pathToClaudeCodeExecutable: '/evil', allowedTools: ['Bash'] } }, other: 1 } });
+  assert.deepEqual(p._meta, { other: 1, claudeCode: { options: { allowedTools: ['mcp__hearthcade__list_files', 'mcp__hearthcade__read_file'] } } });
+  assert.equal(p.cwd, '/w');
+  const none = new BridgeCore({ agent: { id: 'x', name: 'X', command: 'x' }, cwd: '/w', send: () => {}, mcp: null });
+  none.init = { agentCapabilities: {} };
+  assert.equal(none.withPlatform({ _meta: { claudeCode: { options: { executable: 'x' } } } })._meta, undefined);
 });
 
 test('only the allowed methods reach the agent', async () => {

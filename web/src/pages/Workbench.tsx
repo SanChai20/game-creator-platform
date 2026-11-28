@@ -569,7 +569,7 @@ function Conversation({ b, s, autoStart, onSession, onRail, onSide, sideOff, rai
           {items.map((it, i) => (
             <Fragment key={it.key}>
               {it.kind !== 'user' && it.kind !== 'end' && (i === 0 || items[i - 1].kind === 'user') && <div className="wb-who"><AgentMark id={b.info.agentId || ''} name={agentTitle(b)} size="s" /><b>{agentTitle(b)}</b></div>}
-              <ItemView it={it} cwd={b.info.cwd} b={b} />
+              <ItemView it={it} cwd={b.info.cwd} b={b} mode={s?.modes?.availableModes?.find((m) => m.id === s.modes?.currentModeId)} />
             </Fragment>
           ))}
           {asks.map((a) => <AskCard key={a.key} b={b} a={a} />)}
@@ -744,7 +744,7 @@ function Starting({ b }: { b: BridgeState }) {
   );
 }
 
-function ItemView({ it, cwd, b }: { it: Item; cwd?: string; b?: BridgeState }) {
+function ItemView({ it, cwd, b, mode }: { it: Item; cwd?: string; b?: BridgeState; mode?: { id: string; name: string } }) {
   switch (it.kind) {
     case 'user': return <div className="wb-msg user">{it.blocks.map((c, i) => <Block key={i} c={c} />)}</div>;
     case 'agent': return <div className="wb-msg agent"><Markdown text={it.text} />{it.blocks.map((c, i) => <Block key={i} c={c} />)}</div>;
@@ -752,6 +752,11 @@ function ItemView({ it, cwd, b }: { it: Item; cwd?: string; b?: BridgeState }) {
     case 'tool': return <ToolView c={it.call} cwd={cwd} />;
     case 'end':
       if (it.stopReason === 'end_turn') return <div className="wb-end" aria-hidden="true" />;
+      // the agent ended the turn itself, without a stop from here: say so, and how to be asked first
+      if (it.stopReason === 'cancelled' && it.by === 'agent') return (
+        <div className="wb-end labelled agent"><span>{t('{name} stopped this turn itself. Nothing was asked here.', '{name} 自己停止了这一轮，这里没有向你询问。', { name: b ? agentTitle(b) : t('The agent', '智能体') })}
+          {mode && /auto/i.test(mode.id) && <> {t('In {mode} mode it decides on tools without asking you; choose another mode in the menu under the message box to be asked first.', '在 {mode} 模式下，它会自行决定是否使用工具而不询问你；在输入框下方的菜单中选择其他模式，即可先征求你的同意。', { mode: mode.name })}</>}</span></div>
+      );
       if (it.stopReason === 'error') return b ? <AgentError b={b} f={{ what: 'turn', message: it.error || '', code: it.code ?? null, log: it.log || [] }} /> : <Notice tone="bad" title={t('The agent reported an error', '智能体报告了一个错误')}>{it.error}</Notice>;
       return <div className="wb-end labelled"><span>{it.stopReason === 'cancelled' ? t('Stopped', '已停止') : it.stopReason === 'max_tokens' ? t('Stopped: the answer reached the agent\'s length limit', '已停止：回答达到智能体的长度上限') : it.stopReason === 'max_turn_requests' ? t('Stopped: the agent reached its step limit for one message', '已停止：智能体达到单条消息的步骤上限') : it.stopReason === 'refusal' ? t('The agent declined this request', '智能体拒绝了这个请求') : it.stopReason}</span></div>;
     default: return null;
@@ -846,7 +851,8 @@ function Composer({ b, s, onSend, disabled }: { b: BridgeState; s: SessionInfo |
     if (cmds.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setMenu((m) => (m + (e.key === 'ArrowDown' ? 1 : cmds.length - 1)) % cmds.length); return; }
     if (cmds.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) { e.preventDefault(); setText('/' + cmds[Math.min(menu, cmds.length - 1)].name + ' '); setMenu(0); return; }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit(); }
-    if (e.key === 'Escape' && s?.running) cancel(b.info.id, s.sessionId);
+    // Esc stops the turn, but not the Esc that closes an input method's candidate list
+    if (e.key === 'Escape' && s?.running && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); cancel(b.info.id, s.sessionId); }
   };
   const paste = (e: ClipboardEvent) => { const f = [...e.clipboardData.files]; if (f.length) { e.preventDefault(); void addFiles(f); } };
   const drop = (e: DragEvent) => { if (e.dataTransfer.files.length) { e.preventDefault(); void addFiles(e.dataTransfer.files); } };

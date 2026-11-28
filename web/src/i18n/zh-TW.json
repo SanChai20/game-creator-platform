@@ -2856,5 +2856,8 @@
   "ACP Registry": "ACP 登錄表",
   ", the same list Zed offers.": "，與 Zed 提供的清單相同。",
   "ID: {id}": "ID：{id}",
-  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host} 上的連接程式是舊版本（{version}），無法啟動 {name}。請按 Ctrl+C 停止它，然後重新執行命令（見下方「其他電腦或資料夾？」）以取得最新版本。"
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host} 上的連接程式是舊版本（{version}），無法啟動 {name}。請按 Ctrl+C 停止它，然後重新執行命令（見下方「其他電腦或資料夾？」）以取得最新版本。",
+  "{name} stopped this turn itself. Nothing was asked here.": "{name} 自己停止了這一輪，這裡沒有向你詢問。",
+  "In {mode} mode it decides on tools without asking you; choose another mode in the menu under the message box to be asked first.": "在 {mode} 模式下，它會自行決定是否使用工具而不詢問你；在輸入框下方的選單中選擇其他模式，即可先徵求你的同意。",
+  "The agent": "智慧體"
 }

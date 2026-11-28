@@ -47,8 +47,10 @@ export class BridgeCore {
     this.platform = o.platform || process.platform;
     this.watchDownload = o.watchDownload === undefined ? watchNpxDownload : o.watchDownload;   // null: no download watch
     this.stallMs = o.stallMs || STALL_MS;
+    this.readOnlyTools = o.readOnlyTools || [];   // platform tools that only read (names on the hearthcade MCP server)
+    this.stopAsked = new Map();          // sessionId → when a page asked to stop its turn
     this.progress = null;                 // while starting: { phase, bytes, total, line, stalled }
-    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.6' };
+    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.7' };
     this.status = 'idle'; this.statusDetail = '';
     this.init = null;                     // the agent's initialize result
     this.sessions = new Map();            // sessionId → session
@@ -374,6 +376,7 @@ export class BridgeCore {
 
   cancel(sessionId) {
     if (!sessionId) return;
+    this.stopAsked.set(sessionId, Date.now());
     try { this.write({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } }); } catch { /* not running */ }
     // the protocol: every open permission request of the turn is answered "cancelled"
     for (const [key, a] of this.asks) if (a.sessionId === sessionId) this.answer(key, null, null);
@@ -391,6 +394,13 @@ export class BridgeCore {
     if (this.systemPrompt && caps.sessionCapabilities?.systemPrompt) p.systemPrompt = { mode: 'append', content: [{ type: 'text', text: this.systemPrompt }] };
     else delete p.systemPrompt;
     delete p.additionalDirectories;
+    // Claude Agent (claude-agent-acp) reads its SDK options from _meta.claudeCode: a page cannot set them, and the
+    // platform's read-only tools are allowed up front, so Claude's Auto mode never turns down reading the creator's own
+    // games. The other agents ignore this _meta, as ACP asks of them.
+    const meta = p._meta && typeof p._meta === 'object' ? { ...p._meta } : {};
+    delete meta.claudeCode;
+    if (servers.length && this.readOnlyTools.length) meta.claudeCode = { options: { allowedTools: this.readOnlyTools.map((n) => `mcp__hearthcade__${n}`) } };
+    if (Object.keys(meta).length) p._meta = meta; else delete p._meta;
     return p;
   }
 
@@ -411,6 +421,7 @@ export class BridgeCore {
       const s = this.sessions.get(sid);
       if (!s) return done(undefined, { code: -32602, message: 'Unknown session.' });
       if (s.running) return done(undefined, { code: -32603, message: 'The agent is still working on the last message. Stop it or wait.' });
+      this.stopAsked.delete(sid);
       const prompt = Array.isArray(params.prompt) ? params.prompt : [];
       if (!prompt.length) return done(undefined, { code: -32602, message: 'Empty message.' });
       // the agent does not echo a live prompt back, so the bridge records it for every view
@@ -445,7 +456,10 @@ export class BridgeCore {
       const s = this.sessions.get(params.sessionId);
       if (!s) return;
       s.running = false; s.stopReason = result?.stopReason || 'end_turn';
-      this.record(s.sessionId, { sessionUpdate: '_turn_end', stopReason: s.stopReason, usage: result?.usage || null });
+      // "cancelled" with no stop from a page: the agent ended the turn itself (Claude's Auto mode turning a tool down)
+      const by = s.stopReason === 'cancelled' ? (this.stopAsked.has(s.sessionId) ? 'you' : 'agent') : undefined;
+      this.stopAsked.delete(s.sessionId);
+      this.record(s.sessionId, { sessionUpdate: '_turn_end', stopReason: s.stopReason, usage: result?.usage || null, ...(by ? { by } : {}) });
       this.emitSession(s);
     } else if (method === 'session/set_mode') {
       const s = this.sessions.get(params.sessionId);

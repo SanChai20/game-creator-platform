@@ -2835,5 +2835,8 @@
   "ACP Registry": "ACP レジストリ",
   ", the same list Zed offers.": "のエージェント。Zed と同じリストです。",
   "ID: {id}": "ID：{id}",
-  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host} のコネクターは古いバージョン（{version}）のため、{name} を起動できません。Ctrl+C で止め、コマンドをもう一度実行して（下の「別のコンピューターやフォルダー？」）最新版を入手してください。"
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host} のコネクターは古いバージョン（{version}）のため、{name} を起動できません。Ctrl+C で止め、コマンドをもう一度実行して（下の「別のコンピューターやフォルダー？」）最新版を入手してください。",
+  "{name} stopped this turn itself. Nothing was asked here.": "{name} がこのターンを自分で止めました。ここでは何も尋ねられていません。",
+  "In {mode} mode it decides on tools without asking you; choose another mode in the menu under the message box to be asked first.": "{mode} モードでは、ツールを使うかどうかをあなたに尋ねずに決めます。先に確認してほしい場合は、メッセージ欄の下のメニューで別のモードを選んでください。",
+  "The agent": "エージェント"
 }

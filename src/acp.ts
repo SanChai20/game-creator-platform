@@ -24,6 +24,7 @@ import { listSelectableProjects, parseStoredProjectIds, resolveAllowedProjects }
 import type { TokenExchange } from './routes/device';
 import BRIDGE_PKG from '../acp-bridge/package.json';
 import REGISTRY_SNAPSHOT from '../acp-bridge/registry.json';
+import { TOOLS } from './mcp/tools';
 
 export const BRIDGE_VERSION: string = BRIDGE_PKG.version;
 export const BRIDGE_FILE = `hearthcade-acp-${BRIDGE_VERSION}.tgz`;
@@ -180,6 +181,8 @@ export function acpMachine(exchange: TokenExchange) {
       user: user.name,
       scope: allowed === null ? 'all projects' : allowed.length === 1 ? allowed[0].title : `${allowed.length} projects`,
       system_prompt: systemPrompt(origin, user, allowed),
+      // the platform tools that only read: the bridge lets an agent use them without a permission check of its own
+      read_only_tools: TOOLS.filter((x) => x.annotations?.readOnlyHint).map((x) => x.name),
       mcp: { url: resource, access_token: tokens.access_token, refresh_token: tokens.refresh_token, expires_in: tokens.expires_in, client_id: oc.clientId, token_endpoint: `${origin}/oauth/token` },
     }, 200, noStore);
   });

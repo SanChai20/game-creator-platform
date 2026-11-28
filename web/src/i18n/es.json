@@ -2834,5 +2834,8 @@
   "ACP Registry": "Registro ACP",
   ", the same list Zed offers.": ", la misma lista que ofrece Zed.",
   "ID: {id}": "ID: {id}",
-  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "El conector de {host} es una versión antigua ({version}) que no puede iniciar {name}. Detenlo con Ctrl+C y vuelve a ejecutar el comando (en \"¿Otro ordenador o carpeta?\" más abajo) para obtener la última."
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "El conector de {host} es una versión antigua ({version}) que no puede iniciar {name}. Detenlo con Ctrl+C y vuelve a ejecutar el comando (en \"¿Otro ordenador o carpeta?\" más abajo) para obtener la última.",
+  "{name} stopped this turn itself. Nothing was asked here.": "{name} detuvo este turno por su cuenta. Aquí no se te preguntó nada.",
+  "In {mode} mode it decides on tools without asking you; choose another mode in the menu under the message box to be asked first.": "En el modo {mode} decide sobre las herramientas sin preguntarte; elige otro modo en el menú bajo el cuadro de mensaje para que te pregunte antes.",
+  "The agent": "El agente"
 }
