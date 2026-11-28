@@ -2789,5 +2789,6 @@
  "Run it in your game's folder. Needs Node.js 22 or newer. Sign in to the agent the way it asks (for example its own login or API key).": "ゲームのフォルダーで実行してください。Node.js 22 以降が必要です。エージェントの指示に従ってサインインしてください（専用のログインや API キーなど）。",
  "Show agents and sessions": "エージェントとセッションを表示",
  "Hide agents and sessions": "エージェントとセッションを隠す",
- "Plan, files and agent": "計画、ファイル、エージェント"
+ "Plan, files and agent": "計画、ファイル、エージェント",
+  "Any program that speaks ACP": "ACP に対応した任意のプログラム"
 }
