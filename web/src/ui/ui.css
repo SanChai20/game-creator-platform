@@ -52,8 +52,8 @@ em { font-style: normal; }
 .mute { color: var(--text-2); }
 .dim { color: var(--text-3); }
 .sig { color: var(--accent-text); }
-a.sig { font-weight: 600; text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-color: rgb(var(--accent-rgb) / .4); }
-a.sig:hover { text-decoration-color: currentColor; }
+a.sig { font-weight: 650; transition: color var(--dur-fast); }
+a.sig:hover { color: var(--text); }
 .good { color: var(--good); }
 .bad { color: var(--bad); }
 .mono { font-family: var(--font-mono); font-size: .94em; }
@@ -211,14 +211,14 @@ a.gtag:hover { color: var(--text); --pl: rgb(var(--text-rgb) / calc(var(--plate-
 .section-h { position: relative; display: flex; align-items: flex-end; gap: 16px; padding-bottom: 4px; }
 .section-h h2 { font: 800 var(--fs-2xl)/1.05 var(--font-display); font-stretch: 82%; letter-spacing: -.005em; text-transform: uppercase; }
 .section-h p { color: var(--text-2); margin-top: 6px; }
-.tabs { display: flex; gap: 6px; padding: 5px; background: rgb(var(--text-rgb) / .05); border-radius: var(--r-md); margin-bottom: 28px; overflow-x: auto; scrollbar-width: none; }
+/* page tabs: a segmented control. A sunk track; the current tab is a raised chip (no stripe, no skew) */
+.tabs { display: flex; gap: 2px; width: fit-content; max-width: 100%; padding: 4px; background: var(--sunk); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 28px; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tabs a { padding: 12px 20px; font: 700 13.5px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; transition: color var(--dur-fast); }
-.tabs a::before { border: 0; border-radius: 3px; background: transparent; }
-.tabs a:hover { color: var(--text); }
-.tabs a:hover::before { background: rgb(var(--text-rgb) / .07); }
-.tabs a.on { color: var(--paper); }
-.tabs a.on::before { background: var(--text); }
+.tabs a { display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: 9px; font: 650 14px/1 var(--font-sans); letter-spacing: .005em; color: var(--text-2); white-space: nowrap; transition: color var(--dur-fast), background-color var(--dur-fast), box-shadow var(--dur-fast); }
+.tabs a::before { display: none; }
+.tabs a:hover { color: var(--text); background: rgb(var(--text-rgb) / .05); }
+.tabs a.on { color: var(--text); font-weight: 700; background: var(--rise); box-shadow: 0 1px 3px rgb(0 0 0 / .12), 0 0 0 1px rgb(var(--text-rgb) / .07); }
+.tabs a:focus-visible { outline: 2px solid var(--area, var(--accent)); outline-offset: 1px; }
 .seg { display: inline-flex; align-items: center; padding: 4px 8px; gap: 3px; background: rgb(var(--text-rgb) / .075); max-width: 100%; overflow-x: auto; scrollbar-width: none; clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
 .seg::-webkit-scrollbar { display: none; }
 .seg.wrapx { clip-path: none; border-radius: var(--r-md); padding: 6px 10px; gap: 6px 4px; background: var(--sunk); border: 1px solid var(--line); }

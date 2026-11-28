@@ -569,7 +569,7 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 /* the game page: where the player left off, under Continue */
 .gp-resume { display: grid; gap: 6px; font-size: 13px; color: var(--text-2); }
 .gp-resume .cont-bar { height: 3px; }
-.linkish { justify-self: start; padding: 0; font: inherit; font-size: 12.5px; color: var(--text-3); text-decoration: underline; text-underline-offset: 3px; }
+.linkish { justify-self: start; padding: 0; font: inherit; font-size: 12.5px; font-weight: 650; color: var(--text-2); cursor: pointer; transition: color var(--dur-fast); }
 .linkish:hover { color: var(--text); }
 .stage-resume { max-width: 46ch; text-align: center; }
 .library > section:first-child .sh { margin-top: 8px; }

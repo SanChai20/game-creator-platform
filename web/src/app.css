@@ -10,11 +10,11 @@
 .nav-links { display: flex; align-items: center; gap: 3px; margin-left: clamp(6px, 1.5vw, 22px); }
 /* places in the top bar: capitals on a slanted plate; the current one is inked, with a lit foot */
 .nl { position: relative; isolation: isolate; display: inline-flex; align-items: center; height: 38px; padding: 0 14px; font: 700 13.5px/1 var(--font-display); letter-spacing: .065em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; transition: color var(--dur-fast); }
-.nl::before { content: ""; position: absolute; inset: 0; z-index: -1; transform: skewX(var(--skew)); border-radius: 3px; transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
+.nl::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 9px; transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
 .nl:hover { color: var(--text); }
 .nl:hover::before { background: rgb(var(--text-rgb) / .07); }
-.nl.on { color: var(--paper); }
-.nl.on::before { background: var(--text); }
+.nl.on { color: var(--accent-text); }
+.nl.on::before { background: rgb(var(--accent-rgb) / .1); }
 .nav-in { position: relative; }
 .nav-search { flex: 1 1 200px; max-width: 400px; margin-left: auto; min-width: 0; }
 /* too narrow for a usable box: the search folds to a button, and opens across the whole bar */
