@@ -91,6 +91,13 @@ async function prompt({ sessionId, prompt: blocks }) {
     await say('Wrote index.html.');
     return { stopReason: 'end_turn' };
   }
+  if (text === 'big') {   // a long plan and many files, for the rail's pages
+    const steps = Array.from({ length: 12 }, (_, i) => `Step ${i + 1}: ${i % 3 ? 'wire up the battle layout and check it on a phone' : 'sketch'}`);
+    update(sessionId, { sessionUpdate: 'plan', entries: steps.map((c, j) => ({ content: c, priority: 'medium', status: j < 7 ? 'completed' : j === 7 ? 'in_progress' : 'pending' })) });
+    for (let i = 0; i < 19; i++) update(sessionId, { sessionUpdate: 'tool_call', toolCallId: 'f' + i, title: 'Read file' + i, kind: i % 2 ? 'read' : 'edit', status: 'completed', locations: [{ path: `${s.cwd}/src/file-${i}.js` }] });
+    await say('Done.');
+    return { stopReason: 'end_turn' };
+  }
   if (text === 'plan') {
     const steps = ['Sketch the game', 'Build it', 'Deploy a preview'];
     for (let i = 0; i <= steps.length; i++) {

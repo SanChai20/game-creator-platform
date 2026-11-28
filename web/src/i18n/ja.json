@@ -3440,5 +3440,9 @@
   "What will not work the same inside YouTube": "YouTube 内で動作が変わる点",
   "Nothing to change: the game should run inside YouTube as it is.": "変更は不要です。このまま YouTube で動くはずです。",
   "Download the package": "パッケージをダウンロード",
-  "PLAYABLES.md inside lists the steps to submit it.": "中の PLAYABLES.md に提出手順があります。"
+  "PLAYABLES.md inside lists the steps to submit it.": "中の PLAYABLES.md に提出手順があります。",
+  "Previous page": "前のページ",
+  "Next page": "次のページ",
+  "Plan pages": "プランのページ",
+  "File pages": "ファイルのページ"
 }

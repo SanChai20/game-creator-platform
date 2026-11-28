@@ -887,18 +887,13 @@ function Rail({ b, s }: { b: BridgeState; s: SessionInfo | null }) {
   const entries = (s && b.transcripts.get(s.sessionId)) || EMPTY;
   const { plan, files } = useMemo(() => fold(entries), [entries, entries.length]);
   const caps = b.init?.agentCapabilities || {};
+  const [agentOpen, setAgentOpen] = useStored('wb.rail.agent');   // folded by default, so the plan and files keep their room
   return (
-    <div className="stack">
-      <section className="wb-panel">
-        <h3>{t('Plan', '计划')}</h3>
-        <PlanView plan={plan} />
-      </section>
-      <section className="wb-panel">
-        <h3>{t('Files', '文件')}{files.size > 0 && <span className="dim"> {files.size}</span>}</h3>
-        {files.size ? <ul className="wb-files">{[...files].slice(-40).reverse().map(([p, k]) => <li key={p} title={p}><span className={`wb-glyph s k-${k}`} aria-hidden="true">{KIND_GLYPH[k] || '•'}</span><span className="mono clip">{base(p)}</span></li>)}</ul> : <p className="dim fs-sm">{t('Files the agent reads or changes show up here.', '智能体读取或修改的文件会显示在这里。')}</p>}
-      </section>
-      <section className="wb-panel">
-        <h3>{t('Agent', '智能体')}</h3>
+    <div className="stack wb-rail-in">
+      <PlanView plan={plan} />
+      <FilesView files={files} cwd={b.info.cwd} />
+      <details className="wb-panel wb-agent-info" open={agentOpen} onToggle={(e) => setAgentOpen((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary><h3>{t('Agent', '智能体')} <span className="dim">{agentTitle(b)}</span></h3></summary>
         <dl className="wb-kv small">
           <dt>{t('Name', '名称')}</dt><dd>{agentTitle(b)}{b.init?.agentInfo?.version ? ` ${b.init.agentInfo.version}` : ''}</dd>
           <dt>{t('Computer', '电脑')}</dt><dd>{b.info.host}</dd>
@@ -907,7 +902,7 @@ function Rail({ b, s }: { b: BridgeState; s: SessionInfo | null }) {
           <dt>ACP</dt><dd>v{b.init?.protocolVersion ?? 1}{caps.promptCapabilities?.image ? ` · ${t('pictures', '图片')}` : ''}{caps.loadSession ? ` · ${t('resumes sessions', '可恢复会话')}` : ''}</dd>
         </dl>
         {(b.status === 'exited' || b.status === 'failed') && <Button size="sm" onClick={() => restart(b.info.id, true)}>{t('Retry', '重试')}</Button>}
-      </section>
+      </details>
       {b.info.child
         ? <div className="row"><Button size="sm" onClick={() => quitAgent(b.info.id)}>{t('Stop this agent', '停止这个智能体')}</Button></div>
         : <p className="dim fs-sm">{t('To stop this agent, press Ctrl+C in its terminal.', '要停止这个智能体，请在它的终端中按 Ctrl+C。')}</p>}
@@ -915,15 +910,66 @@ function Rail({ b, s }: { b: BridgeState; s: SessionInfo | null }) {
   );
 }
 
-function PlanView({ plan }: { plan: Plan | null }) {
-  if (!plan) return <p className="dim fs-sm">{t('When the agent plans its work, the steps show up here.', '智能体规划工作时，步骤会显示在这里。')}</p>;
-  if (!Array.isArray(plan)) return <Markdown text={plan.markdown} />;
-  const done = plan.filter((p) => p.status === 'completed').length;
+// The plan and the files each keep a fixed height, sized for whole rows, and page through the rest.
+const PLAN_PAGE = 5, FILES_PAGE = 8;
+/** Page `page` of `n` items, `size` a page; follows `want` (a page to show) until the creator turns a page. */
+function usePages(n: number, size: number, want = 0) {
+  const pages = Math.max(1, Math.ceil(n / size));
+  const [page, setPage] = useState(want), [held, setHeld] = useState(false);
+  useEffect(() => { if (!held) setPage(want); }, [want, held]);
+  const at = Math.min(page, pages - 1);
+  return { at, pages, go: (p: number) => { setHeld(true); setPage(Math.max(0, Math.min(pages - 1, p))); }, slice: <T,>(xs: T[]) => xs.slice(at * size, at * size + size) };
+}
+function Pager({ at, pages, go, label }: { at: number; pages: number; go: (p: number) => void; label: string }) {
+  if (pages < 2) return null;
   return (
-    <div className="stack s">
-      <div className="wb-meter" aria-label={t('{done} of {n} steps done', '已完成 {done}/{n} 步', { done, n: plan.length })}><i style={{ width: `${plan.length ? (100 * done) / plan.length : 0}%` }} /></div>
-      <ol className="wb-plan">{plan.map((p, i) => <li key={i} className={p.status}><span className="box" aria-hidden="true" />{p.content}</li>)}</ol>
-    </div>
+    <span className="wb-pager" role="group" aria-label={label}>
+      <button type="button" onClick={() => go(at - 1)} disabled={at === 0} aria-label={t('Previous page', '上一页')}>‹</button>
+      <span aria-live="polite">{at + 1}/{pages}</span>
+      <button type="button" onClick={() => go(at + 1)} disabled={at === pages - 1} aria-label={t('Next page', '下一页')}>›</button>
+    </span>
+  );
+}
+
+function PlanView({ plan }: { plan: Plan | null }) {
+  const steps = Array.isArray(plan) ? plan : [];
+  const now = steps.findIndex((p) => p.status !== 'completed');   // the page with the step in hand
+  const pg = usePages(steps.length, PLAN_PAGE, now < 0 ? Math.max(0, Math.ceil(steps.length / PLAN_PAGE) - 1) : Math.floor(now / PLAN_PAGE));
+  const done = steps.filter((p) => p.status === 'completed').length;
+  return (
+    <section className="wb-panel">
+      <h3><span className="grow">{t('Plan', '计划')}{steps.length > 0 && <span className="dim"> {done}/{steps.length}</span>}</span><Pager {...pg} label={t('Plan pages', '计划分页')} /></h3>
+      {!plan ? <p className="dim fs-sm">{t('When the agent plans its work, the steps show up here.', '智能体规划工作时，步骤会显示在这里。')}</p>
+        : !Array.isArray(plan) ? <div className="wb-plan-md"><Markdown text={plan.markdown} /></div>
+        : <>
+            <div className="wb-meter" aria-label={t('{done} of {n} steps done', '已完成 {done}/{n} 步', { done, n: steps.length })}><i style={{ width: `${steps.length ? (100 * done) / steps.length : 0}%` }} /></div>
+            <ol className={`wb-plan paged${pg.pages > 1 ? ' fixed' : ''}`} start={pg.at * PLAN_PAGE + 1}>{pg.slice(steps).map((p, i) => <li key={pg.at * PLAN_PAGE + i} className={p.status} title={p.content}><span className="box" aria-hidden="true" /><span className="wb-two">{p.content}</span></li>)}</ol>
+          </>}
+    </section>
+  );
+}
+
+const FILE_ROW = 26;
+function FilesView({ files, cwd }: { files: Map<string, string>; cwd?: string }) {
+  const list = useMemo(() => [...files].reverse(), [files, files.size]);   // the latest first
+  // the list takes the rail's spare height, and a page holds as many whole rows as fit in it
+  const box = useRef<HTMLDivElement>(null), [rows, setRows] = useState(FILES_PAGE);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setRows(Math.max(4, Math.floor(el.clientHeight / FILE_ROW))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const pg = usePages(list.length, rows);
+  return (
+    <section className="wb-panel wb-files-panel">
+      <h3><span className="grow">{t('Files', '文件')}{list.length > 0 && <span className="dim"> {list.length}</span>}</span><Pager {...pg} label={t('File pages', '文件分页')} /></h3>
+      <div className="wb-files-box" ref={box}>
+        {list.length ? <ul className="wb-files paged">{pg.slice(list).map(([p, k]) => <li key={p} title={rel(cwd, p)}><span className={`wb-glyph s k-${k}`} aria-hidden="true">{KIND_GLYPH[k] || '•'}</span><span className="mono clip">{base(p)}</span></li>)}</ul>
+          : <p className="dim fs-sm">{t('Files the agent reads or changes show up here.', '智能体读取或修改的文件会显示在这里。')}</p>}
+      </div>
+    </section>
   );
 }
 
