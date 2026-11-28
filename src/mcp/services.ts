@@ -364,6 +364,16 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'testing',
     },
     {
+      id: 'jams', name: 'Game jams and festivals', category: 'business', status: 'available',
+      what: 'Timed events on the /jams page: themed jams with voting, and festivals that show games together for a few days.',
+      how_it_works: 'Licensed creators and the platform host events on the /jams page. A jam keeps its theme hidden until it starts, takes entries (live games, made for the jam when it says so) until its entries close, then players who played an entry score it from 1 to 5 on the host\'s criteria; entries with enough voters are ranked when voting closes, and entrants are told under the bell when voting opens and when the results are out. A festival shows live and coming soon games together, with no voting. The platform\'s own event gets a shelf on the store\'s home page. jam {action: "enter"} enters a game.',
+      use_for: ['Making a small game on a theme in a few days', 'Showing a coming soon game next to others before release', 'Getting a burst of players and feedback'],
+      sdk: [], mcp_tools: ['jam'],
+      limits: { entries_per_creator: 3, criteria: '1 to 5', min_voters_to_rank: 3, entry_window_days: 60, voting_days: 30, festival_days: 30 },
+      guidelines: ['Ask the user before entering a game: the entry is public under their name.', 'Track progress with GCP.track and fix what voters trip over between jams.'],
+      guide: 'metadata',
+    },
+    {
       id: 'devlog', name: 'Devlogs and patch notes', category: 'business', status: 'available',
       what: 'News posts and patch notes on the game page, announced to the game\'s players under the bell and by push.',
       how_it_works: 'devlog {action: "post"} writes a post on a live game (title up to 120 characters, plain-text body up to 5000, at most 3 a day); publish {patch_notes: {title?, body}} stores notes with the version and posts them when it goes live. Players who follow the creator, keep the game in their library, bought it, or played it in the last 90 days get a notification for each post (a first release\'s notes are not announced: the new game is the news). The newest posts show in a News and updates section on the game page; the creator also writes and deletes posts from the console.',

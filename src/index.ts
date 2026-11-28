@@ -1,5 +1,7 @@
 // HearthCade platform Worker: web API, OAuth authorization server, MCP server, and static hosting
 // for the web app, the SDK, the kits and the vendored Three.js build.
+// @ts-ignore plain JS module
+import { phaseNotices as jamNotices } from './jams.js';
 import { AuthorizationError, CimdFetchError, OAuthProvider, type ConsentDescription } from '@cloudflare/workers-oauth-provider';
 import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
@@ -659,6 +661,8 @@ const handler = {
       await env.DB.batch([recentStmt(env.DB)]); await runJob(env, 'picks', () => ensurePicks(env));
     });
     job('transfers', () => retryTransfers(env));
+    // jam entrants hear when voting opens and when the results are out (src/jams.js)
+    job('jams', () => jamNotices(env.DB));
     // bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
     job('rollout', () => rolloutRuntime(env));
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)

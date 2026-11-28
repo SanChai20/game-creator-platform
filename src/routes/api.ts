@@ -56,6 +56,7 @@ import { ProfileError, access, profileOf, publicIds, setSettings, settingsOf, sh
 // @ts-ignore plain JS module
 import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
+import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
 import { LIMITS as PLAYTEST_LIMITS, PlaytestError, answer, byCode, canPlay, closeExpired, closePlaytest, inviteView, join, listPlaytests, openPlaytest, results } from '../playtests.js';
 import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
 // @ts-ignore plain JS module
@@ -919,6 +920,58 @@ api.put('/console/projects/:id/coming-soon', async (c) => {
   const v = await comingSoonView(c, p);
   if (v.coming_soon !== before) await logEvent(c.env, p.id, v.coming_soon ? 'coming_soon' : 'coming_soon_off', v.coming_soon ? `Coming soon page is up${v.release_note ? ` (${v.release_note})` : ''}` : 'Coming soon page taken down', null, 'console');
   return c.json(v);
+});
+
+// Game jams and festivals (src/jams.js): anyone reads them; licensed creators host and enter; players of an entry vote.
+const jamErr = (e: unknown): never => { if (e instanceof JamError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+async function jamOf(c: Ctx) {
+  const j = await jamBySlug(c.env.DB, c.req.param('slug')) as any;
+  if (!j || (j.status === 'cancelled' && !(c.get('user') && ((c.get('user') as User).id === j.host_id || (c.get('user') as User).role === 'admin')))) throw notFound('No such jam.');
+  return j;
+}
+api.get('/jams', async (c) => c.json(await listJams(c.env.DB)));
+api.get('/jams/featured', (c) => edgeCached(c, 60, async () => {
+  const f = await featuredNow(c.env.DB) as any;
+  return c.json(f ? { jam: f.jam, games: f.games.map((r: any) => card(c.get('origin'), r)) } : { jam: null, games: [] });
+}));
+api.post('/jams', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'jamhost:' + u.id, 10, 86400);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const j = await hostJam(c.env.DB, u.id, b).catch(jamErr);
+  return c.json({ ok: true, slug: j.slug, url: `${c.get('origin')}/jams/${j.slug}` });
+});
+api.get('/jams/:slug', async (c) => {
+  const j = await jamOf(c), u = c.get('user') as User | undefined, origin = c.get('origin');
+  const list = await entriesOf(c.env.DB, j, u?.id) as any[];
+  return c.json({
+    jam: publicView(j, u?.id),
+    entries: list.map((e) => ({ ...e, game: card(origin, e.game) })),
+    ...(u ? { eligible: await eligibleGames(c.env.DB, j, u.id) } : {}),
+    limits: { min_votes: JAM_LIMITS.min_votes, entries_per_creator: JAM_LIMITS.entries_per_creator },
+  });
+});
+api.delete('/jams/:slug', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  return c.json(await cancelJam(c.env.DB, j, u).catch(jamErr));
+});
+api.post('/jams/:slug/entries', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  const b = await c.req.json<{ project?: string }>().catch(() => ({} as { project?: string }));
+  const p = b.project ? await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(String(b.project)).first<Project>() : null;
+  const r = await submit(c.env.DB, j, u.id, p, undefined).catch(jamErr);
+  if (p) await logEvent(c.env, p.id, 'jam', `Entered ${j.kind === 'festival' ? 'festival' : 'jam'}: ${j.title}`, null, 'console');
+  return c.json({ ok: true, ...r });
+});
+api.delete('/jams/:slug/entries/:pid', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  return c.json(await withdraw(c.env.DB, j, u.id, c.req.param('pid')).catch(jamErr));
+});
+api.put('/jams/:slug/votes/:pid', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  await rateLimit(c.env, 'jamvote:' + u.id, 300, 3600);
+  const b = await c.req.json<{ scores?: Record<string, number> }>().catch(() => ({} as { scores?: Record<string, number> }));
+  return c.json(await vote(c.env.DB, j, u.id, c.req.param('pid'), b.scores).catch(jamErr));
 });
 
 // Playtests (src/playtests.js): the creator opens the preview to real players through an invite link and reads how

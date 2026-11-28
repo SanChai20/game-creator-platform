@@ -168,3 +168,13 @@
 .pt-cover { aspect-ratio: 16 / 9; max-width: 520px; border-radius: var(--r-md); background: var(--sunk) center / cover no-repeat; }
 .pt-row { padding-top: 12px; border-top: 1px solid var(--line); }
 .pt-answers { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+
+/* jams and festivals (jam-ui.tsx) */
+.jam-row { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: inherit; text-decoration: none; }
+.jam-row:hover { border-color: var(--line-3); }
+.jam-theme { font-family: var(--font-display); font-size: 28px; line-height: 1.1; }
+.jam-dates { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.jam-rank { font-family: var(--font-display); font-size: 22px; color: var(--accent-text); }
+.jam-vote { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); }
+.jam-vote .pt-fun button { font-size: 20px; }
+@media (max-width: 560px) { .jam-row { flex-direction: column; align-items: flex-start; } }
