@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { ago, api, date, Fail, Link, navigate, num, query, t, useAct, useApp, useData, useLocation } from '../lib';
 import { Badge, Button, Card, Code, Modal, Notice, PageHeader } from '../ui';
-import { Skeleton, SkRows } from '../ui/skeleton';
+import { Sk, Skeleton, SkRows, SkText } from '../ui/skeleton';
 import { acpCommand } from './Creators';
 import { agentTitle, answer, cancel, fold, launchAgent, quitAgent, reconnectNow, restart, rpc, useWorkbench, type Ask, type BridgeState, type ConfigOption, type Item, type Plan, type SessionInfo, type ToolCall } from '../workbench/store';
 import { Diff, Markdown } from '../workbench/render';
@@ -510,6 +510,7 @@ function Conversation({ b, s, autoStart, onSession, onRail, onSide, sideOff, rai
   const entries = (s && b.transcripts.get(s.sessionId)) || EMPTY;
   const { items } = useMemo(() => fold(entries), [entries, entries.length]);
   const asks = [...b.asks.values()].filter((a) => s && a.sessionId === s.sessionId);
+  const loading = isRestoring(b, s);
   const [authNeeded, setAuthNeeded] = useState<string | null>(null);
   const [failure, setFailure] = useState<AgentFail | null>(null);
   const [creating, setCreating] = useState(false);
@@ -563,8 +564,9 @@ function Conversation({ b, s, autoStart, onSession, onRail, onSide, sideOff, rai
           {authNeeded !== null && <AuthCard b={b} detail={authNeeded} onDone={() => { setAuthNeeded(null); void newSession(); }} />}
           {failure && <AgentError b={b} f={failure} onRetry={() => void newSession()} />}
           {s?.trimmed && <p className="dim fs-sm wb-trim">{t('The start of this long session is not shown.', '这个长会话的开头部分未显示。')}</p>}
-          {(!s || !items.length) && b.status === 'ready' && authNeeded === null && !failure && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
-          {items.map((it, i) => (
+          {loading && <HistoryLoading />}
+          {!loading && (!s || !items.length) && b.status === 'ready' && authNeeded === null && !failure && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
+          {!loading && items.map((it, i) => (
             <Fragment key={it.key}>
               {it.kind !== 'user' && it.kind !== 'end' && (i === 0 || items[i - 1].kind === 'user') && <div className="wb-who"><AgentMark id={b.info.agentId || ''} name={agentTitle(b)} size="s" /><b>{agentTitle(b)}</b></div>}
               <ItemView it={it} cwd={b.info.cwd} b={b} mode={s?.modes?.availableModes?.find((m) => m.id === s.modes?.currentModeId)} />
@@ -662,6 +664,22 @@ const SUGGEST = () => [
   t('Deploy a preview of the game in this folder and fix whatever verification reports.', '为这个文件夹里的游戏部署预览，并修复验证报告中的问题。'),
   t('Check my game against the HearthCade game standards and list what to fix.', '按照 HearthCade 游戏标准检查我的游戏，列出需要修复的地方。'),
 ];
+/** Whether the page is still getting this session's history from the bridge (after a load or a reconnect). */
+const isRestoring = (b: BridgeState, s: SessionInfo | null) => !!s && (!b.ready || b.restoring.has(s.sessionId));
+/** The shape of a conversation while its history is on the way, so an old session never looks empty. */
+function HistoryLoading() {
+  return (
+    <Skeleton className="wb-loading">
+      <p className="wb-loading-h"><span className="wb-dots" aria-hidden="true"><i /><i /><i /></span>{t('Loading the conversation…', '正在加载对话…')}</p>
+      <div className="wb-sk-user"><Sk kind="box" w="min(360px, 70%)" h={44} /></div>
+      <div className="wb-sk-agent"><Sk kind="dot" w={22} h={22} /><SkText lines={3} /></div>
+      <div className="wb-sk-agent"><Sk kind="box" h={40} /></div>
+      <div className="wb-sk-user"><Sk kind="box" w="min(260px, 55%)" h={36} /></div>
+      <div className="wb-sk-agent"><Sk kind="dot" w={22} h={22} /><SkText lines={4} /></div>
+    </Skeleton>
+  );
+}
+
 function Welcome({ b, onPick, busy }: { b: BridgeState; onPick: (text: string) => void; busy: boolean }) {
   return (
     <div className="wb-welcome">
@@ -884,12 +902,13 @@ function Composer({ b, s, onSend, disabled }: { b: BridgeState; s: SessionInfo |
 function Rail({ b, s }: { b: BridgeState; s: SessionInfo | null }) {
   const entries = (s && b.transcripts.get(s.sessionId)) || EMPTY;
   const { plan, files } = useMemo(() => fold(entries), [entries, entries.length]);
+  const loading = isRestoring(b, s);
   const caps = b.init?.agentCapabilities || {};
   const [agentOpen, setAgentOpen] = useStored('wb.rail.agent');   // folded by default, so the plan and files keep their room
   return (
     <div className="stack wb-rail-in">
-      <PlanView plan={plan} />
-      <FilesView files={files} cwd={b.info.cwd} />
+      <PlanView plan={plan} loading={loading} />
+      <FilesView files={files} cwd={b.info.cwd} loading={loading} />
       <details className="wb-panel wb-agent-info" open={agentOpen} onToggle={(e) => setAgentOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary><h3>{t('Agent', '智能体')} <span className="dim">{agentTitle(b)}</span></h3></summary>
         <dl className="wb-kv small">
@@ -929,7 +948,7 @@ function Pager({ at, pages, go, label }: { at: number; pages: number; go: (p: nu
   );
 }
 
-function PlanView({ plan }: { plan: Plan | null }) {
+function PlanView({ plan, loading }: { plan: Plan | null; loading?: boolean }) {
   const steps = Array.isArray(plan) ? plan : [];
   const now = steps.findIndex((p) => p.status !== 'completed');   // the page with the step in hand
   const pg = usePages(steps.length, PLAN_PAGE, now < 0 ? Math.max(0, Math.ceil(steps.length / PLAN_PAGE) - 1) : Math.floor(now / PLAN_PAGE));
@@ -937,7 +956,8 @@ function PlanView({ plan }: { plan: Plan | null }) {
   return (
     <section className="wb-panel">
       <h3><span className="grow">{t('Plan', '计划')}{steps.length > 0 && <span className="dim"> {done}/{steps.length}</span>}</span><Pager {...pg} label={t('Plan pages', '计划分页')} /></h3>
-      {!plan ? <p className="dim fs-sm">{t('When the agent plans its work, the steps show up here.', '智能体规划工作时，步骤会显示在这里。')}</p>
+      {loading ? <Skeleton className="wb-sk-rail"><Sk h={6} /><Sk w="86%" /><Sk w="70%" /><Sk w="78%" /></Skeleton>
+        : !plan ? <p className="dim fs-sm">{t('When the agent plans its work, the steps show up here.', '智能体规划工作时，步骤会显示在这里。')}</p>
         : !Array.isArray(plan) ? <div className="wb-plan-md"><Markdown text={plan.markdown} /></div>
         : <>
             <div className="wb-meter" aria-label={t('{done} of {n} steps done', '已完成 {done}/{n} 步', { done, n: steps.length })}><i style={{ width: `${steps.length ? (100 * done) / steps.length : 0}%` }} /></div>
@@ -948,7 +968,7 @@ function PlanView({ plan }: { plan: Plan | null }) {
 }
 
 const FILE_ROW = 26;
-function FilesView({ files, cwd }: { files: Map<string, string>; cwd?: string }) {
+function FilesView({ files, cwd, loading }: { files: Map<string, string>; cwd?: string; loading?: boolean }) {
   const list = useMemo(() => [...files].reverse(), [files, files.size]);   // the latest first
   // the list takes the rail's spare height, and a page holds as many whole rows as fit in it
   const box = useRef<HTMLDivElement>(null), [rows, setRows] = useState(FILES_PAGE);
@@ -964,7 +984,8 @@ function FilesView({ files, cwd }: { files: Map<string, string>; cwd?: string })
     <section className="wb-panel wb-files-panel">
       <h3><span className="grow">{t('Files', '文件')}{list.length > 0 && <span className="dim"> {list.length}</span>}</span><Pager {...pg} label={t('File pages', '文件分页')} /></h3>
       <div className="wb-files-box" ref={box}>
-        {list.length ? <ul className="wb-files paged">{pg.slice(list).map(([p, k]) => <li key={p} title={rel(cwd, p)}><span className={`wb-glyph s k-${k}`} aria-hidden="true">{KIND_GLYPH[k] || '•'}</span><span className="mono clip">{base(p)}</span></li>)}</ul>
+        {loading ? <Skeleton className="wb-sk-rail">{[64, 52, 72, 46, 58].map((w, i) => <span key={i} className="wb-sk-file"><Sk kind="dot" w={18} h={18} /><Sk w={`${w}%`} /></span>)}</Skeleton>
+          : list.length ? <ul className="wb-files paged">{pg.slice(list).map(([p, k]) => <li key={p} title={rel(cwd, p)}><span className={`wb-glyph s k-${k}`} aria-hidden="true">{KIND_GLYPH[k] || '•'}</span><span className="mono clip">{base(p)}</span></li>)}</ul>
           : <p className="dim fs-sm">{t('Files the agent reads or changes show up here.', '智能体读取或修改的文件会显示在这里。')}</p>}
       </div>
     </section>

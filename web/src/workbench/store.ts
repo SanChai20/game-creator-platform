@@ -29,6 +29,8 @@ export interface BridgeState {
   agent: { id: string; name: string; command: string } | null;
   sessions: Map<string, SessionInfo>; transcripts: Map<string, Entry[]>; asks: Map<string, Ask>;
   answered: Map<string, string | null>;
+  /** Sessions whose history the bridge is still sending (after this page said hello): they show as loading. */
+  restoring: Set<string>;
 }
 export type Conn = 'connecting' | 'open' | 'closed' | 'unavailable';
 
@@ -49,7 +51,7 @@ const send = (m: unknown) => { if (ws && ws.readyState === 1) ws.send(JSON.strin
 function bridge(id: string): BridgeState {
   let b = bridges.get(id);
   if (!b) {
-    b = { info: { id, at: Date.now() }, ready: false, status: 'connecting', detail: '', since: null, progress: null, init: null, cwd: '', stderr: [], mcp: false, agent: null, sessions: new Map(), transcripts: new Map(), asks: new Map(), answered: new Map() };
+    b = { info: { id, at: Date.now() }, ready: false, status: 'connecting', detail: '', since: null, progress: null, init: null, cwd: '', stderr: [], mcp: false, agent: null, sessions: new Map(), transcripts: new Map(), asks: new Map(), answered: new Map(), restoring: new Set() };
     bridges.set(id, b);
   }
   return b;
@@ -92,16 +94,20 @@ function onMessage(m: any) {
       b.sessions = new Map((m.sessions || []).map((s: SessionInfo) => [s.sessionId, s]));
       b.asks = new Map((m.asks || []).map((a: Ask) => [a.key, a]));
       for (const sid of [...b.transcripts.keys()]) if (!b.sessions.has(sid)) b.transcripts.delete(sid);
+      // the bridge sends each session's history next; until it is all here, those sessions are loading
+      b.restoring = new Set(b.sessions.keys());
+      if (b.restoring.size) { const keep = b.restoring; setTimeout(() => { if (b.restoring === keep && keep.size) { keep.clear(); changed(); } }, 20_000); }
       break;
     case 'status':
       b.status = m.status; b.detail = m.detail || ''; b.since = m.since ?? b.since; b.progress = m.progress ?? null; if (m.init !== undefined) b.init = m.init; if (m.stderr) b.stderr = m.stderr;
       break;
     case 'progress': b.progress = m.progress ?? null; if (m.stderr) b.stderr = m.stderr; break;
     case 'session': b.sessions.set(m.session.sessionId, m.session); break;
-    case 'session_closed': b.sessions.delete(m.sessionId); b.transcripts.delete(m.sessionId); break;
+    case 'session_closed': b.sessions.delete(m.sessionId); b.transcripts.delete(m.sessionId); b.restoring.delete(m.sessionId); break;
     case 'transcript': {
       const cur = m.first || !b.transcripts.has(m.sessionId) ? [] : b.transcripts.get(m.sessionId)!;
       b.transcripts.set(m.sessionId, cur.concat(m.entries || []));
+      if (m.done) b.restoring.delete(m.sessionId);
       break;
     }
     case 'update': {

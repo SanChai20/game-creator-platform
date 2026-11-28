@@ -352,3 +352,12 @@ details.wb-agent-info:not([open]) { padding-bottom: 12px; }
 .wb-rail-in > * { flex: none; }
 .wb-rail-in > .wb-files-panel { flex: 1 1 0; min-height: calc(26px * 4 + 48px); grid-template-rows: auto 1fr; }
 .wb-files-box { min-height: calc(26px * 4); overflow: hidden; }
+
+/* ---- a session's history on the way (after a load or a refresh) ----------------------------------------------- */
+.wb-loading { display: grid; gap: 18px; padding-top: 4px; }
+.wb-loading-h { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--text-3); font-size: 13px; }
+.wb-sk-user { display: flex; justify-content: flex-end; }
+.wb-sk-agent { display: flex; gap: 10px; align-items: flex-start; }
+.wb-sk-agent > .sk-text { flex: 1; }
+.wb-sk-rail { display: grid; gap: 10px; }
+.wb-sk-file { display: flex; align-items: center; gap: 8px; }
