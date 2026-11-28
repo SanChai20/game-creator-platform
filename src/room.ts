@@ -3,17 +3,21 @@
 // idle room costs nothing. The first player in is the host; if the host leaves, the oldest peer takes over.
 // Messages are JSON text frames, or binary frames in a small envelope (src/room-wire.ts) for games that pack their own
 // data. Every socket has a message and byte budget, so one player (or one buggy loop) cannot flood the others.
+// Spectators (w): friends watching a match. They get everything sent to the whole room and the snapshot, but they are not
+// players: they never host, do not count toward the room's size, are not announced as peers, and cannot send. Players
+// hear how many are watching ('watchers'). When the last player leaves, spectators are told the match ended.
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './env';
 // @ts-ignore plain JS module
 import { bindingProblem } from './session-binding.js';
 import { RateBudget, decodeClientFrame, encodeRelayFrame } from './room-wire';
 
-interface Peer { id: string; name: string; at: number; g?: string; e?: string; r?: string; uid?: string; s?: string; k?: string; x?: number; tr?: boolean; mr?: number }
+interface Peer { id: string; name: string; at: number; w?: boolean; g?: string; e?: string; r?: string; uid?: string; s?: string; k?: string; x?: number; tr?: boolean; mr?: number }
 const RECHECK_MS = 10_000;   // how often open sockets are checked against their play session (sign-out, trial end)
 const MAX_MSG = 64 * 1024, MAX_STATE = 256 * 1024;
 const DEFAULT_RATE = 60;          // messages per second per socket, sustained; bursts of twice that are allowed
 const BYTES_PER_SECOND = 256 * 1024;
+const MAX_WATCHERS = 50;
 
 export class GameRoom extends DurableObject<Env> {
   // Per-socket budgets. In memory only: a room that hibernates has been idle, so a fresh budget on wake is right.
@@ -24,9 +28,15 @@ export class GameRoom extends DurableObject<Env> {
     return b;
   }
   private peers(): { ws: WebSocket; p: Peer }[] {
+    return this.all().filter((x) => !x.p.w);
+  }
+  private all(): { ws: WebSocket; p: Peer }[] {
     return this.ctx.getWebSockets().map((ws) => ({ ws, p: ws.deserializeAttachment() as Peer })).filter((x) => x.p).sort((a, b) => a.p.at - b.p.at);
   }
+  private watchers(): { ws: WebSocket; p: Peer }[] { return this.all().filter((x) => x.p.w); }
   private host(): string | null { return this.peers()[0]?.p.id ?? null; }
+  /** Players hear how many are watching. */
+  private watching() { const n = this.watchers().length; for (const e of this.peers()) this.send(e.ws, { t: 'watchers', n }); }
   private send(ws: WebSocket, m: unknown) { try { ws.send(JSON.stringify(m)); } catch { /* closing */ } }
   /** Keeps room_presence in step with who is connected, so the console can show room occupancy. Never fails a join or leave.
       A room opening or emptying is written at once; joins and leaves in between are caught up by the next alarm (at most
@@ -52,6 +62,18 @@ export class GameRoom extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const existing = this.peers();
     this.ctx.acceptWebSocket(pair[1]);
+    if (url.searchParams.get('w') === '1') {
+      // a spectator: only into a room where a match is on, and only so many
+      if (!existing.length) { pair[1].close(4004, 'No match to watch'); return new Response(null, { status: 101, webSocket: pair[0] }); }
+      if (this.watchers().length >= MAX_WATCHERS) { pair[1].close(4003, 'Too many watching'); return new Response(null, { status: 101, webSocket: pair[0] }); }
+      const q = url.searchParams, wid = `w:${q.get('uid') || 'p'}:${this.watchers().length + 1}:${Date.now() % 100000}`;
+      pair[1].serializeAttachment({ id: wid, name: (q.get('name') || 'Player').slice(0, 40), at: Date.now(), w: true, g: q.get('g') || undefined, e: q.get('e') || undefined, r: q.get('r') || undefined,
+        uid: q.get('uid') || undefined, s: q.get('s') || undefined, k: q.get('k') || undefined, x: Number(q.get('x')) || undefined, tr: q.get('tr') === '1', mr: 5 } as Peer);
+      const state = await this.ctx.storage.get<string>('state');
+      this.send(pair[1], { t: 'welcome', id: wid, host: existing[0].p.id, peers: existing.map((e) => ({ id: e.p.id, name: e.p.name })), state: state ? JSON.parse(state) : null, spectator: true, watchers: this.watchers().length });
+      this.watching();
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
     if (existing.length >= max) { pair[1].close(4003, 'Room is full'); return new Response(null, { status: 101, webSocket: pair[0] }); }
     const base = url.searchParams.get('uid') || 'p';
     // The same account may join from two tabs; give each connection its own peer id.
@@ -64,7 +86,9 @@ export class GameRoom extends DurableObject<Env> {
     pair[1].serializeAttachment(peer);
     for (const e of existing) this.send(e.ws, { t: 'join', peer: { id: peer.id, name: peer.name } });
     const state = await this.ctx.storage.get<string>('state');
-    this.send(pair[1], { t: 'welcome', id: peer.id, host: existing[0]?.p.id ?? peer.id, peers: existing.map((e) => ({ id: e.p.id, name: e.p.name })), state: state ? JSON.parse(state) : null });
+    this.send(pair[1], { t: 'welcome', id: peer.id, host: existing[0]?.p.id ?? peer.id, peers: existing.map((e) => ({ id: e.p.id, name: e.p.name })), state: state ? JSON.parse(state) : null, watchers: this.watchers().length });
+    // spectators see the new player too
+    for (const e of this.watchers()) this.send(e.ws, { t: 'join', peer: { id: peer.id, name: peer.name } });
     await this.presence(peer, existing.length + 1);
     if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + RECHECK_MS);
     return new Response(null, { status: 101, webSocket: pair[0] });
@@ -73,7 +97,7 @@ export class GameRoom extends DurableObject<Env> {
   /** Closes sockets whose play session ended after they joined: signed out, switched account, suspended, a claimed
       guest, or a free trial that ran out. The check at join time alone would let them keep relaying for hours. */
   async alarm(): Promise<void> {
-    const peers = this.peers(), t = Date.now();
+    const peers = this.all(), t = Date.now();
     for (const { ws, p } of peers) {
       if (!p.s || !p.g || !p.e || !p.uid) continue;
       let reason: string | null = null;
@@ -86,12 +110,17 @@ export class GameRoom extends DurableObject<Env> {
     }
     const open = this.peers();
     if (open.length && open.length !== this.written) await this.presence(open[0].p, open.length, true);
-    if (open.length) await this.ctx.storage.setAlarm(Date.now() + RECHECK_MS);
+    if (open.length || this.watchers().length) await this.ctx.storage.setAlarm(Date.now() + RECHECK_MS);
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const me = ws.deserializeAttachment() as Peer;
     if (!me) return;
+    if (me.w) {
+      // a spectator only measures its delay; everything else it sends is ignored
+      if (typeof raw === 'string' && raw.length < 200) { try { const m = JSON.parse(raw); if (m?.t === 'ping') this.send(ws, typeof m.n === 'number' && Number.isFinite(m.n) ? { t: 'pong', now: Date.now(), n: m.n } : { t: 'pong', now: Date.now() }); } catch { /* not JSON */ } }
+      return;
+    }
     const size = typeof raw === 'string' ? raw.length : raw.byteLength;
     const verdict = this.budget(ws, me).take(size, Date.now());
     if (verdict !== 'ok') {
@@ -109,7 +138,7 @@ export class GameRoom extends DurableObject<Env> {
       // `at` is the sender's clock when it sent the message; receivers use it to play movement back smoothly (GCP.smooth)
       const out = JSON.stringify(typeof m.at === 'number' && Number.isFinite(m.at) ? { t: 'msg', from: me.id, d: m.d, at: m.at } : { t: 'msg', from: me.id, d: m.d });
       const to = m.to === 'host' ? this.host() : typeof m.to === 'string' ? m.to : null;
-      for (const e of this.peers()) { if (e.ws !== ws && (!to || e.p.id === to)) { try { e.ws.send(out); } catch { /* closing */ } } }
+      for (const e of to ? this.peers() : this.all()) { if (e.ws !== ws && (!to || e.p.id === to)) { try { e.ws.send(out); } catch { /* closing */ } } }
     } else if (m.t === 'state') {
       if (this.host() !== me.id) return this.send(ws, { t: 'error', message: 'Only the host can set room state.' });
       const s = JSON.stringify(m.d ?? null);
@@ -118,7 +147,7 @@ export class GameRoom extends DurableObject<Env> {
       // included, until the write is durable, so each setState put a hitch into everyone's movement stream.
       // The snapshot is only for late joiners; losing the last one in a crash is harmless.
       await this.ctx.storage.put('state', s, { allowUnconfirmed: true });
-      for (const e of this.peers()) if (e.ws !== ws) this.send(e.ws, { t: 'state', d: m.d });
+      for (const e of this.all()) if (e.ws !== ws) this.send(e.ws, { t: 'state', d: m.d });
     } else if (m.t === 'ping') this.send(ws, typeof m.n === 'number' && Number.isFinite(m.n) ? { t: 'pong', now: Date.now(), n: m.n } : { t: 'pong', now: Date.now() });
   }
 
@@ -129,7 +158,7 @@ export class GameRoom extends DurableObject<Env> {
     if (!f) return this.send(ws, { t: 'error', message: 'Malformed binary message: send binary data with room.send(arrayBuffer).' });
     const to = f.to === 'host' ? this.host() : f.to;
     const out = encodeRelayFrame(me.id, f.at, f.payload);
-    for (const e of this.peers()) { if (e.ws !== ws && (!to || e.p.id === to)) { try { e.ws.send(out); } catch { /* closing */ } } }
+    for (const e of to ? this.peers() : this.all()) { if (e.ws !== ws && (!to || e.p.id === to)) { try { e.ws.send(out); } catch { /* closing */ } } }
   }
 
   /** For the game's creator (MCP game_room): who is here, who hosts, and the stored snapshot. Called over RPC only, never from a player's request. */
@@ -141,10 +170,10 @@ export class GameRoom extends DurableObject<Env> {
   /** Clears a stuck room: drops the snapshot and, with kick, disconnects everyone (they can rejoin at once). */
   async reset(kick: boolean): Promise<{ cleared: boolean; disconnected: number }> {
     await this.ctx.storage.deleteAll();
-    const peers = this.peers();
+    const peers = this.all();
     for (const e of peers) { this.send(e.ws, { t: 'state', d: null }); if (kick) try { e.ws.close(4000, 'Room reset by the game creator'); } catch { /* closing */ } }
     if (kick && peers.length) await this.presence(peers[0].p, 0);
-    return { cleared: true, disconnected: kick ? peers.length : 0 };
+    return { cleared: true, disconnected: kick ? peers.filter((e) => !e.p.w).length : 0 };
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> { await this.left(ws); }
@@ -158,9 +187,14 @@ export class GameRoom extends DurableObject<Env> {
     if (!me) return;
     try { ws.serializeAttachment(null); } catch { /* closed */ }
     try { ws.close(1000); } catch { /* already closed */ }
-    const rest = this.peers().filter((e) => e.ws !== ws);
-    for (const e of rest) this.send(e.ws, { t: 'leave', id: me.id, host: rest[0]?.p.id ?? null });
+    if (me.w) { this.watching(); return; }   // a spectator left: players only hear the new count
+    const rest = this.peers().filter((e) => e.ws !== ws), watchers = this.watchers();
+    for (const e of [...rest, ...watchers]) this.send(e.ws, { t: 'leave', id: me.id, host: rest[0]?.p.id ?? null });
     await this.presence(me, rest.length);
-    if (!rest.length) { await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); } // empty rooms keep nothing
+    if (!rest.length) {
+      // the match is over for spectators too
+      for (const e of watchers) { try { e.ws.serializeAttachment(null); e.ws.close(4004, 'The match ended'); } catch { /* closing */ } }
+      await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll();   // empty rooms keep nothing
+    }
   }
 }

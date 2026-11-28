@@ -12,7 +12,7 @@ import './social.css';
 
 // ---- types ------------------------------------------------------------------------------------------------------------
 export type Status = 'online' | 'away' | 'busy' | 'offline' | 'invisible';
-export interface Presence { s: Status; chosen?: string; game?: { id: string; slug: string; title: string }; since?: number; detail?: string; joinable?: boolean }
+export interface Presence { s: Status; chosen?: string; game?: { id: string; slug: string; title: string }; since?: number; detail?: string; joinable?: boolean; watchable?: boolean }
 interface Friend { id: string; name: string; since: number; p: Presence; unread: number }
 interface Invite { id: string; from: { id: string; name: string }; game: { id: string; slug: string; title: string }; kind: string; label: string; created_at: number; expires_at: number }
 interface Profile { code: string; status: string; requests_from: string; messages_from: string; invites_from: string; show_game: boolean; joinable: boolean; searchable: boolean }
@@ -32,7 +32,7 @@ const S = {
   open: null as OpenState | null,
   toasts: [] as Toast[],
   chat: null as { peer: string; messages: Msg[]; more: boolean; relation: string } | null,
-  activity: null as { slug: string; title: string; detail?: string; lobby?: string | null; label?: string } | null,
+  activity: null as { slug: string; title: string; detail?: string; lobby?: string | null; label?: string; watch?: string | null } | null,
   frame: null as Window | null, frameJoin: false,
   conn: 'off' as 'off' | 'connecting' | 'on',
   v: 0,
@@ -77,7 +77,7 @@ function tellFrame() {
 // ---- the live connection --------------------------------------------------------------------------------------------
 let ws: WebSocket | null = null, tries = 0, retry = 0, poll = 0;
 function send(m: unknown) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
-function sendAct() { const a = S.activity; send(a ? { t: 'act', slug: a.slug, detail: a.detail || '', lobby: a.lobby || null, label: a.label || '' } : { t: 'act', slug: null }); }
+function sendAct() { const a = S.activity; send(a ? { t: 'act', slug: a.slug, detail: a.detail || '', lobby: a.lobby || null, label: a.label || '', watch: a.watch || null } : { t: 'act', slug: null }); }
 function connect() {
   if (!S.user || ws || typeof WebSocket === 'undefined' || !S.summary?.enabled) return;
   S.conn = 'connecting'; emit();
@@ -205,9 +205,9 @@ export function setActivity(g: { slug: string; title: string } | null) {
 }
 /** The running game's frame (to tell it about friends), and what it says through the SDK. */
 export function attachFrame(win: Window | null) { S.frame = win; S.frameJoin = false; }
-export function fromGame(d: { gcp: string; detail?: string; lobby?: string | null; label?: string; join?: boolean; data?: unknown }) {
+export function fromGame(d: { gcp: string; detail?: string; lobby?: string | null; label?: string; watch?: string | null; join?: boolean; data?: unknown }) {
   if (d.gcp === 'social_hooks') { S.frameJoin = d.join === true; return; }
-  if (d.gcp === 'presence' && S.activity) { S.activity = { ...S.activity, detail: String(d.detail || '').slice(0, 60), lobby: typeof d.lobby === 'string' ? d.lobby : null, label: String(d.label || '').slice(0, 60) }; sendAct(); return; }
+  if (d.gcp === 'presence' && S.activity) { S.activity = { ...S.activity, detail: String(d.detail || '').slice(0, 60), lobby: typeof d.lobby === 'string' ? d.lobby : null, label: String(d.label || '').slice(0, 60), watch: typeof d.watch === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(d.watch) ? d.watch : null }; sendAct(); return; }
   if (d.gcp === 'friends_open') {
     if (!S.user) { toast({ kind: 'bad', title: t('Sign in to play with friends.', '登录后即可和好友一起玩。') }); return; }
     if (!S.activity) return;
@@ -257,6 +257,17 @@ async function answerInvite(id: string, yes: boolean) {
 }
 async function joinFriend(f: { id: string }) {
   try { const r = await api<{ game: { slug: string }; join: Join }>(`/social/friends/${f.id}/join`, { method: 'POST' }); launch(r.game.slug, r.join); } catch (e) { fail(e); }
+}
+// "Watch": open the friend's game as a spectator of their match (GCP.launch.watch). An open page of that game restarts it.
+const watchers = new Set<(slug: string, room: string) => boolean>();
+export function onWatch(fn: (slug: string, room: string) => boolean) { watchers.add(fn); return () => { watchers.delete(fn); }; }
+async function watchFriend(f: { id: string }) {
+  try {
+    const r = await api<{ game: { slug: string }; room: string }>(`/social/friends/${f.id}/watch`, { method: 'POST' });
+    closePanel();
+    for (const fn of watchers) if (fn(r.game.slug, r.room)) return;
+    navigate(`/g/${encodeURIComponent(r.game.slug)}?play=1&watch=${encodeURIComponent(r.room)}`);
+  } catch (e) { fail(e); }
 }
 async function invite(f: Friend, inv: { slug: string; lobby: string | null; label: string; data?: unknown }) {
   try {
@@ -418,6 +429,7 @@ function FriendList() {
               </button>
               <span className="fr-acts">
                 {f.p.joinable && <Button size="sm" variant="primary" onClick={() => void joinFriend(f)}>{t('Join', '加入')}</Button>}
+                {f.p.watchable && !f.p.joinable && <Button size="sm" onClick={() => void watchFriend(f)}>{t('Watch', '观战')}</Button>}
                 {inv && (sent[f.id] ? <span className="fr-sent">{t('Invited', '已邀请')}</span>
                   : <Button size="sm" variant={s.open?.invite ? 'primary' : 'secondary'} disabled={!can} title={can ? (f.p.s === 'online' ? t('Invite to {game}', '邀请一起玩 {game}', { game: inv.title }) : t('{status}: they may not answer soon', '{status}：对方可能不会马上回复', { status: statusName(f.p.s) })) : t('Invisible or offline friends cannot be invited', '无法邀请隐身或离线的好友')}
                     onClick={async () => { if (await invite(f, inv)) setSent((x) => ({ ...x, [f.id]: true })); }}>{t('Invite', '邀请')}{can && f.p.s !== 'online' && <small className="fr-st"> · {statusName(f.p.s)}</small>}</Button>)}
@@ -562,6 +574,7 @@ function Chat({ peer }: { peer: { id: string; name: string } }) {
       <span className="fr-who"><b className="clip">{peer.name}</b>{f && <span className="clip fr-line">{presenceLine(f.p)}</span>}</span>
       <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: peer.name })} actions={[
         f?.p.joinable && { label: t('Join', '加入'), onClick: () => void joinFriend(f) },
+        f?.p.watchable && { label: t('Watch', '观战'), onClick: () => void watchFriend(f) },
         { label: t('Report', '举报'), danger: true, onClick: () => setReport({ ...peer, messages: (chat?.messages || []).filter((m) => m.from === peer.id).slice(-10).map((m) => m.id) }) },
         { label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(peer) },
       ]} />

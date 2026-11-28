@@ -60,9 +60,11 @@ test('find({ private: true }) asks for an invite-only lobby (no code goes out) a
   sdk.GCP.friends.open({ match: m, label: 'Private court', data: { side: 1 } });
   assert.deepEqual(sdk.posted.find((p) => p.gcp === 'friends_open'), { gcp: 'friends_open', lobby: 'LOBBYTOKEN', label: 'Private court', data: { side: 1 } });
   sdk.GCP.presence.set({ detail: 'Private court, 1 of 4', joinable: m });
-  assert.deepEqual(sdk.posted.find((p) => p.gcp === 'presence'), { gcp: 'presence', detail: 'Private court, 1 of 4', lobby: 'LOBBYTOKEN', label: '' });
+  assert.deepEqual(sdk.posted.find((p) => p.gcp === 'presence'), { gcp: 'presence', detail: 'Private court, 1 of 4', lobby: 'LOBBYTOKEN', label: '', watch: null });
   sdk.GCP.presence.clear();
-  assert.deepEqual(sdk.posted.filter((p) => p.gcp === 'presence').pop(), { gcp: 'presence', detail: '', lobby: null });
+  assert.deepEqual(sdk.posted.filter((p) => p.gcp === 'presence').pop(), { gcp: 'presence', detail: '', lobby: null, watch: null });
+  sdk.GCP.presence.set({ detail: 'Final', watch: 'arena-7' });
+  assert.equal(sdk.posted.filter((p) => p.gcp === 'presence').pop().watch, 'arena-7');   // friends may watch that room (2.16.0)
 });
 
 test('a friend arrives with GCP.launch.join and GCP.match.join enters the lobby through the invite, never a lobby or code', () => {

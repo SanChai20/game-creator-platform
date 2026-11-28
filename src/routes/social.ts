@@ -216,6 +216,18 @@ social.post('/friends/:id/join', async (c) => {
   return c.json({ game: info.game, join });
 });
 
+// "Watch" on a friend whose game offers its match to spectators (GCP.presence.set({ watch: room })): the game opens for
+// the watcher with GCP.launch.watch, and joins that room as a spectator (src/room.ts).
+social.post('/friends/:id/watch', async (c) => {
+  const u = requireUser(c), friend = idParam(c.req.param('id'));
+  await enabled(c.env);
+  await rateLimit(c.env, 'fwatch:' + u.id, 30, 600);
+  if (!(await R.areFriends(c.env.DB, u.id, friend))) throw new AppError(404, 'Only friends can watch.', 'not_friends');
+  const info = c.env.SOCIAL ? await socialHub(c.env, friend).watchInfo(u.id).catch(() => null) : null;
+  if (!info) throw new AppError(409, 'There is nothing to watch right now.', 'not_watchable');
+  return c.json({ game: info.game, room: info.room });
+});
+
 // ---- my profile: status and privacy -------------------------------------------------------------------------------
 social.patch('/profile', async (c) => {
   const u = requireUser(c), b = await body(c);

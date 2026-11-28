@@ -349,16 +349,17 @@ rt.get('/file/:n/*', async (c) => {
 rt.get('/room', async (c) => {
   const tok = await authPlay(c.env, c.req.query('t')), s = await getSettings(c.env);
   const code = String(c.req.query('room') || 'lobby').slice(0, 40);
+  const watch = c.req.query('watch') === '1';   // a spectator (src/room.ts)
   const want = Number(c.req.query('max')) || s.room_max_peers;
   const id = c.env.ROOMS.idFromName(`${tok.g}:${tok.e}:${code}`);
   // Only the first get() of a room uses the hint, so the room is created in the region of the player who opens it
   // rather than wherever that player's request happened to land.
   const hint = regionHint((c.req.raw as any).cf);
   // the game's owner opened a room in their preview: test bots that follow them join it too (src/bots.ts)
-  if (tok.e === 'preview' && tok.k === 'owner') inBackground(c, followCreator(c.env, tok.g, tok.u, { kind: 'room', room: code, max: c.req.query('max') ? Number(c.req.query('max')) : undefined, label: `room ${code}` }));
+  if (!watch && tok.e === 'preview' && tok.k === 'owner') inBackground(c, followCreator(c.env, tok.g, tok.u, { kind: 'room', room: code, max: c.req.query('max') ? Number(c.req.query('max')) : undefined, label: `room ${code}` }));
   const u = new URL(c.req.url);
   // The room keeps who this socket belongs to (session, kind, token end, trial), and checks it again while it is open.
-  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${clamp(Math.round(want), 2, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}&s=${encodeURIComponent(tok.s)}&k=${tok.k}&x=${tok.x}${tok.tr ? '&tr=1' : ''}&mr=${clamp(Math.round(Number(s.room_msgs_per_second) || 60), 5, 240)}`;
+  u.search = `?uid=${encodeURIComponent(tok.u)}&name=${encodeURIComponent(tok.n)}&cap=${clamp(Math.round(want), 2, s.room_max_peers)}&g=${tok.g}&e=${tok.e}&r=${encodeURIComponent(code)}&s=${encodeURIComponent(tok.s)}&k=${tok.k}&x=${tok.x}${tok.tr ? '&tr=1' : ''}&mr=${clamp(Math.round(Number(s.room_msgs_per_second) || 60), 5, 240)}${watch ? '&w=1' : ''}`;
   return c.env.ROOMS.get(id, hint ? { locationHint: hint as DurableObjectLocationHint } : undefined).fetch(new Request(u, c.req.raw));
 });
 

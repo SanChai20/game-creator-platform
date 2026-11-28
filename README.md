@@ -151,7 +151,12 @@ Players add friends by name or by friend code (`XXXX-XXXX`); a request becomes a
 - Rules: `src/social-rules.js` (pure, over D1, tested in `tests/social.mjs`); routes: `src/routes/social.ts` (`/api/social/*`) and `/api/rt/friends` for games. Migration `0037_friends.sql`.
 - Live delivery: one `SocialHub` Durable Object per account (`src/social.ts`) holds that account's open pages over a hibernating WebSocket, works out its presence (`src/presence.js`) and pushes changes to its friends' hubs. The web app falls back to polling once a minute when the socket is down.
 - Games: SDK 2.7.0 `GCP.friends`, `GCP.presence`, `GCP.launch.join`, `GCP.match.join`. `GCP.match.find({ private: true })` opens an invite-only lobby: the matchmaker names it with a platform-made code and the owner gets a signed lobby token (`src/lobby.ts`) that invites carry, so nobody enters by guessing. Typed codes keep working for older games, but the guides recommend friend invites.
+- Spectating (SDK 2.16.0): a room game sets `GCP.presence.set({ watch: room.code })` and friends get Watch (`POST /api/social/friends/:id/watch`); the game opens with `GCP.launch.watch` and joins with `GCP.room(code, { watch: true })`, a receive-only peer of the same room (`src/room.ts`, up to 50 per room, closed with 4004 when the last player leaves).
 - Limits (admin settings, group "Friends and chat"): friends per account, requests per day, messages per minute, invites per 10 minutes, days chat is kept. Guests and the verifier have no friends.
+
+## Clips
+
+While playing, a signed-in player presses Record clip (under the game, or in its menu in fullscreen) and the SDK records up to 30 seconds of the game's own frame (video only). The player names it and saves it; `/clip/<id>` plays it with a Play button and share links, the game page lists its newest clips, and `/clips` lists the player's own (at most 30, 20 a day, 25 MB each). Videos are in R2 under `clips/`, served with range requests from `/api/clips/:id/video`. The creator can turn clips off for their game and hide any clip of it; three reports hide a clip until an admin looks. Adults-only games take no clips. Rules in `src/clips.js` (migration `0067_clips.sql`, tests in `tests/clips.mjs`).
 
 ## Two-factor sign-in
 

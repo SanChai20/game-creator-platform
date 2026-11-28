@@ -86,6 +86,22 @@ GCP.friends.on('answer', ({ accepted, by }) => toast(by.name + (accepted ? ' is 
 - `GCP.friends.available` is `false` for guests, the verifier and a game opened outside the platform: hide friend buttons and keep public play working. Invites work only in the live game (`preview` in a preview).
 - The verifier's two-player check still meets on `GCP.test.twoPlayers.code` (below); that code is for the check only.
 
+
+### Friends watching a match
+
+A room game can let friends watch: while a match runs, call `GCP.presence.set({ detail, watch: room.code })`, and friends see Watch next to the player. Their game opens with `GCP.launch.watch` set to that room; open it as a spectator and draw the match without controls:
+
+```js
+if (GCP.launch.watch) {
+  const view = GCP.room(GCP.launch.watch, { watch: true });   // receives broadcasts and room.state, sends nothing
+  view.on('message', (m) => drawFrom(m));
+  view.on('close', (code) => { if (code === 4004) showEnded(); });   // the match ended
+}
+room.on('watchers', (n) => showWatching(n));   // the players' side: how many are watching (up to 50)
+```
+
+Spectators get what is sent to the whole room (`room.send(data)` without a recipient) and `room.state`, never messages addressed to one player. They are not in `room.peers` and do not count toward the room size. A spectator's `send` and `setState` do nothing.
+
 ## The host-authoritative model
 
 One player's browser, the host, owns the truth. Guests send inputs, the host simulates and broadcasts the state, and everyone draws by interpolating between states. It suits co-op and casual competitive games, needs no server code, and one code path serves single player too (you are simply a host with no guests).
