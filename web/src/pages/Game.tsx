@@ -25,6 +25,7 @@ import { BundleLines, type BundleLine } from '../bundle-ui';
 import { AddToList } from '../collection-ui';
 import { CommunityBoard, ReviewReply } from '../community-ui';
 import { ClipSaveDialog, ClipsSection } from '../clip-ui';
+import { LevelsSection } from '../level-ui';
 import { GameTournaments } from '../tournament-ui';
 import type { ClipTake } from '../player';
 
@@ -106,6 +107,7 @@ function MatureGate({ cats, onConfirm, onCancel }: { cats: string[]; onConfirm: 
 
 /** The play URL with the viewer's platform language, read by the SDK as GCP.lang. */
 const withJoin = (u: string, j: string | null) => { if (!j) return u; try { const x = new URL(u, location.href); x.searchParams.set('gcp_join', j); return x.toString(); } catch { return u; } };
+const withLevel = (u: string, l: string | null) => { if (!l) return u; try { const x = new URL(u, location.href); x.searchParams.set('gcp_level', l); return x.toString(); } catch { return u; } };
 const withWatch = (u: string, w: string | null) => { if (!w) return u; try { const x = new URL(u, location.href); x.searchParams.set('gcp_watch', w); return x.toString(); } catch { return u; } };
 const withLang = (u: string, cont = false) => { const l = withPlayLang(u); if (!cont) return l; try { const x = new URL(l, location.href); x.searchParams.set('gcp_continue', '1'); return x.toString(); } catch { return l; } };
 
@@ -183,6 +185,8 @@ export function Game({ slug }: { slug: string }) {
   const joinRef = useRef<string | null>(query().get('join'));
   // "Watch" on a friend (?watch=<room>): the game opens with GCP.launch.watch and joins that room as a spectator.
   const watchRef = useRef<string | null>(query().get('watch'));
+  // "Play" on a player-made level (?level=<id>, or the level shelf below): the game opens with GCP.launch.level.
+  const levelRef = useRef<string | null>(/^lvl_[a-z0-9]{6,24}$/.test(query().get('level') || '') ? query().get('level') : null);
   useEffect(() => onWatch((s, w) => {
     if (s !== slug || !data) return false;
     watchRef.current = w; joinRef.current = null;
@@ -236,7 +240,7 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current, w = j ? null : watchRef.current; joinRef.current = null; watchRef.current = null; setUrl(withWatch(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j && !w), j), w)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null, lang: g.lang, i18n: adult ? undefined : g.i18n }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current, w = j ? null : watchRef.current, lv = j || w ? null : levelRef.current; joinRef.current = null; watchRef.current = null; levelRef.current = null; setUrl(withLevel(withWatch(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j && !w && !lv), j), w), lv)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null, lang: g.lang, i18n: adult ? undefined : g.i18n }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -381,6 +385,7 @@ export function Game({ slug }: { slug: string }) {
               ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t('Play for at least {n} seconds to leave a review.', '游玩至少 {n} 秒后即可评价。', { n: config.settings.play_min_seconds })}</p>}
               <ReviewsList slug={slug} initial={data.reviews} total={data.reviews_total ?? data.reviews.length} owner={!!data.is_owner || user?.role === 'admin'} onChange={reload} />
             </section>
+            {live && <LevelsSection slug={slug} owner={!!data.is_owner || user?.role === 'admin'} onPlay={(id) => { levelRef.current = id; joinRef.current = null; watchRef.current = null; if (url) { setUrl(null); setTimeout(() => startRef.current(), 50); } else startRef.current(); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />}
             {live && <ClipsSection slug={slug} owner={!!data.is_owner} off={!!data.clips_off} />}
             {live && <CommunityBoard slug={slug} off={!!data.board_off} />}
             {take && <ClipSaveDialog slug={slug} take={take} onClose={() => setTake(null)} />}

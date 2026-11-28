@@ -155,6 +155,17 @@ Players add friends by name or by friend code (`XXXX-XXXX`); a request becomes a
 - Parties and voice: friends group up (at most 8, one party at a time) from the friends panel; any member invites their own friends from a friend's menu. When the leader starts a game, the others get a Play button for it. Voice chat is audio only and peer to peer between members (WebRTC): the platform passes the connection messages over the friends connection (`/api/social/party/signal`, only between members of the same party) and never carries the audio. A bar in the corner mutes or hangs up on any page and over fullscreen games. STUN is Cloudflare's public server; set the `TURN_KEY_ID` and `TURN_KEY_TOKEN` secrets (a Cloudflare Realtime TURN key) to relay players behind strict networks. Rules in `src/parties.js` (migration `0068_parties.sql`, tests in `tests/parties.mjs`); admin settings `parties_enabled` and `party_voice_enabled`.
 - Limits (admin settings, group "Friends and chat"): friends per account, requests per day, messages per minute, invites per 10 minutes, days chat is kept. Guests and the verifier have no friends.
 
+## Player-made levels
+
+Players make levels, maps or mods inside a game and share them with everyone who plays it (`src/levels.js`, migration
+0070). A game supports them with `gcp.json` `"levels": true` or by calling `GCP.levels.publish` (SDK 2.17.0); the
+game's own JSON (at most 256 KB) is stored with a title and description that pass the content rules and carry no links.
+`POST /api/rt/levels` (play token) publishes, lists, loads (a play counts once per player), rates (1 to 5 stars, only
+after playing, never your own) and removes. The game page shows the shelf (`GET /api/games/:slug/levels`, sorted by a
+rating pulled toward 3 stars, newest or most played); its Play opens the game with `GCP.launch.level`. Three reports
+hide a level until an admin looks (`GET /api/admin/levels/reported`); the creator hides levels or turns sharing off
+(`PUT /api/games/:slug/levels`); makers delete their own; account deletion removes a player's levels, plays and ratings.
+
 ## Tournaments
 
 Timed cups and single-elimination brackets on top of matchmaking, run by a game's creator (the console's Tournaments card on a live game with `server/match.js`, or the `tournaments` MCP tool) or by the platform (an admin marks one official). Players find them on `/tournaments` and the game page, and sign up. A cup scores every rated match in its queue during its window (1 point a match, 3 more a win). A bracket is seeded by rating when it starts and padded with byes; during each round a player's `GCP.match.find({ queue })` meets only their bracket opponent (`src/routes/rt.ts` pairs them in a matchmaker of their own), so games need no change. The match's ranking decides it; when the round's time runs out the player who searched goes through, else the better seed. The ten-minute cron starts tournaments, closes rounds and finishes cups, and players are told under the bell when their match is ready. Rules in `src/tournaments.js` (migration `0069_tournaments.sql`, tests in `tests/tournaments.mjs`).

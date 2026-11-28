@@ -230,6 +230,8 @@ export interface Manifest {
   /** Achievements this version declares (gcp.json "achievements", src/achievements.js). */
   /** Custom event names in funnel order (gcp.json "funnel", src/events.js), for the console's analytics. */
   funnel?: string[];
+  /** Player-made levels (src/levels.js): gcp.json "levels": true, or code that calls GCP.levels.publish. */
+  levels?: boolean;
   achievements?: { id: string; name: string | Record<string, string>; description?: string | Record<string, string>; hidden?: boolean; stat?: string; goal?: number }[];
 }
 
@@ -498,6 +500,8 @@ export async function checkProject(env: Env, p: Project, origin: string, ws: str
   const fun = parseFunnel(gcpRaw.funnel);
   for (const i of fun.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: 'gcp.json "funnel": ["tutorial_start", "tutorial_done", "level_3"], the names the game sends with GCP.track(name).' });
   if (fun.steps.length) manifest.funnel = fun.steps;
+  // player-made levels: the game shares levels players make (src/levels.js); gcp.json "levels": false keeps the shelf off
+  if (gcpRaw.levels === true || (gcpRaw.levels !== false && [...texts.values()].some((src) => /\blevels\s*\.\s*publish\s*\(/.test(src)))) manifest.levels = true;
   // Platform requirement: playable on computers, tablets and phones. publish refuses a version that is not
   // (src/release-gate.ts, rule every_device); said here first so the agent fixes it before it deploys.
   for (const d of deviceProblems(manifest)) warn({ file: 'gcp.json', message: `REQUIRED to publish [every_device]: ${d.message}`, hint: d.fix });

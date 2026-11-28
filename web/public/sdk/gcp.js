@@ -32,7 +32,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.16.0', fixes: {} };
+  var RT = S.runtime = { version: '2.17.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -2064,6 +2064,20 @@
       return j && typeof j === 'object' && typeof j.id === 'string' ? j : null;
     } catch (e) { return null; }
   })();
+  // ---- player-made levels: GCP.levels, GCP.launch.level ----
+  // Levels, maps or mods players make in the game and share with everyone who plays it. The game hands over its own
+  // JSON (publish), reads the shelf (list) and loads one (get). The platform's game page lists them too, and its Play
+  // button opens the game with GCP.launch.level set to the level's id. Only signed-in players publish and rate; anyone
+  // playing on the platform reads them. Outside the platform there is no shelf: list() gives [] and get() null.
+  var levelsOk = !standalone && !!cfg.token;
+  var canShare = levelsOk && friendsOk;
+  function lvApi(body) {
+    if (!levelsOk) return Promise.resolve({ ok: false, code: 'standalone', error: 'Shared levels need the platform: open the game from its page.' });
+    return fetch(cfg.api + '/api/rt/levels', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(Object.assign({ t: cfg.token }, body)) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) { if (r.status === 401 && j.code === 'session_ended') sessionEnded(j); return { ok: false, code: j.code || 'error', error: j.error || ('HTTP ' + r.status) }; } return j; }); })
+      .catch(function (e) { return { ok: false, code: 'network', error: String(e && e.message || e) }; });
+  }
+  var launchLevel = /^lvl_[a-z0-9]{6,24}$/.test(q.get('gcp_level') || '') ? q.get('gcp_level') : null;
   var GCP = window.GCP = {
     sdk: 1,
     /** The game runtime this page runs on: { version, fixes }, fixes being the compatibility fixes active on this device
@@ -2152,7 +2166,7 @@
     playRecord: function () { return api('record', {}).catch(function () { return null; }); },
     /** How the player opened the game. continue is true when they pressed Continue on the platform (their Continue row,
         library or the game page after playing before): skip the title screen and load their saved run if there is one. */
-    launch: { continue: q.get('gcp_continue') === '1', join: launchJoin, watch: /^[A-Za-z0-9_.:-]{1,40}$/.test(q.get('gcp_watch') || '') ? q.get('gcp_watch') : null },
+    launch: { continue: q.get('gcp_continue') === '1', join: launchJoin, level: launchLevel, watch: /^[A-Za-z0-9_.:-]{1,40}$/.test(q.get('gcp_watch') || '') ? q.get('gcp_watch') : null },
     /** Where the player left off, shown on their Continue row and library. Optional; games without it still appear there.
         set({ label: 'Act 2, Floor 14', detail?: 'Ember Knight, 3 relics', progress?: 0..1 }) at checkpoints; clear() when
         the run ends and there is nothing to resume; get() returns what was last set, or null. */
@@ -2218,6 +2232,29 @@
         FR.fns[type].push(fn); if (type === 'join') toParent({ gcp: 'social_hooks', join: true });
         return function () { var a = FR.fns[type], i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); if (type === 'join' && !a.length) toParent({ gcp: 'social_hooks', join: false }); };
       },
+    },
+    /** Player-made levels (see "player-made levels" above). */
+    levels: {
+      /** True when this player can publish and rate levels (signed in, on the platform, not the verifier). */
+      available: canShare,
+      /** Shares a level: publish({ title, description?, data }) with data the game's own JSON (at most 256 KB). Pass id to
+          publish a new version of one of the player's own levels. Resolves { ok, id } or { ok: false, code, error }
+          (guest, levels_off, bad_title, not_allowed, too_big, too_many, rate_limited…). */
+      publish: function (o) {
+        o = o || {};
+        if (!canShare) return Promise.resolve({ ok: false, code: standalone ? 'standalone' : cfg.kind === 'verify' ? 'verify' : 'guest', error: standalone ? 'Shared levels need the platform: open the game from its page.' : 'Sign in to share levels.' });
+        var b = { op: 'publish', title: o.title, description: o.description, data: o.data }; if (o.id) b.id = String(o.id);
+        return lvApi(b);
+      },
+      /** The shelf: list({ sort: 'top' | 'new' | 'played' | 'mine', offset }) -> { levels: [{ id, title, description, by, plays,
+          rating, ratings, my_stars, mine }], more }. No data: get(id) loads one. */
+      list: function (o) { o = o || {}; return lvApi({ op: 'list', sort: o.sort || 'top', offset: o.offset || 0, limit: o.limit }).then(function (r) { return r && r.ok ? { levels: r.levels || [], more: !!r.more } : { levels: [], more: false }; }); },
+      /** One level with its data ({ ...level, data }), or null when it is gone or hidden. Opening it counts a play. */
+      get: function (id) { return lvApi({ op: 'get', id: String(id || '') }).then(function (r) { return r && r.ok ? r.level : null; }); },
+      /** Rates a level the player opened, 1 to 5 stars (again to change it). Resolves { ok, stars, rating, ratings }. */
+      rate: function (id, stars) { if (!canShare) return Promise.resolve({ ok: false, code: 'guest', error: 'Sign in to rate levels.' }); return lvApi({ op: 'rate', id: String(id || ''), stars: stars }); },
+      /** Deletes one of the player's own levels. */
+      remove: function (id) { if (!canShare) return Promise.resolve({ ok: false, code: 'guest', error: 'Sign in to share levels.' }); return lvApi({ op: 'remove', id: String(id || '') }); },
     },
     /** What friends see the player doing in this game. set({ detail: 'Private court, 3 of 8', joinable: match }) (detail at
         most 60 characters; joinable: a private match friends may join with "Join"); clear() when it no longer applies. */

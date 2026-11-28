@@ -1,4 +1,5 @@
 // Back office: every product parameter, every user, every game, sales, payments and withdrawals.
+import { reported as reportedLevels } from '../levels.js';
 import { Hono } from 'hono';
 import { AppError, bad, notFound, type Env, type User } from '../env';
 import { setDaily } from '../challenges.js';
@@ -82,6 +83,8 @@ admin.get('/overview', async (c) => {
   });
 });
 
+// levels players reported (src/levels.js), for a look: show one again or delete it from its game page
+admin.get('/levels/reported', async (c) => c.json({ levels: await reportedLevels(c.env.DB) }));
 admin.get('/flags', async (c) => {
   const pg = parsePage((k) => c.req.query(k), 20, 100);
   const where = "e.kind IN ('copy_flagged', 'not_game_flagged', 'player_report')";

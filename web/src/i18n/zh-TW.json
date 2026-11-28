@@ -3421,5 +3421,22 @@
   "In words. The platform pays nothing out.": "用文字描述。平台不發放任何獎品。",
   "Description (optional)": "說明（選填）",
   "Official (run by the platform)": "官方（平台舉辦）",
-  "Schedule": "安排"
+  "Schedule": "安排",
+  "Broken or unplayable": "無法遊玩",
+  "Your rating": "你的評分",
+  "The level is deleted.": "關卡已刪除。",
+  "1 play": "1 次遊玩",
+  "{n} plays": "{n} 次遊玩",
+  "Your rating: {n}★": "你的評分：{n}★",
+  "Rate": "評分",
+  "Mine": "我的",
+  "Sharing is off: players cannot share new levels. Levels already shared stay until you hide them.": "分享已關閉：玩家無法分享新關卡。已分享的關卡會保留，直到你隱藏它們。",
+  "Levels players made in your game and shared. You can hide any of them.": "玩家在你的遊戲中製作並分享的關卡。你可以隱藏其中任何一個。",
+  "Levels other players made in this game. Make your own in the game and share it.": "其他玩家在這款遊戲中製作的關卡。你也可以在遊戲裡製作並分享自己的關卡。",
+  "Player levels": "玩家關卡",
+  "Sort levels": "關卡排序",
+  "Let players share levels": "允許玩家分享關卡",
+  "Turn level sharing off": "關閉關卡分享",
+  "You have not shared a level of this game yet.": "你還沒有分享過這款遊戲的關卡。",
+  "No levels yet. Make one in the game and share it.": "還沒有關卡。在遊戲裡製作一個並分享吧。"
 }

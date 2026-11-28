@@ -1,6 +1,7 @@
 // Runtime API called from inside games (cross-origin, authenticated by the signed play token):
 // the game's heartbeat (started, errors), cloud saves, leaderboards, realtime rooms, and the store used by game server code.
 import { pairingFor, recordMatch } from '../tournaments.js';
+import { LevelError, get as getLevel, levelsOpen, list as listLevels, publish as publishLevel, rate as rateLevel, recordPlay as recordLevelPlay, remove as removeLevel, supportsLevels } from '../levels.js';
 import { readOptions } from '../file-read';
 import { Hono, type Context } from 'hono';
 import { AppError, bad, type Env } from '../env';
@@ -468,6 +469,39 @@ rt.post('/match-result', async (c) => {
   // tournaments on this queue: cup points and bracket results (src/tournaments.js)
   if (e === 'live') await recordMatch(c.env.DB, g, m.queue, ranking, id, t).catch((err) => console.warn('tournament result', String((err as Error).message || err)));
   return c.json({ ok: true, rated: ids.length });
+});
+
+// ----- player-made levels (GCP.levels, src/levels.js) ---------------------------------------------------------------
+// The game's own level JSON, shared with everyone who plays the same game and environment (a preview's levels stay in
+// the preview). Anyone playing reads the shelf and opens a level; signed-in players publish, rate and delete their own.
+const levelErr = (e: unknown): never => { if (e instanceof LevelError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+rt.post('/levels', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t), db = c.env.DB, t = now();
+  const col = tok.e === 'preview' ? 'preview_version' : 'live_version';
+  const p = await db.prepare(`SELECT p.id, p.status, p.hidden_at, p.levels_off, p.age, p.${col} AS n, v.manifest FROM projects p LEFT JOIN versions v ON v.project_id = p.id AND v.n = p.${col} WHERE p.id = ?`).bind(tok.g).first<{ id: string; status: string; hidden_at: number | null; levels_off: number; age: number | null; n: number | null; manifest: string | null }>();
+  if (!p) throw new AppError(404, 'Unknown game.', 'not_found');
+  const open = tok.e === 'preview' ? supportsLevels(p.manifest) : levelsOpen(p, p.manifest);
+  const me = isGuestId(tok.u) ? null : tok.u;
+  const id = String(b.id || '');
+  if (b.op === 'list') return c.json({ ok: true, open, ...await listLevels(db, p.id, tok.e, { sort: b.sort, offset: b.offset, limit: b.limit, me }) });
+  if (b.op === 'get') {
+    const l = await getLevel(db, id, { projectId: p.id, env: tok.e, me, withData: true });
+    if (!l) return c.json({ ok: false, code: 'not_found', error: 'That level is gone or hidden.' }, 404);
+    if (tok.k !== 'verify' && !l.mine && await recordLevelPlay(db, l.id, me, t)) l.plays += 1;
+    return c.json({ ok: true, level: l });
+  }
+  if (b.op === 'publish') {
+    if (me) await rateLimit(c.env, 'level:' + me, 30, 3600);
+    return c.json({ ok: true, ...await publishLevel(db, { id: tok.u, kind: tok.k }, { id: p.id, open, age: p.age, version: p.n }, tok.e, b, t).catch(levelErr) });
+  }
+  if (b.op === 'rate') return c.json({ ok: true, ...await rateLevel(db, id, me, b.stars, t).catch(levelErr) });
+  if (b.op === 'remove') {
+    const l = await getLevel(db, id, { projectId: p.id, env: tok.e, me });
+    if (!l) throw new AppError(404, 'No such level.', 'not_found');
+    await removeLevel(db, id, me || '').catch(levelErr);
+    return c.json({ ok: true });
+  }
+  throw bad('op must be list, get, publish, rate or remove.');
 });
 
 // ----- friends (GCP.friends) -------------------------------------------------------------------------------------

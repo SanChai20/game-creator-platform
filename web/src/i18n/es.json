@@ -3399,5 +3399,22 @@
   "In words. The platform pays nothing out.": "En palabras. La plataforma no paga nada.",
   "Description (optional)": "Descripción (opcional)",
   "Official (run by the platform)": "Oficial (organizado por la plataforma)",
-  "Schedule": "Programar"
+  "Schedule": "Programar",
+  "Broken or unplayable": "Roto o injugable",
+  "Your rating": "Tu valoración",
+  "The level is deleted.": "El nivel se ha eliminado.",
+  "1 play": "1 partida",
+  "{n} plays": "{n} partidas",
+  "Your rating: {n}★": "Tu valoración: {n}★",
+  "Rate": "Valorar",
+  "Mine": "Míos",
+  "Sharing is off: players cannot share new levels. Levels already shared stay until you hide them.": "Compartir está desactivado: los jugadores no pueden compartir niveles nuevos. Los ya compartidos se quedan hasta que los ocultes.",
+  "Levels players made in your game and shared. You can hide any of them.": "Niveles que los jugadores crearon en tu juego y compartieron. Puedes ocultar cualquiera.",
+  "Levels other players made in this game. Make your own in the game and share it.": "Niveles que otros jugadores crearon en este juego. Crea el tuyo en el juego y compártelo.",
+  "Player levels": "Niveles de jugadores",
+  "Sort levels": "Ordenar niveles",
+  "Let players share levels": "Permitir que los jugadores compartan niveles",
+  "Turn level sharing off": "Desactivar compartir niveles",
+  "You have not shared a level of this game yet.": "Aún no has compartido ningún nivel de este juego.",
+  "No levels yet. Make one in the game and share it.": "Aún no hay niveles. Crea uno en el juego y compártelo."
 }
