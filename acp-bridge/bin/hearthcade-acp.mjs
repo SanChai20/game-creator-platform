@@ -18,12 +18,11 @@ import { join, resolve, dirname } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BridgeCore, launchOf, splitCommand, systemFolder } from '../core.mjs';
+import { BridgeCore, splitCommand, systemFolder } from '../core.mjs';
+import { findAgent, installBinary, launchPlan, loadRegistry } from '../registry.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8'));
-// HEARTHCADE_ACP_AGENTS: another catalog file (the tests start a mock agent from the console this way)
-const CATALOG = JSON.parse(readFileSync(process.env.HEARTHCADE_ACP_AGENTS || join(HERE, '..', 'agents.json'), 'utf8')).agents;
 const DEFAULT_SERVER = PKG.hearthcade?.server || 'https://hearthcade.com';
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code, s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -55,6 +54,8 @@ const nameArg = opt('--name');
 const child = flag('--child');
 const cmd = args[0] || '';
 
+// the agents of the ACP Registry, as the site serves it now (HEARTHCADE_ACP_AGENTS: another file, for the tests)
+const CATALOG = await loadRegistry(server);
 if (cmd === 'list') { listAgents(); process.exit(0); }
 if (cmd === 'logout') { forget(); say(green('✓ ') + `This machine is no longer connected to ${server}.`); process.exit(0); }
 
@@ -64,9 +65,10 @@ if (custom && custom.length) {
   agent = { id: 'custom', name: (nameArg && nameArg.trim().slice(0, 60)) || (cmd && cmd !== 'custom' ? cmd : parts[0].split(/[\\/]/).pop()), command: parts[0], args: parts.slice(1) };
 } else {
   if (!cmd) { help(); process.exit(1); }
-  const e = CATALOG.find((a) => a.id === cmd.toLowerCase() || a.registry === cmd.toLowerCase());
-  if (!e) die(`Unknown agent "${cmd}". Run with "list" to see them, or start any ACP agent with: -- <its command>`);
-  agent = { id: e.id, name: e.name, website: e.website, ...launchOf(e) };
+  const e = findAgent(CATALOG, cmd);
+  if (!e) die(`Unknown agent "${cmd}". Run with "list" to see the agents of the ACP Registry, or start any ACP agent with: -- <its command>`);
+  agent = agentFrom(e);
+  if (agent.error) die(agent.error);
 }
 let cwd;
 try { cwd = realpathSync(resolve(cwdArg || process.cwd())); if (!statSync(cwd).isDirectory()) throw new Error(); } catch { die(`Not a folder: ${cwdArg}`); }
@@ -190,7 +192,7 @@ const core = new BridgeCore({
 
 say('');
 say(`  ${bold('HearthCade workbench')} ${dim('v' + PKG.version)}`);
-say(`  ${dim('agent ')} ${agent.name} ${dim('(' + [agent.command, ...agent.args].join(' ') + ')')}`);
+say(`  ${dim('agent ')} ${agent.name}${agent.version ? dim(' v' + agent.version) : ''} ${dim('(' + (agent.command ? [agent.command, ...agent.args].join(' ') : 'its build for this computer, downloaded once') + ')')}`);
 say(`  ${dim('folder')} ${cwd}`);
 say(`  ${dim('tools ')} ${proxyUrl ? 'HearthCade MCP' + (S.scope ? dim(' · ' + S.scope) : '') : 'none'}`);
 say(`  ${dim('open  ')} ${accent(S.workbench)}`);
@@ -260,7 +262,8 @@ core.start().then(() => {
   if (core.status === 'ready') say(green('✓ ') + `${core.init?.agentInfo?.title || core.init?.agentInfo?.name || agent.name} is ready.`);
   else {
     say(red('✗ ') + core.statusDetail);
-    if (core.status === 'failed' && agent.website && /not found/i.test(core.statusDetail)) say(`  Install ${agent.name} first: ${agent.website}`);
+    if (core.status === 'failed' && agent.command === 'uvx' && /not found/i.test(core.statusDetail)) say(`  ${agent.name} runs with uv. Install uv first: https://docs.astral.sh/uv/getting-started/installation/`);
+    else if (core.status === 'failed' && agent.website && /not found/i.test(core.statusDetail)) say(`  Install ${agent.name} first: ${agent.website}`);
   }
 });
 
@@ -272,9 +275,11 @@ const children = new Map();   // agent id → child process
 function launch(m) {
   const reply = (ok, error) => core.send({ type: 'launch_result', to: m.from, id: m.id ?? null, agentId: m.agentId ?? null, ok, ...(error ? { error } : {}) });
   if (child) return reply(false, 'Start other agents from the first agent in this folder.');
-  const e = CATALOG.find((a) => a.id === String(m.agentId || ''));
+  const e = findAgent(CATALOG, String(m.agentId || ''));
   if (!e) return reply(false, 'Unknown agent. Agents outside the list start from a terminal.');
   if (e.id === agent.id || children.has(e.id)) return reply(false, `${e.name} is already running in this folder.`);
+  const plan = launchPlan(e);
+  if (plan.error) return reply(false, plan.error);
   const p = spawn(process.execPath, [fileURLToPath(import.meta.url), e.id, '--cwd', cwd, '--server', server, '--child', ...(verbose ? ['--verbose'] : [])], { cwd, env: { ...process.env, HEARTHCADE_NO_BROWSER: '1' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   children.set(e.id, p);
   const tag = dim(`[${e.name}] `);
@@ -310,8 +315,17 @@ function help() {
   options: --server <url>  --new (connect again)  --verbose (show the agent's log)`);
 }
 function listAgents() {
-  for (const a of CATALOG) { const l = launchOf(a); say(`  ${bold(a.id.padEnd(12))} ${a.name.padEnd(18)} ${dim([l.command, ...l.args].join(' '))}`); }
-  say(dim(`\n  From the ACP registry (agentclientprotocol.com). Any other ACP agent: hearthcade-acp -- <its command>`));
+  for (const a of CATALOG) { const l = launchPlan(a); say(`  ${bold(a.id.padEnd(20))} ${(a.name + ' ' + dim('v' + a.version)).padEnd(28)} ${dim(l.error ? 'not available here' : l.kind === 'binary' ? 'downloads ' + l.platform + ' build' : [l.command, ...l.args].join(' '))}`); }
+  say(dim(`\n  The ACP Registry (agentclientprotocol.com/registry). Any other ACP agent: hearthcade-acp -- <its command>`));
+}
+
+/** The agent to start, from its registry entry: a command, or a binary to fetch first. */
+function agentFrom(e) {
+  const plan = launchPlan(e);
+  if (plan.error) return { error: plan.error };
+  const base = { id: e.id, name: e.name, version: e.version, website: e.website || e.repository };
+  if (plan.kind !== 'binary') return { ...base, command: plan.command, args: plan.args, env: plan.env };
+  return { ...base, command: null, args: [], prepare: (onProgress) => installBinary(e, plan, { onProgress }) };
 }
 
 async function mcpStdio(url) {

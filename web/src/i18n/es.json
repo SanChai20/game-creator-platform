@@ -2819,5 +2819,19 @@
   "This is a system folder": "Es una carpeta del sistema",
   "The agent works in {folder}, where a terminal opened as administrator starts. Agents often cannot work there. Stop it with Ctrl+C, open a terminal in your game's folder, and run the command again.": "El agente trabaja en {folder}, donde empieza una terminal abierta como administrador. Los agentes a menudo no pueden trabajar ahí. Detenlo con Ctrl+C, abre una terminal en la carpeta de tu juego y vuelve a ejecutar el comando.",
   "Stop this agent": "Detener este agente",
-  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} rechazó un ajuste de su propio archivo de configuración que una copia antigua no conoce. Reinicia el agente: el banco de trabajo ahora inicia la última versión."
+  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} rechazó un ajuste de su propio archivo de configuración que una copia antigua no conoce. Reinicia el agente: el banco de trabajo ahora inicia la última versión.",
+  "{name} {version} is downloaded with npx the first time; the progress shows here.": "{name} {version} se descarga con npx la primera vez; el progreso se muestra aquí.",
+  "The bridge downloads {name} {version} for that computer the first time, checks it against the registry and keeps it.": "El puente descarga {name} {version} para ese ordenador la primera vez, lo verifica con el registro y lo guarda.",
+  "{name} {version} starts with uvx, so uv must be installed on that computer (docs.astral.sh/uv).": "{name} {version} se inicia con uvx, así que uv debe estar instalado en ese ordenador (docs.astral.sh/uv).",
+  "No Windows build": "Sin versión para Windows",
+  "No macOS build": "Sin versión para macOS",
+  "No Linux build": "Sin versión para Linux",
+  "Needs uv": "Necesita uv",
+  "Repository": "Repositorio",
+  "Website": "Sitio web",
+  "License": "Licencia",
+  "The agents of the": "Los agentes del",
+  "ACP Registry": "Registro ACP",
+  ", the same list Zed offers.": ", la misma lista que ofrece Zed.",
+  "ID: {id}": "ID: {id}"
 }

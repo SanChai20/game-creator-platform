@@ -48,7 +48,7 @@ export class BridgeCore {
     this.watchDownload = o.watchDownload === undefined ? watchNpxDownload : o.watchDownload;   // null: no download watch
     this.stallMs = o.stallMs || STALL_MS;
     this.progress = null;                 // while starting: { phase, bytes, total, line, stalled }
-    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.5' };
+    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.6' };
     this.status = 'idle'; this.statusDetail = '';
     this.init = null;                     // the agent's initialize result
     this.sessions = new Map();            // sessionId → session
@@ -64,6 +64,20 @@ export class BridgeCore {
   async start() {
     this.startedAt = Date.now();
     this.progress = { phase: 'starting', bytes: 0, total: null, line: '', stalled: false };
+    // an agent the registry ships as a binary: download, check and unpack it first (once per version)
+    if (this.agent.prepare && !this.agent.command) {
+      const gen = Symbol('prepare'); this.preparing = gen;
+      this.setStatus('starting', `Downloading ${this.agent.name}`);
+      try {
+        const got = await this.agent.prepare(({ bytes, total }) => { if (this.preparing === gen && this.status === 'starting') this.bumpProgress({ phase: 'downloading', bytes, total }); });
+        if (this.preparing !== gen || this.closed) return;
+        Object.assign(this.agent, { command: got.command, args: got.args || [], env: { ...(this.agent.env || {}), ...(got.env || {}) } });
+      } catch (e) {
+        if (this.preparing === gen) { this.failAll(e); this.setStatus('failed', String(e?.message || e)); }
+        return;
+      } finally { if (this.preparing === gen) this.preparing = null; }
+      this.progress = { phase: 'starting', bytes: 0, total: null, line: '', stalled: false };
+    }
     this.setStatus('starting', `${this.agent.command} ${(this.agent.args || []).join(' ')}`.trim());
     let proc;
     try {
@@ -497,17 +511,3 @@ export function splitCommand(s) {
   return out;
 }
 
-/** A package name with @latest, unless it names a version already. */
-const latest = (spec) => (String(spec).lastIndexOf('@') > 0 || /[=<>~]/.test(spec) ? spec : spec + '@latest');
-
-/** The command that starts an agent from the catalog (agents.json), or null when the id is unknown. */
-export function launchOf(entry) {
-  const l = entry?.launch;
-  if (!l) return null;
-  // @latest: npx and uvx otherwise keep starting the copy they downloaded first, however old. An old agent breaks on
-  // settings its own newer CLI wrote (Claude Agent 0.24 refused permissions.defaultMode "auto"), so each start checks.
-  if (l.npx) return { command: 'npx', args: ['-y', latest(l.npx), ...(l.args || [])] };
-  if (l.uvx) return { command: 'uvx', args: [latest(l.uvx), ...(l.args || [])] };
-  if (l.bin) return { command: l.bin, args: [...(l.args || [])] };
-  return null;
-}

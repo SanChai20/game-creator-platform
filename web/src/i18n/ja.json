@@ -2820,5 +2820,19 @@
   "This is a system folder": "システムフォルダーです",
   "The agent works in {folder}, where a terminal opened as administrator starts. Agents often cannot work there. Stop it with Ctrl+C, open a terminal in your game's folder, and run the command again.": "エージェントは {folder} で動いています。管理者として開いたターミナルはここから始まります。エージェントは多くの場合ここでは作業できません。Ctrl+C で止め、ゲームのフォルダーでターミナルを開いて、コマンドをもう一度実行してください。",
   "Stop this agent": "このエージェントを停止",
-  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} は自身の設定ファイルにある設定を拒否しました（古い版はその設定を知りません）。エージェントを再起動してください。ワークベンチは最新版を起動するようになりました。"
+  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} は自身の設定ファイルにある設定を拒否しました（古い版はその設定を知りません）。エージェントを再起動してください。ワークベンチは最新版を起動するようになりました。",
+  "{name} {version} is downloaded with npx the first time; the progress shows here.": "{name} {version} は初回に npx でダウンロードされ、進行状況はここに表示されます。",
+  "The bridge downloads {name} {version} for that computer the first time, checks it against the registry and keeps it.": "ブリッジは初回にそのコンピューター用の {name} {version} をダウンロードし、レジストリと照合して保存します。",
+  "{name} {version} starts with uvx, so uv must be installed on that computer (docs.astral.sh/uv).": "{name} {version} は uvx で起動するため、そのコンピューターに uv が必要です（docs.astral.sh/uv）。",
+  "No Windows build": "Windows 版なし",
+  "No macOS build": "macOS 版なし",
+  "No Linux build": "Linux 版なし",
+  "Needs uv": "uv が必要",
+  "Repository": "リポジトリ",
+  "Website": "ウェブサイト",
+  "License": "ライセンス",
+  "The agents of the": "",
+  "ACP Registry": "ACP レジストリ",
+  ", the same list Zed offers.": "のエージェント。Zed と同じリストです。",
+  "ID: {id}": "ID：{id}"
 }
