@@ -236,4 +236,5 @@ export function fold(entries: Entry[]): { items: Item[]; plan: Plan | null; file
 }
 
 /** The agent's name for people: what it reports, else the catalog's. */
-export const agentTitle = (b: BridgeState) => b.init?.agentInfo?.title || b.info.agent || b.agent?.name || b.init?.agentInfo?.name || 'Agent';
+// a custom agent keeps the name the creator gave it; a listed one shows what the agent calls itself
+export const agentTitle = (b: BridgeState) => (b.info.agentId === 'custom' && b.info.agent) || b.init?.agentInfo?.title || b.info.agent || b.agent?.name || b.init?.agentInfo?.name || 'Agent';

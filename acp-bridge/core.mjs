@@ -48,7 +48,7 @@ export class BridgeCore {
     this.watchDownload = o.watchDownload === undefined ? watchNpxDownload : o.watchDownload;   // null: no download watch
     this.stallMs = o.stallMs || STALL_MS;
     this.progress = null;                 // while starting: { phase, bytes, total, line, stalled }
-    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.2' };
+    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.3' };
     this.status = 'idle'; this.statusDetail = '';
     this.init = null;                     // the agent's initialize result
     this.sessions = new Map();            // sessionId → session

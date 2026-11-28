@@ -28,6 +28,15 @@ export function AgentMark({ id, name, size = 'm' }: { id: string; name: string; 
 /** A path inside the agent's folder, shown relative to it. */
 const rel = (cwd: string | undefined, p: string) => { const c = (cwd || '').replace(/[\\/]+$/, ''); return c && p.startsWith(c + '/') || c && p.startsWith(c + '\\') ? p.slice(c.length + 1) : p; };
 const base = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+const NEW = '\u0000new';
+/** A yes/no the creator sets once and the page remembers (folded panels). */
+function useStored(key: string): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(() => { try { return localStorage.getItem(key) === '1'; } catch { return false; } });
+  return [v, (x: boolean) => { setV(x); try { localStorage.setItem(key, x ? '1' : '0'); } catch { /* private mode */ } }];
+}
+const PanelIcon = ({ side }: { side: 'left' | 'right' }) => (
+  <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" /><rect x={side === 'left' ? 2.5 : 12.5} y="3.5" width="5" height="13" rx="1" fill="currentColor" opacity=".35" /><path d={side === 'left' ? 'M7.5 4v12' : 'M12.5 4v12'} stroke="currentColor" strokeWidth="1.5" /></svg>
+);
 const agentById = (id?: string) => AGENTS.find((a) => a.id === id);
 const isBin = (a: CatalogAgent) => !!a.launch.bin;
 
@@ -103,30 +112,46 @@ function PairApproval({ code, onDone }: { code: string; onDone: () => void }) {
 
 /** Pick an agent and get the one command that starts it. */
 function AgentPicker({ ov, value, onChange, custom, setCustom }: { ov: Overview; value: string; onChange: (id: string) => void; custom: string; setCustom: (s: string) => void }) {
-  const [all, setAll] = useState(false);
-  const shown = all ? AGENTS : AGENTS.filter((a) => a.featured);
+  const [q, setQ] = useState(''), [name, setName] = useState('');
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? AGENTS.filter((x) => (x.name + ' ' + x.id + ' ' + (x.description || '')).toLowerCase().includes(needle)) : AGENTS;
   const a = agentById(value);
-  const cmd = value === 'custom' ? acpCommand(ov.server, '', custom.trim() || '<agent command>') : acpCommand(ov.server, value);
+  const isCustom = value === 'custom';
+  const cmd = isCustom ? acpCommand(ov.server, '', custom.trim() || '<command>', name) : acpCommand(ov.server, value);
   return (
     <div className="stack">
-      <div className="wb-agents" role="radiogroup" aria-label={t('Agent', '智能体')}>
+      <input className="input" type="search" placeholder={t('Search {n} agents', '搜索 {n} 个智能体', { n: AGENTS.length })} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Search agents', '搜索智能体')} />
+      <div className="wb-alist" role="radiogroup" aria-label={t('Agent', '智能体')}>
         {shown.map((x) => (
-          <button key={x.id} type="button" role="radio" aria-checked={value === x.id} className={value === x.id ? 'on' : ''} onClick={() => onChange(x.id)} title={x.description}>
-            <AgentMark id={x.id} name={x.name} size="s" /><span className="clip">{x.name}</span>
+          <button key={x.id} type="button" role="radio" aria-checked={value === x.id} className={value === x.id ? 'on' : ''} onClick={() => onChange(x.id)}>
+            <AgentMark id={x.id} name={x.name} size="s" />
+            <b className="clip">{x.name}</b>
+            <span className="dim clip grow">{x.description}</span>
+            {isBin(x) && <span className="wb-tag" title={t('Install it first', '需要先安装')}>{t('Install first', '需先安装')}</span>}
           </button>
         ))}
-        <button type="button" role="radio" aria-checked={value === 'custom'} className={value === 'custom' ? 'on' : ''} onClick={() => onChange('custom')}>
-          <span className="wb-mark s plain" aria-hidden="true">{'>_'}</span><span>{t('Other ACP agent', '其他 ACP 智能体')}</span>
-        </button>
+        {!shown.length && <p className="dim fs-sm pad-s">{t('No agent in the list matches. Add it as another agent below.', '列表中没有匹配的智能体。可以在下方把它添加为其他智能体。')}</p>}
       </div>
-      <button type="button" className="linkish fs-sm" onClick={() => setAll(!all)}>{all ? t('Show fewer', '收起') : t('Show all {n} agents from the ACP registry', '显示 ACP 注册表中的全部 {n} 个智能体', { n: AGENTS.length })}</button>
-      {value === 'custom' && <input className="input mono" placeholder={t('The command that starts your agent in ACP mode', '以 ACP 模式启动你的智能体的命令')} value={custom} onChange={(e) => setCustom(e.target.value)} aria-label={t('Agent command', '智能体命令')} />}
+      <button type="button" role="radio" aria-checked={isCustom} className={`wb-other${isCustom ? ' on' : ''}`} onClick={() => onChange('custom')}>
+        <span className="wb-mark s plain" aria-hidden="true">+</span>
+        <b>{t('Another agent', '其他智能体')}</b>
+        <span className="dim clip grow">{t('Any program that speaks ACP: give its command', '任何支持 ACP 的程序：填写它的启动命令')}</span>
+      </button>
+      {isCustom && (
+        <div className="wb-custom">
+          <label className="stack s"><span className="fs-sm"><b>{t('Command', '命令')}</b> <span className="dim">{t('starts the agent in ACP mode, as you would type it in a terminal', '以 ACP 模式启动智能体，与在终端中输入的一样')}</span></span>
+            <input className="input mono" placeholder="my-agent --acp" value={custom} onChange={(e) => setCustom(e.target.value)} autoFocus spellCheck={false} /></label>
+          <label className="stack s"><span className="fs-sm"><b>{t('Name', '名称')}</b> <span className="dim">{t('optional, shown in the workbench', '可选，显示在工作台中')}</span></span>
+            <input className="input" placeholder={t('My agent', '我的智能体')} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} /></label>
+          <p className="dim fs-sm">{t('For example: npx -y @scope/agent-acp, uvx my-agent acp, or the path to a program. It talks ACP over its standard input and output; the agent\'s own docs say how to start it that way.', '例如：npx -y @scope/agent-acp、uvx my-agent acp，或某个程序的路径。它需要通过标准输入输出使用 ACP；具体启动方式见该智能体的文档。')}</p>
+        </div>
+      )}
       <Code text={cmd} />
       <p className="dim fs-sm">
         {a && isBin(a)
           ? <>{t('Install {name} first, so the command "{bin}" works in your terminal.', '请先安装 {name}，确保终端里可以运行 “{bin}” 命令。', { name: a.name, bin: a.launch.bin! })} <a href={a.website} target="_blank" rel="noreferrer">{t('Get {name}', '获取 {name}', { name: a.name })}</a>. </>
           : a ? <>{t('{name} is fetched with npx the first time.', '首次运行时会通过 npx 下载 {name}。', { name: a.name })} <a href={a.website} target="_blank" rel="noreferrer">{t('About {name}', '关于 {name}', { name: a.name })}</a>. </> : null}
-        {t('Needs Node.js 22 or newer. Sign in to the agent the way it asks (for example its own login or API key).', '需要 Node.js 22 或更高版本。按智能体自己的方式登录（例如它自带的登录或 API 密钥）。')}
+        {t('Run it in your game\'s folder. Needs Node.js 22 or newer. Sign in to the agent the way it asks (for example its own login or API key).', '在你的游戏文件夹中运行。需要 Node.js 22 或更高版本。按智能体自己的方式登录（例如它自带的登录或 API 密钥）。')}
       </p>
     </div>
   );
@@ -208,18 +233,22 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
   const [sel, setSel] = useState<string>(() => { try { return sessionStorage.getItem('wb.bridge') || ''; } catch { return ''; } });
   const b = bridges.find((x) => x.info.id === sel) || bridges[bridges.length - 1];
   const sessions = useMemo(() => [...b.sessions.values()].sort((x, y) => y.createdAt - x.createdAt), [b.sessions, b.sessions.size]);
+  // '' follows the newest session; NEW is a fresh conversation the creator asked for (its session starts with the
+  // first message)
   const [sid, setSid] = useState<string>('');
   const s = b.sessions.get(sid) || null;
   const [adding, setAdding] = useState(false), [rail, setRail] = useState(false);
+  const [sideOff, setSideOff] = useStored('wb.side-off'), [railOff, setRailOff] = useStored('wb.rail-off');
   useEffect(() => { try { sessionStorage.setItem('wb.bridge', b.info.id); } catch { /* fine */ } }, [b.info.id]);
-  // follow the newest session when none is chosen (or the chosen one went away)
-  useEffect(() => { if (!s && sessions.length) setSid(sessions[0].sessionId); }, [s, sessions]);
+  useEffect(() => { if (sid !== NEW && !s && sessions.length) setSid(sessions[0].sessionId); }, [sid, s, sessions]);
+  // on narrow screens the rail is a panel over the chat; on wide ones it is a column that can fold away
+  const toggleRail = () => { if (window.matchMedia('(max-width: 1180px)').matches) setRail(!rail); else setRailOff(!railOff); };
 
   const choose = (id: string) => { setSel(id); setSid(''); };
   const otherAsks = bridges.filter((x) => x !== b && x.asks.size).length;
 
   return (
-    <div className={`wb ${rail ? 'rail-open' : ''}`}>
+    <div className={`wb${rail ? ' rail-open' : ''}${sideOff ? ' side-off' : ''}${railOff ? ' rail-off' : ''}`}>
       <aside className="wb-side" aria-label={t('Agents and sessions', '智能体与会话')}>
         <div className="wb-side-h">{t('Agents', '智能体')}{otherAsks > 0 && <Badge tone="accent">{otherAsks}</Badge>}</div>
         <div className="wb-bridges">
@@ -238,7 +267,7 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
 
         <div className="wb-side-h">
           {t('Sessions', '会话')}
-          <button className="btn btn-sm btn-ghost" onClick={() => setSid('')} disabled={b.status !== 'ready'}>+ {t('New', '新建')}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setSid(NEW)} disabled={b.status !== 'ready'}>+ {t('New', '新建')}</button>
         </div>
         <div className="wb-sessions">
           {sessions.length ? sessions.map((x) => (
@@ -251,7 +280,7 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
       </aside>
 
       <section className="wb-main" aria-label={t('Conversation', '对话')}>
-        <Conversation key={b.info.id + '|' + (s?.sessionId || 'new')} b={b} s={s} onSession={setSid} onRail={() => setRail(!rail)} />
+        <Conversation key={b.info.id + '|' + (s?.sessionId || 'new')} b={b} s={s} onSession={setSid} onRail={toggleRail} onSide={() => setSideOff(!sideOff)} sideOff={sideOff} railOff={(typeof window !== 'undefined' && window.matchMedia('(max-width: 1180px)').matches) ? !rail : railOff} />
       </section>
 
       <aside className="wb-rail" aria-label={t('Plan and files', '计划与文件')}>
@@ -285,7 +314,7 @@ function StatusDot({ b }: { b: BridgeState }) {
 }
 
 // ----- one conversation -------------------------------------------------------------------------------------------
-function Conversation({ b, s, onSession, onRail }: { b: BridgeState; s: SessionInfo | null; onSession: (id: string) => void; onRail: () => void }) {
+function Conversation({ b, s, onSession, onRail, onSide, sideOff, railOff }: { b: BridgeState; s: SessionInfo | null; onSession: (id: string) => void; onRail: () => void; onSide: () => void; sideOff: boolean; railOff: boolean }) {
   const { toast } = useApp();
   const entries = (s && b.transcripts.get(s.sessionId)) || EMPTY;
   const { items } = useMemo(() => fold(entries), [entries, entries.length]);
@@ -320,11 +349,12 @@ function Conversation({ b, s, onSession, onRail }: { b: BridgeState; s: SessionI
   return (
     <>
       <header className="wb-top">
+        <button className={`wb-tog${sideOff ? '' : ' on'}`} onClick={onSide} aria-pressed={!sideOff} title={sideOff ? t('Show agents and sessions', '显示智能体与会话') : t('Hide agents and sessions', '隐藏智能体与会话')}><PanelIcon side="left" /></button>
         <div className="grow stack s">
           <b className="clip">{title}</b>
           <small className="dim clip">{agentTitle(b)}{b.init?.agentInfo?.version ? ` ${b.init.agentInfo.version}` : ''} · <span className="mono">{b.info.cwd || b.cwd}</span></small>
         </div>
-        <button className="btn btn-sm btn-ghost wb-rail-btn" onClick={onRail}>{t('Plan', '计划')}</button>
+        <button className={`wb-tog${railOff ? '' : ' on'}`} onClick={onRail} aria-pressed={!railOff} title={t('Plan, files and agent', '计划、文件与智能体')}><PanelIcon side="right" /></button>
       </header>
 
       <div className="wb-scroll" ref={scroller} onScroll={onScroll}>

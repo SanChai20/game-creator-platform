@@ -93,7 +93,7 @@ async function main() {
   const b1 = startBridge(home);
   const [, code] = await b1.wait(/code is ([A-Z]{4}-[A-Z]{4})/);
   const info = must(await owner.get(`/api/acp/pair/${code}`));
-  assert.equal(info.agent, process.execPath);
+  assert.equal(info.agent, process.execPath.split(/[\\/]/).pop());   // a custom agent is named after its program
   assert.ok(info.host);
   // another creator cannot see or approve it, a stranger's code guess is refused
   const other = client(); await signUp(other, `acp2-${run}@example.com`, `Other ${run}`);
