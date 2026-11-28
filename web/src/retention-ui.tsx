@@ -9,6 +9,7 @@ export interface RetentionData {
   retention: { new_players: number; returned: number; day1: Rate; day7: Rate; day30: Rate; cohorts: { week: string; players: number; day1: number | null; day7: number | null }[] };
   first_session: { players: number; median_minutes: number; quick_quit_share: number; curve: { minute: number; still_playing: number }[] };
   store_funnel: { step: string; count: number }[];
+  shared_views?: number;
   events: { names: { name: string; count: number; players: number; total: number; average: number }[]; funnel: { step: string; players: number; share: number; from_previous: number }[]; funnel_steps: string[] };
 }
 
@@ -61,6 +62,7 @@ export function StoreFunnelCard({ d }: { d: RetentionData }) {
     <Card title={t('From store page to regular', '从商店页面到常客')} pad>
       <div className="stack">
         <Share items={d.store_funnel.map((s) => ({ name: names[s.step] || s.step, value: s.count, note: num(s.count) + (top && s !== d.store_funnel[0] ? ` · ${Math.round((s.count / top) * 1000) / 10}%` : '') }))} />
+        {!!d.shared_views && <p className="fs-sm">{t('{n} of the page views came from shared links and embeds on other sites.', '其中 {n} 次页面浏览来自分享链接和其他网站上的嵌入卡片。', { n: num(d.shared_views) })}</p>}
         <p className="dim fs-sm">{t('Store page views are counted from late November 2026 onward. The other steps count signed-in players only.', '商店页面浏览数从 2026 年 11 月下旬起统计。其余步骤只统计已登录玩家。')}</p>
       </div>
     </Card>

@@ -113,7 +113,7 @@ const h = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.char
 /** JSON for a <script> tag: nothing in it can close the tag. */
 const ld = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
-export interface PageMeta { title: string; description: string; path: string; image?: string | null; type?: 'website' | 'video.game' | 'article'; jsonld?: unknown[]; noscript?: string; noindex?: boolean }
+export interface PageMeta { title: string; description: string; path: string; image?: string | null; oembed?: string; type?: 'website' | 'video.game' | 'article'; jsonld?: unknown[]; noscript?: string; noindex?: boolean }
 
 /** Puts the page's meta into the app's index.html (its <title>, description and the tags after them). */
 export function injectMeta(html: string, origin: string, m: PageMeta): string {
@@ -122,7 +122,8 @@ export function injectMeta(html: string, origin: string, m: PageMeta): string {
     ? `<meta name="robots" content="noindex, nofollow">`
     : [`<link rel="canonical" href="${h(url)}">`, `<meta property="og:type" content="${m.type || 'website'}">`, `<meta property="og:url" content="${h(url)}">`,
       `<meta property="og:title" content="${h(m.title)}">`, `<meta property="og:description" content="${h(desc)}">`, `<meta property="og:site_name" content="HearthCade">`,
-      m.image ? `<meta property="og:image" content="${h(m.image)}">` : '', `<meta name="twitter:card" content="${m.image ? 'summary_large_image' : 'summary'}">`,
+      m.image ? `<meta property="og:image" content="${h(m.image)}">` : '', m.image && m.type === 'video.game' ? `<meta property="og:image:width" content="1920"><meta property="og:image:height" content="1080"><meta property="og:image:alt" content="${h(m.title.split(':')[0])}">` : '',
+      m.oembed ? `<link rel="alternate" type="application/json+oembed" href="${h(m.oembed)}" title="${h(m.title)}">` : '', `<meta name="twitter:card" content="${m.image ? 'summary_large_image' : 'summary'}">`,
       `<link rel="alternate" type="text/plain" title="Summary for language models" href="${h(origin)}/llms.txt">`,
       ...(m.jsonld || []).map((j) => `<script type="application/ld+json">${ld(j)}</script>`)].filter(Boolean).join('\n');
   let out = html.replace(/<title>[^<]*<\/title>/, `<title>${h(m.title)}</title>`).replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${h(desc)}">`);

@@ -678,7 +678,11 @@ api.get('/games/:slug', async (c) => {
   }
   // a store page load for the creator's store funnel (src/analytics.ts); the creator's own and crawlers' are not counted
   if (p.status === 'live' && (!u || u.id !== p.owner_id) && !/bot|crawl|spider|preview|headless/i.test(c.req.header('user-agent') || '')) {
-    c.executionCtx.waitUntil(c.env.DB.prepare('INSERT INTO game_daily (project_id, day, views) VALUES (?, ?, 1) ON CONFLICT(project_id, day) DO UPDATE SET views = views + 1').bind(p.id, dayOf(now())).run().catch(() => {}));
+    {
+      // a visit from a shared link or another site's embed card (src/share.ts) is counted apart as well
+      const shared = ['share', 'embed'].includes(c.req.query('ref') || '') ? 1 : 0;
+      c.executionCtx.waitUntil(c.env.DB.prepare('INSERT INTO game_daily (project_id, day, views, shared_views) VALUES (?, ?, 1, ?) ON CONFLICT(project_id, day) DO UPDATE SET views = views + 1, shared_views = shared_views + excluded.shared_views').bind(p.id, dayOf(now()), shared).run().catch(() => {}));
+    }
   }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
   // the buyer's refund: whether the Refund button is enabled, and every reason it is not (src/refunds.ts)

@@ -2915,5 +2915,16 @@
   "Event": "事件",
   "Times": "次數",
   "Average value": "平均值",
-  "Reported by the game, from signed-in players of the live game.": "由遊戲回報，僅統計線上遊戲的已登入玩家。"
+  "Reported by the game, from signed-in players of the live game.": "由遊戲回報，僅統計線上遊戲的已登入玩家。",
+  "{n} of the page views came from shared links and embeds on other sites.": "其中 {n} 次頁面瀏覽來自分享連結和其他網站上的嵌入卡片。",
+  "Play {title} in your browser": "在瀏覽器中玩 {title}",
+  "Copying is blocked here. Select the text and copy it.": "此處無法複製，請選取文字後手動複製。",
+  "Share…": "分享…",
+  "Link copied.": "連結已複製。",
+  "Copy link": "複製連結",
+  "Embed": "嵌入",
+  "Put this game on your site, blog or wiki. The card shows the cover and how many are playing now; Play opens the game here.": "把這款遊戲放到你的網站、部落格或維基上。卡片顯示封面和目前在玩人數，點擊開始會在這裡開啟遊戲。",
+  "Embed code": "嵌入程式碼",
+  "Embed code copied.": "嵌入程式碼已複製。",
+  "Copy embed code": "複製嵌入程式碼"
 }

@@ -2894,5 +2894,16 @@
   "Event": "이벤트",
   "Times": "횟수",
   "Average value": "평균값",
-  "Reported by the game, from signed-in players of the live game.": "게임이 보고한 값으로, 공개된 게임의 로그인한 플레이어만 집계합니다."
+  "Reported by the game, from signed-in players of the live game.": "게임이 보고한 값으로, 공개된 게임의 로그인한 플레이어만 집계합니다.",
+  "{n} of the page views came from shared links and embeds on other sites.": "이 중 {n}회는 공유 링크와 다른 사이트의 임베드 카드에서 왔습니다.",
+  "Play {title} in your browser": "브라우저에서 {title} 플레이하기",
+  "Copying is blocked here. Select the text and copy it.": "여기서는 복사할 수 없습니다. 텍스트를 선택해 복사하세요.",
+  "Share…": "공유…",
+  "Link copied.": "링크를 복사했습니다.",
+  "Copy link": "링크 복사",
+  "Embed": "임베드",
+  "Put this game on your site, blog or wiki. The card shows the cover and how many are playing now; Play opens the game here.": "이 게임을 내 사이트, 블로그, 위키에 올려 보세요. 카드에는 커버와 지금 플레이 중인 인원이 표시되고, 플레이를 누르면 여기서 게임이 열립니다.",
+  "Embed code": "임베드 코드",
+  "Embed code copied.": "임베드 코드를 복사했습니다.",
+  "Copy embed code": "임베드 코드 복사"
 }

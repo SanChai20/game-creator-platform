@@ -2894,5 +2894,16 @@
   "Event": "イベント",
   "Times": "回数",
   "Average value": "平均値",
-  "Reported by the game, from signed-in players of the live game.": "ゲームからの報告で、公開中のゲームのサインイン済みプレイヤーのみが対象です。"
+  "Reported by the game, from signed-in players of the live game.": "ゲームからの報告で、公開中のゲームのサインイン済みプレイヤーのみが対象です。",
+  "{n} of the page views came from shared links and embeds on other sites.": "そのうち {n} 回の閲覧は、共有リンクや他サイトの埋め込みカードからでした。",
+  "Play {title} in your browser": "ブラウザで {title} を遊ぼう",
+  "Copying is blocked here. Select the text and copy it.": "ここではコピーできません。テキストを選択してコピーしてください。",
+  "Share…": "共有…",
+  "Link copied.": "リンクをコピーしました。",
+  "Copy link": "リンクをコピー",
+  "Embed": "埋め込み",
+  "Put this game on your site, blog or wiki. The card shows the cover and how many are playing now; Play opens the game here.": "このゲームをあなたのサイト、ブログ、Wiki に載せましょう。カードにはカバーと今プレイ中の人数が表示され、プレイを押すとここでゲームが開きます。",
+  "Embed code": "埋め込みコード",
+  "Embed code copied.": "埋め込みコードをコピーしました。",
+  "Copy embed code": "埋め込みコードをコピー"
 }

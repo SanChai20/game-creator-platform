@@ -70,7 +70,7 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30, funnelSt
     db.prepare("SELECT user_id, MIN(started_at) AS first_at, MAX(started_at) AS last_at FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player' GROUP BY user_id HAVING MIN(started_at) >= ?2").bind(pid, since).all<{ user_id: string; first_at: number; last_at: number }>(),
     // how long each of those players' first session lasted
     db.prepare("SELECT seconds FROM (SELECT seconds, started_at, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY started_at) AS rn FROM plays WHERE project_id = ?1 AND env = 'live' AND kind = 'player') WHERE rn = 1 AND started_at >= ?2").bind(pid, since).all<{ seconds: number }>(),
-    db.prepare('SELECT COALESCE(SUM(views), 0) AS views FROM game_daily WHERE project_id = ? AND day >= ?').bind(pid, firstDay).first<{ views: number }>(),
+    db.prepare('SELECT COALESCE(SUM(views), 0) AS views, COALESCE(SUM(shared_views), 0) AS shared FROM game_daily WHERE project_id = ? AND day >= ?').bind(pid, firstDay).first<{ views: number; shared: number }>(),
     eventSummary(db, pid, since) as Promise<{ name: string; count: number; players: number; total: number; average: number }[]>,
     eventDaily(db, pid, since) as Promise<{ day: string; name: string; count: number }[]>,
     funnelSteps ? Promise.resolve(null) : db.prepare("SELECT json_extract(v.manifest, '$.funnel') AS f FROM projects p JOIN versions v ON v.project_id = p.id AND v.n = p.live_version WHERE p.id = ?").bind(pid).first<{ f: string | null }>(),
@@ -127,6 +127,8 @@ export async function gameAnalytics(env: Env, pid: string, daysIn = 30, funnelSt
       { step: 'players_counted', count: counted?.n || 0 },
       { step: 'players_returned', count: retention.returned },
     ],
+    // of the store page views, those that came from a shared link or an embed card on another site
+    shared_views: views?.shared || 0,
     // What the game counts with GCP.track(name, value), and its funnel (gcp.json "funnel", or the steps asked for).
     events: { names: events, daily: eventDays, funnel: steps.length ? await funnel(db, pid, steps, since) as { step: string; players: number; share: number; from_previous: number }[] : [], funnel_steps: steps },
     // What the game says about itself, through its heartbeat. Useful for finding bugs; never used for any number above.

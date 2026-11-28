@@ -18,6 +18,7 @@ import { OPERATOR } from '../operator';
 import { RefundBox, type RefundState } from '../refund-ui';
 import { GiftDialog, type GameGift } from '../gift-ui';
 import { DevlogSection } from '../devlog-ui';
+import { ShareCard } from '../share-ui';
 
 
 export { Stage } from '../player';
@@ -106,7 +107,9 @@ export function resumeLine(c: { last_played: number; saved_at: number | null; re
 
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
-  const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
+  // arrived from a shared link or an embed card (?ref=share, ?ref=embed): the creator's analytics count it apart
+  const ref = useRef(['share', 'embed'].includes(query().get('ref') || '') ? query().get('ref') : null).current;
+  const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}${ref ? `?ref=${ref}` : ''}`);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null), ticket = useRef<string | null>(null);
   const [giftMode, setGiftMode] = useState<{ mode: 'give' | 'ask'; to?: string } | null>(null);
   useInstallHold(!!url || busy === 'play');   // the install popup never opens over a game that is starting or running
@@ -359,6 +362,7 @@ export function Game({ slug }: { slug: string }) {
             </StatGrid>
             {user && live && <MyProgress slug={slug} playing={!!url} />}
             {live && <Achievements slug={slug} playing={!!url} />}
+            {live && <ShareCard slug={slug} title={title} />}
             <Card title={t('What players think', '玩家怎么看')} aside={count(g.rating_count, 'rating', 'ratings', '个评分')} pad>
               <div className="dist">{[5, 4, 3, 2, 1].map((n) => <div key={n}><span>{n}★</span><i><b style={{ width: `${total ? (data.rating_dist[n - 1] / total) * 100 : 0}%` }} /></i><span className="num">{data.rating_dist[n - 1]}</span></div>)}</div>
             </Card>

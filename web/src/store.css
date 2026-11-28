@@ -680,3 +680,6 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .devlog-body { margin: 0; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.55; }
 .devlog-body.clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 .devlog .linkish { justify-self: start; }
+
+/* Share card on the game page (web/src/share-ui.tsx) */
+.share-to { display: flex; flex-wrap: wrap; gap: 6px 14px; }

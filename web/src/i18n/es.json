@@ -2893,5 +2893,16 @@
   "Event": "Evento",
   "Times": "Veces",
   "Average value": "Valor medio",
-  "Reported by the game, from signed-in players of the live game.": "Lo informa el juego, a partir de jugadores con sesión iniciada en el juego publicado."
+  "Reported by the game, from signed-in players of the live game.": "Lo informa el juego, a partir de jugadores con sesión iniciada en el juego publicado.",
+  "{n} of the page views came from shared links and embeds on other sites.": "{n} de las visitas llegaron desde enlaces compartidos e insertados en otros sitios.",
+  "Play {title} in your browser": "Juega a {title} en tu navegador",
+  "Copying is blocked here. Select the text and copy it.": "Aquí no se puede copiar. Selecciona el texto y cópialo.",
+  "Share…": "Compartir…",
+  "Link copied.": "Enlace copiado.",
+  "Copy link": "Copiar enlace",
+  "Embed": "Insertar",
+  "Put this game on your site, blog or wiki. The card shows the cover and how many are playing now; Play opens the game here.": "Pon este juego en tu web, blog o wiki. La tarjeta muestra la portada y cuántos juegan ahora; Jugar abre el juego aquí.",
+  "Embed code": "Código para insertar",
+  "Embed code copied.": "Código para insertar copiado.",
+  "Copy embed code": "Copiar código para insertar"
 }
