@@ -3400,5 +3400,22 @@
   "In words. The platform pays nothing out.": "文章で記載。プラットフォームからの支払いはありません。",
   "Description (optional)": "説明（任意）",
   "Official (run by the platform)": "公式（プラットフォーム主催）",
-  "Schedule": "予定する"
+  "Schedule": "予定する",
+  "Broken or unplayable": "壊れている・遊べない",
+  "Your rating": "あなたの評価",
+  "The level is deleted.": "レベルを削除しました。",
+  "1 play": "1 回プレイ",
+  "{n} plays": "{n} 回プレイ",
+  "Your rating: {n}★": "あなたの評価：{n}★",
+  "Rate": "評価する",
+  "Mine": "自分の",
+  "Sharing is off: players cannot share new levels. Levels already shared stay until you hide them.": "共有はオフです。プレイヤーは新しいレベルを共有できません。共有済みのレベルは非表示にするまで残ります。",
+  "Levels players made in your game and shared. You can hide any of them.": "プレイヤーがあなたのゲームで作って共有したレベルです。どれでも非表示にできます。",
+  "Levels other players made in this game. Make your own in the game and share it.": "ほかのプレイヤーがこのゲームで作ったレベルです。ゲーム内で自分のレベルを作って共有しましょう。",
+  "Player levels": "プレイヤーのレベル",
+  "Sort levels": "レベルの並べ替え",
+  "Let players share levels": "プレイヤーのレベル共有を許可",
+  "Turn level sharing off": "レベル共有をオフにする",
+  "You have not shared a level of this game yet.": "このゲームのレベルはまだ共有していません。",
+  "No levels yet. Make one in the game and share it.": "まだレベルがありません。ゲーム内で作って共有しましょう。"
 }

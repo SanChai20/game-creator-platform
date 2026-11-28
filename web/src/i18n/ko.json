@@ -3400,5 +3400,22 @@
   "In words. The platform pays nothing out.": "글로 적어 주세요. 플랫폼은 아무것도 지급하지 않습니다.",
   "Description (optional)": "설명(선택)",
   "Official (run by the platform)": "공식(플랫폼 주최)",
-  "Schedule": "일정 잡기"
+  "Schedule": "일정 잡기",
+  "Broken or unplayable": "고장 나거나 플레이할 수 없음",
+  "Your rating": "내 평점",
+  "The level is deleted.": "레벨이 삭제되었습니다.",
+  "1 play": "1회 플레이",
+  "{n} plays": "{n}회 플레이",
+  "Your rating: {n}★": "내 평점: {n}★",
+  "Rate": "평가",
+  "Mine": "내 레벨",
+  "Sharing is off: players cannot share new levels. Levels already shared stay until you hide them.": "공유가 꺼져 있습니다. 플레이어는 새 레벨을 공유할 수 없습니다. 이미 공유된 레벨은 숨길 때까지 남아 있습니다.",
+  "Levels players made in your game and shared. You can hide any of them.": "플레이어가 내 게임에서 만들어 공유한 레벨입니다. 어떤 레벨이든 숨길 수 있습니다.",
+  "Levels other players made in this game. Make your own in the game and share it.": "다른 플레이어가 이 게임에서 만든 레벨입니다. 게임에서 직접 만들어 공유해 보세요.",
+  "Player levels": "플레이어 레벨",
+  "Sort levels": "레벨 정렬",
+  "Let players share levels": "플레이어의 레벨 공유 허용",
+  "Turn level sharing off": "레벨 공유 끄기",
+  "You have not shared a level of this game yet.": "아직 이 게임의 레벨을 공유하지 않았습니다.",
+  "No levels yet. Make one in the game and share it.": "아직 레벨이 없습니다. 게임에서 만들어 공유해 보세요."
 }

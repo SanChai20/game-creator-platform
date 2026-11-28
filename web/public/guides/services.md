@@ -42,6 +42,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Game jams and festivals | available | none | `jam` | metadata |
 | Devlogs and patch notes | available | none | `devlog`, `publish` (`patch_notes`) | metadata |
 | Achievements | available | `GCP.achievements` | `deploy_preview` (checks `gcp.json` `achievements`) | saves |
+| Player-made levels | available | `GCP.levels`, `GCP.launch.level` | none (gcp.json `levels`) | saves |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
 | Continue playing | automatic | `GCP.launch.continue`, `GCP.resume` | none | saves |
 | Shared game data | available | `GCP.shared.get` | `game_data` (set, get, list, delete) | saves |
@@ -241,6 +242,17 @@ const { me, others, state } = match.view();  // every frame: me predicted, other
 - Snapshots are deltas against the previous one; `view(state, player)` sends each player only what they may see.
 
 Limits: 16 players per match by default (at most 64), 2 KB per input, 64 KB per snapshot per player, 1 hour per match, 20 s to reconnect. Details: `get_started {topic: "matches"}`.
+
+## Player-made levels
+
+Players make levels, maps or mods in the game and share them with everyone who plays it. Turn it on with `"levels": true` in `gcp.json`, or just call `GCP.levels.publish` (`"levels": false` keeps the shelf off).
+
+- `GCP.levels.publish({ title, description, data })` shares one: `data` is the game's own JSON (at most 256 KB), the title 3 to 60 characters, the description up to 300. Pass `id` to publish a new version of the player's own level. It resolves `{ ok, id }` or `{ ok: false, code, error }` (`guest`, `levels_off`, `bad_title`, `not_allowed`, `too_big`, `too_many`, `rate_limited`). Only signed-in players publish: check `GCP.levels.available`.
+- `GCP.levels.list({ sort: 'top' | 'new' | 'played' | 'mine', offset })` returns `{ levels, more }` without data; `GCP.levels.get(id)` loads one with `data` (a play is counted once per player), or `null` when it is gone or hidden.
+- `GCP.levels.rate(id, stars)` rates a level the player opened, 1 to 5 stars. `GCP.levels.remove(id)` deletes one of the player's own.
+- The game page shows the same shelf. Its Play button opens the game with `GCP.launch.level` set: load it with `GCP.levels.get` and start it.
+- Titles and descriptions pass the platform's content rules and may not carry links. Three reports hide a level until an admin looks. The creator can hide any level or turn sharing off on the game page. A preview's levels stay in the preview.
+- Treat level data as hostile: validate every field before using it.
 
 ## Friends, invites and presence
 
@@ -462,7 +474,7 @@ Plan around these instead of looking for them.
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |
 | Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store` for data. A key can live in `server/` (never served), but there is no secrets store or rotation: prefer keys you can revoke. |
 | Asset hosting beyond the game's storage (a CDN or bucket for large downloads) | Generate content from code, or load it at run time from a host the developer controls (any HTTPS host with CORS). `game_storage` explains both and asks for more storage when a game truly needs it. |
-| Uploads from players (screenshots, levels, avatars) | Small player-made content as JSON in saves, or in shared data through server code. |
+| Uploads from players (screenshots, images, avatars) | Player-made levels share JSON the game draws from (see Player-made levels). Other small player-made content goes as JSON in saves, or in shared data through server code. |
 | Push notifications and email to players | None; use shared data for in-game announcements. |
 | Camera, microphone and geolocation | Blocked in the play frame. |
 | Native, mobile, console or desktop builds and app-store links | Web games only; engines with a web export are welcome. |

@@ -59,6 +59,7 @@ import { dismiss, forYou } from '../recommend.js';
 import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
 import { cancel as cancelTournament, create as createTournament, join as joinTournament, leave as leaveTournament, list as listTournaments, tick as tickTournaments, TournamentError, view as viewTournament } from '../tournaments.js';
+import { get as getLevel, LevelError, levelsOpen, list as listLevels, rate as rateLevel, remove as removeLevel, report as reportLevel, setHidden as setLevelHidden, setLevelsOff, supportsLevels } from '../levels.js';
 import { addClip, ClipError, clipsOf, clipsOpen, countView, deleteClip, getClip, LIMITS as CLIP_LIMITS, myClips, prepareClip, reportClip, setClipsOff, setHidden as setClipHidden } from '../clips.js';
 import { CommunityError, editPost, moderatePost, removePost, removeReviewReply, reply as boardReply, replyToReview, reportPost, setBoard, startThread, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
 import { CollectionError, addGame as addToList, browse as browseLists, createCollection, deleteCollection, follow as followList, listsFor, removeGame as removeFromList, reorder as reorderList, staffPicks, updateCollection, view as listView } from '../collections.js';
@@ -1171,6 +1172,47 @@ api.post('/clips/:id/report', async (c) => {
   return c.json(await reportClip(c.env.DB, c.req.param('id'), u.id, String(b.reason || '')).catch(clipErr));
 });
 
+// Player-made levels (src/levels.js): the shelf on the game page. Games publish them through GCP.levels (src/routes/rt.ts).
+const levelErr = (e: unknown): never => { if (e instanceof LevelError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const liveManifest = async (c: Ctx, p: any) => p.live_version ? (await c.env.DB.prepare('SELECT manifest FROM versions WHERE project_id = ? AND n = ?').bind(p.id, p.live_version).first<{ manifest: string | null }>())?.manifest ?? null : null;
+api.get('/games/:slug/levels', async (c) => {
+  const { p, v } = await boardGame(c), m = await liveManifest(c, p);
+  c.header('cache-control', 'private, no-store');
+  const r = await listLevels(c.env.DB, p.id, 'live', { sort: c.req.query('sort'), offset: Number(c.req.query('offset') || 0), me: v?.id || null });
+  return c.json({ ...r, supported: supportsLevels(m), open: levelsOpen(p, m), off: !!p.levels_off });
+});
+api.put('/games/:slug/levels', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ on?: boolean }>().catch(() => ({} as { on?: boolean }));
+  if (!v || (v.id !== p.owner_id && v.role !== 'admin')) throw new AppError(403, 'Only the game\'s creator can turn level sharing off.', 'forbidden');
+  await setLevelsOff(c.env.DB, p.id, b.on === false);
+  return c.json({ off: b.on === false });
+});
+api.get('/levels/:id', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const v = viewerOf(c), l = await getLevel(c.env.DB, c.req.param('id'), { env: 'live', me: v?.id || null, admin: v?.role === 'admin' });
+  if (!l) throw notFound('No such level.');
+  return c.json({ level: l });
+});
+api.post('/levels/:id/rate', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ stars?: number }>().catch(() => ({} as { stars?: number }));
+  return c.json(await rateLevel(c.env.DB, c.req.param('id'), u.id, b.stars).catch(levelErr));
+});
+api.post('/levels/:id/report', async (c) => {
+  const u = requireUser(c); if (isGuestId(u.id)) throw new AppError(401, 'Sign in to report.', 'unauthenticated');
+  const b = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
+  await rateLimit(c.env, 'levelreport:' + u.id, 30, 3600);
+  return c.json(await reportLevel(c.env.DB, c.req.param('id'), u.id, String(b.reason || '')).catch(levelErr));
+});
+api.put('/levels/:id/hidden', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ hidden?: boolean }>().catch(() => ({} as { hidden?: boolean }));
+  await setLevelHidden(c.env.DB, c.req.param('id'), u.id, b.hidden !== false, u.role === 'admin').catch(levelErr);
+  return c.json({ ok: true });
+});
+api.delete('/levels/:id', async (c) => {
+  const u = requireUser(c);
+  await removeLevel(c.env.DB, c.req.param('id'), u.id, u.role === 'admin').catch(levelErr);
+  return c.json({ ok: true });
+});
 // Curated collections (src/collections.js): lists of games that players and staff put together, followed and shared.
 const listErr = (e: unknown): never => { if (e instanceof CollectionError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
 const listCard = (origin: string, l: any) => ({ ...l, covers: l.covers.map((x: any) => ({ slug: x.slug, title: x.title, cover: media(origin, x.cover_key) })) });
