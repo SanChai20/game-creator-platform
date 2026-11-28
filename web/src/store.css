@@ -673,3 +673,10 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .ach-ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: rgb(var(--text-rgb) / .08); font-size: 15px; }
 .ach-list li.on .ach-ico { background: var(--accent); color: var(--on-accent); }
 .lib-ach { font-variant-numeric: tabular-nums; }
+
+/* Devlogs and patch notes (web/src/devlog-ui.tsx): the game page's News section and the console card */
+.devlog { display: grid; gap: 6px; padding: 14px 16px; border-radius: 12px; background: rgb(var(--text-rgb) / .04); min-width: 0; }
+.devlog header b { overflow-wrap: anywhere; }
+.devlog-body { margin: 0; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.55; }
+.devlog-body.clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.devlog .linkish { justify-self: start; }

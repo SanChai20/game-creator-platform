@@ -17,6 +17,7 @@ import { legalTitle } from './Legal';
 import { OPERATOR } from '../operator';
 import { RefundBox, type RefundState } from '../refund-ui';
 import { GiftDialog, type GameGift } from '../gift-ui';
+import { DevlogSection } from '../devlog-ui';
 
 
 export { Stage } from '../player';
@@ -332,6 +333,7 @@ export function Game({ slug }: { slug: string }) {
             {meta && <Glance meta={meta} tags={g.tags} />}
             {data.compat && <CompatSection c={data.compat} v={cv} />}
             {meta && <LanguagesSection l={meta.languages} declared={meta.languages_declared} listings={listings} />}
+            {live && <DevlogSection slug={slug} />}
 
             <section className="stack l">
               <SectionHead title={t('Ratings and reviews', '评分与评价')} note={g.rating_count ? <Verdict g={g} full /> : undefined} />

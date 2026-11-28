@@ -48,6 +48,9 @@ import { addDays, b64u, dayOf, now, parseJson, readCapped, rid, safeEqual, sha25
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
+import { publishDevlog } from '../devlog-news';
+// @ts-ignore plain JS module
+import { DevlogError, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.js';
 // @ts-ignore plain JS module
 import { declaredFor, rarityOf, unlocksOf, viewOf } from '../achievements.js';
 // @ts-ignore plain JS module
@@ -793,6 +796,32 @@ api.get('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   return c.json(await playerSummary(c.env.DB, scopeOf(p.id, 'live'), u.id));
 });
+// A game's devlog: news posts and patch notes, newest first (src/devlogs.js). Everyone can read a live game's.
+const devlogErr = (e: unknown): never => { if (e instanceof DevlogError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/games/:slug/devlogs', async (c) => {
+  const p = await liveGame(c, c.req.param('slug'));
+  return c.json(await listDevlogs(c.env.DB, p.id, { before: c.req.query('before') || null, limit: Number(c.req.query('limit')) || undefined }));
+});
+// The owner writes, edits and deletes posts from the console; posting to a live game tells its players.
+api.post('/console/projects/:id/devlogs', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  if (p.status !== 'live') throw new AppError(409, 'Publish the game first: a post is for its players.', 'not_live');
+  await rateLimit(c.env, 'devlog:' + u.id, 20, 3600);
+  const b = await c.req.json<{ title?: string; body?: string }>().catch(() => ({} as { title?: string; body?: string }));
+  const r = await publishDevlog(c.env, p, u.id, { title: b.title, body: b.body }).catch(devlogErr);
+  await logEvent(c.env, p.id, 'devlog', String(b.title || '').slice(0, 120), null, 'console');
+  return c.json({ ok: true, ...r });
+});
+api.patch('/console/projects/:id/devlogs/:did', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ title?: string; body?: string }>().catch(() => ({} as { title?: string; body?: string }));
+  return c.json(await editDevlog(c.env.DB, p.id, c.req.param('did'), b).catch(devlogErr));
+});
+api.delete('/console/projects/:id/devlogs/:did', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await deleteDevlog(c.env.DB, p.id, c.req.param('did')).catch(devlogErr));
+});
+
 // A live game's achievements: everyone sees the list and how rare each one is; a signed-in player also sees their own unlocks.
 api.get('/games/:slug/achievements', async (c) => {
   const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), db = c.env.DB, scope = scopeOf(p.id, 'live');

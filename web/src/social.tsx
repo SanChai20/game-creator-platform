@@ -118,6 +118,12 @@ function onMessage(m: any) {
       if (ev.game?.slug) toast({ kind: 'new_game', who: ev.creator?.name, title: t('{name} published a new game', '{name} 发布了新游戏', { name: ev.creator?.name || '' }), body: local(ev.game, 'title'),
         actions: [{ label: t('Play', '游玩'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}`) }] });
       break;
+    case 'devlog':
+      // news on a game this player follows the creator of, keeps, bought or played (src/devlog-news.ts)
+      notesArrived();
+      if (ev.game?.slug) toast({ kind: 'new_game', title: t('News from {game}', '{game} 有新动态', { game: local(ev.game, 'title') }), body: String(ev.devlog?.title || '').slice(0, 120),
+        actions: [{ label: t('Read', '查看'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}#news`) }] });
+      break;
     case 'message': {
       const open = S.chat && S.chat.peer === ev.peer && S.open?.peer?.id === ev.peer;
       if (open && ev.msg && !S.chat!.messages.some((x) => x.id === ev.msg.id)) { S.chat!.messages = [...S.chat!.messages, ev.msg]; emit(); if (!ev.mine) void api(`/social/chat/${ev.peer}/read`, { method: 'POST' }).catch(() => {}); }

@@ -125,7 +125,7 @@ export async function announceNewGame(db, creatorId, projectId, limits = LIMITS,
 // game shows only while that game can be played: a game taken down drops out of the list and the count. data.project is
 // the game's id (new_game) or {id, slug, title} (gifts, src/gifts.ts).
 const FEED_WHERE = `n.user_id = ?1 AND n.kind NOT IN (${friendKinds})
-  AND (n.kind != 'new_game' OR EXISTS (SELECT 1 FROM projects p WHERE p.id = json_extract(n.data, '$.project') AND p.status = 'live' AND p.hidden_at IS NULL))`;
+  AND (n.kind NOT IN ('new_game', 'devlog') OR EXISTS (SELECT 1 FROM projects p WHERE p.id = json_extract(n.data, '$.project') AND p.status = 'live' AND p.hidden_at IS NULL))`;
 
 export async function unreadCount(db, me) {
   return (await db.prepare(`SELECT COUNT(*) AS n FROM notifications n WHERE ${FEED_WHERE} AND n.read_at IS NULL`).bind(me).first())?.n || 0;

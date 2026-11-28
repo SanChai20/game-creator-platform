@@ -85,6 +85,8 @@ function noteView(n: Note): { text: string; to: string } | null {
   const g = n.game ? shown(n.game as never) as Game : null;
   switch (n.kind) {
     case 'new_game': return g ? { text: t('{name} published a new game: {game}', '{name} 发布了新游戏：{game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    // a devlog or patch note on a game the player follows the creator of, keeps, bought or played (src/devlogs.js)
+    case 'devlog': return g ? { text: t('{name} posted news about {game}', '{name} 发布了 {game} 的动态', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}#news` } : null;
     // gifts between friends (src/gifts.ts)
     case 'gift_request': return g ? { text: t('{name} would like {game} as a gift', '{name} 想请你赠送 {game}', { name: n.actor.name, game: g.title }), to: '/gifts' } : null;
     case 'gift_declined': return g ? { text: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;

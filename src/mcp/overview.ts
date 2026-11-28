@@ -47,6 +47,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
     ['compatibility', 'what the game needs from the browser and device, detected from the code and declared'],
     ['update_project', 'title, tagline, description, cover (and one per language), price, trial, sale, sharing'],
     ['build_skill', 'the game\'s build skill, written before each release while sharing is on'],
+    ['devlog', 'news posts on the game page, announced to the game\'s players; patch notes go with publish {patch_notes}'],
   ] },
   { id: 'testing', title: 'Testing and feedback', tools: [
     ['debug_preview', 'drive the preview in a real browser: screenshots (PNG, zoom), clicks, taps, keys, typing, waits, eval; returns the game\'s state and errors; desktop, phone, tablet, iPhone and iPad viewports'],

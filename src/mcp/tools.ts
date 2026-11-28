@@ -68,6 +68,9 @@ import { checkBase, diffFiles, diffLine, isSame, textDiff, type BaseVerdict, typ
 import { checkoutVersion, parseSource, readSourceFile, sourceFiles, sourceName, versionOrThrow, workspaceLine, workspaceState, type Source } from '../version-store';
 import { SCOPE, TESTING, toolMap } from './overview';
 import { deleteProject } from '../project-delete';
+import { publishDevlog } from '../devlog-news';
+// @ts-ignore plain JS module
+import { DevlogError, cleanPatchNotes, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.js';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
 
 /** The platform guides an agent can read: how the platform behaves, not how to make a game. */
@@ -580,6 +583,9 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
     await logEvent(c.env, p.id, 'review_requested', 'The verification browser could not run this version', v.n, c.client);
     return { live: false, version: v.n, review: 'pending', next: `Version ${v.n} is waiting for a platform review because the verification browser could not run it. It goes live by itself once approved; list_versions {project, version: ${v.n}} shows the review state. Tell the user.` };
   }
+  // patch notes ride with the version and are posted by the pipeline when it goes live (src/devlog-news.ts)
+  const notes = rollback ? null : cleanPatchNotes(a.patch_notes, v.n);
+  if (notes) await c.env.DB.prepare('UPDATE versions SET patch_notes = ? WHERE project_id = ? AND n = ?').bind(JSON.stringify(notes), p.id, v.n).run();
   await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
   await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client, mode: rollback ? 'rollback' : 'publish' });
   const end = Date.now() + 45000;
@@ -1350,7 +1356,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
   {
     name: 'publish', title: 'Publish a verified version',
     description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. Every platform requirement is checked on the server first (verification against today\'s checks, including the playability checks: reacts to input and keeps running through bot play (a score or an ending is optional); playable on computers, tablets and phones, unchanged files, store metadata, storage, the weekly cap on new games (a few new games per account per 7 days, more for well-rated games; updates are never capped), the build skill when shared, originality and content, license and account); a refusal lists every rule that fails with exactly what to fix, and dry_run: true checks without publishing. A new game starts on the store\'s New shelf and moves to the main store by itself once players stick with it; the answer\'s store field says where it stands. Design recommendations (game_standards: cover, orientation, layout, loading screen, sound) are reported as advice and never refuse a version. open_implementation sets whether other developers\' agents may learn how the game is built (never its code) and whether its build skill is in the Creator Store; leave it out to keep the current choice, and ask the user before turning it on. While it is on, every new version needs its build skill written first (build_skill {action: "write", version}), so the skill always matches the live game.',
-    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' }, dry_run: { type: 'boolean', description: 'Optional. true checks every platform requirement for this version and returns each rule with its status and what to do, without publishing anything.' } }, ['project']),
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' }, dry_run: { type: 'boolean', description: 'Optional. true checks every platform requirement for this version and returns each rule with its status and what to do, without publishing anything.' }, patch_notes: { type: 'object', description: 'Optional, recommended for an update: what changed for players, as { title?, body } (title up to 120 characters, default "Version N"; body plain text up to 5000). Posted on the game page when the version goes live, and players who follow the creator, keep, bought or recently played the game are told under the bell. Write it for players, in the listing\'s language.', properties: { title: { type: 'string' }, body: { type: 'string' } } } }, ['project']),
     run: (a, c) => publishVersion(a, c, false),
   },
   {
@@ -1581,6 +1587,32 @@ The whole set as one page: get_started {topic: "standards"}.`,
             : `Saved all platform languages for version ${r.version}. It shows in the Creator Store once version ${r.version} is live: publish {project, version: ${r.version}}.`,
         ...(q.open_implementation ? {} : { not_shared: 'Open Implementation is off, so nothing is shared yet. Ask the user before turning it on (update_project {open_implementation: true}).' }),
       };
+    },
+  },
+  {
+    name: 'devlog', title: 'Post news and patch notes on the game page',
+    description: 'The game\'s devlog: posts on its store page that players read, announced under the bell to players who follow the creator, keep the game in their library, bought it, or played it in the last 90 days. Actions: list (the newest posts, before for older ones), post (title up to 120 characters and body up to 5000, plain text; at most 3 posts a day per game; the game must be live to announce), edit (id, title, body; no new announcement) and delete (id). Patch notes for an update go with publish {patch_notes} instead, so they appear when the version goes live. Ask the user before posting: it is the creator speaking to players.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'post', 'edit', 'delete'] },
+      id: { type: 'string', description: 'edit and delete: the post\'s id from list.' },
+      title: { type: 'string', description: 'post and edit: the headline, up to 120 characters.' },
+      body: { type: 'string', description: 'post and edit: plain text with line breaks, up to 5000 characters.' },
+      before: { type: 'integer', description: 'list: the created_at of the last post shown, for older ones.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof DevlogError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return { ...(await listDevlogs(c.env.DB, p.id, { before: a.before })), game_page: `${c.origin}/g/${p.slug}#news` };
+      if (a.action === 'post') {
+        if (p.status !== 'live') throw bad('This game is not live, so nobody would read the post.', 'Publish the game first; for an update, pass patch_notes to publish.');
+        const r = await guard(() => publishDevlog(c.env, p, c.user.id, { title: a.title, body: a.body }));
+        await logEvent(c.env, p.id, 'devlog', String(a.title || '').slice(0, 120), null, c.client);
+        return { ok: true, ...r, game_page: `${c.origin}/g/${p.slug}#news` };
+      }
+      if (a.action === 'edit') return guard(() => editDevlog(c.env.DB, p.id, a.id, { title: a.title, body: a.body }));
+      if (a.action === 'delete') return guard(() => deleteDevlog(c.env.DB, p.id, a.id));
+      throw bad('action must be list, post, edit or delete.');
     },
   },
   {
