@@ -374,6 +374,7 @@ export function platformServices(s: Settings, origin: string): Service[] {
       not_for: ['Multiplayer, friends or shared levels, which need HearthCade', 'Other storefronts: only YouTube Playables is exported'],
       sdk: ['GCP.host'], mcp_tools: [],
       http: [`${origin}/api/console/projects/<id>/export/youtube`, `${origin}/api/console/projects/<id>/export/youtube/download?version=<n>`],
+      limits: { versions: 'verified versions only', downloads_per_hour: 30, left_out: 'server/' },
       guidelines: ['When GCP.host is "youtube", hide sign-in, multiplayer, friends and leaderboard screens.', 'Keep everything the game loads in its own files: a Playable loads nothing from other servers.', 'Keep the score the game reports a whole number where higher is better.', 'Do not submit for the creator: they submit the zip to YouTube themselves.'],
       guide: 'services',
     },
