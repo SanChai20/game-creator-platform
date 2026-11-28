@@ -326,3 +326,29 @@
 /* long lines (a tool's error, a command) wrap instead of scrolling sideways */
 .wb-pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: hidden; }
 .wb-end.labelled.agent > span { max-width: 78%; text-align: center; line-height: 1.5; text-wrap: balance; }
+
+/* ---- the rail's plan and files: a fixed height of whole rows, paged ---------------------------------------------- */
+.wb-panel h3 { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.wb-pager { display: inline-flex; align-items: center; gap: 2px; color: var(--text-3); font: 600 11px/1 var(--font-mono); letter-spacing: 0; text-transform: none; }
+.wb-pager button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-sm, 6px); background: none; color: var(--text-2, var(--text)); font: 600 15px/1 var(--font-sans); cursor: pointer; }
+.wb-pager button:hover:not(:disabled) { background: rgb(var(--text-rgb) / .08); }
+.wb-pager button:disabled { opacity: .3; cursor: default; }
+.wb-pager > span { min-width: 30px; text-align: center; }
+.wb-files.paged { gap: 0; grid-auto-rows: 26px; align-content: start; }
+.wb-plan.paged { gap: 0; grid-auto-rows: 44px; align-content: start; }
+.wb-plan.paged.fixed { height: calc(44px * 5); }
+.wb-plan.paged li { align-items: center; }
+.wb-plan.paged .box { margin-top: 0; }
+.wb-two { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+.wb-plan-md { max-height: 236px; overflow: auto; }
+details.wb-agent-info > summary { list-style: none; cursor: pointer; }
+details.wb-agent-info > summary::-webkit-details-marker { display: none; }
+details.wb-agent-info > summary h3::after { content: ""; width: 6px; height: 6px; margin: 0 4px 0 auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform var(--dur, .15s); }
+details.wb-agent-info[open] > summary h3::after { transform: rotate(45deg); }
+details.wb-agent-info > summary h3 .dim { font: 500 12px/1 var(--font-sans); letter-spacing: 0; text-transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details.wb-agent-info:not([open]) { padding-bottom: 12px; }
+/* the files take the rail's spare height (at least four rows); the rail itself does not scroll on a usual screen */
+.wb-rail-in { min-height: 100%; display: flex; flex-direction: column; }
+.wb-rail-in > * { flex: none; }
+.wb-rail-in > .wb-files-panel { flex: 1 1 0; min-height: calc(26px * 4 + 48px); grid-template-rows: auto 1fr; }
+.wb-files-box { min-height: calc(26px * 4); overflow: hidden; }

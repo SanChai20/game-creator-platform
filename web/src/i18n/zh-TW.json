@@ -3451,5 +3451,9 @@
   "Controller connected": "已連接手把",
   "Browse and play with it in big-screen mode.": "在大螢幕模式下用手把瀏覽和遊玩。",
   "Open big screen": "開啟大螢幕模式",
-  "Back to big screen": "返回大螢幕模式"
+  "Back to big screen": "返回大螢幕模式",
+  "Previous page": "上一頁",
+  "Next page": "下一頁",
+  "Plan pages": "計畫分頁",
+  "File pages": "檔案分頁"
 }

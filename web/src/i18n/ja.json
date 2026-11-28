@@ -3430,5 +3430,9 @@
   "Controller connected": "コントローラーが接続されました",
   "Browse and play with it in big-screen mode.": "ビッグスクリーンでコントローラーを使って探して遊べます。",
   "Open big screen": "ビッグスクリーンを開く",
-  "Back to big screen": "ビッグスクリーンに戻る"
+  "Back to big screen": "ビッグスクリーンに戻る",
+  "Previous page": "前のページ",
+  "Next page": "次のページ",
+  "Plan pages": "プランのページ",
+  "File pages": "ファイルのページ"
 }

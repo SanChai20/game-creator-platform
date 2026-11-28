@@ -3430,5 +3430,9 @@
   "Controller connected": "컨트롤러가 연결되었습니다",
   "Browse and play with it in big-screen mode.": "빅 스크린 모드에서 컨트롤러로 둘러보고 플레이하세요.",
   "Open big screen": "빅 스크린 열기",
-  "Back to big screen": "빅 스크린으로 돌아가기"
+  "Back to big screen": "빅 스크린으로 돌아가기",
+  "Previous page": "이전 페이지",
+  "Next page": "다음 페이지",
+  "Plan pages": "계획 페이지",
+  "File pages": "파일 페이지"
 }

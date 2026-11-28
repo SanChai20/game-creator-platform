@@ -3429,5 +3429,9 @@
   "Controller connected": "Mando conectado",
   "Browse and play with it in big-screen mode.": "Explora y juega con él en el modo pantalla grande.",
   "Open big screen": "Abrir pantalla grande",
-  "Back to big screen": "Volver a pantalla grande"
+  "Back to big screen": "Volver a pantalla grande",
+  "Previous page": "Página anterior",
+  "Next page": "Página siguiente",
+  "Plan pages": "Páginas del plan",
+  "File pages": "Páginas de archivos"
 }
