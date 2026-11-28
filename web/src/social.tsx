@@ -423,6 +423,7 @@ function FriendList() {
                     onClick={async () => { if (await invite(f, inv)) setSent((x) => ({ ...x, [f.id]: true })); }}>{t('Invite', '邀请')}{can && f.p.s !== 'online' && <small className="fr-st"> · {statusName(f.p.s)}</small>}</Button>)}
                 <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: f.name })} actions={[
                   { label: t('Message', '发消息'), onClick: () => openChat(f) },
+                  { label: t('View profile', '查看资料'), onClick: () => { closePanel(); navigate(`/u/${encodeURIComponent(f.id)}`); } },
                   { label: t('Remove friend', '删除好友'), danger: true, onClick: () => void removeFriend(f) },
                   { label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(f) },
                   { label: t('Report', '举报'), danger: true, onClick: () => setReport(f) },

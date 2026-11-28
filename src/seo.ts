@@ -14,7 +14,7 @@
 // Pure functions: the Worker (src/index.ts) feeds them rows, tests/seo.mjs checks them.
 
 /** Pages that are about one person or one sign-in, or are machinery: never crawled, never indexed. */
-export const PRIVATE_PREFIXES = ['/account', '/library', '/purchases', '/license', '/console', '/admin', '/claim-admin', '/device', '/verify', '/login', '/signup', '/forgot', '/reset', '/authorize', '/oauth', '/api', '/mcp', '/__game', '/offline'];
+export const PRIVATE_PREFIXES = ['/account', '/library', '/purchases', '/license', '/console', '/admin', '/claim-admin', '/device', '/verify', '/login', '/signup', '/forgot', '/reset', '/authorize', '/oauth', '/api', '/mcp', '/__game', '/offline', '/u'];
 export const isPrivatePath = (path: string) => PRIVATE_PREFIXES.some((p) => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'));
 
 /** Crawlers named so it is plain they are welcome (the * group already lets everyone in). */

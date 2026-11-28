@@ -490,7 +490,7 @@ function ReviewsList({ slug, initial, total }: { slug: string; initial: any[]; t
     <div ref={box}>
       <div className="reviews" aria-busy={loading}>{rows.map((r: any, i: number) => (
         <div className="review" key={`${page}-${i}`}>
-          <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span><b>{r.name}</b>{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>
+          <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span>{r.profile ? <Link to={`/u/${encodeURIComponent(r.profile)}`} className="rv-name"><b>{r.name}</b></Link> : <b>{r.name}</b>}{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>
           {r.body && <p className="prose">{r.body}</p>}
         </div>))}</div>
       <ListPager page={page} total={countTotal} perPage={REVIEWS_PER} onPage={go} />

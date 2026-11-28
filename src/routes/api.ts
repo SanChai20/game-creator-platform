@@ -52,6 +52,8 @@ import { publishDevlog } from '../devlog-news';
 // @ts-ignore plain JS module
 import { DevlogError, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.js';
 // @ts-ignore plain JS module
+import { ProfileError, access, profileOf, publicIds, setSettings, settingsOf, showcaseChoices } from '../profiles.js';
+// @ts-ignore plain JS module
 import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
 // @ts-ignore plain JS module
 import { declaredFor, rarityOf, unlocksOf, viewOf } from '../achievements.js';
@@ -60,7 +62,7 @@ import { claimGuest, guestProgress } from '../session-binding.js';
 import { pushTo, socialHub } from '../social';
 import { askForGift, cancelGiftRequest, checkGift, declineGift, gameGiftState, giftDelivered, giftableFriends, giftOverview, giftsOn } from '../gifts';
 // @ts-ignore plain JS module
-import { ensureProfile } from '../social-rules.js';
+import { ensureProfile, relation } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 import { deleteFacts, deleteProject, deleteVerdict } from '../project-delete';
 import { pageMeta, parsePage } from '../paging';
@@ -661,6 +663,12 @@ async function liveGame(c: Ctx, slug: string): Promise<Project & { author: strin
   return p;
 }
 
+/** Reviews as the game page shows them: a reviewer whose profile is public gets a link to it (src/profiles.js). */
+async function withProfiles(db: D1Database, rows: Record<string, any>[], me?: string) {
+  const open = await publicIds(db, rows.map((r) => r.user_id)) as Set<string>;
+  return rows.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!me && r.user_id === me, profile: open.has(r.user_id) || r.user_id === me ? r.user_id : null }));
+}
+
 /** A game whose page anyone may open: live, or announced on a coming soon page (src/wishlist.js). */
 async function pageGame(c: Ctx, slug: string): Promise<Project & { author: string }> {
   const p = await c.env.DB.prepare('SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ?').bind(slug).first<Project & { author: string }>();
@@ -705,7 +713,7 @@ api.get('/games/:slug', async (c) => {
   ]);
   return c.json({
     game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: listingLangs(p, ['title', 'tagline', 'description', 'controls'], (k) => media(origin, k)).i18n || {}, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
-    reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    reviews: await withProfiles(c.env.DB, reviews.results, u?.id),
     reviews_total: revTot?.n || 0,
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
@@ -745,7 +753,7 @@ api.get('/games/:slug/reviews', async (c) => {
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
   ]);
   return c.json({
-    reviews: rows.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    reviews: await withProfiles(c.env.DB, rows.results, u?.id),
     ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
   });
 });
@@ -824,6 +832,32 @@ api.get('/games/:slug/devlogs', async (c) => {
   return c.json(await listDevlogs(c.env.DB, p.id, { before: c.req.query('before') || null, limit: Number(c.req.query('limit')) || undefined }));
 });
 // The owner writes, edits and deletes posts from the console; posting to a live game tells its players.
+// Player profiles (src/profiles.js): shown to whom their owner chose; the owner edits theirs on the Account page.
+const profileErr = (e: unknown): never => { if (e instanceof ProfileError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/players/:id', async (c) => {
+  const u = c.get('user'), id = c.req.param('id'), origin = c.get('origin');
+  const a = await access(c.env.DB, u?.id || null, id) as { state: string; user?: { id: string; name: string; created_at: number } };
+  if (a.state === 'hidden' || !a.user) throw notFound('No such player.');
+  const head = { id: a.user.id, name: a.user.name, joined_at: a.user.created_at, self: a.state === 'self' };
+  // a private profile shows the name, and whether a friend request can be sent (src/social-rules.js relation)
+  const rel = u && a.state !== 'self' ? await relation(c.env.DB, u.id, id) : null;
+  if (a.state === 'private') return c.json({ ...head, private: true, relation: rel });
+  const pr = await profileOf(c.env.DB, id, { self: a.state === 'self', lang: c.req.query('lang') || pageLang(c.req.raw) }) as any;
+  return c.json({ ...head, private: false, relation: rel, ...pr,
+    showcase: pr.showcase.map((g: any) => ({ ...listingLangs(g, ['title', 'tagline'], (k) => media(origin, k)), id: g.id, slug: g.slug, title: g.title, tagline: g.tagline, cover: media(origin, g.cover_key), minutes: g.minutes, achievements: g.achievements, last_played: g.last_at || null, age: g.age || null })),
+    reviews: pr.reviews.map((r: any) => ({ ...r, game: { slug: r.game.slug, title: r.game.title, cover: media(origin, r.game.cover_key) } })) });
+});
+api.get('/me/profile', async (c) => {
+  const u = requireUser(c);
+  return c.json({ id: u.id, ...(await settingsOf(c.env.DB, u.id)), choices: await showcaseChoices(c.env.DB, u.id) });
+});
+api.put('/me/profile', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'profile:' + u.id, 60, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json({ id: u.id, ...(await setSettings(c.env.DB, u.id, { visibility: b.visibility, bio: b.bio, showcase: b.showcase }).catch(profileErr)) });
+});
+
 // Wishlists and coming soon pages (src/wishlist.js)
 const wishErr = (e: unknown): never => { if (e instanceof WishError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
 api.post('/games/:slug/wishlist', async (c) => {
