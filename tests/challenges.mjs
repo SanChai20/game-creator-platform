@@ -99,6 +99,7 @@ test('the weekly goal: a played, free game, half again last week, progress from 
   const w = await ensureWeekly(db, T);
   assert.deepEqual([w.project_id, w.goal_minutes], ['g2', 1500]);
   const v = await challengesView(db, null, T);
+  assert.notEqual(v.daily?.game.id, 'g2');   // the daily challenge leaves the week's game to the weekly goal
   assert.deepEqual([v.weekly.minutes, v.weekly.goal_minutes, v.weekly.game.id], [100, 1500, 'g2']);
   assert.equal(v.weekly.ends_at, Date.parse('2027-03-15T00:00:00Z'));
 });
