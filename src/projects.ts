@@ -14,6 +14,10 @@ import { regionBlockedRefs, regionWarning } from './region-hosts.js';
 import { botContract, botIssues } from './bot-contract.js';
 import { checkStandards, findingLine } from './standards.js';
 import { deviceProblems } from './platform-requirements.js';
+// @ts-ignore plain JS module
+import { parseAchievements } from './achievements.js';
+// @ts-ignore plain JS module
+import { parseFunnel } from './events.js';
 // @ts-ignore plain JS module shared with the tests
 import { apiFindings, deviceIssues, syntaxFindings } from './device-checks.js';
 import { buildCompat, type Compat, type CompatIssue } from '../web/src/compat';
@@ -223,6 +227,10 @@ export interface Manifest {
   meta?: MetaRecord;
   /** On-screen controls for touch screens: gcp.json "controls" laid over the keys found in the code. */
   controls?: TouchControls;
+  /** Achievements this version declares (gcp.json "achievements", src/achievements.js). */
+  /** Custom event names in funnel order (gcp.json "funnel", src/events.js), for the console's analytics. */
+  funnel?: string[];
+  achievements?: { id: string; name: string | Record<string, string>; description?: string | Record<string, string>; hidden?: boolean; stat?: string; goal?: number }[];
 }
 
 export function defaultImports(origin: string): Record<string, string> {
@@ -482,6 +490,14 @@ export async function checkProject(env: Env, p: Project, origin: string, ws: str
   const tc = buildControls({ texts, declared: (gcpRaw as Record<string, unknown> | null)?.controls, declaredInput: c.compat.declared ? c.compat.requirements.input : null });
   for (const i of tc.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: i.hint });
   manifest.controls = tc.controls;
+  // Achievements: milestones the game unlocks with GCP.achievements.unlock, or the platform when a stat reaches a goal.
+  const ach = parseAchievements(gcpRaw.achievements);
+  for (const i of ach.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: 'gcp.json "achievements": [{ "id": "first_win", "name": "First win", "description": "Win a match", "hidden": false, "stat": "wins", "goal": 1 }]. platform_services {service: "achievements"} has the details.' });
+  if (ach.list.length) manifest.achievements = ach.list;
+  // Funnel: the order of the game's own GCP.track events, charted in the console's analytics.
+  const fun = parseFunnel(gcpRaw.funnel);
+  for (const i of fun.issues) (i.level === 'error' ? err : warn)({ file: 'gcp.json', message: `${i.field}: ${i.message}`, hint: 'gcp.json "funnel": ["tutorial_start", "tutorial_done", "level_3"], the names the game sends with GCP.track(name).' });
+  if (fun.steps.length) manifest.funnel = fun.steps;
   // Platform requirement: playable on computers, tablets and phones. publish refuses a version that is not
   // (src/release-gate.ts, rule every_device); said here first so the agent fixes it before it deploys.
   for (const d of deviceProblems(manifest)) warn({ file: 'gcp.json', message: `REQUIRED to publish [every_device]: ${d.message}`, hint: d.fix });

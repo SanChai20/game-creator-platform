@@ -28,10 +28,12 @@ export async function libraryList(db, userId, { limit = 24, offset = 0, filter =
   // a free game that later got a price and was then bought is listed once, as bought
   if (f !== 'bought') parts.push("SELECT l.project_id, 'added' AS source, l.added_at FROM library_games l WHERE l.user_id = ?1 AND NOT EXISTS (SELECT 1 FROM purchases b WHERE b.user_id = ?1 AND b.project_id = l.project_id AND b.status = 'paid')");
   const rows = await db.prepare(`SELECT x.project_id, x.source, x.added_at, (p.price_cents = 0 OR p.owner_id = ?1 OR EXISTS (${PAID})) AS owned,
-      (SELECT pg.last_at FROM player_games pg WHERE pg.project_id = p.id AND pg.user_id = ?1) AS last_played
+      (SELECT pg.last_at FROM player_games pg WHERE pg.project_id = p.id AND pg.user_id = ?1) AS last_played,
+      (SELECT COUNT(*) FROM achievement_unlocks a WHERE a.project_id = p.id AND a.user_id = ?1) AS ach_unlocked,
+      (SELECT json_array_length(v.manifest, '$.achievements') FROM versions v WHERE v.project_id = p.id AND v.n = p.live_version) AS ach_total
     FROM (${parts.join(' UNION ALL ')}) x JOIN projects p ON p.id = x.project_id
     WHERE p.status = 'live' ORDER BY x.added_at DESC, x.project_id LIMIT ?2 OFFSET ?3`).bind(userId, lim + 1, off).all();
-  const list = rows.results.slice(0, lim).map((r) => ({ game_id: r.project_id, source: r.source, added_at: r.added_at, owned: !!r.owned, last_played: r.last_played || null }));
+  const list = rows.results.slice(0, lim).map((r) => ({ game_id: r.project_id, source: r.source, added_at: r.added_at, owned: !!r.owned, last_played: r.last_played || null, achievements: r.ach_total ? { unlocked: Math.min(r.ach_unlocked || 0, r.ach_total), total: r.ach_total } : null }));
   return { list, more: rows.results.length > lim };
 }
 

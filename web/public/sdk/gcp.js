@@ -32,7 +32,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.12.0', fixes: {} };
+  var RT = S.runtime = { version: '2.14.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -1775,6 +1775,39 @@
   // GCP.resume.set may be called every frame by mistake: at most one call reaches the platform every 5 seconds (the
   // latest value wins), and a waiting value is sent at once when the tab is hidden.
   var resumeNext = null, resumeTimer = 0, resumeLast = 0;
+  // ---- achievements ----
+  // Declared in gcp.json "achievements"; unlocked here or by the platform when a player stat reaches its goal. A short
+  // notice shows the name in the corner of the game unless the game draws its own (GCP.achievements.toast = false).
+  var achFns = [], achNames = null;
+  function achDefs() {
+    if (achNames) return achNames;
+    achNames = api('achievements', { op: 'list', lang: GCP.lang }).then(function (r) { var m = {}; (r && r.achievements || []).forEach(function (a) { m[a.id] = a; }); return m; }).catch(function () { achNames = null; return {}; });
+    return achNames;
+  }
+  function achToast(name) {
+    try {
+      var d = document.createElement('div');
+      d.setAttribute('role', 'status'); d.setAttribute('data-gcp-ui', 'toast');
+      d.style.cssText = 'position:fixed;z-index:2147483646;right:12px;bottom:12px;max-width:min(320px,80vw);padding:10px 14px;border-radius:12px;background:rgba(18,20,28,.92);color:#fff;font:600 13px/1.35 system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;opacity:0;transform:translateY(8px);transition:opacity .25s,transform .25s';
+      var t = document.createElement('div'); t.style.cssText = 'font-weight:500;font-size:11px;opacity:.75;letter-spacing:.02em'; t.textContent = ACH_WORD[String(GCP.lang).split('-')[0]] || ACH_WORD.en;
+      var n = document.createElement('div'); n.textContent = '\u2605 ' + name;
+      d.appendChild(t); d.appendChild(n); (document.body || document.documentElement).appendChild(d);
+      requestAnimationFrame(function () { d.style.opacity = '1'; d.style.transform = 'none'; });
+      setTimeout(function () { d.style.opacity = '0'; setTimeout(function () { d.remove(); }, 400); }, 3600);
+    } catch (e) { /* never in the way */ }
+  }
+  var ACH_WORD = { en: 'Achievement unlocked', zh: '\u89e3\u9501\u6210\u5c31', ja: '\u5b9f\u7e3e\u89e3\u9664', ko: '\uc5c5\uc801 \ub2ec\uc131', es: 'Logro desbloqueado' };
+  function achUnlocked(ids) {
+    if (!ids || !ids.length) return;
+    achDefs().then(function (m) {
+      ids.forEach(function (id, i) {
+        var a = m[id] || { id: id, name: id };
+        achFns.forEach(function (fn) { try { fn(a); } catch (e) { note(S.errors, 'achievements.on handler threw: ' + (e && e.message || e)); } });
+        if (GCP.achievements.toast !== false) setTimeout(function () { achToast(a.name || id); }, i * 900);
+      });
+    });
+  }
+  function statCall(op, name, value) { return api('stats', { op: op, name: name, value: value }).then(function (r) { achUnlocked(r.unlocked); return r.value; }).catch(function () { return null; }); }
   function resumeFlush() {
     clearTimeout(resumeTimer); resumeTimer = 0;
     if (!resumeNext) return Promise.resolve(true);
@@ -1782,6 +1815,25 @@
     return api('resume', b).then(function () { return true; }).catch(function () { return false; });
   }
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && resumeNext) resumeFlush(); });
+  // ---- custom analytics events (GCP.track) ----
+  // Counted per name and summed here, then sent together at most every 10 seconds and when the tab is hidden, so a game
+  // can call track() freely. Offline or in a standalone page they are dropped.
+  var trackBuf = {}, trackTimer = 0, TRACK_NAME = /^[a-z0-9][a-z0-9_.-]{0,39}$/;
+  function trackFlush() {
+    clearTimeout(trackTimer); trackTimer = 0;
+    var list = Object.keys(trackBuf).map(function (k) { return trackBuf[k]; }); trackBuf = {};
+    for (var i = 0; i < list.length; i += 20) api('track', { events: list.slice(i, i + 20) }).catch(function () { /* analytics never get in the way */ });
+  }
+  function track(name, value) {
+    name = String(name == null ? '' : name);
+    if (!TRACK_NAME.test(name)) { note(S.errors, 'GCP.track: "' + name.slice(0, 50) + '" is not a valid event name (1 to 40 characters of a-z, 0-9, _, . and -).'); return false; }
+    if (standalone) return false;
+    var v = value == null ? 0 : +value, e = trackBuf[name] || (trackBuf[name] = { name: name, n: 0, sum: 0 });
+    e.n++; if (isFinite(v)) e.sum += v;
+    if (!trackTimer) trackTimer = setTimeout(trackFlush, 10000);
+    return true;
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden' && trackTimer) trackFlush(); });
 
   // The platform language can change while the game runs (the player picks another one on the page around it): GCP.lang
   // follows, the address keeps it (a game that reloads itself opens in it), and GCP.onLang handlers hear about it.
@@ -2056,12 +2108,29 @@
     },
     /** Named numbers kept per player and game: add (default +1), max, min, set. Each resolves to the stored value, or null offline. */
     playerStats: {
-      add: function (name, n) { return api('stats', { op: 'add', name: name, value: n == null ? 1 : +n }).then(function (r) { return r.value; }).catch(function () { return null; }); },
-      max: function (name, v) { return api('stats', { op: 'max', name: name, value: +v }).then(function (r) { return r.value; }).catch(function () { return null; }); },
-      min: function (name, v) { return api('stats', { op: 'min', name: name, value: +v }).then(function (r) { return r.value; }).catch(function () { return null; }); },
-      set: function (name, v) { return api('stats', { op: 'set', name: name, value: +v }).then(function (r) { return r.value; }).catch(function () { return null; }); },
+      add: function (name, n) { return statCall('add', name, n == null ? 1 : +n); },
+      max: function (name, v) { return statCall('max', name, +v); },
+      min: function (name, v) { return statCall('min', name, +v); },
+      set: function (name, v) { return statCall('set', name, +v); },
       get: function (name) { return api('stats', { op: 'get', name: name }).then(function (r) { return r.value; }).catch(function () { return null; }); },
       all: function () { return api('stats', { op: 'all' }).then(function (r) { return r.stats; }).catch(function () { return {}; }); },
+    },
+    /** Counts an analytics event for the creator's charts and funnels (get_stats, the console's Analytics tab): a name of
+        1 to 40 characters of a-z, 0-9, _, . and -, and an optional number added up per name (coins spent, seconds taken).
+        Batched and sent at most every 10 seconds. Returns false for an invalid name. List names in order in gcp.json
+        "funnel" to see how many new players reach each step. */
+    track: track,
+    /** Achievements declared in gcp.json "achievements" ({ id, name, description?, hidden?, stat?, goal? }). The platform
+        unlocks one with stat and goal by itself when GCP.playerStats makes that stat reach the goal. */
+    achievements: {
+      /** Unlocks one id (or an array of ids). Resolves to the ids new this call ([] when already unlocked), or null offline. */
+      unlock: function (id) { return api('achievements', { op: 'unlock', id: id }).then(function (r) { achUnlocked(r.unlocked); return r.unlocked || []; }).catch(function () { return null; }); },
+      /** Resolves to { achievements: [{ id, name, description, hidden, unlocked_at, percent }], total, unlocked, players }, or null offline. */
+      list: function () { return api('achievements', { op: 'list', lang: GCP.lang }).catch(function () { return null; }); },
+      /** fn({ id, name, description }) each time one unlocks in this session. Returns a function that stops listening. */
+      on: function (fn) { if (typeof fn === 'function') achFns.push(fn); return function () { achFns = achFns.filter(function (f) { return f !== fn; }); }; },
+      /** false: the game shows unlocks itself, so the platform's corner notice stays hidden. */
+      toast: true,
     },
     /** What the platform recorded for this player in this game: sessions, play seconds, first and last played, stats, best scores. */
     playRecord: function () { return api('record', {}).catch(function () { return null; }); },

@@ -154,12 +154,13 @@ if (GCP.launch.continue && save.run) startRun(save.run);`} />
                 [t('Verification', '验证'), t('A real browser plays every preview, and can run your own play-through and a two-player check.', '真实浏览器会试玩每个预览，并可运行你自己的通关脚本和双人检查。'), 'GCP.test.onPlaythrough · GCP.test.onTwoPlayers'],
                 ...(s.preview_bots_enabled !== false ? [[t('Test bots', '测试机器人'), t('Bot players join your preview over the real network path, as friends you can invite too. Every online game ships a server/bot.js: the platform does the connecting, matchmaking and invites, your game does its own logic.', '机器人玩家通过真实的网络路径加入你的预览，也能作为好友被你邀请。每款联网游戏都要附带 server/bot.js：连接、匹配与邀请由平台负责，游戏自身的逻辑由你的游戏负责。'), 'preview_bots · server/bot.js'] as [string, string, string]] : []),
                 [t('Sales and payouts', '销售与收益'), t('One-time prices, limited-time sales and free trials handled by the platform on Stripe. The game itself never takes payments.', '一次性定价、限时特价与免费试玩由平台通过 Stripe 处理，游戏本身从不收款。'), 'update_project'],
+                [t('Achievements', '成就'), t('Declare achievements in gcp.json and unlock them from the game, or let a player stat reach a goal. Players see them on the game page with how rare each one is.', '在 gcp.json 中声明成就，由游戏解锁，或在玩家统计达到目标时自动解锁。玩家可在游戏页面看到成就及其稀有度。'), 'GCP.achievements'],
                 [t('Analytics', '数据分析'), t('Players online, sessions, play time, devices, browsers, sales and the errors real players hit.', '在线玩家、游玩次数、时长、设备、浏览器、销量以及真实玩家遇到的错误。'), 'get_stats'],
               ] as [string, string, string][]).map(([title, text, reach]) => (
                 <div key={reach}><h3>{title}</h3><p>{text}</p><code>{reach}</code></div>
               ))}
             </div>
-            <p>{t('Not provided: AI models for games, in-game purchases, achievements, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.', '不提供：供游戏使用的 AI 模型、游戏内购买、成就、游戏内聊天频道、推送通知，以及服务端代码的密钥。服务指南说明了替代做法。')}</p>
+            <p>{t('Not provided: AI models for games, in-game purchases, chat channels inside games, push notifications, and secrets for server code. The services guide says what to use instead.', '不提供：供游戏使用的 AI 模型、游戏内购买、游戏内聊天频道、推送通知，以及服务端代码的密钥。服务指南说明了替代做法。')}</p>
             <p><a className="sig" href="/guides/services.md" target="_blank" rel="noreferrer">{t('Read the services guide', '阅读服务指南')} →</a> · <a className="sig" href="/guides/standards.md" target="_blank" rel="noreferrer">{t('Read the game standards', '阅读游戏标准')} →</a></p>
           </section>
 

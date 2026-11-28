@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, getLang, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, ListPager, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -17,6 +17,8 @@ import { legalTitle } from './Legal';
 import { OPERATOR } from '../operator';
 import { RefundBox, type RefundState } from '../refund-ui';
 import { GiftDialog, type GameGift } from '../gift-ui';
+import { DevlogSection } from '../devlog-ui';
+import { ShareCard } from '../share-ui';
 
 
 export { Stage } from '../player';
@@ -48,6 +50,36 @@ function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
   );
 }
 
+interface Ach { id: string; name: string; description: string; hidden: boolean; unlocked_at: number | null; percent: number; stat?: string; goal?: number }
+/** The game's achievements: everyone sees the list and how rare each one is; a signed-in player also sees which they unlocked. */
+function Achievements({ slug, playing }: { slug: string; playing: boolean }) {
+  const { data, reload } = useData<{ achievements: Ach[]; total: number; unlocked: number; players: number }>(`/games/${encodeURIComponent(slug)}/achievements?lang=${getLang()}`);
+  const [all, setAll] = useState(false);
+  useEffect(() => { if (!playing) void reload(); }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data || !data.total) return null;
+  // unlocked first (newest first), then the rest from the most common to the rarest
+  const list = [...data.achievements].sort((a, b) => (b.unlocked_at || 0) - (a.unlocked_at || 0) || b.percent - a.percent);
+  const shownList = all ? list : list.slice(0, 6);
+  return (
+    <Card title={t('Achievements', '成就')} aside={<span className="dim fs-sm">{data.unlocked ? t('{n} of {total} unlocked', '已解锁 {n}/{total}', { n: data.unlocked, total: data.total }) : count(data.total, 'achievement', 'achievements', '个成就')}</span>} pad>
+      {data.unlocked > 0 && <span className="cont-bar" aria-hidden="true"><b style={{ width: `${Math.round((data.unlocked / data.total) * 100)}%` }} /></span>}
+      <ul className="ach-list">
+        {shownList.map((a) => (
+          <li key={a.id} className={a.unlocked_at ? 'on' : ''}>
+            <span className="ach-ico" aria-hidden="true">{a.unlocked_at ? '★' : a.hidden ? '?' : '☆'}</span>
+            <span className="grow">
+              <b>{a.name || t('Hidden achievement', '隐藏成就')}</b>
+              <span className="mute fs-sm">{a.description || (a.hidden && !a.unlocked_at ? t('Keep playing to find it.', '继续游玩来发现它。') : '')}</span>
+            </span>
+            <span className="dim fs-sm num" title={t('Share of players who unlocked it', '解锁该成就的玩家比例')}>{data.players ? `${a.percent}%` : ''}</span>
+          </li>
+        ))}
+      </ul>
+      {list.length > 6 && <div><Button size="sm" variant="ghost" onClick={() => setAll(!all)}>{all ? t('Show fewer', '收起') : t('Show all {n}', '显示全部 {n} 个', { n: list.length })}</Button></div>}
+    </Card>
+  );
+}
+
 /**
  * The warning an adults-only game shows before it starts. The player must confirm; the server refuses to start the game
  * without that confirmation (POST /games/:slug/play with confirm_mature).
@@ -75,7 +107,9 @@ export function resumeLine(c: { last_played: number; saved_at: number | null; re
 
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
-  const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
+  // arrived from a shared link or an embed card (?ref=share, ?ref=embed): the creator's analytics count it apart
+  const ref = useRef(['share', 'embed'].includes(query().get('ref') || '') ? query().get('ref') : null).current;
+  const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}${ref ? `?ref=${ref}` : ''}`);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null), ticket = useRef<string | null>(null);
   const [giftMode, setGiftMode] = useState<{ mode: 'give' | 'ask'; to?: string } | null>(null);
   useInstallHold(!!url || busy === 'play');   // the install popup never opens over a game that is starting or running
@@ -302,6 +336,7 @@ export function Game({ slug }: { slug: string }) {
             {meta && <Glance meta={meta} tags={g.tags} />}
             {data.compat && <CompatSection c={data.compat} v={cv} />}
             {meta && <LanguagesSection l={meta.languages} declared={meta.languages_declared} listings={listings} />}
+            {live && <DevlogSection slug={slug} />}
 
             <section className="stack l">
               <SectionHead title={t('Ratings and reviews', '评分与评价')} note={g.rating_count ? <Verdict g={g} full /> : undefined} />
@@ -326,6 +361,8 @@ export function Game({ slug }: { slug: string }) {
               <Stat label={t('Rating', '评分')} value={g.rating != null ? `★ ${g.rating.toFixed(1)}` : '—'} />
             </StatGrid>
             {user && live && <MyProgress slug={slug} playing={!!url} />}
+            {live && <Achievements slug={slug} playing={!!url} />}
+            {live && <ShareCard slug={slug} title={title} />}
             <Card title={t('What players think', '玩家怎么看')} aside={count(g.rating_count, 'rating', 'ratings', '个评分')} pad>
               <div className="dist">{[5, 4, 3, 2, 1].map((n) => <div key={n}><span>{n}★</span><i><b style={{ width: `${total ? (data.rating_dist[n - 1] / total) * 100 : 0}%` }} /></i><span className="num">{data.rating_dist[n - 1]}</span></div>)}</div>
             </Card>

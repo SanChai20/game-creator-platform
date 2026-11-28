@@ -26,6 +26,10 @@ import { botFriends, followCreator, inviteBot } from '../bots';
 // @ts-ignore plain JS module
 import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
 // @ts-ignore plain JS module
+import { EventError, trackOp } from '../events.js';
+// @ts-ignore plain JS module
+import { declaredFor, keepsUnlocks, rarityOf, reachedBy, unlock, unlocksOf, viewOf } from '../achievements.js';
+// @ts-ignore plain JS module
 import { bindingProblem } from '../session-binding.js';
 // @ts-ignore plain JS module
 import { currentMatch } from '../match-seats.js';
@@ -200,7 +204,38 @@ rt.post('/save', async (c) => {
 rt.post('/stats', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
   if (!READ_OPS.has(b.op)) await roomForGameData(c.env);
-  return c.json(await guard(() => statOp(c.env.DB, tok, b, now())));
+  const r = await guard(() => statOp(c.env.DB, tok, b, now())) as { ok?: boolean; value?: number };
+  // A stat that reaches an achievement's goal unlocks it (src/achievements.js); the answer names what was new.
+  if (r.ok && typeof r.value === 'number') {
+    const defs = await declaredFor(c.env.DB, tok.g, tok.e);
+    const ids = reachedBy(defs, b.name, r.value) as string[];
+    if (ids.length) {
+      const u = await guard(() => unlock(c.env.DB, scopeOf(tok.g, tok.e), playerOf(tok), defs, ids, now(), keepsUnlocks(tok))) as { unlocked: string[] };
+      if (u.unlocked.length) return c.json({ ...r, unlocked: u.unlocked });
+    }
+  }
+  return c.json(r);
+});
+
+// GCP.track: the game's own analytics events, batched by the SDK (src/events.js). Counted for the creator's funnels.
+rt.post('/track', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  await roomForGameData(c.env);
+  try { return c.json(await trackOp(c.env.DB, scopeOf(tok.g, tok.e), playerOf(tok), b.events, now(), keepsUnlocks(tok))); }
+  catch (e) { if (e instanceof EventError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; }
+});
+
+// GCP.achievements: unlock what the version declares in gcp.json "achievements", list them with the player's unlocks and rarity.
+rt.post('/achievements', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t), db = c.env.DB;
+  const scope = scopeOf(tok.g, tok.e), me = playerOf(tok), defs = await declaredFor(db, tok.g, tok.e);
+  if (b.op === 'unlock') {
+    await roomForGameData(c.env);
+    return c.json(await guard(() => unlock(db, scope, me, defs, b.id ?? b.ids, now(), keepsUnlocks(tok))));
+  }
+  if (b.op !== 'list') throw bad('op must be unlock or list.');
+  const [mine, rarity] = await Promise.all([unlocksOf(db, scope, me), rarityOf(db, scope)]);
+  return c.json(viewOf(defs, mine, rarity, typeof b.lang === 'string' ? b.lang : 'en'));
 });
 
 // GCP.playRecord(): what the platform recorded for this player in this game.

@@ -48,6 +48,11 @@ import { addDays, b64u, dayOf, now, parseJson, readCapped, rid, safeEqual, sha25
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
+import { publishDevlog } from '../devlog-news';
+// @ts-ignore plain JS module
+import { DevlogError, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.js';
+// @ts-ignore plain JS module
+import { declaredFor, rarityOf, unlocksOf, viewOf } from '../achievements.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
 import { pushTo, socialHub } from '../social';
@@ -671,6 +676,14 @@ api.get('/games/:slug', async (c) => {
     const pg = await c.env.DB.prepare('SELECT last_at, resume, (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = ?1 AND s.user_id = ?2) AS saved_at FROM player_games WHERE project_id = ?1 AND user_id = ?2').bind(p.id, u.id).first<{ last_at: number; resume: string | null; saved_at: number | null }>();
     if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
   }
+  // a store page load for the creator's store funnel (src/analytics.ts); the creator's own and crawlers' are not counted
+  if (p.status === 'live' && (!u || u.id !== p.owner_id) && !/bot|crawl|spider|preview|headless/i.test(c.req.header('user-agent') || '')) {
+    {
+      // a visit from a shared link or another site's embed card (src/share.ts) is counted apart as well
+      const shared = ['share', 'embed'].includes(c.req.query('ref') || '') ? 1 : 0;
+      c.executionCtx.waitUntil(c.env.DB.prepare('INSERT INTO game_daily (project_id, day, views, shared_views) VALUES (?, ?, 1, ?) ON CONFLICT(project_id, day) DO UPDATE SET views = views + 1, shared_views = shared_views + excluded.shared_views').bind(p.id, dayOf(now()), shared).run().catch(() => {}));
+    }
+  }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
   // the buyer's refund: whether the Refund button is enabled, and every reason it is not (src/refunds.ts)
   const refund = u && p.price_cents > 0 && u.id !== p.owner_id ? await gameRefundState(c.env, s, u.id, p.id) : null;
@@ -790,6 +803,39 @@ api.post('/games/:slug/play', async (c) => {
 api.get('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   return c.json(await playerSummary(c.env.DB, scopeOf(p.id, 'live'), u.id));
+});
+// A game's devlog: news posts and patch notes, newest first (src/devlogs.js). Everyone can read a live game's.
+const devlogErr = (e: unknown): never => { if (e instanceof DevlogError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/games/:slug/devlogs', async (c) => {
+  const p = await liveGame(c, c.req.param('slug'));
+  return c.json(await listDevlogs(c.env.DB, p.id, { before: c.req.query('before') || null, limit: Number(c.req.query('limit')) || undefined }));
+});
+// The owner writes, edits and deletes posts from the console; posting to a live game tells its players.
+api.post('/console/projects/:id/devlogs', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  if (p.status !== 'live') throw new AppError(409, 'Publish the game first: a post is for its players.', 'not_live');
+  await rateLimit(c.env, 'devlog:' + u.id, 20, 3600);
+  const b = await c.req.json<{ title?: string; body?: string }>().catch(() => ({} as { title?: string; body?: string }));
+  const r = await publishDevlog(c.env, p, u.id, { title: b.title, body: b.body }).catch(devlogErr);
+  await logEvent(c.env, p.id, 'devlog', String(b.title || '').slice(0, 120), null, 'console');
+  return c.json({ ok: true, ...r });
+});
+api.patch('/console/projects/:id/devlogs/:did', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ title?: string; body?: string }>().catch(() => ({} as { title?: string; body?: string }));
+  return c.json(await editDevlog(c.env.DB, p.id, c.req.param('did'), b).catch(devlogErr));
+});
+api.delete('/console/projects/:id/devlogs/:did', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await deleteDevlog(c.env.DB, p.id, c.req.param('did')).catch(devlogErr));
+});
+
+// A live game's achievements: everyone sees the list and how rare each one is; a signed-in player also sees their own unlocks.
+api.get('/games/:slug/achievements', async (c) => {
+  const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), db = c.env.DB, scope = scopeOf(p.id, 'live');
+  c.header('cache-control', 'private, no-store');
+  const [defs, mine, rarity] = await Promise.all([declaredFor(db, p.id, 'live'), u ? unlocksOf(db, scope, u.id) : {}, rarityOf(db, scope)]);
+  return c.json(viewOf(defs, mine, rarity, c.req.query('lang') || pageLang(c.req.raw)));
 });
 api.delete('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
@@ -1567,7 +1613,7 @@ export async function trialStats(env: Env, pid: string): Promise<{ players: numb
 // Analytics: the full picture for a window of days, and the cheap live count the dashboard polls.
 api.get('/console/projects/:id/analytics', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
-  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30)) });
+  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30, c.req.query('funnel') ? String(c.req.query('funnel')).split(',').slice(0, 10) : undefined)) });
 });
 api.get('/console/projects/:id/online', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));

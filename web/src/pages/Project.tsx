@@ -11,6 +11,7 @@ import { projectTabs } from './Analytics';
 import { CompatSection, useCompat, type GameCompat } from '../compat-ui';
 import { AgeBadge, ageLabel } from '../meta-ui';
 import { TestPlayers } from '../test-bots';
+import { DevlogCard } from '../devlog-ui';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
 const metaField = (f: string) => ({ genre: t('Genre', '类型'), tags: t('Tags from the platform list', '平台标签'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
@@ -317,6 +318,7 @@ export function Project({ id }: { id: string }) {
             {s.paid_games_enabled && data.sale && <SaleCard id={id} regular={reg} sale={data.sale as SaleView} reload={reload} />}
             {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
             <BuildSkill id={id} p={p} skill={data.skill} reload={reload} />
+            {p.status !== 'removed' && <DevlogCard id={id} slug={p.slug} live={p.status === 'live'} />}
             <Card title={t('Details', '详情')} pad>
               <KeyValue items={[
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],
