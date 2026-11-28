@@ -5,6 +5,7 @@
 // their own bar of pages, as the store shows its bar of shelves.
 import { useEffect } from 'react';
 import { Link, t, useLocation, type Me } from './lib';
+import { Icon } from './ui/icons';
 import './areas.css';
 
 export type Area = 'play' | 'create' | 'admin';
@@ -36,7 +37,7 @@ export function AreaSwitch({ area, user }: { area: Area; user: Me | null }) {
     <nav className="area-sw" aria-label={t('Areas', '区域')}>
       {areas.map((a) => (
         <Link key={a} to={areaHome(a, user)} className={'area-sw-a is-' + a + (a === area ? ' on' : '')} aria-current={a === area ? 'true' : undefined} title={areaWho(a)}>
-          <i className="area-dot" aria-hidden="true" />{areaName(a)}
+          <Icon kind={a === 'admin' ? 'shield' : a === 'create' ? 'wand' : 'pad'} />{areaName(a)}
         </Link>
       ))}
     </nav>

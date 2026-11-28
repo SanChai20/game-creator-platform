@@ -8,13 +8,15 @@ html[data-area="admin"] { --area: var(--warn); --area-rgb: var(--warn-rgb); }
 .is-admin { --a: var(--warn); --a-rgb: var(--warn-rgb); }
 
 
-/* the area switch in the header */
-.area-sw { display: inline-flex; align-items: center; gap: 2px; padding: 3px; margin-right: 6px; border: 1px solid var(--line-2); border-radius: 999px; background: rgb(var(--text-rgb) / .03); flex: none; }
-.area-sw-a { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 13px 0 11px; border-radius: 999px; font: 700 12px/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; color: var(--text-2); white-space: nowrap; transition: background-color var(--dur-fast), color var(--dur-fast); }
-.area-sw-a:hover { color: var(--text); background: rgb(var(--a-rgb) / .1); }
-.area-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--a); flex: none; }
-.area-sw-a.on { background: var(--a); color: #fff; }
-.area-sw-a.on .area-dot { background: #fff; }
+/* the area switch in the header: a segmented control. A sunk track holds the areas; the one you are in is a raised chip
+   with its icon in the area's colour (no stripe, no saturated slab) */
+.area-sw { display: inline-flex; align-items: center; gap: 2px; padding: 3px; margin-right: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--sunk); flex: none; }
+.area-sw-a { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px 0 10px; border-radius: 9px; font: 650 13.5px/1 var(--font-sans); letter-spacing: .005em; color: var(--text-2); white-space: nowrap; transition: background-color var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast); }
+.area-sw-a .ico { width: 17px; height: 17px; flex: none; opacity: .75; transition: color var(--dur-fast), opacity var(--dur-fast); }
+.area-sw-a:hover { color: var(--text); background: rgb(var(--text-rgb) / .05); }
+.area-sw-a:hover .ico { color: var(--a); opacity: 1; }
+.area-sw-a.on { color: var(--text); font-weight: 700; background: var(--rise); box-shadow: 0 1px 3px rgb(0 0 0 / .14), 0 0 0 1px rgb(var(--text-rgb) / .07); }
+.area-sw-a.on .ico { color: var(--a); opacity: 1; }
 .area-sw-a:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
 @media (max-width: 900px) { .area-sw { display: none; } }
 
@@ -26,9 +28,9 @@ html[data-area="admin"] { --area: var(--warn); --area-rgb: var(--warn-rgb); }
 .abar-tag small { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
 .abar-links { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 8px 0; }
 .abar-links::-webkit-scrollbar { display: none; }
-.abar-a { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 6px; font-size: 14px; font-weight: 600; color: var(--text-2); white-space: nowrap; transition: background-color var(--dur-fast), color var(--dur-fast); }
+.abar-a { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--text-2); white-space: nowrap; transition: background-color var(--dur-fast), color var(--dur-fast); }
 .abar-a:hover { color: var(--text); background: rgb(var(--a-rgb) / .1); }
-.abar-a.on { color: #fff; background: var(--a); }
+.abar-a.on { color: var(--text); font-weight: 700; background: var(--rise); box-shadow: 0 1px 3px rgb(0 0 0 / .12), 0 0 0 1px rgb(var(--a-rgb) / .22); }
 .abar-a:focus-visible { outline: 2px solid var(--a); outline-offset: 1px; }
 @media (max-width: 640px) {
   .abar-in { gap: 10px; }

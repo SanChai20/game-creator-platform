@@ -34,7 +34,7 @@ export function Home() {
         <p>{t('Web games built by people with their own AI agents. The shelves are empty for now. Yours could be the first.', '由创作者与自己的 AI 智能体共同打造的网页游戏。货架暂时还空着，第一款可以是你的。')}</p>
         <div className="row wrapx lead-actions"><Button to="/create" variant="primary" size="lg">{t('Make the first game', '创作第一款游戏')}</Button></div>
       </div>
-    </section></div>
+    </section><ComingSoonShelf /></div>
   );
 
   // the carousel shows today's picks (chosen each day by the platform); before the first day's are chosen, the top of
@@ -55,6 +55,9 @@ export function Home() {
         {/* signed in: the account's own Continue row (every device); signed out, or nothing played yet: this browser's */}
         {user && <ContinueRow />}
         <Since newCount={newCount} since={since} recent={!user} />
+        {/* games announced before release, most wished for first (src/wishlist.js): high on the page, so an announced
+            game is seen before its release */}
+        <ComingSoonShelf />
         <Cartridges list={d.genres} />
         <TabbedLists title={t('New and noteworthy', '新鲜热门')} tabs={[
           { key: 'trending', label: t('Trending', '热门'), to: '/browse', games: more.length >= 5 ? more : sh.trending },
@@ -74,8 +77,6 @@ export function Home() {
         <Shelf live title={t('Playing right now', '正在热玩')} note={t('Games with players in them this minute.', '此刻有玩家在线的游戏。')} to="/browse?sort=playing" games={sh.playing} />
         <Shelf rank title={t('Trending this week', '本周热门')} note={t('Most played and talked about in the last seven days.', '过去七天游玩与讨论最多。')} to="/browse" games={sh.trending} />
         <QueueBand pool={pool} />
-        {/* games announced before release, most wished for first (src/wishlist.js) */}
-        <ComingSoonShelf />
         {/* the New shelf: just released games still earning their place on the main store (src/store-quality.ts) */}
         {!!sh.new_shelf?.length && <Shelf title={t('New arrivals', '新上架')} note={t('Just released and still earning their place in the store. Play one and rate it.', '刚刚上架，仍在争取进入主商店。玩一款并为它评分吧。')} to="/browse?shelf=new" games={sh.new_shelf} freshSince={since} />}
 
