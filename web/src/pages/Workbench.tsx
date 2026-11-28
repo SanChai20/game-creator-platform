@@ -6,7 +6,6 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { ago, api, date, Fail, Link, navigate, num, query, t, useAct, useApp, useData, useLocation } from '../lib';
 import { Badge, Button, Card, Code, Modal, Notice, PageHeader } from '../ui';
 import { Skeleton, SkRows } from '../ui/skeleton';
-import { ConsoleTabs } from './Console';
 import { acpCommand } from './Creators';
 import { agentTitle, answer, cancel, fold, launchAgent, quitAgent, reconnectNow, restart, rpc, useWorkbench, type Ask, type BridgeState, type ConfigOption, type Item, type Plan, type SessionInfo, type ToolCall } from '../workbench/store';
 import { Diff, Markdown } from '../workbench/render';
@@ -126,7 +125,6 @@ export function Workbench() {
     <div className="wrap page">
       <PageHeader eyebrow={t('Console', '控制台')} title={t('Workbench', '工作台')}
         sub={t('Your own coding agent, running on your computer, driven from here. Agent Client Protocol (ACP).', '你自己的编程智能体在你的电脑上运行，在这里操控。基于 Agent Client Protocol（ACP）。')} />
-      <ConsoleTabs on="workbench" />
       <div className="stack l">
         {pair && <PairApproval code={pair} onDone={() => { navigate('/console/workbench', true); void ov.reload(); }} />}
         {ov.error && !ov.data && <Fail error={ov.error} retry={ov.reload} />}

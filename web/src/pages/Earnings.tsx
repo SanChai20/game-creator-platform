@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { api, dateTime, Fail, Link, navigate, num, query, t, usd, useAct, useApp, useData } from '../lib';
 import { Badge, Button, Card, Field, ListPager, ListRow, Modal, Notice, PageHeader, Select, Stat, StatGrid, StatusBadge, Table, Textarea } from '../ui';
 import { EarningsSkeleton } from '../skeletons';
-import { ConsoleTabs } from './Console';
 
 // Countries where Stripe can pay out to a connected account. The creator picks where their bank is.
 const COUNTRIES = 'US United States,GB United Kingdom,CA Canada,AU Australia,NZ New Zealand,SG Singapore,HK Hong Kong,JP Japan,DE Germany,FR France,ES Spain,IT Italy,NL Netherlands,BE Belgium,AT Austria,CH Switzerland,IE Ireland,PT Portugal,SE Sweden,NO Norway,DK Denmark,FI Finland,PL Poland,CZ Czechia,RO Romania,BG Bulgaria,GR Greece,HU Hungary,HR Croatia,SK Slovakia,SI Slovenia,EE Estonia,LV Latvia,LT Lithuania,LU Luxembourg,MT Malta,CY Cyprus,MX Mexico,BR Brazil,TH Thailand,MY Malaysia,AE United Arab Emirates,IN India,ID Indonesia,PH Philippines,KR South Korea,TW Taiwan,VN Vietnam,TR Türkiye,ZA South Africa,IL Israel,CL Chile,CO Colombia,PE Peru,AR Argentina'.split(',').map((x) => [x.slice(0, 2), x.slice(3)]);
@@ -110,7 +109,6 @@ export function Earnings() {
   return (
     <div className="wrap page">
       <PageHeader eyebrow={t('Console', '控制台')} title={t('Earnings', '收益')} />
-      <ConsoleTabs on="earnings" />
       <div className="stack l">
         <StatGrid>
           <Stat tone="accent" label={t('Available to withdraw', '可提现余额')} value={usd(b.available)} sub={`${t('Minimum', '最低提现额')} ${usd(data.min_cents)}`} />

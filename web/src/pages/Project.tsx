@@ -214,7 +214,7 @@ function SaleCard({ id, regular, sale, reload }: { id: string; regular: number; 
   );
 }
 
-export function Project({ id }: { id: string }) {
+export function Project({ id, section = 'overview' }: { id: string; section?: 'overview' | 'selling' | 'community' }) {
   const { config } = useApp(), { busy, act } = useAct(), s = config.settings;
   const { data, error, loading, reload } = useData<any>(`/console/projects/${id}`);
   const [open, setOpen] = useState<number | null>(null), [preview, setPreview] = useState<string | null>(null), [previewSession, setPreviewSession] = useState<string | null>(null), [previewClock, setPreviewClock] = useState<string | null>(null), [previewOrient, setPreviewOrient] = useState<Orientation>('any'), [priceText, setPriceText] = useState<string | null>(null);
@@ -281,9 +281,49 @@ export function Project({ id }: { id: string }) {
           {p.status === 'live' && <Button variant="danger" onClick={offline} disabled={busy === 'off'}>{t('Take offline', '下线')}</Button>}
           {p.status === 'offline' && p.live_version && <Button variant="primary" onClick={online} disabled={busy === 'on'}>{t('Put back online', '重新上线')}</Button>}
         </>} />
-      {projectTabs(id, 'overview')}
+      {projectTabs(id, section)}
       {p.status === 'removed' && <div style={{ marginBottom: 22 }}><Notice tone="bad">{t('This game was removed by the platform.', '该游戏已被平台移除。')} {p.removed_reason}</Notice></div>}
 
+      {section === 'selling' ? (
+        <div className="stack l">
+          <p className="mute">{t('What the game costs and how it is sold: price, sales, discount codes, bundles, the free trial, its build skill in the Creator Store, and other storefronts.', '游戏的价格和销售方式：价格、特价、折扣码、捆绑包、免费试玩、在创作者商店出售的制作技能，以及其他平台。')}</p>
+          <div className="cols">
+            <div className="stack l">
+            <Card title={t('Price', '价格')} pad>
+              {priceText === null ? (
+                <div className="row"><b className="price-big">{reg > 0 ? usd(reg) : t('Free', '免费')}</b>{s.paid_games_enabled && <Button size="sm" className="right" onClick={() => setPriceText((reg / 100).toFixed(2))} disabled={!!data.sale?.running} title={data.sale?.running ? t('End the sale to change the regular price.', '结束特价后才能修改原价。') : undefined}>{t('Change', '修改')}</Button>}</div>
+              ) : (
+                <div className="price-edit"><span className="mute">$</span><Input mono inputMode="decimal" value={priceText} onChange={(e) => setPriceText(e.target.value)} autoFocus aria-label={t('Price in US dollars', '美元价格')} /><Button variant="primary" onClick={savePrice} disabled={busy === 'price'}>{t('Save', '保存')}</Button><Button variant="ghost" onClick={() => setPriceText(null)}>{t('Cancel', '取消')}</Button></div>
+              )}
+              {data.split ? <KeyValue items={[[t('Platform fee', '平台服务费'), usd(data.split.fee)], [t('You receive per sale', '每笔销售你获得'), usd(data.split.net), 'good']]} />
+                : <p className="mute fs-sm">{s.paid_games_enabled ? t('Free to play. Set a price between {min} and {max} to sell it; the platform keeps {cut}% of each sale.', '目前免费。可在 {min} 至 {max} 之间定价销售，平台从每笔销售中收取 {cut}%。', { min: usd(s.game_price_min_cents), max: usd(s.game_price_max_cents), cut: s.platform_fee_percent }) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
+            </Card>
+            {s.paid_games_enabled && data.sale && <SaleCard id={id} regular={reg} sale={data.sale as SaleView} reload={reload} />}
+            {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
+            </div>
+            <div className="stack l">
+            {s.paid_games_enabled && p.status !== 'removed' && <CouponsCard id={id} paid={p.price_cents > 0} />}
+            {s.paid_games_enabled && p.status !== 'removed' && <BundlesCard id={p.id} paid={p.price_cents > 0} />}
+            <BuildSkill id={id} p={p} skill={data.skill} reload={reload} />
+            {p.status !== 'removed' && (p.live_version || versions.some((v) => v.status === 'verified')) && <PublishElsewhereCard id={p.id} />}
+            </div>
+          </div>
+        </div>
+      ) : section === 'community' ? (
+        <div className="stack l">
+          <p className="mute">{t('Reaching and gathering players: tournaments, news posts, the coming soon page and playtests.', '吸引和聚集玩家：锦标赛、新闻动态、即将推出页面和试玩测试。')}</p>
+          <div className="cols">
+            <div className="stack l">
+            {p.status === 'live' && <TournamentsCard id={p.id} />}
+            {p.status !== 'removed' && <DevlogCard id={id} slug={p.slug} live={p.status === 'live' || (!!p.coming_soon_at && !p.published_at)} />}
+            </div>
+            <div className="stack l">
+            {p.status !== 'removed' && <ComingSoonCard id={id} onChange={reload} />}
+            {p.status !== 'removed' && <PlaytestCard id={id} />}
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="stack l">
         <StatGrid>
           <Stat tone="accent" to={`/console/p/${id}/analytics`} label={t('Online now', '当前在线')} value={num(data.online?.online.live ?? 0)} sub={t('{n} in rooms · see analytics', '{n} 人在房间中 · 查看数据分析', { n: num(data.online?.rooms.players_in_rooms ?? 0) })} />
@@ -312,25 +352,6 @@ export function Project({ id }: { id: string }) {
             {s.feedback_enabled !== false && <FeedbackQueue projectId={id} stamp={fbStamp} />}
             {data.store && <StoreStanding st={data.store} live={data.project.status === 'live'} />}
             {data.metadata && <StoreMetadata m={data.metadata} />}
-            <Card title={t('Price', '价格')} pad>
-              {priceText === null ? (
-                <div className="row"><b className="price-big">{reg > 0 ? usd(reg) : t('Free', '免费')}</b>{s.paid_games_enabled && <Button size="sm" className="right" onClick={() => setPriceText((reg / 100).toFixed(2))} disabled={!!data.sale?.running} title={data.sale?.running ? t('End the sale to change the regular price.', '结束特价后才能修改原价。') : undefined}>{t('Change', '修改')}</Button>}</div>
-              ) : (
-                <div className="price-edit"><span className="mute">$</span><Input mono inputMode="decimal" value={priceText} onChange={(e) => setPriceText(e.target.value)} autoFocus aria-label={t('Price in US dollars', '美元价格')} /><Button variant="primary" onClick={savePrice} disabled={busy === 'price'}>{t('Save', '保存')}</Button><Button variant="ghost" onClick={() => setPriceText(null)}>{t('Cancel', '取消')}</Button></div>
-              )}
-              {data.split ? <KeyValue items={[[t('Platform fee', '平台服务费'), usd(data.split.fee)], [t('You receive per sale', '每笔销售你获得'), usd(data.split.net), 'good']]} />
-                : <p className="mute fs-sm">{s.paid_games_enabled ? t('Free to play. Set a price between {min} and {max} to sell it; the platform keeps {cut}% of each sale.', '目前免费。可在 {min} 至 {max} 之间定价销售，平台从每笔销售中收取 {cut}%。', { min: usd(s.game_price_min_cents), max: usd(s.game_price_max_cents), cut: s.platform_fee_percent }) : t('Paid games are turned off on this platform.', '平台暂未开放付费游戏。')}</p>}
-            </Card>
-            {s.paid_games_enabled && data.sale && <SaleCard id={id} regular={reg} sale={data.sale as SaleView} reload={reload} />}
-            {s.paid_games_enabled && p.status !== 'removed' && <CouponsCard id={id} paid={p.price_cents > 0} />}
-            {s.paid_games_enabled && p.status !== 'removed' && <BundlesCard id={p.id} paid={p.price_cents > 0} />}
-            {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
-            {p.status === 'live' && <TournamentsCard id={p.id} />}
-            {p.status !== 'removed' && (p.live_version || versions.some((v) => v.status === 'verified')) && <PublishElsewhereCard id={p.id} />}
-            <BuildSkill id={id} p={p} skill={data.skill} reload={reload} />
-            {p.status !== 'removed' && <ComingSoonCard id={id} onChange={reload} />}
-            {p.status !== 'removed' && <PlaytestCard id={id} />}
-            {p.status !== 'removed' && <DevlogCard id={id} slug={p.slug} live={p.status === 'live' || (!!p.coming_soon_at && !p.published_at)} />}
             <Card title={t('Details', '详情')} pad>
               <KeyValue items={[
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],
@@ -351,6 +372,8 @@ export function Project({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      )}
 
       {preview && (() => {
         const pvFrame = resolvePreviewFrame({ device: pvDevice, orientation: pvOrient, containerW: pvWin.cw, viewportW: pvWin.vw, viewportH: pvWin.vh });
