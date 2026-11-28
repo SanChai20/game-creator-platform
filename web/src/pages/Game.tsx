@@ -139,7 +139,9 @@ export function Game({ slug }: { slug: string }) {
   const [adultOk, setAdultOk] = useState(false), [adultGate, setAdultGate] = useState(false);
   // A free-trial session: when it ends (by the clock here or by the game's word from the server), the game is closed.
   const [trialEnd, setTrialEnd] = useState<number | null>(null), [tick, setTick] = useState(0), [trialDone, setTrialDone] = useState(false);
-  const quitGame = useCallback(() => { setUrl(null); setTrialEnd(null); void reload(); }, [reload]);
+  // Opened from big-screen mode (?tv=1, web/src/bigscreen.tsx): the game fills the screen, and Quit goes back there.
+  const tv = useRef(query().get('tv') === '1').current;
+  const quitGame = useCallback(() => { setUrl(null); setTrialEnd(null); if (tv) { navigate('/tv'); return; } void reload(); }, [reload, tv]);
   // Who the running session plays as. It is bound to that identity: when the browser's account changes (here, in another
   // tab, or the server says the session ended), the game is closed so it never plays on as the wrong player.
   const [playingAs, setPlayingAs] = useState<{ id: string; name: string; guest: boolean } | null>(null);
@@ -199,6 +201,13 @@ export function Game({ slug }: { slug: string }) {
     if (url) { setUrl(null); setTimeout(() => startRef.current(), 50); } else startRef.current();
     return true;
   }), [slug, data, url]);
+  useEffect(() => { if (tv && url) { const id = setTimeout(() => stage.current?.enter(), 60); return () => clearTimeout(id); } }, [tv, url]);
+  // B on a controller, with no game running: back to big-screen mode
+  useEffect(() => {
+    if (!tv) return;
+    const back = (e: Event) => { if ((e as CustomEvent).detail?.button === 'back' && !url && !document.querySelector('[role=dialog]')) { e.preventDefault(); navigate('/tv'); } };
+    window.addEventListener('gcp-pad', back); return () => window.removeEventListener('gcp-pad', back);
+  }, [tv, url]);
   // Friends see this game, and for how long, while it runs for a signed-in player.
   const playTitle = data?.game ? local(data.game, 'title') : undefined;
   useEffect(() => { setActivity(url && user && playingAs && !playingAs.guest && playTitle ? { slug, title: playTitle } : null); }, [url, user?.id, playingAs, slug, playTitle]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -276,6 +285,7 @@ export function Game({ slug }: { slug: string }) {
   return (
     <div className="gpage" style={{ '--h': h, '--rc': R.color } as CSSProperties}>
       <div className="wrap page">
+        {tv && <div className="row"><Button size="sm" variant="ghost" onClick={() => navigate('/tv')} data-pad-start>{t('Back to big screen', '返回大屏模式')}</Button></div>}
         <nav className="crumbs" aria-label={t('Breadcrumb', '导航路径')}>
           <Link to="/">{t('Store', '商店')}</Link><i>/</i>
           {genre && <><Link to={`/c/${encodeURIComponent(genre)}`}>{genreName(genre)}</Link><i>/</i></>}

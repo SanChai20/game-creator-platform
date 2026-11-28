@@ -3266,6 +3266,27 @@
     });
   }
   function clipStop(id) { if (clipRec && clipRec.id === id && clipRec.rec.state !== 'inactive') clipRec.rec.stop(); }
+  // ---- controllers: the platform menu (2.17.0) ----
+  // In the platform's big-screen mode a player has only a controller, so the game's frame hands the platform its menu on
+  // the controller's Home button, or on Start + Select held together for half a second (games keep Start for their own
+  // pause). Only real controllers count, never the touch layer's stand-in, and only on the platform.
+  (function () {
+    if (standalone || typeof navigator.getGamepads !== 'function') return;
+    var raf = 0, chordSince = 0, homeWas = false, sent = -1e9;
+    function pads() { try { return Array.prototype.slice.call(navigator.getGamepads() || []).filter(function (p) { return p && p.connected && !/HearthCade/.test(p.id); }); } catch (e) { return []; } }
+    function tick() {
+      raf = 0; var list = pads(); if (!list.length) return;
+      var now = performance.now(), home = false, chord = false;
+      list.forEach(function (p) { var b = function (i) { return !!(p.buttons[i] && p.buttons[i].pressed); }; if (b(16)) home = true; if (b(8) && b(9)) chord = true; });
+      var open = (home && !homeWas) || (chord && chordSince && now - chordSince > 500);
+      homeWas = home; chordSince = chord ? (chordSince || now) : 0;
+      if (open && now - sent > 1000) { sent = now; chordSince = 0; toParent({ gcp: 'menu', on: true }); }
+      raf = requestAnimationFrame(tick);
+    }
+    function start() { if (!raf) raf = requestAnimationFrame(tick); }
+    window.addEventListener('gamepadconnected', start);
+    start();
+  })();
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (e.source === window.parent && d && d.gcp === 'capture') {

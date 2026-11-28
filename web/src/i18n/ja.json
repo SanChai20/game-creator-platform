@@ -3417,5 +3417,18 @@
   "Let players share levels": "プレイヤーのレベル共有を許可",
   "Turn level sharing off": "レベル共有をオフにする",
   "You have not shared a level of this game yet.": "このゲームのレベルはまだ共有していません。",
-  "No levels yet. Make one in the game and share it.": "まだレベルがありません。ゲーム内で作って共有しましょう。"
+  "No levels yet. Make one in the game and share it.": "まだレベルがありません。ゲーム内で作って共有しましょう。",
+  "Big screen": "ビッグスクリーン",
+  "Full screen": "全画面",
+  "Exit big screen": "ビッグスクリーンを終了",
+  "Loading games…": "ゲームを読み込み中…",
+  "No games to show yet.": "表示できるゲームはまだありません。",
+  "Back": "戻る",
+  "Game menu (or Start + Select)": "ゲームメニュー（または Start + Select）",
+  "Move": "移動",
+  "Connect a controller to play from the couch.": "コントローラーをつなげばソファから遊べます。",
+  "Controller connected": "コントローラーが接続されました",
+  "Browse and play with it in big-screen mode.": "ビッグスクリーンでコントローラーを使って探して遊べます。",
+  "Open big screen": "ビッグスクリーンを開く",
+  "Back to big screen": "ビッグスクリーンに戻る"
 }
