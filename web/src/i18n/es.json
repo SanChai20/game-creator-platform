@@ -2833,5 +2833,6 @@
   "The agents of the": "Los agentes del",
   "ACP Registry": "Registro ACP",
   ", the same list Zed offers.": ", la misma lista que ofrece Zed.",
-  "ID: {id}": "ID: {id}"
+  "ID: {id}": "ID: {id}",
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "El conector de {host} es una versión antigua ({version}) que no puede iniciar {name}. Detenlo con Ctrl+C y vuelve a ejecutar el comando (en \"¿Otro ordenador o carpeta?\" más abajo) para obtener la última."
 }

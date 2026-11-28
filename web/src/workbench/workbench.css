@@ -319,3 +319,7 @@
 @media (max-width: 760px) { .wb-asel .wb-adesc { display: -webkit-box; } }
 .wb-asel-list { display: flex; flex-direction: column; }
 .wb-asel-list > div { flex: none; }
+/* the agent list floats over the page and any dialog (it is rendered into <body>), sized to the room on screen */
+.wb-asel-pop { position: fixed; z-index: calc(var(--z-modal) + 1); display: flex; flex-direction: column; top: auto; right: auto; box-sizing: border-box; }
+.wb-asel-pop > * { flex: none; }
+.wb-asel-pop > .wb-asel-list { flex: 1 1 auto; min-height: 0; max-height: none; }
