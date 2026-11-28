@@ -26,7 +26,7 @@ const CATALOG = JSON.parse(readFileSync(join(HERE, '..', 'agents.json'), 'utf8')
 const DEFAULT_SERVER = PKG.hearthcade?.server || 'https://hearthcade.com';
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code, s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
-const bold = (s) => c(1, s), dim = (s) => c(2, s), red = (s) => c(31, s), green = (s) => c(32, s), accent = (s) => c(35, s);
+const bold = (s) => c(1, s), dim = (s) => c(2, s), red = (s) => c(31, s), green = (s) => c(32, s), accent = (s) => c(35, s), yellow = (s) => c(33, s);
 const say = (...a) => console.log(...a);
 const die = (msg, code = 1) => { console.error(red('✗ ') + msg); process.exit(code); };
 
@@ -228,8 +228,11 @@ setInterval(() => { if (wsOpen) try { ws.send('{"type":"ping"}'); } catch { /* i
 // the first run of an npx or uvx agent downloads it first, silently: say so, so a long wait does not look stuck
 const slow = setInterval(() => {
   if (core.status !== 'starting') { clearInterval(slow); return; }
-  const min = Math.round((Date.now() - core.startedAt) / 60_000);
-  say(dim('bridge │ ') + `Still starting ${agent.name}${min ? ` (${min} min)` : ''}. The first run downloads it, which can take several minutes for a large agent.`);
+  const sec = Math.round((Date.now() - core.startedAt) / 1000), took = sec >= 60 ? `${Math.floor(sec / 60)} min ${sec % 60} s` : `${sec} s`;
+  const p = core.progress || {}, mb = (n) => Math.round(n / 1e6);
+  if (p.phase === 'downloading') say(dim('bridge │ ') + `First-time setup: downloading ${agent.name}, ${mb(p.bytes)} MB${p.total ? ` of about ${mb(p.total)} MB` : ''} (${took}).`);
+  else say(dim('bridge │ ') + `Still starting ${agent.name} (${took}). The first run downloads it, which can take several minutes for a large agent.`);
+  if (p.stalled) say(dim('bridge │ ') + yellow('Nothing has changed for 2 minutes. If it stays stuck, press Retry in the console or Ctrl+C and run the command again.'));
 }, 20_000);
 slow.unref();
 core.start().then(() => {

@@ -22,8 +22,11 @@
 //                   { type: 'status', status, detail }          starting | ready | exited | failed
 // Every message from a view carries `from` (its connection id, set by the relay, never by the page).
 import { spawn as nodeSpawn } from 'node:child_process';
+import { watchNpxDownload } from './download.mjs';
 
 export const INIT_TIMEOUT = 30 * 60_000;
+/** While starting, no new bytes and no output for this long: the console says it looks stuck and offers Retry. */
+export const STALL_MS = 120_000;
 export const PROTOCOL_VERSION = 1;
 /** What a page may ask the agent to do. Everything else (fs, terminals, raw initialize) is refused. */
 export const VIEW_METHODS = new Set(['session/new', 'session/load', 'session/resume', 'session/prompt', 'session/set_mode', 'session/set_config_option', 'session/set_model', 'session/list', 'session/close', 'authenticate', 'logout']);
@@ -42,7 +45,10 @@ export class BridgeCore {
     this.log = o.log || (() => {});
     this.spawn = o.spawn || nodeSpawn;
     this.platform = o.platform || process.platform;
-    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.1' };
+    this.watchDownload = o.watchDownload === undefined ? watchNpxDownload : o.watchDownload;   // null: no download watch
+    this.stallMs = o.stallMs || STALL_MS;
+    this.progress = null;                 // while starting: { phase, bytes, total, line, stalled }
+    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.2' };
     this.status = 'idle'; this.statusDetail = '';
     this.init = null;                     // the agent's initialize result
     this.sessions = new Map();            // sessionId → session
@@ -57,6 +63,7 @@ export class BridgeCore {
   // ----- the agent process -------------------------------------------------------------------------
   async start() {
     this.startedAt = Date.now();
+    this.progress = { phase: 'starting', bytes: 0, total: null, line: '', stalled: false };
     this.setStatus('starting', `${this.agent.command} ${(this.agent.args || []).join(' ')}`.trim());
     let proc;
     try {
@@ -69,6 +76,7 @@ export class BridgeCore {
     } catch (e) { this.failAll(e); this.setStatus('failed', String(e?.message || e)); return; }
     this.proc = proc; this.buf = '';
     const gen = proc;
+    this.watchStart(gen);
     proc.on('error', (e) => { if (this.proc !== gen) return; this.setStatus('failed', e.code === 'ENOENT' ? `Command not found: ${this.agent.command}` : String(e.message || e)); this.failAll(e); });
     proc.on('exit', (code, signal) => {
       if (this.proc !== gen) return;
@@ -76,13 +84,18 @@ export class BridgeCore {
       this.failAll(new Error('The agent exited.'));
       for (const [key, a] of this.asks) { this.asks.delete(key); this.send({ type: 'answered', key, optionId: null, by: null }); void a; }
       for (const s of this.sessions.values()) if (s.running) { s.running = false; this.emitSession(s); }
-      if (!this.closed && this.status !== 'failed') this.setStatus('exited', signal ? `Stopped by ${signal}` : `Exit code ${code}`);
+      if (this.closed || this.status === 'failed') return;
+      if (this.status === 'starting') {
+        // it ended before it was ready: a failed download or install, a missing command, a crash at start
+        const why = [...this.stderr].reverse().find((l) => /\b(err|error|fail|failed|not found|not recognized|denied|ETIMEDOUT|ECONN\w*|ENOTFOUND|E\d{3})\b/i.test(l)) || this.stderr[this.stderr.length - 1];
+        this.setStatus('failed', `${signal ? `It was stopped by ${signal}` : `It exited (code ${code})`} before it was ready.${why ? ' ' + why.trim().slice(0, 300) : ''}`);
+      } else this.setStatus('exited', signal ? `Stopped by ${signal}` : `Exit code ${code}`);
     });
     proc.stdout.setEncoding('utf8');
     proc.stdout.on('data', (d) => this.onStdout(d, gen));
     proc.stderr.setEncoding('utf8');
     proc.stderr.on('data', (d) => {
-      for (const line of String(d).split(/\r?\n/)) if (line.trim()) { this.stderr.push(line.slice(0, 2000)); this.log('agent', line); }
+      for (const line of String(d).split(/\r?\n/)) if (line.trim()) { this.stderr.push(line.slice(0, 2000)); this.log('agent', line); if (this.proc === gen && this.status === 'starting') this.bumpProgress({ line: line.trim().slice(0, 300) }); }
       if (this.stderr.length > 200) this.stderr.splice(0, this.stderr.length - 200);
     });
     proc.stdin.on('error', () => {});
@@ -107,6 +120,43 @@ export class BridgeCore {
     }
   }
 
+  // ----- while starting: the first download, its log, and stalls ---------------------------------------------------
+  watchStart(gen) {
+    this.endWatch();
+    let lastChange = Date.now();
+    const npx = this.agent.command === 'npx' ? (this.agent.args || []).find((a) => !String(a).startsWith('-')) : null;
+    if (npx && this.watchDownload) {
+      this.watch = this.watchDownload({
+        spec: npx, since: this.startedAt,
+        onUpdate: ({ bytes, total }) => { if (this.proc === gen && this.status === 'starting') this.bumpProgress({ phase: 'downloading', bytes, total }); },
+      });
+    }
+    this.onChange = () => { lastChange = Date.now(); };
+    this.stallTimer = setInterval(() => {
+      if (this.proc !== gen || this.status !== 'starting' || !this.progress) return;
+      const stalled = Date.now() - lastChange > this.stallMs;
+      if (stalled !== this.progress.stalled) this.bumpProgress({ stalled }, true);
+    }, Math.min(5000, this.stallMs / 2));
+    this.stallTimer.unref?.();
+  }
+  endWatch() {
+    this.watch?.stop(); this.watch = null;
+    clearInterval(this.stallTimer); this.stallTimer = null;
+    clearTimeout(this.progressTimer); this.progressTimer = null;
+  }
+  bumpProgress(patch, quiet = false) {
+    if (!this.progress) return;
+    Object.assign(this.progress, patch);
+    if (!quiet) { this.progress.stalled = false; this.onChange?.(); }
+    // at most a few messages a second, whatever the agent prints
+    if (this.progressTimer) return;
+    this.progressTimer = setTimeout(() => {
+      this.progressTimer = null;
+      if (this.status === 'starting' && this.progress) this.send({ type: 'progress', progress: this.progress, stderr: this.stderr.slice(-40) });
+    }, 400);
+    this.progressTimer.unref?.();
+  }
+
   kill() {
     const p = this.proc; this.proc = null;
     if (!p) return;
@@ -114,9 +164,11 @@ export class BridgeCore {
     if (this.platform === 'win32' && p.pid) { try { this.spawn('taskkill', ['/pid', String(p.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on?.('error', () => {}); } catch { /* gone */ } }
     try { p.kill(); } catch { /* gone */ }
   }
-  stop() { this.closed = true; this.kill(); }
-  async restart() {
-    if (this.proc) return;
+  stop() { this.closed = true; this.endWatch(); this.kill(); }
+  /** Start again; with force, also when the agent is still running (a start that looks stuck). */
+  async restart(force = false) {
+    if (this.proc && !force) return;
+    if (this.proc) { this.endWatch(); this.kill(); this.failAll(new Error('Restarted.')); }
     this.init = null; this.stderr = [];
     // the sessions stay listed: an agent that can load sessions picks them up again (session/load)
     for (const s of this.sessions.values()) { s.attached = false; s.running = false; this.emitSession(s); }
@@ -245,7 +297,7 @@ export class BridgeCore {
   // ----- the views -------------------------------------------------------------------------------
   state() {
     return {
-      type: 'state', status: this.status, detail: this.statusDetail, since: this.startedAt || null,
+      type: 'state', status: this.status, detail: this.statusDetail, since: this.startedAt || null, progress: this.progress,
       agent: { id: this.agent.id, name: this.agent.name, command: [this.agent.command, ...(this.agent.args || [])].join(' ') },
       cwd: this.cwd, init: this.init, stderr: this.stderr.slice(-40), mcp: !!this.mcp,
       sessions: [...this.sessions.values()].map((s) => this.summary(s)),
@@ -255,7 +307,8 @@ export class BridgeCore {
 
   setStatus(status, detail) {
     this.status = status; this.statusDetail = detail || '';
-    this.send({ type: 'status', status, detail: this.statusDetail, since: this.startedAt || null, init: this.init, stderr: status === 'failed' || status === 'exited' ? this.stderr.slice(-40) : undefined });
+    if (status !== 'starting') { this.endWatch(); if (status === 'ready') this.progress = null; }
+    this.send({ type: 'status', status, detail: this.statusDetail, since: this.startedAt || null, progress: this.progress, init: this.init, stderr: status === 'failed' || status === 'exited' ? this.stderr.slice(-40) : undefined });
   }
 
   sendTranscript(to, sessionId) {
@@ -280,7 +333,7 @@ export class BridgeCore {
         return;
       }
       case 'transcript': return this.sendTranscript(from, String(m.sessionId || ''));
-      case 'restart': return this.restart();
+      case 'restart': return this.restart(!!m.force);
       case 'cancel': return this.cancel(String(m.sessionId || ''));
       case 'answer': return this.answer(String(m.key || ''), m.optionId ?? null, from);
       case 'rpc': return this.rpc(m, from);

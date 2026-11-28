@@ -2763,5 +2763,13 @@
  "Admins and the owner": "管理者とオーナー",
  "Only the owner": "オーナーのみ",
  "{n} s": "{n} 秒",
- "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "初回はエージェントをダウンロードするため、Codex のような大きなエージェントでは数分かかることがあります。進行状況はターミナルに表示されます。"
+ "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "初回はエージェントをダウンロードするため、Codex のような大きなエージェントでは数分かかることがあります。進行状況はターミナルに表示されます。",
+ "Retry": "再試行",
+ "First-time setup: downloading {name}": "初回セットアップ：{name} をダウンロード中",
+ "Elapsed": "経過時間",
+ "{done} of about {total} · {pct}%": "{done} / 約 {total} · {pct}%",
+ "{done} downloaded": "{done} ダウンロード済み",
+ "Only the first run downloads it.": "ダウンロードは初回のみです。",
+ "Nothing has changed for 2 minutes. It may be stuck: check the network on that computer, then retry.": "2 分間進展がありません。止まっている可能性があります。そのコンピューターのネットワークを確認してから再試行してください。",
+ "Show log": "ログを表示"
 }

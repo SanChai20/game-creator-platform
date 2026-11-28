@@ -2762,5 +2762,13 @@
  "Admins and the owner": "Administradores y el propietario",
  "Only the owner": "Solo el propietario",
  "{n} s": "{n} s",
- "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "La primera vez se descarga el agente, lo que puede tardar varios minutos si es grande, como Codex. Su terminal muestra el progreso."
+ "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "La primera vez se descarga el agente, lo que puede tardar varios minutos si es grande, como Codex. Su terminal muestra el progreso.",
+ "Retry": "Reintentar",
+ "First-time setup: downloading {name}": "Primera configuración: descargando {name}",
+ "Elapsed": "Tiempo transcurrido",
+ "{done} of about {total} · {pct}%": "{done} de unos {total} · {pct}%",
+ "{done} downloaded": "{done} descargados",
+ "Only the first run downloads it.": "Solo la primera vez se descarga.",
+ "Nothing has changed for 2 minutes. It may be stuck: check the network on that computer, then retry.": "No ha cambiado nada en 2 minutos. Puede estar atascado: revisa la red de ese ordenador y vuelve a intentarlo.",
+ "Show log": "Ver registro"
 }

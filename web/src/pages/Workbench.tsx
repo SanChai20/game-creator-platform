@@ -356,11 +356,11 @@ function AgentState({ b }: { b: BridgeState }) {
   if (b.status === 'starting' || b.status === 'connecting' || !b.ready) return <Starting b={b} />;
   return (
     <Notice tone="bad" title={b.status === 'exited' ? t('{name} stopped', '{name} 已停止', { name: agentTitle(b) }) : t('{name} could not start', '{name} 无法启动', { name: agentTitle(b) })}
-      actions={<Button size="sm" onClick={() => restart(b.info.id)}>{t('Start again', '重新启动')}</Button>}>
+      actions={<Button size="sm" variant="primary" onClick={() => restart(b.info.id, true)}>{t('Retry', '重试')}</Button>}>
       <div className="stack s">
         <span>{b.detail}</span>
         {/not found/i.test(b.detail) && a && <span>{t('Install {name} on that computer first:', '请先在那台电脑上安装 {name}：', { name: a.name })} <a href={a.website} target="_blank" rel="noreferrer">{a.website}</a></span>}
-        {b.stderr.length > 0 && <details><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre">{b.stderr.slice(-30).join('\n')}</pre></details>}
+        {b.stderr.length > 0 && <details open={b.status === 'failed'}><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{b.stderr.slice(-30).join('\n')}</pre></details>}
       </div>
     </Notice>
   );
@@ -434,19 +434,36 @@ function Pill({ label, named, title, value, options, onChange }: { label: string
 
 // ----- transcript items -------------------------------------------------------------------------------------------
 const KIND_GLYPH: Record<string, string> = { read: '◱', edit: '✎', delete: '⌫', move: '⇄', search: '⌕', execute: '›_', think: '∴', fetch: '↓', switch_mode: '⇋', other: '•' };
-/** An agent on its way up. The first run of an npx or uvx agent downloads it first, which can take minutes. */
+/** An agent on its way up. The first run of an npx agent downloads it (hundreds of MB for some), shown with its size. */
 function Starting({ b }: { b: BridgeState }) {
   const [, tick] = useState(0);
-  useEffect(() => { const h = setInterval(() => tick((n) => n + 1), 5000); return () => clearInterval(h); }, []);
+  useEffect(() => { const h = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(h); }, []);
+  const p = b.progress;
   const secs = b.since ? Math.max(0, Math.round((Date.now() - b.since) / 1000)) : 0;
+  const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  const mb = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${Math.round(n / 1e6)} MB`);
+  const down = p?.phase === 'downloading';
+  const pct = down && p.total ? Math.min(99, Math.floor((100 * p.bytes) / p.total)) : null;
+  const log = b.stderr.slice(-30);
   return (
-    <div className="wb-working" role="status">
-      <span className="wb-dot pulse" />
-      <div className="stack s">
-        <span>{t('Starting {name}…', '正在启动 {name}…', { name: agentTitle(b) })}{secs >= 15 && <span className="dim"> {secs >= 60 ? t('{n} min', '{n} 分钟', { n: Math.floor(secs / 60) }) : t('{n} s', '{n} 秒', { n: secs })}</span>}</span>
-        {secs >= 15 && <span className="dim fs-sm">{t('The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.', '首次运行会先下载智能体，像 Codex 这样较大的智能体可能需要几分钟。进度会显示在它的终端里。')}</span>}
-        {b.detail && <span className="mono dim fs-sm">{b.detail}</span>}
+    <div className={`wb-start${p?.stalled ? ' stalled' : ''}`} role="status" aria-live="polite">
+      <div className="wb-start-h">
+        <AgentMark id={b.info.agentId || ''} name={agentTitle(b)} size="s" />
+        <b className="grow">{down ? t('First-time setup: downloading {name}', '首次设置：正在下载 {name}', { name: agentTitle(b) }) : t('Starting {name}…', '正在启动 {name}…', { name: agentTitle(b) })}</b>
+        <span className="mono dim wb-clock" title={t('Elapsed', '已用时间')}>{clock}</span>
       </div>
+      {(down || secs >= 5) && <div className={`wb-bar${pct === null ? ' busy' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined}><i style={pct === null ? undefined : { width: `${pct}%` }} /></div>}
+      {down
+        ? <p className="fs-sm">{p.total ? t('{done} of about {total} · {pct}%', '{done} / 约 {total} · {pct}%', { done: mb(p.bytes), total: mb(p.total), pct: pct ?? 0 }) : t('{done} downloaded', '已下载 {done}', { done: mb(p.bytes) })} <span className="dim">{t('Only the first run downloads it.', '只有第一次运行需要下载。')}</span></p>
+        : secs >= 10 && <p className="dim fs-sm">{t('The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.', '首次运行会先下载智能体，像 Codex 这样较大的智能体可能需要几分钟。进度会显示在它的终端里。')}</p>}
+      {p?.line && <p className="mono dim fs-sm clip wb-start-line" title={p.line}>{p.line}</p>}
+      {p?.stalled && (
+        <div className="wb-start-stall">
+          <span>{t('Nothing has changed for 2 minutes. It may be stuck: check the network on that computer, then retry.', '已经 2 分钟没有进展，可能卡住了。请检查那台电脑的网络，然后重试。')}</span>
+          <Button size="sm" variant="primary" onClick={() => restart(b.info.id, true)}>{t('Retry', '重试')}</Button>
+        </div>
+      )}
+      {log.length > 0 && <details className="wb-start-log"><summary>{t('Show log', '查看日志')}</summary><pre className="wb-pre small">{log.join('\n')}</pre></details>}
     </div>
   );
 }
@@ -607,7 +624,7 @@ function Rail({ b, s }: { b: BridgeState; s: SessionInfo | null }) {
           <dt>HearthCade</dt><dd>{b.mcp ? <Badge tone="good">{t('Tools connected', '工具已连接')}</Badge> : <Badge>{t('Not connected', '未连接')}</Badge>}</dd>
           <dt>ACP</dt><dd>v{b.init?.protocolVersion ?? 1}{caps.promptCapabilities?.image ? ` · ${t('pictures', '图片')}` : ''}{caps.loadSession ? ` · ${t('resumes sessions', '可恢复会话')}` : ''}</dd>
         </dl>
-        {(b.status === 'exited' || b.status === 'failed') && <Button size="sm" onClick={() => restart(b.info.id)}>{t('Start again', '重新启动')}</Button>}
+        {(b.status === 'exited' || b.status === 'failed') && <Button size="sm" onClick={() => restart(b.info.id, true)}>{t('Retry', '重试')}</Button>}
       </section>
       <p className="dim fs-sm">{t('To stop this agent, press Ctrl+C in its terminal.', '要停止这个智能体，请在它的终端中按 Ctrl+C。')}</p>
     </div>

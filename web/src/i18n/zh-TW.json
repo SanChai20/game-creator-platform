@@ -2784,5 +2784,13 @@
  "Admins and the owner": "管理員和擁有者",
  "Only the owner": "只有擁有者",
  "{n} s": "{n} 秒",
- "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "首次執行會先下載智慧體，像 Codex 這樣較大的智慧體可能需要幾分鐘。進度會顯示在它的終端機中。"
+ "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "首次執行會先下載智慧體，像 Codex 這樣較大的智慧體可能需要幾分鐘。進度會顯示在它的終端機中。",
+ "Retry": "重試",
+ "First-time setup: downloading {name}": "首次設定：正在下載 {name}",
+ "Elapsed": "已用時間",
+ "{done} of about {total} · {pct}%": "{done} / 約 {total} · {pct}%",
+ "{done} downloaded": "已下載 {done}",
+ "Only the first run downloads it.": "只有第一次執行需要下載。",
+ "Nothing has changed for 2 minutes. It may be stuck: check the network on that computer, then retry.": "已經 2 分鐘沒有進展，可能卡住了。請檢查那台電腦的網路，然後重試。",
+ "Show log": "查看記錄"
 }

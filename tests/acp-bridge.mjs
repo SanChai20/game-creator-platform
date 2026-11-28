@@ -4,10 +4,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { estimateSize, watchNpxDownload } from '../acp-bridge/download.mjs';
 import { BridgeCore, VIEW_METHODS, launchOf, splitCommand, winCommandLine } from '../acp-bridge/core.mjs';
 
 const MOCK = fileURLToPath(new URL('./acp-mock-agent.mjs', import.meta.url));
@@ -226,6 +227,76 @@ test('Windows: one quoted command line through the shell, a slow first start, an
   core.stop();
   await sleep(50);
   assert.ok(calls.some((c) => c.cmd === 'taskkill' && c.args.includes('/T')), 'stops the process tree');
+});
+
+test('first download: the npx folder size against the registry estimate', async () => {
+  // the estimate: the package, its dependencies, and the optional binary for this platform (an npm: alias)
+  const docs = {
+    'agent/latest': { dist: { unpackedSize: 1_000 }, dependencies: { tool: '^1.0.0', small: '2.0.0' } },
+    'tool/latest': { dist: { unpackedSize: 2_000 }, optionalDependencies: { 'tool-linux-x64': 'npm:tool@1.0.0-linux-x64', 'tool-win32-x64': 'npm:tool@1.0.0-win32-x64', 'tool-linux-x64-musl': 'npm:tool@1.0.0-linux-x64-musl' } },
+    'small/2.0.0': { dist: { unpackedSize: 300 } },
+    'tool/1.0.0-win32-x64': { dist: { unpackedSize: 500_000_000 } },
+    'tool/1.0.0-linux-x64': { dist: { unpackedSize: 400_000_000 } },
+  };
+  const fetchImpl = async (url) => { const k = decodeURIComponent(url.replace('https://r.test/', '')); return docs[k] ? { ok: true, json: async () => docs[k] } : { ok: false }; };
+  assert.equal(await estimateSize('agent', { registry: 'https://r.test', platform: 'win32', arch: 'x64', fetchImpl }), 500_003_300);
+  assert.equal(await estimateSize('agent', { registry: 'https://r.test', platform: 'linux', arch: 'x64', fetchImpl }), 400_003_300);
+  assert.equal(await estimateSize('nothing', { registry: 'https://r.test', fetchImpl }), null);
+
+  // the watch: an npx folder made after the start that grows is a download; one that does not grow is not
+  const cache = mkdtempSync(join(tmpdir(), 'npm-cache-'));
+  mkdirSync(join(cache, '_npx', 'old', 'node_modules'), { recursive: true });
+  writeFileSync(join(cache, '_npx', 'old', 'node_modules', 'a'), Buffer.alloc(5000));
+  const got = [];
+  const w = watchNpxDownload({ spec: 'agent', cacheDir: cache, since: Date.now(), every: 60, onUpdate: (u) => got.push(u), estimate: async () => 50_000 });
+  await sleep(250);
+  assert.equal(got.length, 0, 'an agent npx already has is not a download');
+  const dir = join(cache, '_npx', 'new', 'node_modules', 'pkg');
+  mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < 4; i++) { writeFileSync(join(dir, 'f' + i), Buffer.alloc(10_000)); await sleep(150); }
+  w.stop();
+  assert.ok(got.length >= 2, 'reports as it grows');
+  assert.equal(got.at(-1).total, 50_000);
+  assert.ok(got.at(-1).bytes >= 30_000 && got.at(-1).bytes <= 40_000);
+});
+
+test('starting: download progress, a stall offers Retry, a forced retry, a failed download says why', async () => {
+  // an npx agent (the mock stands in): the watch reports a download, then nothing happens long enough to stall
+  let w = null;
+  const fakeWatch = (o) => { w = o; return { stop() { w = null; } }; };
+  const asMock = (cmd, args, opts) => spawn(process.execPath, [MOCK], opts);
+  const h = harness({ MOCK_INIT_DELAY: '1500' }, { agent: { id: 'x', name: 'X', command: 'npx', args: ['-y', '@x/agent-acp'], env: { MOCK_INIT_DELAY: '1500' } }, spawn: asMock, watchDownload: fakeWatch, stallMs: 300 });
+  const started = h.core.start();
+  await sleep(50);
+  assert.equal(w.spec, '@x/agent-acp');
+  w.onUpdate({ bytes: 120e6, total: 550e6 });
+  const p1 = await h.until((m) => m.type === 'progress' && m.progress.phase === 'downloading');
+  assert.equal(p1.progress.bytes, 120e6); assert.equal(p1.progress.total, 550e6); assert.equal(p1.progress.stalled, false);
+  await h.until((m) => m.type === 'progress' && m.progress.stalled === true, 3000);
+  await started;
+  assert.equal(h.core.status, 'ready');
+  assert.equal(h.core.progress, null, 'ready clears the progress');
+  assert.equal(w, null, 'the watch stops once the agent is ready');
+
+  // Retry while it starts: the stuck process is replaced and the agent comes up
+  const r = harness({ MOCK_INIT_DELAY: '60000' }, { watchDownload: null, stallMs: 300 });
+  void r.core.start();
+  await r.until((m) => m.type === 'status' && m.status === 'starting');
+  const first = r.core.proc;
+  r.core.agent.env = {};
+  await r.core.onView({ type: 'restart', force: true, from: 'v1' });
+  assert.notEqual(r.core.proc, first);
+  assert.equal(r.core.status, 'ready');
+  r.core.stop();
+
+  // a download that fails: npx exits before the agent is ready, and the console gets the reason
+  const f = harness({}, { agent: { id: 'y', name: 'Y', command: process.execPath, args: ['-e', 'console.error("npm warn something"); console.error("npm error code ETIMEDOUT"); console.error("npm error network request failed"); process.exit(1)'] }, watchDownload: null });
+  await f.core.start();
+  const st = await f.until((m) => m.type === 'status' && m.status === 'failed');
+  assert.match(st.detail, /exited \(code 1\) before it was ready/);
+  assert.match(st.detail, /npm error network request failed/);
+  assert.ok(st.stderr.some((l) => /ETIMEDOUT/.test(l)));
+  h.core.stop();
 });
 
 test('stress: 8 sessions in parallel, a 2 MB answer, 500 quick prompts in a row', async () => {
