@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { ago, api, ApiError, local, navigate, t, useApp } from './lib';
 import { Button, Field, Input, ListPager, RowMenu, Select, Switch, Textarea, useClientPage } from './ui';
 import { notesArrived } from './follow';
+import { inviteToParty, partyEvent, partyGame, partyUser, PartyBox, VoiceBar } from './party';
 import './social.css';
 
 // ---- types ------------------------------------------------------------------------------------------------------------
@@ -170,6 +171,8 @@ function onMessage(m: any) {
       notesArrived();
       if (ev.by && ev.game) toast({ kind: 'gift', who: ev.by.name, title: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: ev.by.name, game: local(ev.game, 'title') }) });
       break;
+    // parties and voice (web/src/party.tsx)
+    case 'party': case 'party_invite': case 'rtc': partyEvent(ev); break;
     case 'invite_cancelled': case 'counts': soonSummary(); if (S.chat) void loadChat(S.chat.peer); break;
   }
 }
@@ -191,6 +194,7 @@ export function socialUser(u: { id: string; name: string } | null) {
   if ((u?.id || null) === (S.user?.id || null)) return;
   disconnect();
   S.user = u; S.summary = null; S.friends = null; S.open = null; S.chat = null; S.toasts = []; emit();
+  partyUser(u?.id || null, toast);
   if (!u) return;
   if (linked) { const l = linked; linked = null; openLinked(l.friends, l.chat); }
   void loadSummary().then(() => { connect(); clearInterval(poll); poll = window.setInterval(() => { if (S.conn !== 'on') { void loadSummary(); if (S.open) void loadFriends(); } }, 60000); });
@@ -202,6 +206,7 @@ if (typeof document !== 'undefined') document.addEventListener('visibilitychange
 export function setActivity(g: { slug: string; title: string } | null) {
   S.activity = g ? { slug: g.slug, title: g.title } : null; if (!g) { S.frame = null; S.frameJoin = false; }
   sendAct(); emit();
+  if (g) partyGame(g.slug);   // a party leader brings the party along
 }
 /** The running game's frame (to tell it about friends), and what it says through the SDK. */
 export function attachFrame(win: Window | null) { S.frame = win; S.frameJoin = false; }
@@ -318,6 +323,7 @@ export function SocialRoot() {
   if (!s.user) return null;
   return createPortal(<>
     {s.open && <Panel />}
+    <VoiceBar />
     {s.toasts.length > 0 && <div className="fr-toasts" role="status" aria-live="polite">{s.toasts.map((x) => (
       <div key={x.id} className={'fr-toast ' + x.kind}>
         <div className="fr-toast-head"><span className="fr-toast-kick">{toastKick(x.kind)}</span>
@@ -347,6 +353,7 @@ function Panel() {
           </header>
           {o.invite && <div className="fr-inviting"><b>{t('Invite friends to {game}', '邀请好友一起玩 {game}', { game: o.invite.title })}</b><span>{o.invite.lobby ? t('They join your match when they accept.', '对方接受后会加入你的对局。') : t('They open the game when they accept.', '对方接受后会打开这款游戏。')} {t('Online, away and busy friends can be invited.', '可以邀请在线、离开和忙碌的好友。')}</span></div>}
           <Invites />
+          <PartyBox />
           <nav className="fr-tabs" role="tablist">
             {([['friends', t('Friends', '好友'), 0], ['requests', t('Requests', '请求'), (c?.requests || 0) + Math.max(0, (c?.notifications || 0) - (c?.requests || 0))], ['add', t('Add friend', '添加好友'), 0]] as [Tab, string, number][]).map(([k, label, n]) => (
               <button key={k} type="button" role="tab" aria-selected={o.tab === k} className={o.tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}{n > 0 && <b className="fr-badge in">{n}</b>}</button>))}
@@ -436,6 +443,7 @@ function FriendList() {
                 <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: f.name })} actions={[
                   { label: t('Message', '发消息'), onClick: () => openChat(f) },
                   { label: t('View profile', '查看资料'), onClick: () => { closePanel(); navigate(`/u/${encodeURIComponent(f.id)}`); } },
+                  { label: t('Invite to party', '邀请加入派对'), onClick: () => void inviteToParty(f) },
                   { label: t('Remove friend', '删除好友'), danger: true, onClick: () => void removeFriend(f) },
                   { label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(f) },
                   { label: t('Report', '举报'), danger: true, onClick: () => setReport(f) },
