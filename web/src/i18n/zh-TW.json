@@ -2840,5 +2840,6 @@
   "Restart agent": "重新啟動代理",
   "This is a system folder": "這是系統資料夾",
   "The agent works in {folder}, where a terminal opened as administrator starts. Agents often cannot work there. Stop it with Ctrl+C, open a terminal in your game's folder, and run the command again.": "代理在 {folder} 中工作，以系統管理員身分開啟的終端機會從這裡開始。代理通常無法在這裡正常工作。請按 Ctrl+C 停止，在你的遊戲資料夾中開啟終端機，然後重新執行指令。",
-  "Stop this agent": "停止這個代理"
+  "Stop this agent": "停止這個代理",
+  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} 不認得其設定檔中的某個設定（舊版本不支援）。請重新啟動代理：工作台現在會啟動最新版本。"
 }

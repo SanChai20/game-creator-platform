@@ -45,7 +45,8 @@ test('catalog: every agent has a launch command; commands split like a shell', (
     assert.ok(/^https?:\/\//.test(a.website), a.id);
   }
   for (const id of ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'opencode', 'qwen', 'goose', 'kimi']) assert.ok(ids.has(id), id);
-  assert.deepEqual(launchOf(cat.find((a) => a.id === 'claude')), { command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'] });
+  assert.deepEqual(launchOf(cat.find((a) => a.id === 'claude')), { command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp@latest'] });
+  assert.deepEqual(launchOf({ launch: { npx: 'some-agent@1.2.3' } }).args, ['-y', 'some-agent@1.2.3'], 'a pinned version stays');
   assert.deepEqual(splitCommand(`my-agent --flag "two words" 'x y' ""`), ['my-agent', '--flag', 'two words', 'x y', '']);
 });
 

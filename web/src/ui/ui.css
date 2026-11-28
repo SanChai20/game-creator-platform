@@ -376,6 +376,13 @@ a.scope-tag:hover { border-color: var(--edge); color: var(--text); }
 .notice.bad { --nt: var(--bad-rgb); }
 .notice.info { --nt: var(--info-rgb); }
 .notice.warn { --nt: var(--warn-rgb); }
+/* A notice: a soft tint of its tone with a hairline edge and a round icon by the title; no bar on the side. */
+.notice { border-radius: var(--r-md); }
+.notice::before { box-shadow: inset 0 0 0 1px rgb(var(--nt) / .22); clip-path: none; border-radius: inherit; background: rgb(var(--nt) / calc(var(--wash) * .55)); }
+.notice::after { display: none; }
+.notice-t::before { content: "i"; width: 18px; height: 18px; border-radius: 50%; clip-path: none; display: inline-grid; place-items: center; color: #fff; font: 800 11px/1 var(--font-sans); }
+.notice.bad .notice-t::before, .notice.warn .notice-t::before, .notice:not(.good):not(.info) .notice-t::before { content: "!"; }
+.notice.good .notice-t::before { content: "✓"; }
 .empty { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 64px 24px; }
 .empty.compact { padding: 30px 20px; }
 .empty h3 { font: 800 var(--fs-xl)/1.2 var(--font-display); font-stretch: 88%; text-transform: uppercase; letter-spacing: .02em; }

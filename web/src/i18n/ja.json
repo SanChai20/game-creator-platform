@@ -2819,5 +2819,6 @@
   "Restart agent": "エージェントを再起動",
   "This is a system folder": "システムフォルダーです",
   "The agent works in {folder}, where a terminal opened as administrator starts. Agents often cannot work there. Stop it with Ctrl+C, open a terminal in your game's folder, and run the command again.": "エージェントは {folder} で動いています。管理者として開いたターミナルはここから始まります。エージェントは多くの場合ここでは作業できません。Ctrl+C で止め、ゲームのフォルダーでターミナルを開いて、コマンドをもう一度実行してください。",
-  "Stop this agent": "このエージェントを停止"
+  "Stop this agent": "このエージェントを停止",
+  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} は自身の設定ファイルにある設定を拒否しました（古い版はその設定を知りません）。エージェントを再起動してください。ワークベンチは最新版を起動するようになりました。"
 }
