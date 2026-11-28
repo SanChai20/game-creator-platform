@@ -17,6 +17,13 @@ import type { GameRoom } from '../room';
 import { actBots, botOptions, botStatus, inviteBotFor, startBots, stopBots } from '../bots';
 import { getSettings } from '../settings';
 import { applySale, saleView } from '../sales';
+// @ts-ignore plain JS module
+import { JamError, bySlug as jamBySlug, eligibleGames as jamEligible, entriesOf as jamEntries, listJams, publicView as jamView, submit as jamSubmit, withdraw as jamWithdraw } from '../jams.js';
+import { CommunityError, moderatePost, reply as boardReply, replyToReview, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
+import { BundleError, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
+import { CouponError, batchKeys, createDiscount, createKeys, disable as disableCoupon, listCoupons } from '../coupons.js';
+import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
+import { WishError, announceIssues, isComingSoon, setComingSoon, wishCount } from '../wishlist.js';
 import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
 import { gameAnalytics, onlineNow } from '../analytics';
@@ -68,6 +75,9 @@ import { checkBase, diffFiles, diffLine, isSame, textDiff, type BaseVerdict, typ
 import { checkoutVersion, parseSource, readSourceFile, sourceFiles, sourceName, versionOrThrow, workspaceLine, workspaceState, type Source } from '../version-store';
 import { SCOPE, TESTING, toolMap } from './overview';
 import { deleteProject } from '../project-delete';
+import { publishDevlog } from '../devlog-news';
+// @ts-ignore plain JS module
+import { DevlogError, cleanPatchNotes, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.js';
 export const ENGINE_EXPORTS = 'Any engine with a web export works: export to Web / HTML5 / WebGL and upload the exported folder (Unity: set Compression Format to Disabled; Godot\'s Web export and Phaser, PlayCanvas, Babylon.js, Three.js or plain canvas games upload as they are). The export must call GCP.ready() once it is playable.';
 
 /** The platform guides an agent can read: how the platform behaves, not how to make a game. */
@@ -580,6 +590,9 @@ async function publishVersion(a: Record<string, any>, c: ToolCtx, rollback: bool
     await logEvent(c.env, p.id, 'review_requested', 'The verification browser could not run this version', v.n, c.client);
     return { live: false, version: v.n, review: 'pending', next: `Version ${v.n} is waiting for a platform review because the verification browser could not run it. It goes live by itself once approved; list_versions {project, version: ${v.n}} shows the review state. Tell the user.` };
   }
+  // patch notes ride with the version and are posted by the pipeline when it goes live (src/devlog-news.ts)
+  const notes = rollback ? null : cleanPatchNotes(a.patch_notes, v.n);
+  if (notes) await c.env.DB.prepare('UPDATE versions SET patch_notes = ? WHERE project_id = ? AND n = ?').bind(JSON.stringify(notes), p.id, v.n).run();
   await logEvent(c.env, p.id, 'publish_requested', '', v.n, c.client);
   await enqueue(c.env, { kind: 'publish', pid: p.id, n: v.n, origin: c.origin, actor: c.client, mode: rollback ? 'rollback' : 'publish' });
   const end = Date.now() + 45000;
@@ -782,6 +795,8 @@ export const TOOLS: Tool[] = [
       skill_price_cents: { type: 'integer', description: 'The build skill\'s price in US cents, or 0 to share it for free. A free skill lowers the game\'s own platform cut; a sold one keeps the standard cut and pays the skill commission on skill sales. Only when the user has chosen.' },
       genre: GENRE_SCHEMA, genres: { type: 'array', maxItems: 2, items: { type: 'string', enum: [...GENRES] }, description: 'Up to two secondary genres.' },
       listing_translations: TRANSLATIONS_SCHEMA,
+      coming_soon: { type: 'boolean', description: 'Before the first release only: true puts up a public coming soon page (needs a title, tagline and cover), where players wishlist the game and see its devlogs; false takes it down. The first release ends it and tells everyone who wishlisted it.' },
+      release_note: { type: ['string', 'null'], description: 'The coming soon page\'s "when", in your own words, up to 40 characters: "Spring 2027", "Soon". null clears it.' },
     }, ['project']),
     run: async (a, c) => {
       const p = await scopedProject(c, a.project);
@@ -811,7 +826,7 @@ export const TOOLS: Tool[] = [
           perLang.push([l, v]);
         }
       }
-      const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, sale: saleIn, ...meta } = a;
+      const { cover: _c, covers: _cs, open_implementation: open, skill_price_cents: skillPrice, sale: saleIn, coming_soon: soonIn, release_note: noteIn, ...meta } = a;
       await updateProjectMeta(c.env, p, meta);
       if (saleIn !== undefined) await applySale(c.env, await fresh(c, p.id), saleIn, c.client);
       const now1 = await fresh(c, p.id), own = baseListingLang(now1), langCovers: Record<string, string | null> = {};
@@ -834,9 +849,19 @@ export const TOOLS: Tool[] = [
       }
       if (skillPrice !== undefined) await setSkillPrice(c.env, await getSettings(c.env), p, skillPrice, c.client);
       if (typeof open === 'boolean') await setOpenImplementation(c.env, p, open, c.client);
+      // the coming soon page goes up last, so a cover or tagline set in this same call counts (src/wishlist.js)
+      let comingSoon: Record<string, unknown> | undefined;
+      if (soonIn !== undefined || noteIn !== undefined) {
+        const before = await fresh(c, p.id), was = isComingSoon(before);
+        try { await setComingSoon(c.env.DB, before, { on: typeof soonIn === 'boolean' ? soonIn : undefined, release_note: noteIn }); }
+        catch (e) { if (e instanceof WishError) throw bad(e.message, announceIssues(before).map((i: { message: string }) => i.message).join(' ') || undefined); throw e; }
+        const after = await fresh(c, p.id), on = isComingSoon(after);
+        if (on !== was) await logEvent(c.env, p.id, on ? 'coming_soon' : 'coming_soon_off', on ? 'Coming soon page is up' : 'Coming soon page taken down', null, c.client);
+        comingSoon = { on, release_note: after.release_note || null, page: `${c.origin}/g/${encodeURIComponent(after.slug)}`, ...(await wishCount(c.env.DB, p.id)) };
+      }
       const q = await fresh(c, p.id), s = await getSettings(c.env);
       if (a.trial_minutes !== undefined) await logEvent(c.env, p.id, 'trial', Number(a.trial_minutes) > 0 ? `Free trial set to ${Math.round(Number(a.trial_minutes))} min` : 'Free trial turned off', null, c.client);
-      return { ok: true, title: q.title, ...(a.tags !== undefined || a.genre !== undefined || a.genres !== undefined ? tagAnswer(q, a.tags) : {}), price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
+      return { ok: true, title: q.title, ...(comingSoon ? { coming_soon: comingSoon } : {}), ...(a.tags !== undefined || a.genre !== undefined || a.genres !== undefined ? tagAnswer(q, a.tags) : {}), price: q.price_cents ? usd(q.price_cents) : 'free', sale: saleText(q, s), free_trial: trialText(q, s), creator_receives_per_sale: q.price_cents ? usd(splitSale(q.price_cents, s, freeSkillShared(q)).net) : null, ...(cover ? { cover } : {}), ...(Object.keys(langCovers).length ? { covers: langCovers } : {}), ...(Object.keys(coverChecks).length ? { cover_check: { ...coverChecks, look_at_it: `Before you call it done, look at the cover the way the store shows it: cropped to the safe area (x 30%-80%, y 12%-86%) for the home page banner, to 16:10 for cards and 16:7 for shelves, and 240 px wide. The title and main subject must be whole and readable in each. Template: ${c.origin}${COVER.template}` } } : {}), open_implementation: sharing(q), ...(q.skill_price_cents > 0 ? { creator_receives_per_skill_sale: usd(splitSkillSale(q.skill_price_cents, s).net) } : {}) };
     },
   },
   {
@@ -1350,7 +1375,7 @@ The whole set as one page: get_started {topic: "standards"}.`,
   {
     name: 'publish', title: 'Publish a verified version',
     description: 'Makes a verified version live in the marketplace at the game\'s public address. Only versions that passed verification can be published, and the account needs a creator license (get_started shows it). Omit version to publish the newest verified one. Every platform requirement is checked on the server first (verification against today\'s checks, including the playability checks: reacts to input and keeps running through bot play (a score or an ending is optional); playable on computers, tablets and phones, unchanged files, store metadata, storage, the weekly cap on new games (a few new games per account per 7 days, more for well-rated games; updates are never capped), the build skill when shared, originality and content, license and account); a refusal lists every rule that fails with exactly what to fix, and dry_run: true checks without publishing. A new game starts on the store\'s New shelf and moves to the main store by itself once players stick with it; the answer\'s store field says where it stands. Design recommendations (game_standards: cover, orientation, layout, loading screen, sound) are reported as advice and never refuse a version. open_implementation sets whether other developers\' agents may learn how the game is built (never its code) and whether its build skill is in the Creator Store; leave it out to keep the current choice, and ask the user before turning it on. While it is on, every new version needs its build skill written first (build_skill {action: "write", version}), so the skill always matches the live game.',
-    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' }, dry_run: { type: 'boolean', description: 'Optional. true checks every platform requirement for this version and returns each rule with its status and what to do, without publishing anything.' } }, ['project']),
+    inputSchema: obj({ project: PROJECT, version: { type: 'integer', description: 'Version to make live. Default: newest verified.' }, open_implementation: { type: 'boolean', description: 'Optional. true shares how the game is built with other agents (no code); false keeps it private. Omitted: unchanged (off for a new game).' }, dry_run: { type: 'boolean', description: 'Optional. true checks every platform requirement for this version and returns each rule with its status and what to do, without publishing anything.' }, patch_notes: { type: 'object', description: 'Optional, recommended for an update: what changed for players, as { title?, body } (title up to 120 characters, default "Version N"; body plain text up to 5000). Posted on the game page when the version goes live, and players who follow the creator, keep, bought or recently played the game are told under the bell. Write it for players, in the listing\'s language.', properties: { title: { type: 'string' }, body: { type: 'string' } } } }, ['project']),
     run: (a, c) => publishVersion(a, c, false),
   },
   {
@@ -1527,8 +1552,8 @@ The whole set as one page: get_started {topic: "standards"}.`,
   },
   {
     name: 'get_stats', title: 'Players online, analytics and marketplace numbers',
-    description: 'Returns how the game is doing. now: players online at this moment (live and preview) and players in multiplayer rooms. analytics, over the last days (default 30, at most 90): sessions, unique, new and returning players, play time with average and median session length, session-length spread, players per day and per hour for the last 24 hours, a breakdown by version, device, browser and operating system. Every play number is measured by the platform itself (it starts each session, and the page that shows the game checks in every 30 seconds), never taken from the game; what the game reports about itself (whether it reached GCP.ready, the errors it caught) is under analytics.reported_by_game and in runtime_errors, apart from the rest. Also plays, ratings and recent reviews, and sales. Pass only_now: true for just the live counts, which is cheap enough to poll.',
-    inputSchema: obj({ project: PROJECT, days: { type: 'integer', description: 'Window for analytics, 1 to 90 days. Default 30.' }, only_now: { type: 'boolean', description: 'Return only players online now and room occupancy.' } }, ['project']), annotations: { readOnlyHint: true },
+    description: 'Returns how the game is doing. now: players online at this moment (live and preview) and players in multiplayer rooms. analytics, over the last days (default 30, at most 90): sessions, unique, new and returning players, play time with average and median session length, session-length spread, players per day and per hour for the last 24 hours, a breakdown by version, device, browser and operating system, retention (day 1, 7 and 30, weekly cohorts), how long new players\' first session lasted, the store funnel from page views to returning players, and the events the game counts with GCP.track with its gcp.json funnel (pass funnel to try other steps). Every play number is measured by the platform itself (it starts each session, and the page that shows the game checks in every 30 seconds), never taken from the game; what the game reports about itself (whether it reached GCP.ready, the errors it caught) is under analytics.reported_by_game and in runtime_errors, apart from the rest. Also plays, ratings and recent reviews, and sales. Pass only_now: true for just the live counts, which is cheap enough to poll.',
+    inputSchema: obj({ project: PROJECT, days: { type: 'integer', description: 'Window for analytics, 1 to 90 days. Default 30.' }, only_now: { type: 'boolean', description: 'Return only players online now and room occupancy.' }, funnel: { type: 'array', items: { type: 'string' }, description: 'Event names in order for the events funnel, instead of the live version\'s gcp.json "funnel".' } }, ['project']), annotations: { readOnlyHint: true },
     run: async (a, c) => {
       if (a.only_now) { const p = await scopedProject(c, a.project); return { status: p.status, ...(await onlineNow(c.env, p.id)) }; }
       const p = await scopedProject(c, a.project), db = c.env.DB;
@@ -1545,7 +1570,8 @@ The whole set as one page: get_started {topic: "standards"}.`,
         last_14_days: daily.results.map((d) => ({ day: d.day, sessions: d.sessions, plays: d.plays, minutes: Math.round(d.seconds / 60) })),
         runtime_errors: errors.results,   // reported by the game, not observed by the platform
         recent_reviews: reviews.results,
-        analytics: await gameAnalytics(c.env, p.id, Number(a.days) || 30),
+        wishlists: await wishCount(db, p.id, now() - 7 * 86400_000),   // players who wishlisted the game: total, and in the last 7 days
+        analytics: await gameAnalytics(c.env, p.id, Number(a.days) || 30, Array.isArray(a.funnel) ? a.funnel.map(String) : undefined),
         console_page: `${c.origin}/console/p/${p.id}/analytics`,
       };
     },
@@ -1581,6 +1607,182 @@ The whole set as one page: get_started {topic: "standards"}.`,
             : `Saved all platform languages for version ${r.version}. It shows in the Creator Store once version ${r.version} is live: publish {project, version: ${r.version}}.`,
         ...(q.open_implementation ? {} : { not_shared: 'Open Implementation is off, so nothing is shared yet. Ask the user before turning it on (update_project {open_implementation: true}).' }),
       };
+    },
+  },
+  {
+    name: 'devlog', title: 'Post news and patch notes on the game page',
+    description: 'The game\'s devlog: posts on its store page that players read, announced under the bell to players who follow the creator, keep the game in their library, bought it, or played it in the last 90 days. Actions: list (the newest posts, before for older ones), post (title up to 120 characters and body up to 5000, plain text; at most 3 posts a day per game; the game must be live to announce), edit (id, title, body; no new announcement) and delete (id). Patch notes for an update go with publish {patch_notes} instead, so they appear when the version goes live. Ask the user before posting: it is the creator speaking to players.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'post', 'edit', 'delete'] },
+      id: { type: 'string', description: 'edit and delete: the post\'s id from list.' },
+      title: { type: 'string', description: 'post and edit: the headline, up to 120 characters.' },
+      body: { type: 'string', description: 'post and edit: plain text with line breaks, up to 5000 characters.' },
+      before: { type: 'integer', description: 'list: the created_at of the last post shown, for older ones.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof DevlogError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return { ...(await listDevlogs(c.env.DB, p.id, { before: a.before })), game_page: `${c.origin}/g/${p.slug}#news` };
+      if (a.action === 'post') {
+        if (p.status !== 'live') throw bad('This game is not live, so nobody would read the post.', 'Publish the game first; for an update, pass patch_notes to publish.');
+        const r = await guard(() => publishDevlog(c.env, p, c.user.id, { title: a.title, body: a.body }));
+        await logEvent(c.env, p.id, 'devlog', String(a.title || '').slice(0, 120), null, c.client);
+        return { ok: true, ...r, game_page: `${c.origin}/g/${p.slug}#news` };
+      }
+      if (a.action === 'edit') return guard(() => editDevlog(c.env.DB, p.id, a.id, { title: a.title, body: a.body }));
+      if (a.action === 'delete') return guard(() => deleteDevlog(c.env.DB, p.id, a.id));
+      throw bad('action must be list, post, edit or delete.');
+    },
+  },
+  {
+    name: 'jam', title: 'Game jams and festivals',
+    description: 'Game jams and festivals on HearthCade (the /jams page). A jam has a theme (hidden until it starts), a window for entries, then a window in which players who played an entry score it on the host\'s criteria; a festival shows live and coming soon games together for a few days. Actions: list (what is on, coming and recently ended), get (slug: the event, its entries, and which of your games could enter), enter (slug, project: one of your live games; a festival also takes a coming soon game; a jam that says new_only takes only games created after it started; at most 3 per creator) and withdraw (slug, project; only while entries are open). Ask the user before entering: the entry shows on a public page under their name. Hosting is done on the /jams page.',
+    inputSchema: obj({
+      action: { type: 'string', enum: ['list', 'get', 'enter', 'withdraw'] },
+      slug: { type: 'string', description: 'get, enter and withdraw: the event\'s slug from list (its /jams/<slug> address).' },
+      project: { type: 'string', description: 'enter and withdraw: your game\'s project id or slug.' },
+    }, ['action']),
+    run: async (a, c) => {
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof JamError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return listJams(c.env.DB);
+      const j = await jamBySlug(c.env.DB, String(a.slug || '')) as any;
+      if (!j || j.status === 'cancelled') throw bad('No such jam or festival.', 'Run jam {action: "list"} for the slugs.');
+      const page = `${c.origin}/jams/${j.slug}`;
+      if (a.action === 'get') {
+        const entries = (await jamEntries(c.env.DB, j, c.user.id) as any[]).map((e) => ({ game: { id: e.game.id, slug: e.game.slug, title: e.game.title, author: e.game.author }, voters: e.voters, mine: e.mine, ...(e.rank !== undefined ? { rank: e.rank, overall: e.overall, scores: e.scores } : {}) }));
+        return { jam: jamView(j, c.user.id), entries, your_eligible_games: await jamEligible(c.env.DB, j, c.user.id), page };
+      }
+      const p = await scopedProject(c, a.project);
+      if (a.action === 'enter') {
+        const r = await guard(() => jamSubmit(c.env.DB, j, c.user.id, p));
+        await logEvent(c.env, p.id, 'jam', `Entered ${j.kind === 'festival' ? 'festival' : 'jam'}: ${j.title}`, null, c.client);
+        return { ok: true, ...r, page };
+      }
+      if (a.action === 'withdraw') return guard(() => jamWithdraw(c.env.DB, j, c.user.id, p.id));
+      throw bad('action must be list, get, enter or withdraw.');
+    },
+  },
+  {
+    name: 'playtest', title: 'Playtest the preview with real players',
+    description: 'Invite real players to the game\'s preview through a link, ask them up to 5 questions afterwards, and read how each tester played: sessions, minutes, the custom events they reached (GCP.track) and their answers, with an enjoyment score from 1 to 5. Testers\' play is preview play and never counts toward the live game. Actions: list (the game\'s playtests with their links), open (title, optional note on what to try, questions, seats 1 to 500 default 50, days 1 to 30 default 7; needs a verified preview and no other open playtest), close (id) and results (id). Testers play whatever preview is deployed while the playtest is open, so deploy fixes to the preview as you go. Ask the user before opening one: they share the link with their players.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'open', 'close', 'results'] },
+      id: { type: 'string', description: 'close and results: the playtest\'s id from list.' },
+      title: { type: 'string', description: 'open: what this round tests, up to 80 characters, e.g. "Level 2 balance".' },
+      note: { type: 'string', description: 'open: what testers should try, up to 600 characters.' },
+      questions: { type: 'array', items: { type: 'string' }, description: 'open: up to 5 questions asked after playing, each up to 160 characters.' },
+      seats: { type: 'integer', description: 'open: how many testers it takes, 1 to 500. Default 50.' },
+      days: { type: 'integer', description: 'open: how long it stays open, 1 to 30 days. Default 7.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof PlaytestError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      const link = (code: string) => `${c.origin}/playtest/${code}`;
+      if (a.action === 'list') return { playtests: ((await listPlaytests(c.env.DB, p.id)) as any[]).map((x) => ({ ...x, link: link(x.code) })) };
+      if (a.action === 'open') {
+        const row = await guard(() => openPlaytest(c.env.DB, p, a));
+        await logEvent(c.env, p.id, 'playtest', `Playtest opened: ${row.title} (preview v${row.version})`, null, c.client);
+        return { ok: true, id: row.id, link: link(row.code), closes_at: row.closes_at, next: 'Give the user the link to share with their testers. Read results {id} as they play.' };
+      }
+      if (a.action === 'close') return guard(() => closePlaytest(c.env.DB, p.id, a.id));
+      if (a.action === 'results') {
+        const pt = await c.env.DB.prepare('SELECT * FROM playtests WHERE id = ? AND project_id = ?').bind(String(a.id || ''), p.id).first();
+        if (!pt) throw bad('No playtest with that id on this game.', 'Run playtest {action: "list"} for the ids.');
+        return { ...(await playtestResults(c.env.DB, pt)), link: link((pt as any).code) };
+      }
+      throw bad('action must be list, open, close or results.');
+    },
+  },
+  {
+    name: 'community', title: 'Read and answer players: reviews and the game\'s board',
+    description: 'What players say about the game, and the creator\'s public answers. Actions: reviews (the latest reviews with ratings and any reply), reply_review (user_id, body: the creator\'s one public reply to a review, which the reviewer is told about; sending it again changes it), threads (the discussion board, pinned first), thread (id: a thread with its replies, including hidden ones and report counts), post (id, body: reply in a thread as the creator) and moderate (id, and any of pinned, locked, hidden). Everything posted appears under the owner\'s name, so show the user what you will post and get their go-ahead first.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['reviews', 'reply_review', 'threads', 'thread', 'post', 'moderate'] },
+      user_id: { type: 'string', description: 'reply_review: the reviewer\'s id from reviews.' },
+      id: { type: 'string', description: 'thread, post and moderate: a thread or post id.' },
+      body: { type: 'string', description: 'reply_review (up to 1000 characters) and post (up to 2000).' },
+      pinned: { type: 'boolean' }, locked: { type: 'boolean' }, hidden: { type: 'boolean' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      assertCan(roleIn(c, p), 'pricing', 'speaking for the game in public');
+      const me = { id: p.owner_id, role: 'player' };   // posts appear as the owner's
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof CommunityError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'reviews') {
+        const rows = (await c.env.DB.prepare('SELECT r.user_id, u.name, r.rating, r.body, r.updated_at FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 50').bind(p.id).all<Record<string, any>>()).results;
+        return { reviews: await withReplies(c.env.DB, p.id, rows) };
+      }
+      if (a.action === 'reply_review') return guard(() => replyToReview(c.env.DB, p, me, String(a.user_id || ''), a.body));
+      if (a.action === 'threads') return guard(() => boardThreads(c.env.DB, p, me, { limit: 50 }));
+      if (a.action === 'thread') return guard(() => boardThread(c.env.DB, p, me, String(a.id || '')));
+      if (a.action === 'post') return guard(() => boardReply(c.env.DB, p, me, String(a.id || ''), { body: a.body }));
+      if (a.action === 'moderate') return guard(() => moderatePost(c.env.DB, p, me, String(a.id || ''), { pinned: a.pinned, locked: a.locked, hidden: a.hidden }));
+      throw bad('action must be reviews, reply_review, threads, thread, post or moderate.');
+    },
+  },
+  {
+    name: 'bundles', title: 'Bundles of your paid games (complete the set)',
+    description: 'Groups 2 to 10 of the user\'s own paid games into a bundle with a discount of 5 to 60%. Each game is still bought on its own; a player who owns any other game of a bundle gets its discount on the rest ("complete the set"), shown on each game page and on the bundle page (/bundles/<slug>). The buyer pays the lowest of the regular price, a sale, a discount code and the bundle price; discounts do not stack. Actions: list, create (title, percent_off, games: ids or slugs, optional description), update (bundle, and any of title, description, percent_off, games) and remove (bundle). The owner only, at most 10 bundles. Ask the user before creating or changing one: it sets prices.',
+    inputSchema: obj({
+      action: { type: 'string', enum: ['list', 'create', 'update', 'remove'] },
+      bundle: { type: 'string', description: 'update and remove: the bundle\'s id or slug from list.' },
+      title: { type: 'string', description: 'create and update: up to 80 characters.' },
+      description: { type: 'string', description: 'create and update: up to 600 characters.' },
+      percent_off: { type: 'integer', description: 'create and update: 5 to 60, off each remaining game\'s regular price.' },
+      games: { type: 'array', items: { type: 'string' }, description: 'create and update: 2 to 10 of the user\'s paid games, by id or slug, in the order shown.' },
+    }, ['action']),
+    run: async (a, c) => {
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof BundleError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return { bundles: (await myBundles(c.env.DB, c.user.id)).map((b: any) => ({ ...b, link: `${c.origin}/bundles/${b.slug}` })) };
+      // every game named must be one this connection may work on, and the user's to price
+      if (Array.isArray(a.games)) for (const g of a.games) { const p = await scopedProject(c, String(g)); assertCan(roleIn(c, p), 'pricing', 'putting games in a bundle'); }
+      if (a.action === 'create') { const r = await guard(() => createBundle(c.env.DB, c.user.id, a)); return { ok: true, ...r, link: `${c.origin}/bundles/${r.slug}` }; }
+      if (a.action === 'update' || a.action === 'remove') {
+        const b = (await myBundles(c.env.DB, c.user.id)).find((x: any) => x.id === a.bundle || x.slug === a.bundle);
+        if (!b) throw bad('No such bundle of yours.', 'Run bundles {action: "list"} for the ids.');
+        for (const g of b.games) { const p = await scopedProject(c, g.id); assertCan(roleIn(c, p), 'pricing', 'changing a bundle'); }
+      }
+      if (a.action === 'update') return guard(() => updateBundle(c.env.DB, c.user.id, String(a.bundle || ''), a));
+      if (a.action === 'remove') return guard(() => removeBundle(c.env.DB, c.user.id, String(a.bundle || '')));
+      throw bad('action must be list, create, update or remove.');
+    },
+  },
+  {
+    name: 'coupons', title: 'Discount codes and free keys for a paid game',
+    description: 'Discount codes and keys for a paid game, for streamers, press and giveaways. A discount code (5 to 90% off the regular price, a number of uses, optional days until it ends) is entered on the game page before checkout; each account uses a code once, and during a sale the buyer pays whichever price is lower, never below 50 cents. A key is single use and gives the game at no charge on /redeem: no sale is counted, the creator is not credited, and there is nothing to refund. Actions: list, discount (percent_off, optional code, max_uses default 100, days, note), keys (count 1 to 100, note; returns the keys), batch (batch id: its keys and which were used) and off (id of a discount code, or batch to switch off a batch\'s unused keys). The owner only. Ask the user before making codes or keys: they decide who gets them.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'discount', 'keys', 'batch', 'off'] },
+      percent_off: { type: 'integer', description: 'discount: 5 to 90.' },
+      code: { type: 'string', description: 'discount: the code players type, 4 to 24 letters and digits. Made up when left out.' },
+      max_uses: { type: 'integer', description: 'discount: how many accounts can use it, 1 to 10000. Default 100.' },
+      days: { type: 'integer', description: 'discount: days until it ends, 1 to 365. No end when left out.' },
+      count: { type: 'integer', description: 'keys: how many, 1 to 100.' },
+      note: { type: 'string', description: 'discount and keys: who it is for, up to 80 characters, e.g. "Streamers, March".' },
+      id: { type: 'string', description: 'off: a discount code\'s id from list.' },
+      batch: { type: 'string', description: 'batch and off: a key batch\'s id from list.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      assertCan(roleIn(c, p), 'pricing', 'making discount codes and keys');
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof CouponError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return { redeem_page: `${c.origin}/redeem`, ...(await listCoupons(c.env.DB, p.id)) };
+      if (a.action === 'discount') {
+        const row = await guard(() => createDiscount(c.env.DB, p, a));
+        await logEvent(c.env, p.id, 'coupon', `Discount code ${row.code}: ${row.percent_off}% off, ${row.max_uses} uses`, null, c.client);
+        return { ok: true, coupon: row, next: `Players enter ${row.code} on the game page (${c.origin}/g/${p.slug}) before buying.` };
+      }
+      if (a.action === 'keys') {
+        const r = await guard(() => createKeys(c.env.DB, p, a));
+        await logEvent(c.env, p.id, 'coupon', `${r.codes.length} keys made${r.note ? `: ${r.note}` : ''}`, null, c.client);
+        return { ok: true, ...r, next: `Each key is redeemed once at ${c.origin}/redeem. Give the keys to the user to hand out.` };
+      }
+      if (a.action === 'batch') return { keys: await batchKeys(c.env.DB, p.id, String(a.batch || '')) };
+      if (a.action === 'off') return guard(() => disableCoupon(c.env.DB, p.id, { id: a.id, batch: a.batch }));
+      throw bad('action must be list, discount, keys, batch or off.');
     },
   },
   {

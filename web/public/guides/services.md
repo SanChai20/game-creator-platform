@@ -39,10 +39,14 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Player accounts and play sessions | available | `GCP.player`, `GCP.lang`, `GCP.onLang` | none | saves |
 | Cloud saves | available | `GCP.save` | `game_data` (summary) | saves |
 | Player stats | available | `GCP.playerStats` | `game_data` (summary) | saves |
+| Game jams and festivals | available | none | `jam` | metadata |
+| Devlogs and patch notes | available | none | `devlog`, `publish` (`patch_notes`) | metadata |
+| Achievements | available | `GCP.achievements` | `deploy_preview` (checks `gcp.json` `achievements`) | saves |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
 | Continue playing | automatic | `GCP.launch.continue`, `GCP.resume` | none | saves |
 | Shared game data | available | `GCP.shared.get` | `game_data` (set, get, list, delete) | saves |
 | Leaderboards | available | `GCP.leaderboard` | `game_data` (leaderboard, clear_leaderboard) | saves |
+| Seed of the day and daily challenges | available | `GCP.daily()` | `GET /api/challenges` | saves |
 | Realtime multiplayer rooms | available | `GCP.room` | `game_room`, `get_stats` | multiplayer |
 | Server-run matches | available unless switched off | `GCP.match.find` | `upload_files`, `deploy_preview`, `get_stats` | matches |
 | Matchmaking and ratings | available unless switched off | `GCP.match.find` | `get_stats` | matches |
@@ -55,11 +59,15 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Compatibility requirements | available | none | `compatibility` | contract |
 | Verification and test hooks | automatic | `GCP.test.*` | `deploy_preview`, `list_versions`, `debug_preview` | versions |
 | Preview debugging in a browser | available unless switched off | `GCP.test.onState` | `debug_preview` | versions |
+| Playtests with real players | available | `GCP.track` | `playtest`, `deploy_preview` | testing |
 | Creator feedback queue | available unless switched off | `GCP.test.onState` | `creator_feedback` | versions |
 | Publish checks (originality, content, web only) | automatic | none | `publish`, `list_versions` | versions |
 | Marketplace listing, ratings and reviews | available | none | `update_project`, `game_metadata` | metadata |
 | Paid games, free trials and payouts | available unless switched off | none (handled by the platform) | `update_project`, `get_stats` | none |
-| Analytics and runtime errors | automatic | none (heartbeats are automatic) | `get_stats` | none |
+| Discount codes and keys | available unless switched off | none (handled by the platform) | `coupons` | none |
+| Bundles (complete the set) | available unless switched off | none (handled by the platform) | `bundles` | none |
+| Review replies and the community board | available | none (handled by the platform) | `community` | none |
+| Analytics and runtime errors | automatic | `GCP.track(name, value)` (optional) | `get_stats` | none |
 | Open implementations | available | none | `find_implementations`, `get_implementation`, `build_skill` | none |
 | Agent access (MCP and OAuth) | available | none | every tool | versions |
 
@@ -142,6 +150,25 @@ const record = await GCP.playRecord();   // sessions, seconds, first and last pl
 - Offline, saves fall back to a per-player copy in `localStorage` and `set` resolves to `false`; stats resolve to `null`.
 
 Limits: 64 save keys and 64 stat names per player; 256 KB per value; save keys up to 120 characters, stat names up to 60. Details and save-format advice: `get_started {topic: "saves"}`.
+
+## Achievements
+
+Declare them in `gcp.json`; each version freezes its own list and `deploy_preview` checks it:
+
+```json
+"achievements": [
+  { "id": "first_win", "name": { "en": "First win", "zh": "首胜" }, "description": "Win a match" },
+  { "id": "kills_100", "name": "Centurion", "description": "Defeat 100 enemies", "stat": "kills", "goal": 100 },
+  { "id": "cave", "name": "Behind the waterfall", "hidden": true }
+]
+```
+
+- `GCP.achievements.unlock('first_win')` unlocks one (or an array). It resolves to the ids that were new, `[]` when already unlocked, or `null` offline. An id the version does not declare is refused.
+- An entry with `stat` and `goal` unlocks by itself when `GCP.playerStats` makes that stat reach the goal or pass it.
+- `GCP.achievements.list()` returns every achievement in the player's language with `unlocked_at` and `percent` (the share of the live game's players who unlocked it). A hidden one has no name or description until it is unlocked.
+- `GCP.achievements.on(fn)` runs for each unlock in the session. The SDK shows a short corner notice for each one; set `GCP.achievements.toast = false` when the game shows its own.
+- Players see the list with rarity on the game page and a count per game in their library. Unlocks are kept for good per id; a player's progress reset clears them. The verification browser keeps none, and preview and live are separate.
+- Limits: 100 per version, ids of 1 to 40 characters (`a-z`, `0-9`, `_`, `-`), names up to 60 characters, descriptions up to 160. Names and descriptions are a string or one string per platform language (`en`, `zh`, `zh-TW`, `ja`, `ko`, `es`).
 
 ## Continue playing
 
@@ -385,6 +412,7 @@ Before a verified version goes live it is compared with other creators' live gam
 ## Marketplace, payments and payouts
 
 - `update_project` sets the title, tagline, description, tags, controls text and cover (png, jpg or webp under 2 MB). `game_metadata` detects, suggests and declares the standardized store metadata (genre, tags from the platform list, languages, players, content and age rating, session length, progress, accessibility); publishing is refused until the required fields are on record (`get_started {topic: "metadata"}`). Players rate and review from the game page after a counted play (30 seconds of active play by default).
+- `publish {patch_notes: {title?, body}}` posts what changed on the game page when the version goes live, and `devlog {action: "post"}` posts news on a live game (title up to 120 characters, plain-text body up to 5000, at most 3 a day). Players who follow the creator, keep the game, bought it or played it in the last 90 days are told under the bell. Ask the user before posting.
 - `update_project {price_cents}` sells the game for a one-time price (default range $1.99 to $99.99); the platform keeps its cut (default 10%, or 5% while the game shares its build skill for free) and credits the rest after a holding period (default 3 days, never shorter than the refund window; 30 days during a creator's first 90 days). `update_project {sale: {price_cents, days}}` runs a limited-time sale: at least 10% off for up to 30 days by default, shown in the store with the regular price struck through, and charged at checkout. `trial_minutes` offers a free trial kept per account on the server; when it ends the SDK pauses the game and asks the player to buy, and the data services answer 402.
 - Horylo LLC, the company that operates the platform, is the seller of every paid game; Stripe Checkout shows it as the seller and links the Terms and Refund policy. Payments run on Stripe Checkout and payouts on Stripe Connect. Buyers can refund a game within 1 day of buying it if they played it for less than 10 minutes, once per game; the refund takes back the creator's credit for that sale, and the platform gives back its cut. Build skills are non-refundable; the creator withdraws from the console once the balance reaches the minimum (default $50). Publishing needs a creator license, a one-time payment for a year or for life; building and previewing are free.
 - The game never takes payments itself and never needs to check ownership: the platform only opens a paid game for owners and trial players.
@@ -393,7 +421,9 @@ Ask the user before setting or changing a price.
 
 ## Analytics and runtime errors
 
-`get_stats` returns players online now, room occupancy, sessions, unique, new and returning players, play time and session lengths, devices, browsers, versions, trials, sales, ratings, recent reviews and the errors real players' browsers reported, over 1 to 90 days. Only real players of the live game count; your own plays and the verifier do not. There are no custom events: count what matters with player stats, which `game_data {action: "summary"}` aggregates.
+`get_stats` returns players online now, room occupancy, sessions, unique, new and returning players, play time and session lengths, devices, browsers, versions, trials, sales, ratings, recent reviews and the errors real players' browsers reported, over 1 to 90 days. Only real players of the live game count; your own plays and the verifier do not. It also returns `retention` (day 1, 7 and 30 rolling retention of the players who first played in the window, and weekly cohorts), `first_session` (how long new players' first session lasted, as the share still playing at each minute), and `store_funnel` (store page loads, players who started, players with a counted play, players who came back).
+
+Custom events: `GCP.track('tutorial_done')` or `GCP.track('coins_spent', 40)` counts an event and adds up its value. The SDK batches them (at most every 10 seconds, and when the tab is hidden). `get_stats` lists each event with its count, unique players, total and average, per day too. List event names in order in `gcp.json` `"funnel": ["tutorial_start", "tutorial_done", "level_3"]` and the console's Analytics tab and `get_stats` show how many new players reached each step after the one before. Limits: 50 event names per game and environment (names of 1 to 40 characters: `a-z`, `0-9`, `_`, `.`, `-`), 10 funnel steps. Only signed-in players of the live game count; the verifier sends none.
 
 ## Open implementations
 
@@ -424,7 +454,6 @@ Plan around these instead of looking for them.
 | AI models for games (text, images, speech) | The platform uses Workers AI only for its own checks. Generate assets while building, or call an outside API from server code (never served to players); never put a key in a client file. |
 | In-game purchases, currencies sold for money, subscriptions | Sell the whole game or offer a free trial. Currencies earned by play live in saves or stats. |
 | Checking from game code whether the player bought the game | Not needed: only owners and trial players can open a paid game. |
-| Achievements and badges | Track milestones with `GCP.playerStats` and show them in the game. |
 | Player profiles, avatars and in-game chat channels | Players have platform friends and direct chat (`GCP.friends`). For chat inside a match or room, relay text over `room.send` and moderate what players type. |
 | A list of open rooms | Invite friends with `GCP.friends`, or use fixed room names for public play; for a lobby list, players join a `lobby` room and advertise their room names there. Competitive games use `GCP.match.find()`, which matches players by itself. |
 | Server-authoritative simulation inside rooms | Rooms stay host-authoritative. For a neutral server use server-run matches (`server/match.js` with `GCP.match.find`). |
@@ -432,7 +461,6 @@ Plan around these instead of looking for them.
 | Persistent rooms and worlds while nobody is connected | Store the world with `env.store` in server code, or in the host's save, and load it when the room opens. |
 | Secrets, environment variables or extra bindings (KV, D1, R2, cron) for server code | Use `env.store` for data. A key can live in `server/` (never served), but there is no secrets store or rotation: prefer keys you can revoke. |
 | Asset hosting beyond the game's storage (a CDN or bucket for large downloads) | Generate content from code, or load it at run time from a host the developer controls (any HTTPS host with CORS). `game_storage` explains both and asks for more storage when a game truly needs it. |
-| Custom analytics events | Count with player stats; `game_data summary` aggregates them. |
 | Uploads from players (screenshots, levels, avatars) | Small player-made content as JSON in saves, or in shared data through server code. |
 | Push notifications and email to players | None; use shared data for in-game announcements. |
 | Camera, microphone and geolocation | Blocked in the play frame. |

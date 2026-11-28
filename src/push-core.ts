@@ -93,6 +93,9 @@ const TEXT: Record<string, Record<Lang, string>> = {
   accepted: { en: '{name} accepted your friend request', zh: '{name} 接受了你的好友请求', 'zh-TW': '{name} 接受了你的好友邀請', ja: '{name} さんがフレンド申請を承認しました', ko: '{name}님이 친구 요청을 수락했습니다', es: '{name} ha aceptado tu solicitud de amistad' },
   invite: { en: '{name} invited you to play {game}', zh: '{name} 邀请你一起玩 {game}', 'zh-TW': '{name} 邀請你一起玩 {game}', ja: '{name} さんから {game} への招待が届きました', ko: '{name}님이 {game} 게임에 초대했습니다', es: '{name} te ha invitado a jugar a {game}' },
   new_game: { en: '{name} published a new game: {game}', zh: '{name} 发布了新游戏：{game}', 'zh-TW': '{name} 發布了新遊戲：{game}', ja: '{name} さんが新しいゲームを公開しました：{game}', ko: '{name}님이 새 게임을 공개했습니다: {game}', es: '{name} ha publicado un juego nuevo: {game}' },
+  devlog: { en: 'News from {game}', zh: '{game} 有新动态', 'zh-TW': '{game} 有新動態', ja: '{game} の新しいお知らせ', ko: '{game} 새 소식', es: 'Novedades de {game}' },
+  wish_release: { en: '{game} is out now', zh: '{game} 现已推出', 'zh-TW': '{game} 現已推出', ja: '{game} が発売されました', ko: '{game} 출시', es: '{game} ya está disponible' },
+  wish_sale: { en: '{game} is on sale', zh: '{game} 正在促销', 'zh-TW': '{game} 正在特價', ja: '{game} がセール中です', ko: '{game} 할인 중', es: '{game} está en oferta' },
   message: { en: 'Message from {name}', zh: '来自 {name} 的消息', 'zh-TW': '來自 {name} 的訊息', ja: '{name} さんからのメッセージ', ko: '{name}님의 메시지', es: 'Mensaje de {name}' },
   giftRequest: { en: '{name} would like {game} as a gift', zh: '{name} 想请你赠送 {game}', 'zh-TW': '{name} 想請你贈送 {game}', ja: '{name} さんが {game} のギフトをリクエストしました', ko: '{name}님이 {game} 선물을 요청했습니다', es: '{name} quiere que le regales {game}' },
   giftReceived: { en: '{name} gave you {game}', zh: '{name} 送给你 {game}', 'zh-TW': '{name} 送給你 {game}', ja: '{name} さんから {game} が贈られました', ko: '{name}님이 {game}을(를) 선물했습니다', es: '{name} te ha regalado {game}' },
@@ -123,6 +126,16 @@ export function noteFor(ev: Record<string, any>, lang: Lang): Note | null {
       // a creator this player follows published a new game (src/creator-news.ts)
       const g: GameLike = ev.game || {}, game = short(g.i18n?.[lang]?.title || g.title, 60), who = short(ev.creator?.name, 40);
       return who && game && g.slug ? { kind: 'creators', title: fill(TEXT.new_game[lang], { name: who, game }), body: '', url: `/g/${encodeURIComponent(g.slug)}`, tag: 'new_game:' + g.slug } : null;
+    }
+    case 'devlog': {
+      // a devlog or patch note on a game this player follows, keeps, bought or played (src/devlog-news.ts)
+      const g: GameLike = ev.game || {}, game = short(g.i18n?.[lang]?.title || g.title, 60);
+      return game && g.slug ? { kind: 'creators', title: fill(TEXT.devlog[lang], { game }), body: short(ev.devlog?.title, 120), url: `/g/${encodeURIComponent(g.slug)}#news`, tag: 'devlog:' + (ev.devlog?.id || g.slug) } : null;
+    }
+    case 'wish_release': case 'wish_sale': {
+      // a game on this player's wishlist came out, or went on sale (src/wishlist.js)
+      const g: GameLike = ev.game || {}, game = short(g.i18n?.[lang]?.title || g.title, 60);
+      return game && g.slug ? { kind: 'creators', title: fill(TEXT[ev.kind][lang], { game }), body: '', url: `/g/${encodeURIComponent(g.slug)}`, tag: `${ev.kind}:${g.slug}` } : null;
     }
     case 'gift_request': case 'gift_received': case 'gift_declined': {
       const g: GameLike = ev.game || {}, game = short(g.i18n?.[lang]?.title || g.title, 60);

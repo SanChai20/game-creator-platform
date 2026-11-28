@@ -3,6 +3,7 @@
 import { readOptions } from '../file-read';
 import { Hono, type Context } from 'hono';
 import { AppError, bad, type Env } from '../env';
+import { dailyFor, recordScore as recordDailyScore } from '../challenges.js';
 import { isGuestId, rateLimit } from '../auth';
 import { playKey, runtimeHash, storeKey } from '../deploy';
 import { getSettings } from '../settings';
@@ -25,6 +26,10 @@ import { acceptedInvite, listFriends } from '../social-rules.js';
 import { botFriends, followCreator, inviteBot } from '../bots';
 // @ts-ignore plain JS module
 import { DataError, authToken, playerOf, playerSummary, resumeOp, saveOp, scopeOf, serverStoreOp, statOp } from '../player-data.js';
+// @ts-ignore plain JS module
+import { EventError, trackOp } from '../events.js';
+// @ts-ignore plain JS module
+import { declaredFor, keepsUnlocks, rarityOf, reachedBy, unlock, unlocksOf, viewOf } from '../achievements.js';
 // @ts-ignore plain JS module
 import { bindingProblem } from '../session-binding.js';
 // @ts-ignore plain JS module
@@ -200,7 +205,38 @@ rt.post('/save', async (c) => {
 rt.post('/stats', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
   if (!READ_OPS.has(b.op)) await roomForGameData(c.env);
-  return c.json(await guard(() => statOp(c.env.DB, tok, b, now())));
+  const r = await guard(() => statOp(c.env.DB, tok, b, now())) as { ok?: boolean; value?: number };
+  // A stat that reaches an achievement's goal unlocks it (src/achievements.js); the answer names what was new.
+  if (r.ok && typeof r.value === 'number') {
+    const defs = await declaredFor(c.env.DB, tok.g, tok.e);
+    const ids = reachedBy(defs, b.name, r.value) as string[];
+    if (ids.length) {
+      const u = await guard(() => unlock(c.env.DB, scopeOf(tok.g, tok.e), playerOf(tok), defs, ids, now(), keepsUnlocks(tok))) as { unlocked: string[] };
+      if (u.unlocked.length) return c.json({ ...r, unlocked: u.unlocked });
+    }
+  }
+  return c.json(r);
+});
+
+// GCP.track: the game's own analytics events, batched by the SDK (src/events.js). Counted for the creator's funnels.
+rt.post('/track', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  await roomForGameData(c.env);
+  try { return c.json(await trackOp(c.env.DB, scopeOf(tok.g, tok.e), playerOf(tok), b.events, now(), keepsUnlocks(tok))); }
+  catch (e) { if (e instanceof EventError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; }
+});
+
+// GCP.achievements: unlock what the version declares in gcp.json "achievements", list them with the player's unlocks and rarity.
+rt.post('/achievements', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t), db = c.env.DB;
+  const scope = scopeOf(tok.g, tok.e), me = playerOf(tok), defs = await declaredFor(db, tok.g, tok.e);
+  if (b.op === 'unlock') {
+    await roomForGameData(c.env);
+    return c.json(await guard(() => unlock(db, scope, me, defs, b.id ?? b.ids, now(), keepsUnlocks(tok))));
+  }
+  if (b.op !== 'list') throw bad('op must be unlock or list.');
+  const [mine, rarity] = await Promise.all([unlocksOf(db, scope, me), rarityOf(db, scope)]);
+  return c.json(viewOf(defs, mine, rarity, typeof b.lang === 'string' ? b.lang : 'en'));
 });
 
 // GCP.playRecord(): what the platform recorded for this player in this game.
@@ -214,6 +250,14 @@ rt.post('/resume', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
   if (b.op === 'set') await roomForGameData(c.env);
   return c.json(await guard(() => resumeOp(c.env.DB, tok, b, now())));
+});
+
+// The seed of the day (GCP.daily): the same for every player of this game today, and whether the game is today's daily
+// challenge (src/challenges.js). A preview gets the seed too, never the challenge.
+rt.post('/daily', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  const d = await dailyFor(c.env.DB, tok.g);
+  return c.json(tok.e === 'live' ? d : { ...d, challenge: false, board: null });
 });
 
 rt.post('/score', async (c) => {
@@ -239,7 +283,9 @@ rt.post('/score', async (c) => {
     }
     if (keeps) await c.env.DB.prepare(`INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, board, user_id) DO UPDATE SET score = ${asc ? 'MIN' : 'MAX'}(score, excluded.score), name = excluded.name, updated_at = excluded.updated_at`).bind(scope, board, me, tok.n, score, now()).run();
     const mine = await c.env.DB.prepare('SELECT score FROM scores WHERE project_id = ? AND board = ? AND user_id = ?').bind(scope, board, me).first<{ score: number }>();
-    return c.json({ ok: true, best: mine?.score ?? score, ...(keeps ? {} : { recorded: false }) });
+    // today's daily challenge (src/challenges.js): a signed-in player's score on its board also goes on the day's board
+    const daily = keeps && tok.e === 'live' && tok.k === 'player' && !isGuestId(tok.u) ? await recordDailyScore(db, tok.g, board, tok.u, tok.n, score) : false;
+    return c.json({ ok: true, best: mine?.score ?? score, ...(daily ? { daily: true } : {}), ...(keeps ? {} : { recorded: false }) });
   }
   const rows = await c.env.DB.prepare(`SELECT name, score, user_id = ?4 AS me FROM scores WHERE project_id = ?1 AND board = ?2 ORDER BY score ${asc ? 'ASC' : 'DESC'} LIMIT ?3`).bind(scope, board, clamp(Number(b.limit) || 10, 1, 100), me).all();
   return c.json({ rows: rows.results });

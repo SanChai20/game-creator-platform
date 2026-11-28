@@ -663,3 +663,31 @@ img.mature-blur { filter: blur(18px) saturate(.7) brightness(.8); transform: sca
 .gp-fine { display: grid; gap: 4px; margin: 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.45; color: var(--text-3); }
 .gp-fine a { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
 .gp-buy .refund-box { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* Achievements on the game page (pages/Game.tsx Achievements) and their count in the library */
+.ach-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ach-list li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ach-list li .grow { display: grid; min-width: 0; }
+.ach-list li b { overflow-wrap: anywhere; }
+.ach-list li:not(.on) { opacity: .72; }
+.ach-ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: rgb(var(--text-rgb) / .08); font-size: 15px; }
+.ach-list li.on .ach-ico { background: var(--accent); color: var(--on-accent); }
+.lib-ach { font-variant-numeric: tabular-nums; }
+
+/* Devlogs and patch notes (web/src/devlog-ui.tsx): the game page's News section and the console card */
+.devlog { display: grid; gap: 6px; padding: 14px 16px; border-radius: 12px; background: rgb(var(--text-rgb) / .04); min-width: 0; }
+.devlog header b { overflow-wrap: anywhere; }
+.devlog-body { margin: 0; white-space: pre-line; overflow-wrap: anywhere; line-height: 1.55; }
+.devlog-body.clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.devlog .linkish { justify-self: start; }
+
+/* Share card on the game page (web/src/share-ui.tsx) */
+.share-to { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+
+/* Coming soon pages and wishlists (web/src/wishlist-ui.tsx) */
+.soon-note { font-size: 1.15rem; }
+.game .price.soon { color: var(--accent, #e8243c); font-weight: 600; }
+
+/* For you shelf (web/src/foryou-ui.tsx) */
+.foryou .fy-why { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; margin-top: 6px; min-width: 0; }
+.foryou .fy-why button { flex: none; }

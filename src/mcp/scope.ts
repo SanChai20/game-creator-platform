@@ -42,6 +42,12 @@ export const TOOL_ROLES: Record<string, Role> = {
   debug_preview: 'write',
   update_project: 'maintain', game_data: 'maintain', game_room: 'maintain', build_skill: 'maintain',
   publish: 'admin', rollback: 'admin', unpublish: 'admin',
+  jam: 'admin', // enters the game in a public event under the owner's name
+  playtest: 'maintain', // opens the preview to outside players
+  coupons: 'admin', // discounts and free copies of a paid game
+  bundles: 'admin', // sets prices across the owner's games
+  community: 'admin', // speaks for the game in public, under the owner's name
+  devlog: 'admin', // posts news to the game's players, like a release
 };
 
 const MAX_SELECTED_PROJECTS = 500;

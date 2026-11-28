@@ -85,6 +85,17 @@ function noteView(n: Note): { text: string; to: string } | null {
   const g = n.game ? shown(n.game as never) as Game : null;
   switch (n.kind) {
     case 'new_game': return g ? { text: t('{name} published a new game: {game}', '{name} 发布了新游戏：{game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    // a devlog or patch note on a game the player follows the creator of, keeps, bought or played (src/devlogs.js)
+    case 'devlog': return g ? { text: t('{name} posted news about {game}', '{name} 发布了 {game} 的动态', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}#news` } : null;
+    // a game on the player's wishlist came out, or went on sale (src/wishlist.js)
+    case 'wish_release': return g ? { text: t('{game} from your wishlist is out now', '你愿望单中的 {game} 现已推出', { game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    case 'wish_sale': return g ? { text: t('{game} from your wishlist is on sale', '你愿望单中的 {game} 正在促销', { game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    // a jam the player entered moved on (src/jams.js)
+    case 'jam_voting': return n.data?.jam ? { text: t('Voting is open in {jam}', '{jam} 开始投票了', { jam: String(n.data.jam_title || '') }), to: `/jams/${encodeURIComponent(String(n.data.jam))}` } : null;
+    case 'jam_results': return n.data?.jam ? { text: t('The results of {jam} are in', '{jam} 的结果出炉了', { jam: String(n.data.jam_title || '') }), to: `/jams/${encodeURIComponent(String(n.data.jam))}` } : null;
+    // the creator answered the player's review; someone replied in the player's thread (src/community.js)
+    case 'review_reply': return g ? { text: t('{name} replied to your review of {game}', '{name} 回复了你对 {game} 的评价', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}#reviews` } : null;
+    case 'board_reply': return g ? { text: t('{name} replied to your thread on {game}', '{name} 回复了你在 {game} 的帖子', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}?thread=${encodeURIComponent(String(n.data?.thread || ''))}#community` } : null;
     // gifts between friends (src/gifts.ts)
     case 'gift_request': return g ? { text: t('{name} would like {game} as a gift', '{name} 想请你赠送 {game}', { name: n.actor.name, game: g.title }), to: '/gifts' } : null;
     case 'gift_declined': return g ? { text: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;

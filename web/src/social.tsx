@@ -118,6 +118,18 @@ function onMessage(m: any) {
       if (ev.game?.slug) toast({ kind: 'new_game', who: ev.creator?.name, title: t('{name} published a new game', '{name} 发布了新游戏', { name: ev.creator?.name || '' }), body: local(ev.game, 'title'),
         actions: [{ label: t('Play', '游玩'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}`) }] });
       break;
+    case 'devlog':
+      // news on a game this player follows the creator of, keeps, bought or played (src/devlog-news.ts)
+      notesArrived();
+      if (ev.game?.slug) toast({ kind: 'new_game', title: t('News from {game}', '{game} 有新动态', { game: local(ev.game, 'title') }), body: String(ev.devlog?.title || '').slice(0, 120),
+        actions: [{ label: t('Read', '查看'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}#news`) }] });
+      break;
+    case 'wish_release': case 'wish_sale':
+      // a game on this player's wishlist came out, or went on sale (src/wishlist.js)
+      notesArrived();
+      if (ev.game?.slug) toast({ kind: 'new_game', title: ev.kind === 'wish_release' ? t('From your wishlist: out now', '愿望单：现已推出') : t('From your wishlist: on sale', '愿望单：正在促销'), body: local(ev.game, 'title'),
+        actions: [{ label: t('Open', '打开'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}`) }] });
+      break;
     case 'message': {
       const open = S.chat && S.chat.peer === ev.peer && S.open?.peer?.id === ev.peer;
       if (open && ev.msg && !S.chat!.messages.some((x) => x.id === ev.msg.id)) { S.chat!.messages = [...S.chat!.messages, ev.msg]; emit(); if (!ev.mine) void api(`/social/chat/${ev.peer}/read`, { method: 'POST' }).catch(() => {}); }
@@ -411,6 +423,7 @@ function FriendList() {
                     onClick={async () => { if (await invite(f, inv)) setSent((x) => ({ ...x, [f.id]: true })); }}>{t('Invite', '邀请')}{can && f.p.s !== 'online' && <small className="fr-st"> · {statusName(f.p.s)}</small>}</Button>)}
                 <RowMenu label={t('More for {name}', '{name} 的更多操作', { name: f.name })} actions={[
                   { label: t('Message', '发消息'), onClick: () => openChat(f) },
+                  { label: t('View profile', '查看资料'), onClick: () => { closePanel(); navigate(`/u/${encodeURIComponent(f.id)}`); } },
                   { label: t('Remove friend', '删除好友'), danger: true, onClick: () => void removeFriend(f) },
                   { label: t('Block', '屏蔽'), danger: true, onClick: () => void blockUser(f) },
                   { label: t('Report', '举报'), danger: true, onClick: () => setReport(f) },

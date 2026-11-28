@@ -90,6 +90,8 @@ export async function claimGuest(db, guestId, userId, name, { move = true, t = D
   for (const { game } of games) {
     // Leaderboards: a board the account has no score on takes the guest's best, under the account's name.
     stmts.push(db.prepare('UPDATE OR IGNORE scores SET user_id = ?1, name = ?4 WHERE project_id = ?3 AND user_id = ?2').bind(userId, guestId, game, String(name || '').slice(0, 40) || 'Player'));
+    // Achievements add up: one the account has not unlocked yet becomes the account's, with the guest's unlock time.
+    stmts.push(db.prepare('UPDATE OR IGNORE achievement_unlocks SET user_id = ?1 WHERE project_id = ?3 AND user_id = ?2').bind(userId, guestId, game));
     // The play record adds up: sessions and time played as a guest count for the account.
     stmts.push(
       db.prepare(`INSERT INTO player_games (project_id, user_id, first_at, last_at, sessions, seconds, last_version)
@@ -109,5 +111,5 @@ export async function claimGuest(db, guestId, userId, name, { move = true, t = D
 
 /** Daily cleanup: what a claimed guest left behind (kept or declined) is unreachable; it goes after 30 days. */
 export const claimedGuestCleanupStmts = (db, before) => [
-  ...['saves', 'player_stats', 'scores', 'player_games'].map((tb) => db.prepare(`DELETE FROM ${tb} WHERE user_id IN (SELECT guest_id FROM guest_claims WHERE claimed_at < ?)`).bind(before)),
+  ...['saves', 'player_stats', 'scores', 'achievement_unlocks', 'player_games'].map((tb) => db.prepare(`DELETE FROM ${tb} WHERE user_id IN (SELECT guest_id FROM guest_claims WHERE claimed_at < ?)`).bind(before)),
 ];

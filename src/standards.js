@@ -172,11 +172,11 @@ export const STANDARDS = [
     enforced: 'game_standards check warns when the game draws the platform\'s name, and notes icon files.', checks: ['platform-logo', 'unused-store-files'], guide: '/guides/standards.md#no-icons',
   },
   {
-    id: 'no-achievements', area: 'not-offered', title: 'Achievements',
-    where: 'Nowhere: there is no achievements service or page.',
-    spec: ['Track milestones with GCP.playerStats (players see them on the game page) and show them in the game\'s own interface.'],
-    do: ['Name stats the way a player would read them.'], dont: ['Promise platform achievements in the description.'],
-    enforced: 'game_standards check notes achievement code without player stats.', checks: ['achievements'], guide: '/guides/services.md#what-the-platform-does-not-provide',
+    id: 'achievements', area: 'game', title: 'Achievements',
+    where: 'The game page (an Achievements card with how rare each one is), the player\'s library (unlocked of total per game) and a short corner notice inside the game when one unlocks.',
+    spec: ['Declare them in gcp.json "achievements" ({ id, name, description?, hidden?, stat?, goal? }, at most 100) and unlock them with GCP.achievements.unlock(id), or give a stat and a goal so the platform unlocks it when GCP.playerStats reaches the goal.', 'Names up to 60 characters and descriptions up to 160, in every language the game is listed in (a string, or one string per platform language).', 'The corner notice sits at the bottom right for about 4 seconds; set GCP.achievements.toast = false when the game shows its own.'],
+    do: ['Keep ids stable across versions.', 'Name achievements the way a player would read them.'], dont: ['Keep achievements only on the device, where they are lost on another browser.', 'Promise achievements in the description that the game does not declare.'],
+    enforced: 'deploy_preview refuses an invalid list; game_standards check notes achievement code with none declared.', checks: ['achievements'], guide: '/guides/services.md#achievements',
   },
   // ---- while the game plays -----------------------------------------------------------------------------------------
   {
@@ -512,7 +512,7 @@ export function checkStandards(input = {}) {
     const shown = shownCode(texts);
     // the name as words a player reads, not inside a storage key, a host name or a path ('hearthcade-save', 'hearthcade.com/g/…')
     if (brand && new RegExp(`['"\`][^'"\`\\n]*(?<![\\w./:@-])${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w/:-]|\\.\\w)`, 'i').test(shown)) add('no-icons', 'warning', `The game's code draws or names "${brand}", the platform's own name.`, 'Remove it: the platform shows its own splash, and a game must not present itself as made by the platform.', { check: 'platform-logo' });
-    if (/achievement/i.test(code) && !/playerStats/.test(code)) add('no-achievements', 'note', 'The game has achievements but keeps them only on the device.', 'Keep them with GCP.playerStats so they follow the player and show on the game page.', { check: 'achievements' });
+    if (/achievement/i.test(code) && !/GCP\s*\.\s*achievements|playerStats/.test(code) && !Array.isArray(input.gcp?.achievements)) add('achievements', 'note', 'The game has achievements but keeps them only on the device.', 'Declare them in gcp.json "achievements" and unlock them with GCP.achievements.unlock(id), so they follow the player and show on the game page with their rarity.', { check: 'achievements' });
   }
   const paths = input.paths || [...texts.keys()];
   const unused = paths.filter((p) => VIDEO.test(p) || ICONS.test(p) || SHOTS.test(p));

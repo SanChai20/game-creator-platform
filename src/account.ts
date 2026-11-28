@@ -9,6 +9,8 @@ import { now } from './util';
 import { deleteAccountStmts as socialDeleteStmts } from './social-rules.js';
 // @ts-ignore plain JS module
 import { deleteAccountStmts as followDeleteStmts } from './follows.js';
+import { deleteStatements as collectionDeleteStmts } from './collections.js';
+import { deleteStatements as communityDeleteStmts } from './community.js';
 
 /** Why this account cannot be deleted yet, or null when it can. Each reason is something the person can do first. */
 export async function deleteBlocker(env: Env, u: { id: string; role: string }): Promise<string | null> {
@@ -35,6 +37,18 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     db.prepare('DELETE FROM player_games WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM library_games WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM scores WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM achievement_unlocks WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM event_players WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM wishlists WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM playtest_testers WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM jam_votes WHERE voter_id = ?').bind(userId),
+    db.prepare('DELETE FROM coupon_uses WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM bundle_games WHERE bundle_id IN (SELECT id FROM bundles WHERE owner_id = ?)').bind(userId),
+    db.prepare('DELETE FROM bundles WHERE owner_id = ?').bind(userId),
+    db.prepare('DELETE FROM challenge_scores WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM challenge_streaks WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM player_profiles WHERE user_id = ?').bind(userId),
+    db.prepare('DELETE FROM rec_dismissed WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM trials WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM match_ratings WHERE user_id = ?').bind(userId),
     db.prepare('DELETE FROM match_seats WHERE user_id = ?').bind(userId),
@@ -52,6 +66,8 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     // friends lose the account; its chats, requests, invites and blocks go with it (reports about it stay for admins)
     ...(socialDeleteStmts(db, userId) as D1PreparedStatement[]),
     ...(followDeleteStmts(db, userId) as D1PreparedStatement[]),
+    ...(collectionDeleteStmts(db, userId) as D1PreparedStatement[]),
+    ...(communityDeleteStmts(db, userId) as D1PreparedStatement[]),
     // gift requests to and from it (gifts already given stay: they are purchases)
     db.prepare('DELETE FROM gift_requests WHERE from_id = ?1 OR to_id = ?1').bind(userId),
     // the address is freed for a new account; the row stays so purchases and the ledger keep their owner

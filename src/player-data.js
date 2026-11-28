@@ -227,13 +227,14 @@ export async function playerSummary(db, scope, owner) {
   };
 }
 
-/** A player wiping their own progress in one game: saves, stats, leaderboard entries and where they left off. The play record stays (it is play time, not progress). */
+/** A player wiping their own progress in one game: saves, stats, leaderboard entries, achievements and where they left off. The play record stays (it is play time, not progress). */
 export async function resetPlayer(db, scope, owner) {
   if (!owner) throw bad('No player.');
   const r = await db.batch([
     db.prepare('DELETE FROM saves WHERE project_id = ? AND user_id = ?').bind(scope, owner),
     db.prepare('DELETE FROM player_stats WHERE project_id = ? AND user_id = ?').bind(scope, owner),
     db.prepare('DELETE FROM scores WHERE project_id = ? AND user_id = ?').bind(scope, owner),
+    db.prepare('DELETE FROM achievement_unlocks WHERE project_id = ? AND user_id = ?').bind(scope, owner),
     db.prepare('UPDATE player_games SET resume = NULL WHERE project_id = ? AND user_id = ?').bind(scope, owner),
   ]);
   return { ok: true, removed: r.reduce((s, x) => s + (x.meta?.changes || 0), 0) };
@@ -272,7 +273,7 @@ export async function serverStoreOp(db, game, envName, b, t = Date.now()) {
 /** Daily cleanup: progress of guests who have not played for `before` (ms epoch) and never signed in to keep it. */
 export const idleGuestCleanupStmts = (db, before) => [
   // a range on user_id rather than LIKE 'guest_%', so each table is read through its user index, not scanned whole
-  ...['saves', 'player_stats', 'scores', 'player_games'].map((tb) => db.prepare(`DELETE FROM ${tb} WHERE user_id >= 'guest_' AND user_id < 'guest\`' AND user_id IN (SELECT user_id FROM player_games WHERE user_id >= 'guest_' AND user_id < 'guest\`' GROUP BY user_id HAVING MAX(last_at) < ?)`).bind(before)),
+  ...['saves', 'player_stats', 'scores', 'achievement_unlocks', 'player_games'].map((tb) => db.prepare(`DELETE FROM ${tb} WHERE user_id >= 'guest_' AND user_id < 'guest\`' AND user_id IN (SELECT user_id FROM player_games WHERE user_id >= 'guest_' AND user_id < 'guest\`' GROUP BY user_id HAVING MAX(last_at) < ?)`).bind(before)),
 ];
 
 /** Daily cleanup: verifier sessions' throwaway data. */
@@ -282,4 +283,5 @@ export const verifierCleanupStmts = (db, before) => [
   db.prepare("DELETE FROM player_stats WHERE user_id >= 'verify:' AND user_id < 'verify;' AND updated_at < ?").bind(before),
   // debug_preview sessions' scores on preview boards (src/routes/rt.ts /score)
   db.prepare("DELETE FROM scores WHERE user_id >= 'verify:' AND user_id < 'verify;' AND updated_at < ?").bind(before),
+  db.prepare("DELETE FROM achievement_unlocks WHERE user_id >= 'verify:' AND user_id < 'verify;' AND unlocked_at < ?").bind(before),
 ];

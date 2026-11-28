@@ -48,12 +48,30 @@ import { addDays, b64u, dayOf, now, parseJson, readCapped, rid, safeEqual, sha25
 import { signPlayToken } from '../runtime/game-worker.js';
 // @ts-ignore plain JS module
 import { continueList, hideContinue, playerSummary, resetPlayer, scopeOf } from '../player-data.js';
+import { publishDevlog } from '../devlog-news';
+// @ts-ignore plain JS module
+import { DevlogError, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.js';
+// @ts-ignore plain JS module
+import { ProfileError, access, profileOf, publicIds, setSettings, settingsOf, showcaseChoices } from '../profiles.js';
+// @ts-ignore plain JS module
+import { dismiss, forYou } from '../recommend.js';
+// @ts-ignore plain JS module
+import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
+import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
+import { CommunityError, editPost, moderatePost, removePost, removeReviewReply, reply as boardReply, replyToReview, reportPost, setBoard, startThread, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
+import { CollectionError, addGame as addToList, browse as browseLists, createCollection, deleteCollection, follow as followList, listsFor, removeGame as removeFromList, reorder as reorderList, staffPicks, updateCollection, view as listView } from '../collections.js';
+import { BundleError, LIMITS as BUNDLE_LIMITS, bundleable, bundleDiscount, bundlesOf, bundleView, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
+import { CouponError, LIMITS as COUPON_LIMITS, batchKeys, checkDiscount, countDiscountUse, createDiscount, createKeys, disable as disableCoupon, discounted, listCoupons, redeemKey } from '../coupons.js';
+import { LIMITS as PLAYTEST_LIMITS, PlaytestError, answer, byCode, canPlay, closeExpired, closePlaytest, inviteView, join, listPlaytests, openPlaytest, results } from '../playtests.js';
+import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
+// @ts-ignore plain JS module
+import { declaredFor, rarityOf, unlocksOf, viewOf } from '../achievements.js';
 // @ts-ignore plain JS module
 import { claimGuest, guestProgress } from '../session-binding.js';
 import { pushTo, socialHub } from '../social';
 import { askForGift, cancelGiftRequest, checkGift, declineGift, gameGiftState, giftDelivered, giftableFriends, giftOverview, giftsOn } from '../gifts';
 // @ts-ignore plain JS module
-import { ensureProfile } from '../social-rules.js';
+import { ensureProfile, relation } from '../social-rules.js';
 import { LibraryError, addToLibrary, libraryCounts, libraryList, libraryState, removeFromLibrary } from '../library.js';
 import { deleteFacts, deleteProject, deleteVerdict } from '../project-delete';
 import { pageMeta, parsePage } from '../paging';
@@ -654,8 +672,22 @@ async function liveGame(c: Ctx, slug: string): Promise<Project & { author: strin
   return p;
 }
 
+/** Reviews as the game page shows them: a reviewer whose profile is public gets a link to it (src/profiles.js). */
+// reply: the creator's public reply (src/community.js); rid: the reviewer's id, only for the creator, who replies by it.
+async function withProfiles(db: D1Database, rows: Record<string, any>[], me?: string, mod = false) {
+  const open = await publicIds(db, rows.map((r) => r.user_id)) as Set<string>;
+  return rows.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!me && r.user_id === me, profile: open.has(r.user_id) || r.user_id === me ? r.user_id : null, reply: r.reply ?? null, ...(mod ? { rid: r.user_id } : {}) }));
+}
+
+/** A game whose page anyone may open: live, or announced on a coming soon page (src/wishlist.js). */
+async function pageGame(c: Ctx, slug: string): Promise<Project & { author: string }> {
+  const p = await c.env.DB.prepare('SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ?').bind(slug).first<Project & { author: string }>();
+  if (p && isComingSoon(p)) return p;
+  return liveGame(c, slug);
+}
+
 api.get('/games/:slug', async (c) => {
-  const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
+  const p = await pageGame(c, c.req.param('slug')), u = c.get('user'), origin = c.get('origin');
   const [reviews, revTot, dist] = await Promise.all([
     c.env.DB.prepare('SELECT r.rating, r.body, r.created_at, r.updated_at, u.name, r.user_id FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 10').bind(p.id).all<Record<string, any>>(),
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
@@ -671,6 +703,14 @@ api.get('/games/:slug', async (c) => {
     const pg = await c.env.DB.prepare('SELECT last_at, resume, (SELECT MAX(updated_at) FROM saves s WHERE s.project_id = ?1 AND s.user_id = ?2) AS saved_at FROM player_games WHERE project_id = ?1 AND user_id = ?2').bind(p.id, u.id).first<{ last_at: number; resume: string | null; saved_at: number | null }>();
     if (pg && (pg.saved_at || pg.resume)) resume = { last_played: pg.last_at, saved_at: pg.saved_at, resume: parseJson(pg.resume, null) };
   }
+  // a store page load for the creator's store funnel (src/analytics.ts); the creator's own and crawlers' are not counted
+  if (p.status === 'live' && (!u || u.id !== p.owner_id) && !/bot|crawl|spider|preview|headless/i.test(c.req.header('user-agent') || '')) {
+    {
+      // a visit from a shared link or another site's embed card (src/share.ts) is counted apart as well
+      const shared = ['share', 'embed'].includes(c.req.query('ref') || '') ? 1 : 0;
+      c.executionCtx.waitUntil(c.env.DB.prepare('INSERT INTO game_daily (project_id, day, views, shared_views) VALUES (?, ?, 1, ?) ON CONFLICT(project_id, day) DO UPDATE SET views = views + 1, shared_views = shared_views + excluded.shared_views').bind(p.id, dayOf(now()), shared).run().catch(() => {}));
+    }
+  }
   const s = await getSettings(c.env), trial = owned ? null : await trialState(c.env, p, s, u?.id || null);
   // the buyer's refund: whether the Refund button is enabled, and every reason it is not (src/refunds.ts)
   const refund = u && p.price_cents > 0 && u.id !== p.owner_id ? await gameRefundState(c.env, s, u.id, p.id) : null;
@@ -683,10 +723,16 @@ api.get('/games/:slug', async (c) => {
   ]);
   return c.json({
     game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: listingLangs(p, ['title', 'tagline', 'description', 'controls'], (k) => media(origin, k)).i18n || {}, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
-    reviews: reviews.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    reviews: await withProfiles(c.env.DB, await withReplies(c.env.DB, p.id, reviews.results), u?.id, !!u && (u.id === p.owner_id || u.role === 'admin')),
+    // the game's discussion board (src/community.js): off when the creator switched it off
+    board_off: !!(p as any).board_off,
     reviews_total: revTot?.n || 0,
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
+    // a game announced before release (src/wishlist.js): its page has no Play button, and players wishlist it
+    coming_soon: isComingSoon(p) ? { release_note: p.release_note || null, announced_at: p.coming_soon_at } : null,
+    wished: u ? await isWished(c.env.DB, u.id, p.id) : false,
+    can_wish: u ? await canWish(c.env.DB, u.id, p) : isComingSoon(p) || (p.status === 'live' && p.price_cents > 0),
     // whether the game is in this player's library: 'bought' (a paid game, from its purchase), 'added' (a free game they added) or null
     library,
     // where this player left off (null when they have nothing saved here): the page's Continue button
@@ -695,6 +741,9 @@ api.get('/games/:slug', async (c) => {
     refund,
     // Gifts between friends: null when gifts are off or the game is free; otherwise the open requests either way.
     gift,
+    // Bundles the game is in (src/bundles.js), and the complete-the-set price this player gets when they own another game of one.
+    bundles: p.price_cents > 0 && p.status === 'live' ? await bundlesOf(c.env.DB, p.id, u?.id || null) : [],
+    bundle_offer: u && !owned && p.price_cents > 0 ? await bundleOffer(c.env.DB, p, u.id) : null,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
@@ -719,7 +768,7 @@ api.get('/games/:slug/reviews', async (c) => {
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
   ]);
   return c.json({
-    reviews: rows.results.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!u && r.user_id === u.id })),
+    reviews: await withProfiles(c.env.DB, await withReplies(c.env.DB, p.id, rows.results), u?.id, !!u && (u.id === p.owner_id || u.role === 'admin')),
     ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
   });
 });
@@ -783,13 +832,441 @@ api.post('/games/:slug/play', async (c) => {
     const tr = await beginTrial(c.env, p, await getSettings(c.env), u.id);
     return c.json(await startPlay(c, p, 'live', p.live_version, u, tr.remaining_seconds));
   }
-  return c.json(await startPlay(c, p, 'live', p.live_version, u));
+  const started = await startPlay(c, p, 'live', p.live_version, u);
+  // today's daily challenge: starting it keeps the player's streak going (src/challenges.js)
+  const streak = await recordDailyPlay(c.env.DB, p.id, u.id).catch(() => null);
+  return c.json({ ...started, ...(streak ? { daily_streak: streak.streak } : {}) });
 });
 
 // The signed-in player's own progress in one game (live). Only ever their own: the player comes from the session, not the request.
 api.get('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
   return c.json(await playerSummary(c.env.DB, scopeOf(p.id, 'live'), u.id));
+});
+// A game's devlog: news posts and patch notes, newest first (src/devlogs.js). Everyone can read a live game's.
+const devlogErr = (e: unknown): never => { if (e instanceof DevlogError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/games/:slug/devlogs', async (c) => {
+  const p = await pageGame(c, c.req.param('slug'));
+  return c.json(await listDevlogs(c.env.DB, p.id, { before: c.req.query('before') || null, limit: Number(c.req.query('limit')) || undefined }));
+});
+// The owner writes, edits and deletes posts from the console; posting to a live game tells its players.
+// Player profiles (src/profiles.js): shown to whom their owner chose; the owner edits theirs on the Account page.
+const profileErr = (e: unknown): never => { if (e instanceof ProfileError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/players/:id', async (c) => {
+  const u = c.get('user'), id = c.req.param('id'), origin = c.get('origin');
+  const a = await access(c.env.DB, u?.id || null, id) as { state: string; user?: { id: string; name: string; created_at: number } };
+  if (a.state === 'hidden' || !a.user) throw notFound('No such player.');
+  const head = { id: a.user.id, name: a.user.name, joined_at: a.user.created_at, self: a.state === 'self' };
+  // a private profile shows the name, and whether a friend request can be sent (src/social-rules.js relation)
+  const rel = u && a.state !== 'self' ? await relation(c.env.DB, u.id, id) : null;
+  if (a.state === 'private') return c.json({ ...head, private: true, relation: rel });
+  const pr = await profileOf(c.env.DB, id, { self: a.state === 'self', lang: c.req.query('lang') || pageLang(c.req.raw) }) as any;
+  return c.json({ ...head, private: false, relation: rel, ...pr,
+    showcase: pr.showcase.map((g: any) => ({ ...listingLangs(g, ['title', 'tagline'], (k) => media(origin, k)), id: g.id, slug: g.slug, title: g.title, tagline: g.tagline, cover: media(origin, g.cover_key), minutes: g.minutes, achievements: g.achievements, last_played: g.last_at || null, age: g.age || null })),
+    reviews: pr.reviews.map((r: any) => ({ ...r, game: { slug: r.game.slug, title: r.game.title, cover: media(origin, r.game.cover_key) } })) });
+});
+api.get('/me/profile', async (c) => {
+  const u = requireUser(c);
+  return c.json({ id: u.id, ...(await settingsOf(c.env.DB, u.id)), choices: await showcaseChoices(c.env.DB, u.id) });
+});
+api.put('/me/profile', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'profile:' + u.id, 60, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json({ id: u.id, ...(await setSettings(c.env.DB, u.id, { visibility: b.visibility, bio: b.bio, showcase: b.showcase }).catch(profileErr)) });
+});
+
+// For you (src/recommend.js): picked from the player's own history; each card says why it is there.
+api.get('/me/for-you', async (c) => {
+  const u = requireUser(c), origin = c.get('origin');
+  const picks = await forYou(c.env.DB, u.id, Math.min(24, Number(c.req.query('limit')) || 12)) as { id: string; score: number; reason: { kind: string; game?: string; tag?: string } }[];
+  if (!picks.length) return c.json({ games: [] });
+  const ids = [...new Set([...picks.map((x) => x.id), ...picks.map((x) => x.reason.game).filter(Boolean) as string[]])];
+  const rows = (await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>()).results;
+  const by = new Map(rows.map((r) => [r.id, r]));
+  c.header('cache-control', 'private, max-age=60');
+  return c.json({ games: picks.filter((x) => by.has(x.id)).map((x) => {
+    const src = x.reason.game ? by.get(x.reason.game) : null;
+    return { ...card(origin, by.get(x.id)!), reason: { kind: x.reason.kind, ...(x.reason.tag ? { tag: x.reason.tag } : {}), ...(src ? { game: { slug: src.slug, title: src.title, ...listingLangs(src, ['title'], (k) => media(origin, k)) } } : {}) } };
+  }) });
+});
+api.post('/me/for-you/:slug/dismiss', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  return c.json(await dismiss(c.env.DB, u.id, p.id));
+});
+
+// Wishlists and coming soon pages (src/wishlist.js)
+const wishErr = (e: unknown): never => { if (e instanceof WishError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.post('/games/:slug/wishlist', async (c) => {
+  const u = requireUser(c), p = await pageGame(c, c.req.param('slug'));
+  await rateLimit(c.env, 'wish:' + u.id, 120, 3600);
+  return c.json({ ok: true, ...(await addWish(c.env.DB, u.id, p).catch(wishErr)) });
+});
+api.delete('/games/:slug/wishlist', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  return c.json({ ok: true, ...(await removeWish(c.env.DB, u.id, p.id)) });
+});
+api.get('/me/wishlist', async (c) => {
+  const u = requireUser(c), origin = c.get('origin');
+  const rows = await wishlistOf(c.env.DB, u.id) as Record<string, any>[];
+  return c.json({ games: rows.map((r) => ({ ...card(origin, r), wished_at: r.wished_at, coming_soon: isComingSoon(r) ? { release_note: r.release_note || null } : null })) });
+});
+api.get('/coming-soon', (c) => edgeCached(c, 60, async () => {
+  const origin = c.get('origin'), rows = await comingSoonGames(c.env.DB, Math.min(48, Number(c.req.query('limit')) || 12)) as Record<string, any>[];
+  return c.json({ games: rows.map((r) => ({ ...card(origin, r), coming_soon: { release_note: r.release_note || null, wishlists: r.wishes } })) });
+}));
+const comingSoonView = async (c: Ctx, p: Project) => {
+  const fresh = await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(p.id).first<Project>() || p;
+  return { coming_soon: isComingSoon(fresh), release_note: fresh.release_note || null, coming_soon_at: fresh.coming_soon_at || null, released: !!fresh.published_at,
+    issues: fresh.published_at ? [] : announceIssues(fresh), ...(await wishCount(c.env.DB, p.id, now() - 7 * 86400_000)), page: `${c.get('origin')}/g/${encodeURIComponent(fresh.slug)}` };
+};
+api.get('/console/projects/:id/coming-soon', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await comingSoonView(c, p));
+});
+api.put('/console/projects/:id/coming-soon', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ on?: boolean; release_note?: string | null }>().catch(() => ({} as { on?: boolean; release_note?: string | null }));
+  const before = isComingSoon(p);
+  await setComingSoon(c.env.DB, p, { on: typeof b.on === 'boolean' ? b.on : undefined, release_note: b.release_note }).catch(wishErr);
+  const v = await comingSoonView(c, p);
+  if (v.coming_soon !== before) await logEvent(c.env, p.id, v.coming_soon ? 'coming_soon' : 'coming_soon_off', v.coming_soon ? `Coming soon page is up${v.release_note ? ` (${v.release_note})` : ''}` : 'Coming soon page taken down', null, 'console');
+  return c.json(v);
+});
+
+// Daily and weekly challenges (src/challenges.js): today's game with the day's board and the viewer's streak, and the
+// week's shared goal.
+api.get('/challenges', async (c) => {
+  const u = c.get('user') as User | undefined, origin = c.get('origin');
+  const v = await challengesView(c.env.DB, u?.id) as any;
+  const live = (g: any) => g && g.status === 'live' && !g.hidden_at;
+  return c.json({
+    daily: v.daily && live(v.daily.game) ? { ...v.daily, game: card(origin, v.daily.game) } : null,
+    weekly: v.weekly && live(v.weekly.game) ? { ...v.weekly, game: card(origin, v.weekly.game) } : null,
+    streak: v.streak,
+  });
+});
+
+// Game jams and festivals (src/jams.js): anyone reads them; licensed creators host and enter; players of an entry vote.
+const jamErr = (e: unknown): never => { if (e instanceof JamError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+async function jamOf(c: Ctx) {
+  const j = await jamBySlug(c.env.DB, c.req.param('slug')) as any;
+  if (!j || (j.status === 'cancelled' && !(c.get('user') && ((c.get('user') as User).id === j.host_id || (c.get('user') as User).role === 'admin')))) throw notFound('No such jam.');
+  return j;
+}
+api.get('/jams', async (c) => c.json(await listJams(c.env.DB)));
+api.get('/jams/featured', (c) => edgeCached(c, 60, async () => {
+  const f = await featuredNow(c.env.DB) as any;
+  return c.json(f ? { jam: f.jam, games: f.games.map((r: any) => card(c.get('origin'), r)) } : { jam: null, games: [] });
+}));
+api.post('/jams', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'jamhost:' + u.id, 10, 86400);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const j = await hostJam(c.env.DB, u.id, b).catch(jamErr);
+  return c.json({ ok: true, slug: j.slug, url: `${c.get('origin')}/jams/${j.slug}` });
+});
+api.get('/jams/:slug', async (c) => {
+  const j = await jamOf(c), u = c.get('user') as User | undefined, origin = c.get('origin');
+  const list = await entriesOf(c.env.DB, j, u?.id) as any[];
+  return c.json({
+    jam: publicView(j, u?.id),
+    entries: list.map((e) => ({ ...e, game: card(origin, e.game) })),
+    ...(u ? { eligible: await eligibleGames(c.env.DB, j, u.id) } : {}),
+    limits: { min_votes: JAM_LIMITS.min_votes, entries_per_creator: JAM_LIMITS.entries_per_creator },
+  });
+});
+api.delete('/jams/:slug', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  return c.json(await cancelJam(c.env.DB, j, u).catch(jamErr));
+});
+api.post('/jams/:slug/entries', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  const b = await c.req.json<{ project?: string }>().catch(() => ({} as { project?: string }));
+  const p = b.project ? await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(String(b.project)).first<Project>() : null;
+  const r = await submit(c.env.DB, j, u.id, p, undefined).catch(jamErr);
+  if (p) await logEvent(c.env, p.id, 'jam', `Entered ${j.kind === 'festival' ? 'festival' : 'jam'}: ${j.title}`, null, 'console');
+  return c.json({ ok: true, ...r });
+});
+api.delete('/jams/:slug/entries/:pid', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  return c.json(await withdraw(c.env.DB, j, u.id, c.req.param('pid')).catch(jamErr));
+});
+api.put('/jams/:slug/votes/:pid', async (c) => {
+  const u = requireUser(c), j = await jamOf(c);
+  await rateLimit(c.env, 'jamvote:' + u.id, 300, 3600);
+  const b = await c.req.json<{ scores?: Record<string, number> }>().catch(() => ({} as { scores?: Record<string, number> }));
+  return c.json(await vote(c.env.DB, j, u.id, c.req.param('pid'), b.scores).catch(jamErr));
+});
+
+// Creator replies to reviews and each game's community board (src/community.js).
+const communityErr = (e: unknown): never => { if (e instanceof CommunityError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const viewerOf = (c: Ctx) => { const u = c.get('user'); return u && !isGuestId(u.id) ? { id: u.id, role: u.role } : null; };
+const boardGame = async (c: Ctx) => {
+  const p = await c.env.DB.prepare('SELECT * FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<any>(), v = viewerOf(c);
+  if (!p || p.status === 'removed' || (p.status !== 'live' && !(v && (v.id === p.owner_id || v.role === 'admin')))) throw notFound('No such game.');
+  return { p, v };
+};
+api.put('/games/:slug/reviews/:uid/reply', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ body?: string }>().catch(() => ({} as { body?: string }));
+  return c.json(await replyToReview(c.env.DB, p, v, c.req.param('uid'), b.body).catch(communityErr));
+});
+api.delete('/games/:slug/reviews/:uid/reply', async (c) => { requireUser(c); const { p, v } = await boardGame(c); return c.json(await removeReviewReply(c.env.DB, p, v, c.req.param('uid')).catch(communityErr)); });
+api.get('/games/:slug/board', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const { p, v } = await boardGame(c), pg = parsePage((k) => c.req.query(k), 20, 50);
+  return c.json(await boardThreads(c.env.DB, p, v, { offset: pg.offset, limit: pg.limit }));
+});
+api.post('/games/:slug/board', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await startThread(c.env.DB, p, v, b).catch(communityErr));
+});
+api.put('/games/:slug/board', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ on?: boolean }>().catch(() => ({} as { on?: boolean }));
+  return c.json(await setBoard(c.env.DB, p, v, b.on !== false).catch(communityErr));
+});
+api.get('/games/:slug/board/:id', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const { p, v } = await boardGame(c);
+  return c.json(await boardThread(c.env.DB, p, v, c.req.param('id')).catch(communityErr));
+});
+api.post('/games/:slug/board/:id', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await boardReply(c.env.DB, p, v, c.req.param('id'), b).catch(communityErr));
+});
+api.patch('/games/:slug/board/posts/:id', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await editPost(c.env.DB, p, v, c.req.param('id'), b).catch(communityErr));
+});
+api.delete('/games/:slug/board/posts/:id', async (c) => { requireUser(c); const { p, v } = await boardGame(c); return c.json(await removePost(c.env.DB, p, v, c.req.param('id')).catch(communityErr)); });
+api.put('/games/:slug/board/posts/:id/moderate', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await moderatePost(c.env.DB, p, v, c.req.param('id'), b).catch(communityErr));
+});
+api.post('/games/:slug/board/posts/:id/report', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
+  await rateLimit(c.env, 'boardreport:' + v!.id, 30, 3600);
+  return c.json(await reportPost(c.env.DB, p, v, c.req.param('id'), String(b.reason || '')).catch(communityErr));
+});
+
+// Curated collections (src/collections.js): lists of games that players and staff put together, followed and shared.
+const listErr = (e: unknown): never => { if (e instanceof CollectionError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const listCard = (origin: string, l: any) => ({ ...l, covers: l.covers.map((x: any) => ({ slug: x.slug, title: x.title, cover: media(origin, x.cover_key) })) });
+api.get('/collections', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const u = c.get('user'), b = await browseLists(c.env.DB, u && !isGuestId(u.id) ? u.id : null), o = c.get('origin');
+  return c.json(Object.fromEntries(Object.entries(b).map(([k, v]) => [k, (v as any[]).map((l) => listCard(o, l))])));
+});
+api.get('/collections/featured', async (c) => c.json({ lists: (await staffPicks(c.env.DB, 6)).map((l: any) => listCard(c.get('origin'), l)) }));
+api.post('/collections', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'list:' + u.id, 30, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  const r = await createCollection(c.env.DB, u.id, b).catch(listErr);
+  if (b.game) await addToList(c.env.DB, u.id, r.id, String(b.game)).catch(listErr);
+  return c.json({ ok: true, ...r });
+});
+api.get('/collections/:slug', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const u = c.get('user'), o = c.get('origin');
+  const v = await listView(c.env.DB, c.req.param('slug'), u?.id || null, u?.role === 'admin').catch(listErr);
+  return c.json({ ...v, collection: listCard(o, v.collection), games: v.games.map((g: any) => ({ ...card(o, g), note: g.note })) });
+});
+api.put('/collections/:slug', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await updateCollection(c.env.DB, u.id, c.req.param('slug'), b).catch(listErr));
+});
+api.delete('/collections/:slug', async (c) => c.json(await deleteCollection(c.env.DB, requireUser(c).id, c.req.param('slug')).catch(listErr)));
+api.post('/collections/:slug/games', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ game?: string; note?: string }>().catch(() => ({} as { game?: string; note?: string }));
+  await rateLimit(c.env, 'listadd:' + u.id, 300, 3600);
+  return c.json(await addToList(c.env.DB, u.id, c.req.param('slug'), String(b.game || ''), b.note).catch(listErr));
+});
+api.delete('/collections/:slug/games/:game', async (c) => c.json(await removeFromList(c.env.DB, requireUser(c).id, c.req.param('slug'), c.req.param('game')).catch(listErr)));
+api.put('/collections/:slug/order', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ ids?: string[] }>().catch(() => ({} as { ids?: string[] }));
+  return c.json(await reorderList(c.env.DB, u.id, c.req.param('slug'), b.ids || []).catch(listErr));
+});
+api.post('/collections/:slug/follow', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ on?: boolean }>().catch(() => ({} as { on?: boolean }));
+  return c.json(await followList(c.env.DB, u.id, c.req.param('slug'), b.on !== false).catch(listErr));
+});
+// the game page's "Add to list": the viewer's lists, each saying whether this game is on it
+api.get('/me/lists', async (c) => {
+  const u = requireUser(c), p = await getProject(c.env, String(c.req.query('game') || ''));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ lists: p ? await listsFor(c.env.DB, u.id, p.id) : [] });
+});
+
+// Bundles (src/bundles.js): a creator groups their paid games; owning one lowers the price of the rest.
+const bundleErr = (e: unknown): never => { if (e instanceof BundleError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+/** What a game costs with a percentage off its regular price: the lower of that and any sale, at least 50 cents. */
+const bundlePrice = (p: any, pct: number | null) => { const sale = saleOf(p); return pct ? discounted(p.price_cents, pct, sale ? sale.price_cents : null) : sale ? sale.price_cents : p.price_cents; };
+async function bundleOffer(db: D1Database, p: any, uid: string) {
+  const d = await bundleDiscount(db, p.id, uid);
+  if (!d) return null;
+  const price_cents = bundlePrice(p, d.percent_off), now_cents = bundlePrice(p, null);
+  return price_cents < now_cents ? { ...d, price_cents } : null;
+}
+api.get('/bundles/:slug', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const u = c.get('user'), v = await bundleView(c.env.DB, c.req.param('slug'), u?.id || null, bundlePrice).catch(bundleErr);
+  return c.json({ ...v, games: v.games.map((x: any) => ({ ...x, game: card(c.get('origin'), x.game) })) });
+});
+api.get('/console/bundles', async (c) => {
+  const u = requireUser(c);
+  c.header('cache-control', 'private, no-store');
+  return c.json({ limits: BUNDLE_LIMITS, bundles: await myBundles(c.env.DB, u.id), games: await bundleable(c.env.DB, u.id) });
+});
+api.post('/console/bundles', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'bundle:' + u.id, 30, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json({ ok: true, ...(await createBundle(c.env.DB, u.id, b).catch(bundleErr)) });
+});
+api.put('/console/bundles/:id', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await updateBundle(c.env.DB, u.id, c.req.param('id'), b).catch(bundleErr));
+});
+api.delete('/console/bundles/:id', async (c) => {
+  const u = requireUser(c);
+  return c.json(await removeBundle(c.env.DB, u.id, c.req.param('id')).catch(bundleErr));
+});
+
+// Coupons and keys (src/coupons.js): the creator's discount codes and batches of free keys for a paid game; a buyer
+// enters a code at checkout, a key holder redeems it on /redeem.
+const couponErr = (e: unknown): never => { if (e instanceof CouponError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/console/projects/:id/coupons', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ price_cents: p.price_cents, limits: COUPON_LIMITS, ...(await listCoupons(c.env.DB, p.id)) });
+});
+api.post('/console/projects/:id/coupons', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await rateLimit(c.env, 'coupon:' + u.id, 60, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  if (b.kind === 'keys') {
+    const r = await createKeys(c.env.DB, p, b).catch(couponErr);
+    await logEvent(c.env, p.id, 'coupon', `${r.codes.length} keys made${r.note ? `: ${r.note}` : ''}`, null, 'console');
+    return c.json({ ok: true, ...r });
+  }
+  const row = await createDiscount(c.env.DB, p, b).catch(couponErr);
+  await logEvent(c.env, p.id, 'coupon', `Discount code ${row.code}: ${row.percent_off}% off, ${row.max_uses} uses`, null, 'console');
+  return c.json({ ok: true, coupon: row });
+});
+api.post('/console/projects/:id/coupons/off', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ id?: string; batch?: string }>().catch(() => ({} as { id?: string; batch?: string }));
+  return c.json(await disableCoupon(c.env.DB, p.id, b).catch(couponErr));
+});
+api.get('/console/projects/:id/coupons/keys/:batch', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ keys: await batchKeys(c.env.DB, p.id, c.req.param('batch')) });
+});
+// What a discount code makes the game cost for this buyer, before checkout.
+api.get('/games/:slug/coupon', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  await rateLimit(c.env, 'couponpeek:' + u.id, 30, 600);
+  const cp = await checkDiscount(c.env.DB, c.req.query('code'), p, u.id).catch(couponErr);
+  const sale = saleOf(p);
+  return c.json({ code: cp.code, percent_off: cp.percent_off, regular_cents: p.price_cents, price_cents: discounted(p.price_cents, cp.percent_off, sale ? sale.price_cents : null) });
+});
+api.post('/redeem', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'redeem:' + u.id, 20, 3600);
+  const b = await c.req.json<{ key?: string }>().catch(() => ({} as { key?: string }));
+  const r = await redeemKey(c.env.DB, b.key, u.id).catch(couponErr);
+  await logEvent(c.env, r.project_id, 'coupon', 'A key was redeemed', null, 'player');
+  return c.json({ ok: true, slug: r.slug, title: r.title });
+});
+
+// Playtests (src/playtests.js): the creator opens the preview to real players through an invite link and reads how
+// each tester played and what they answered. The console side is the owner's; the tester side is anyone with the link.
+const playtestErr = (e: unknown): never => { if (e instanceof PlaytestError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const inviteLink = (c: Ctx, code: string) => `${c.get('origin')}/playtest/${code}`;
+api.get('/console/projects/:id/playtests', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const v = p.preview_version ? await c.env.DB.prepare('SELECT status FROM versions WHERE project_id = ? AND n = ?').bind(p.id, p.preview_version).first<{ status: string }>() : null;
+  const list = (await listPlaytests(c.env.DB, p.id)) as any[];
+  return c.json({ preview_version: p.preview_version || null, preview_ready: v?.status === 'verified', limits: PLAYTEST_LIMITS, playtests: list.map((x) => ({ ...x, link: inviteLink(c, x.code) })) });
+});
+api.post('/console/projects/:id/playtests', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await rateLimit(c.env, 'playtest:' + u.id, 20, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const row = await openPlaytest(c.env.DB, p, b).catch(playtestErr);
+  await logEvent(c.env, p.id, 'playtest', `Playtest opened: ${row.title} (preview v${row.version})`, null, 'console');
+  return c.json({ ok: true, id: row.id, code: row.code, link: inviteLink(c, row.code), closes_at: row.closes_at });
+});
+api.post('/console/projects/:id/playtests/:pt/close', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await closePlaytest(c.env.DB, p.id, c.req.param('pt')).catch(playtestErr));
+});
+api.get('/console/projects/:id/playtests/:pt', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await closeExpired(c.env.DB, p.id);
+  const pt = await c.env.DB.prepare('SELECT * FROM playtests WHERE id = ? AND project_id = ?').bind(c.req.param('pt'), p.id).first<any>();
+  if (!pt) throw new AppError(404, 'No such playtest.', 'not_found');
+  return c.json({ ...(await results(c.env.DB, pt)), link: inviteLink(c, pt.code) });
+});
+async function playtestOf(c: Ctx) {
+  const pt = await byCode(c.env.DB, c.req.param('code')) as any;
+  if (!pt) throw new AppError(404, 'This playtest link does not work. Ask the creator for a new one.', 'not_found');
+  return pt;
+}
+api.get('/playtests/:code', async (c) => {
+  const pt = await playtestOf(c), u = c.get('user') as User | undefined;
+  return c.json({ ...(await inviteView(c.env.DB, pt, u?.id)), cover: media(c.get('origin'), pt.cover_key) });
+});
+api.post('/playtests/:code/join', async (c) => {
+  const u = requireUser(c), pt = await playtestOf(c);
+  return c.json({ ok: true, ...(await join(c.env.DB, pt, u.id).catch(playtestErr)) });
+});
+api.post('/playtests/:code/play', async (c) => {
+  const u = requireUser(c), pt = await playtestOf(c);
+  await rateLimit(c.env, 'play:' + u.id, 240, 3600);
+  if (!(await canPlay(c.env.DB, pt, u.id))) throw new AppError(403, 'Join the playtest first. It may also have closed.', 'not_joined');
+  const p = await getProject(c.env, pt.project_id);
+  if (!p || !p.preview_version) throw new AppError(409, 'The creator has no preview deployed right now.', 'no_preview');
+  await ensurePreview(c.env, c.get('origin'), p);
+  const v = await getVersion(c.env, p.id, p.preview_version);
+  const m = v ? await ensureVersionMeta(c.env, v).then(({ compat, controls }) => ({ orientation: compat.requirements?.orientation ?? 'any', controls }), () => ({ orientation: 'any', controls: null })) : { orientation: 'any', controls: null };
+  return c.json({ ...(await startPlay(c, p, 'preview', p.preview_version, u)), ...m });
+});
+api.put('/playtests/:code/answers', async (c) => {
+  const u = requireUser(c), pt = await playtestOf(c);
+  const b = await c.req.json<{ fun?: number; answers?: string[] }>().catch(() => ({}));
+  return c.json(await answer(c.env.DB, pt, u.id, b).catch(playtestErr));
+});
+
+api.post('/console/projects/:id/devlogs', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  if (p.status !== 'live' && !isComingSoon(p)) throw new AppError(409, 'Publish the game, or put up its coming soon page, first: a post is for its players.', 'not_live');
+  await rateLimit(c.env, 'devlog:' + u.id, 20, 3600);
+  const b = await c.req.json<{ title?: string; body?: string }>().catch(() => ({} as { title?: string; body?: string }));
+  const r = await publishDevlog(c.env, p, u.id, { title: b.title, body: b.body }).catch(devlogErr);
+  await logEvent(c.env, p.id, 'devlog', String(b.title || '').slice(0, 120), null, 'console');
+  return c.json({ ok: true, ...r });
+});
+api.patch('/console/projects/:id/devlogs/:did', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ title?: string; body?: string }>().catch(() => ({} as { title?: string; body?: string }));
+  return c.json(await editDevlog(c.env.DB, p.id, c.req.param('did'), b).catch(devlogErr));
+});
+api.delete('/console/projects/:id/devlogs/:did', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  return c.json(await deleteDevlog(c.env.DB, p.id, c.req.param('did')).catch(devlogErr));
+});
+
+// A live game's achievements: everyone sees the list and how rare each one is; a signed-in player also sees their own unlocks.
+api.get('/games/:slug/achievements', async (c) => {
+  const p = await liveGame(c, c.req.param('slug')), u = c.get('user'), db = c.env.DB, scope = scopeOf(p.id, 'live');
+  c.header('cache-control', 'private, no-store');
+  const [defs, mine, rarity] = await Promise.all([declaredFor(db, p.id, 'live'), u ? unlocksOf(db, scope, u.id) : {}, rarityOf(db, scope)]);
+  return c.json(viewOf(defs, mine, rarity, c.req.query('lang') || pageLang(c.req.raw)));
 });
 api.delete('/games/:slug/progress', async (c) => {
   const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
@@ -907,12 +1384,13 @@ api.get('/media/*', async (c) => {
   if (!m || key.includes('..')) throw notFound();
   // Public only for a live game's cover and the pictures of versions that went live. A draft's, a removed game's or the
   // verifier's frames of an unpublished version are for the creator and admins.
-  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key, listing_i18n FROM projects WHERE id = ?').bind(m[2]).first<{ owner_id: string; status: string; cover_key: string | null; listing_i18n: string | null }>();
+  const p = await c.env.DB.prepare('SELECT owner_id, status, cover_key, listing_i18n, coming_soon_at, published_at, hidden_at FROM projects WHERE id = ?').bind(m[2]).first<Project>();
   if (!p) throw notFound();
   const n = m[1] === 'shots' ? Number((m[3].match(/^(\d+)/) || [])[1]) : NaN;
   // a live game's covers: the main one and each listing language's (update_project covers)
   const langCover = m[1] === 'covers' && Object.values(parseJson<Record<string, { cover_key?: string }>>(p.listing_i18n || '{}', {})).some((x) => x?.cover_key === key);
-  const published = p.status === 'live' && (key === p.cover_key || langCover || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())));
+  // ...and the covers of a game announced on a coming soon page (src/wishlist.js); its frames stay private until release
+  const published = (p.status === 'live' && (key === p.cover_key || langCover || (Number.isInteger(n) && !!(await c.env.DB.prepare('SELECT 1 FROM versions WHERE project_id = ? AND n = ? AND published_at IS NOT NULL').bind(m[2], n).first())))) || ((isComingSoon(p) || (key === p.cover_key && !!(await c.env.DB.prepare("SELECT 1 FROM playtests WHERE project_id = ? AND status = 'open' AND closes_at > ?").bind(m[2], now()).first()))) && (key === p.cover_key || langCover));
   const u = c.get('user');
   if (!published && !(u && (u.id === p.owner_id || u.role === 'admin'))) throw notFound();
   // Only pictures, typed by their name, never by what was stored with them: this is the platform's own origin, so an
@@ -1011,8 +1489,16 @@ api.post('/games/:slug/buy', async (c) => {
   // During a sale the buyer pays the sale price. The checkout closes when the sale ends (Stripe keeps a session open at
   // least 30 minutes), so a sale price is never charged long after the sale. Stripe's amount_total is what gets recorded,
   // and what a refund gives back.
-  const sale = saleOf(p), amount = sale ? sale.price_cents : p.price_cents;
-  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
+  // A discount code comes off the regular price; the buyer pays the lower of it and any sale (src/coupons.js).
+  // A player who owns another game of one of its bundles gets the bundle's discount (src/bundles.js). Discounts do not
+  // stack: the buyer pays the lowest of them.
+  const b = await c.req.json<{ coupon?: string }>().catch(() => ({} as { coupon?: string }));
+  const cp = b.coupon ? await checkDiscount(c.env.DB, b.coupon, p, u.id).catch(couponErr) : null;
+  const sale = saleOf(p), base = sale ? sale.price_cents : p.price_cents;
+  const withCode = cp ? discounted(p.price_cents, cp.percent_off, sale ? sale.price_cents : null) : base;
+  const offer = await bundleOffer(c.env.DB, p, u.id), useBundle = !!offer && offer.price_cents < withCode;
+  const amount = useBundle ? offer!.price_cents : withCode;
+  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}), ...(cp && !useBundle ? { coupon_id: cp.id } : {}), ...(useBundle ? { bundle_id: offer!.bundle_id } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
 });
 
 // ----- gifts between friends (src/gifts.ts) -------------------------------------------------------------------------------
@@ -1209,6 +1695,7 @@ async function applySession(env: Env, session: any): Promise<string> {
         .bind('pur_' + rid(20), m.user_id, p.id, p.owner_id, sale.priceCents, session.id, pi, now(), now()).run();
       return 'duplicate_refunded';
     }
+    if (m.coupon_id) await countDiscountUse(env.DB, m.coupon_id, m.user_id, session.id);
     return 'game';
   }
   if (m.kind === 'gift' && m.user_id && m.recipient_id && m.project_id) {
@@ -1567,7 +2054,7 @@ export async function trialStats(env: Env, pid: string): Promise<{ players: numb
 // Analytics: the full picture for a window of days, and the cheap live count the dashboard polls.
 api.get('/console/projects/:id/analytics', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
-  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30)) });
+  return c.json({ project: { id: p.id, title: p.title, slug: p.slug, status: p.status, live_version: p.live_version }, ...(await gameAnalytics(c.env, p.id, Number(c.req.query('days')) || 30, c.req.query('funnel') ? String(c.req.query('funnel')).split(',').slice(0, 10) : undefined)) });
 });
 api.get('/console/projects/:id/online', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));

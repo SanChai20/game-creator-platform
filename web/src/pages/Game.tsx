@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { usePlayClock } from '../play-clock';
-import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
+import { ago, api, blurb, clock, count, date, dateTime, Fail, genreHue, genreName, Link, local, shown, loginUrl, markSeen, matureName, navigate, num, playTime, price, PriceTag, query, RARITY, rarity, rarityHint, rememberPlay, saleEnds, saleOn, SaleTag, Star, t, getLang, trialLabel, useAct, useApp, useData, Verdict } from '../lib';
 import { Badge, Button, Card, EmptyState, KeyValue, ListPager, Notice, PlayButton, Select, Stat, StatGrid, Textarea } from '../ui';
 import { GameSkeleton } from '../skeletons';
 import { Skeleton, SkCard } from '../ui/skeleton';
@@ -17,6 +17,13 @@ import { legalTitle } from './Legal';
 import { OPERATOR } from '../operator';
 import { RefundBox, type RefundState } from '../refund-ui';
 import { GiftDialog, type GameGift } from '../gift-ui';
+import { DevlogSection } from '../devlog-ui';
+import { ShareCard } from '../share-ui';
+import { ComingSoonPanel, WishButton } from '../wishlist-ui';
+import { CouponField, type Applied } from '../coupon-ui';
+import { BundleLines, type BundleLine } from '../bundle-ui';
+import { AddToList } from '../collection-ui';
+import { CommunityBoard, ReviewReply } from '../community-ui';
 
 
 export { Stage } from '../player';
@@ -48,6 +55,36 @@ function MyProgress({ slug, playing }: { slug: string; playing: boolean }) {
   );
 }
 
+interface Ach { id: string; name: string; description: string; hidden: boolean; unlocked_at: number | null; percent: number; stat?: string; goal?: number }
+/** The game's achievements: everyone sees the list and how rare each one is; a signed-in player also sees which they unlocked. */
+function Achievements({ slug, playing }: { slug: string; playing: boolean }) {
+  const { data, reload } = useData<{ achievements: Ach[]; total: number; unlocked: number; players: number }>(`/games/${encodeURIComponent(slug)}/achievements?lang=${getLang()}`);
+  const [all, setAll] = useState(false);
+  useEffect(() => { if (!playing) void reload(); }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!data || !data.total) return null;
+  // unlocked first (newest first), then the rest from the most common to the rarest
+  const list = [...data.achievements].sort((a, b) => (b.unlocked_at || 0) - (a.unlocked_at || 0) || b.percent - a.percent);
+  const shownList = all ? list : list.slice(0, 6);
+  return (
+    <Card title={t('Achievements', '成就')} aside={<span className="dim fs-sm">{data.unlocked ? t('{n} of {total} unlocked', '已解锁 {n}/{total}', { n: data.unlocked, total: data.total }) : count(data.total, 'achievement', 'achievements', '个成就')}</span>} pad>
+      {data.unlocked > 0 && <span className="cont-bar" aria-hidden="true"><b style={{ width: `${Math.round((data.unlocked / data.total) * 100)}%` }} /></span>}
+      <ul className="ach-list">
+        {shownList.map((a) => (
+          <li key={a.id} className={a.unlocked_at ? 'on' : ''}>
+            <span className="ach-ico" aria-hidden="true">{a.unlocked_at ? '★' : a.hidden ? '?' : '☆'}</span>
+            <span className="grow">
+              <b>{a.name || t('Hidden achievement', '隐藏成就')}</b>
+              <span className="mute fs-sm">{a.description || (a.hidden && !a.unlocked_at ? t('Keep playing to find it.', '继续游玩来发现它。') : '')}</span>
+            </span>
+            <span className="dim fs-sm num" title={t('Share of players who unlocked it', '解锁该成就的玩家比例')}>{data.players ? `${a.percent}%` : ''}</span>
+          </li>
+        ))}
+      </ul>
+      {list.length > 6 && <div><Button size="sm" variant="ghost" onClick={() => setAll(!all)}>{all ? t('Show fewer', '收起') : t('Show all {n}', '显示全部 {n} 个', { n: list.length })}</Button></div>}
+    </Card>
+  );
+}
+
 /**
  * The warning an adults-only game shows before it starts. The player must confirm; the server refuses to start the game
  * without that confirmation (POST /games/:slug/play with confirm_mature).
@@ -75,9 +112,15 @@ export function resumeLine(c: { last_played: number; saved_at: number | null; re
 
 export function Game({ slug }: { slug: string }) {
   const { user, toast, config, refresh } = useApp(), { busy, act } = useAct();
-  const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}`);
+  // arrived from a shared link or an embed card (?ref=share, ?ref=embed): the creator's analytics count it apart
+  const ref = useRef(['share', 'embed'].includes(query().get('ref') || '') ? query().get('ref') : null).current;
+  const { data, error, loading, reload } = useData<any>(`/games/${encodeURIComponent(slug)}${ref ? `?ref=${ref}` : ''}`);
+  // on the player's wishlist (src/wishlist.js): coming soon games, and paid games not bought yet
+  const [wished, setWished] = useState(false);
+  useEffect(() => { setWished(!!data?.wished); }, [data?.wished]);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null), ticket = useRef<string | null>(null);
   const [giftMode, setGiftMode] = useState<{ mode: 'give' | 'ask'; to?: string } | null>(null);
+  const [coupon, setCoupon] = useState<Applied | null>(null);
   useInstallHold(!!url || busy === 'play');   // the install popup never opens over a game that is starting or running
   // While the game is open, this page checks in with the platform every 30 seconds: the platform's own play clock, which
   // every play number comes from (plays, play time, players online, trial and refund time), not the game's heartbeats.
@@ -160,6 +203,7 @@ export function Game({ slug }: { slug: string }) {
   if (error && !data) return <div className="wrap page">{error.status === 404 ? <EmptyState title={t('This game is not available', '该游戏暂不可用')} action={<Button to="/">{t('Browse games', '浏览游戏')}</Button>}>{t('It may have been taken offline by its creator.', '它可能已被创作者下线。')}</EmptyState> : <Fail error={error} retry={reload} />}</div>;
   if (loading && !data) return <GameSkeleton />;
   const g = data.game, live = g.status === 'live', paid = g.price_cents > 0, locked = paid && !data.owned;
+  const soon = (live ? null : data.coming_soon) as { release_note: string | null } | null;
   const trial = locked ? data.trial as { minutes: number; used_seconds: number; remaining_seconds: number; over: boolean } | null : null;
   const canTry = !!trial && !trial.over, leftMin = trial ? Math.max(1, Math.ceil(trial.remaining_seconds / 60)) : 0, fresh = !!trial && trial.used_seconds === 0;
   const left = trialEnd !== null ? Math.max(0, (trialEnd - Date.now()) / 1000) : 0; void tick;
@@ -183,7 +227,7 @@ export function Game({ slug }: { slug: string }) {
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
-    void act('buy', async () => { const r = await api<{ url: string }>(`/games/${slug}/buy`, { method: 'POST' }); location.href = r.url; });
+    void act('buy', async () => { const r = await api<{ url: string }>(`/games/${slug}/buy`, coupon ? { body: { coupon: coupon.code } } : { method: 'POST' }); location.href = r.url; });
   };
   // The library: a free game is added (or removed) here; a paid one is in it from the moment it is bought.
   const inLibrary = data.library as 'bought' | 'added' | null;
@@ -201,9 +245,12 @@ export function Game({ slug }: { slug: string }) {
   const toStage = (c = true) => { wantCont.current = c; play(); document.querySelector('.stage')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
   // The panel beside the stage (see the aside below): one primary action, the secondary ones under it, small print last.
   const canGift = !!user && !!data.gift && !data.is_owner && !!config.payments;
+  // what this buyer pays: the lowest of the price now, a discount code and a bundle price (the server charges the same)
+  const offer = data.bundle_offer as { title: string; slug: string; percent_off: number; price_cents: number } | null;
+  const payCents = Math.min(g.price_cents, coupon ? coupon.price_cents : Infinity, offer ? offer.price_cents : Infinity);
   const cta = !live ? null : locked
-    ? (canGift ? <BuyMenu label={<>{t('Buy game', '购买游戏')} · {price(g.price_cents)}</>} price={price(g.price_cents)} disabled={busy === 'buy' || !config.payments} onBuy={buy} onAsk={() => setGiftMode({ mode: 'ask' })} />
-      : <Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy game', '购买游戏')} · {price(g.price_cents)}</Button>)
+    ? (canGift ? <BuyMenu label={<>{t('Buy game', '购买游戏')} · {price(payCents)}</>} price={price(payCents)} disabled={busy === 'buy' || !config.payments} onBuy={buy} onAsk={() => setGiftMode({ mode: 'ask' })} />
+      : <Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy game', '购买游戏')} · {price(payCents)}</Button>)
     : <><Button variant="primary" size="lg" block onClick={() => toStage()} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : <><i className="play-tri" aria-hidden="true" />{cont ? t('Continue', '继续游戏') : t('Play now', '立即游玩')}</>}</Button>
       {cont && !url && <p className="gp-resume"><span className="clip">{resumeLine(cont)}</span>{cont.resume?.progress != null && <span className="cont-bar" aria-hidden="true"><b style={{ width: `${Math.round(cont.resume.progress * 100)}%` }} /></span>}<button type="button" className="linkish" onClick={() => toStage(false)}>{t('Start from the title screen', '从标题画面开始')}</button></p>}</>;
   const tryBtn = live && locked && canTry && !url ? <Button block onClick={() => toStage()} disabled={busy === 'play'}>{tryLabel}</Button> : null;
@@ -247,7 +294,7 @@ export function Game({ slug }: { slug: string }) {
         <div className="gp-top">
           <Stage social={!!user} ctl={stage} poster={shown(g).cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
-              {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>
+              {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? (soon ? <ComingSoonPanel slug={slug} note={soon.release_note} wished={wished} onChange={setWished} owner={!!data.is_owner} /> : <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>)
                 : locked && canTry ? <>
                   <PlayButton onClick={() => play()} disabled={busy === 'play'}>{busy === 'play' ? t('Starting…', '启动中…') : fresh || !user ? t('Try it free', '免费试玩') : t('Continue trial', '继续试玩')}</PlayButton>
                   <span className="mute fs-sm">{!user ? t('Sign in to start a {minutes}-minute free trial.', '登录即可开始 {minutes} 分钟免费试玩。', { minutes: trial!.minutes }) : fresh ? (trial!.minutes === 1 ? t('1 minute free, then {price} to keep playing.', '免费 1 分钟，之后 {price} 即可继续游玩。', { price: price(g.price_cents) }) : t('{minutes} minutes free, then {price} to keep playing.', '免费 {minutes} 分钟，之后 {price} 即可继续游玩。', { minutes: trial!.minutes, price: price(g.price_cents) })) : trial!.minutes === 1 ? t('Under a minute of your free minute left.', '1 分钟免费试玩即将用完。') : t('{left} of {minutes} free minutes left.', '免费 {minutes} 分钟还剩 {left} 分钟。', { left: leftMin, minutes: trial!.minutes })}</span>
@@ -263,9 +310,14 @@ export function Game({ slug }: { slug: string }) {
                 <div className="gp-price-row"><PriceTag g={g} className="gp-price" /><SaleTag g={g} />{trial && locked && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 {locked && saleOn(g) && <p className="gp-sale-ends">{saleEnds(saleOn(g)!.ends_at)} · {t('then {price}', '之后恢复 {price}', { price: price(saleOn(g)!.regular_cents) })}</p>}
                 <div className="gp-buy-act">{cta}</div>
+                {locked && offer && <p className="fs-sm gp-coupon"><Badge tone="good">{t('Bundle price', '合集价')}</Badge> {t('You own another game of {title}: {pct}% off.', '你已拥有「{title}」中的其他游戏：{pct}% 折扣。', { title: offer.title, pct: offer.percent_off })}</p>}
+                {locked && !data.is_owner && config.payments && <CouponField slug={slug} applied={coupon} onApply={setCoupon} />}
+                {locked && <BundleLines lines={(data.bundles || []) as BundleLine[]} />}
                 {(tryBtn || giftBtn) && <div className={'gp-more' + (tryBtn && giftBtn ? ' two' : '')}>{tryBtn}{giftBtn}</div>}
                 {canGift && <GiftRequests gift={data.gift as GameGift} locked={locked} onGive={(to) => setGiftMode({ mode: 'give', to })} />}
                 {data.refund && !data.is_owner && <RefundBox st={data.refund as RefundState} title={title} onDone={reload} compact />}
+                {user && paid && locked && !data.is_owner && (data.can_wish || wished) && <WishButton slug={slug} wished={wished} onChange={setWished} block />}
+                {live && <AddToList slug={g.slug} />}
                 {user && !paid && <Button size="sm" variant="ghost" block onClick={toggleLibrary} disabled={busy === 'lib'} aria-pressed={!!inLibrary}>{inLibrary ? <>✓ {t('In your library', '已在游戏库中')}</> : <>+ {t('Add to library', '加入游戏库')}</>}</Button>}
                 {(data.compat || meta) && <div className="gp-pills">{data.compat && <a href="#compatibility" className="cpill-link"><CompatPill v={cv} /></a>}{meta && <a href="#languages" className="cpill-link"><LangPill l={meta.languages} /></a>}</div>}
                 <p className="gp-fine">
@@ -274,16 +326,16 @@ export function Game({ slug }: { slug: string }) {
                   {locked && config.payments && <span>{t('Sold by {op}. Payments by Stripe.', '由 {op} 销售，付款由 Stripe 处理。', { op: OPERATOR.name })} <Link to="/legal/terms">{legalTitle('terms')}</Link> · <Link to="/legal/refunds">{legalTitle('refunds')}</Link></span>}
                 </p>
               </div>
-            ) : <div className="gp-buy"><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="gp-buy-note">{t('This game is not live right now.', '该游戏目前未上线。')}</p></div>}
+            ) : soon ? <div className="gp-buy"><Badge tone="accent">{t('Coming soon', '即将推出')}</Badge>{soon.release_note && <p className="gp-buy-note"><b>{soon.release_note}</b></p>}{!data.is_owner && <div className="gp-buy-act"><WishButton slug={slug} wished={wished} onChange={setWished} block size="lg" /></div>}<p className="gp-buy-note">{t('Not out yet. Players who wishlist it are told when it is released.', '尚未推出。加入愿望单的玩家会在发布时收到通知。')}</p></div> : <div className="gp-buy"><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="gp-buy-note">{t('This game is not live right now.', '该游戏目前未上线。')}</p></div>}
             <dl className="gp-facts">
               <div><dt>{t('Players say', '玩家评价')}</dt><dd><Verdict g={g} full /></dd></div>
               {meta?.rating && <div><dt>{t('Age rating', '年龄分级')}</dt><dd>{ageLabel(meta.rating.age)}</dd></div>}
               {meta?.players && <div><dt>{t('Players', '玩家')}</dt><dd>{playersText(meta.players)}</dd></div>}
-              <div><dt>{t('Released', '发布')}</dt><dd>{date(g.published_at)}</dd></div>
+              {!soon && <div><dt>{t('Released', '发布')}</dt><dd>{date(g.published_at)}</dd></div>}
               <div><dt>{t('Creator', '创作者')}</dt><dd className="by-creator"><Link to={creatorPath(g.owner_id)} className="sig">{g.author}</Link>{!data.is_owner && <FollowButton id={g.owner_id} name={g.author} size="sm" quiet />}</dd></div>
             </dl>
             {g.tags.length > 0 && <div className="gp-tags">{g.tags.map((x: string) => <Link key={x} to={`/c/${encodeURIComponent(x)}`} className="gtag" style={{ '--h': genreHue(x) } as CSSProperties}>{genreName(x)}</Link>)}</div>}
-            <div className="seal"><i aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3 5 8.6l4.5-5" /></svg></i><b>{t('Verified playable', '已验证可玩')}</b><span>{t('Every game here was run in a real browser and checked for playability before it went live.', '这里的每款游戏在上线前都在真实浏览器中运行并通过了可玩性验证。')}</span></div>
+            {!soon && <div className="seal"><i aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.3 5 8.6l4.5-5" /></svg></i><b>{t('Verified playable', '已验证可玩')}</b><span>{t('Every game here was run in a real browser and checked for playability before it went live.', '这里的每款游戏在上线前都在真实浏览器中运行并通过了可玩性验证。')}</span></div>}
           </aside>
         </div>
 
@@ -302,8 +354,9 @@ export function Game({ slug }: { slug: string }) {
             {meta && <Glance meta={meta} tags={g.tags} />}
             {data.compat && <CompatSection c={data.compat} v={cv} />}
             {meta && <LanguagesSection l={meta.languages} declared={meta.languages_declared} listings={listings} />}
+            {(live || soon) && <DevlogSection slug={slug} />}
 
-            <section className="stack l">
+            <section className="stack l" id="reviews">
               <SectionHead title={t('Ratings and reviews', '评分与评价')} note={g.rating_count ? <Verdict g={g} full /> : undefined} />
               {canReview ? (
                 <Card pad>
@@ -313,8 +366,9 @@ export function Game({ slug }: { slug: string }) {
                   <div><Button variant="primary" disabled={!rating || busy === 'review'} onClick={review}>{data.my_review ? t('Update review', '更新评价') : t('Post review', '发布评价')}</Button></div>
                 </Card>
               ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t('Play for at least {n} seconds to leave a review.', '游玩至少 {n} 秒后即可评价。', { n: config.settings.play_min_seconds })}</p>}
-              <ReviewsList slug={slug} initial={data.reviews} total={data.reviews_total ?? data.reviews.length} />
+              <ReviewsList slug={slug} initial={data.reviews} total={data.reviews_total ?? data.reviews.length} owner={!!data.is_owner || user?.role === 'admin'} onChange={reload} />
             </section>
+            {live && <CommunityBoard slug={slug} off={!!data.board_off} />}
             {user && live && !data.is_owner && <ReportGame slug={slug} />}
           </div>
 
@@ -326,6 +380,8 @@ export function Game({ slug }: { slug: string }) {
               <Stat label={t('Rating', '评分')} value={g.rating != null ? `★ ${g.rating.toFixed(1)}` : '—'} />
             </StatGrid>
             {user && live && <MyProgress slug={slug} playing={!!url} />}
+            {live && <Achievements slug={slug} playing={!!url} />}
+            {live && <ShareCard slug={slug} title={title} />}
             <Card title={t('What players think', '玩家怎么看')} aside={count(g.rating_count, 'rating', 'ratings', '个评分')} pad>
               <div className="dist">{[5, 4, 3, 2, 1].map((n) => <div key={n}><span>{n}★</span><i><b style={{ width: `${total ? (data.rating_dist[n - 1] / total) * 100 : 0}%` }} /></i><span className="num">{data.rating_dist[n - 1]}</span></div>)}</div>
             </Card>
@@ -424,7 +480,7 @@ function ReportGame({ slug }: { slug: string }) {
 }
 
 const REVIEWS_PER = 10;
-function ReviewsList({ slug, initial, total }: { slug: string; initial: any[]; total: number }) {
+function ReviewsList({ slug, initial, total, owner, onChange }: { slug: string; initial: any[]; total: number; owner: boolean; onChange: () => void }) {
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<any[]>(initial);
   const [countTotal, setCountTotal] = useState(total);
@@ -447,8 +503,9 @@ function ReviewsList({ slug, initial, total }: { slug: string; initial: any[]; t
     <div ref={box}>
       <div className="reviews" aria-busy={loading}>{rows.map((r: any, i: number) => (
         <div className="review" key={`${page}-${i}`}>
-          <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span><b>{r.name}</b>{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>
+          <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span>{r.profile ? <Link to={`/u/${encodeURIComponent(r.profile)}`} className="rv-name"><b>{r.name}</b></Link> : <b>{r.name}</b>}{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>
           {r.body && <p className="prose">{r.body}</p>}
+          <ReviewReply slug={slug} rid={r.rid} reply={r.reply} owner={owner} onDone={onChange} />
         </div>))}</div>
       <ListPager page={page} total={countTotal} perPage={REVIEWS_PER} onPage={go} />
     </div>

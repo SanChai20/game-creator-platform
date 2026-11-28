@@ -5,6 +5,7 @@ import { ago, api, ApiError, navigate, t, useApp, useData } from '../lib';
 import { Badge, Button, Card, Field, Input, ListPager, Modal, Notice, useClientPage } from '../ui';
 import { PageSkeleton } from '../skeletons';
 import { FriendsSettings } from '../social';
+import { ProfileSettings } from '../profile-ui';
 import { PushSettings } from '../push-ui';
 import { authError } from './Auth';
 import { createPasskey, getPasskey, passkeyCancelled, passkeysSupported } from '../passkey';
@@ -77,6 +78,7 @@ const SECTIONS = [
   ['security', () => t('Sign-in and security', '登录与安全')],
   ['devices', () => t('Where you are signed in', '登录设备')],
   ['notifications', () => t('Notifications', '通知')],
+  ['profile', () => t('Your profile', '我的资料')],
   ['privacy', () => t('Friends and privacy', '好友与隐私')],
   ['delete', () => t('Delete account', '删除账户')],
 ] as const;
@@ -154,6 +156,9 @@ export function Account() {
           </Section>
           <Section id="notifications" title={t('Notifications', '通知')}>
             <Card title={t('Notifications on this device', '此设备上的通知')} pad><PushSettings /></Card>
+          </Section>
+          <Section id="profile" title={t('Your profile', '我的资料')}>
+            <Card pad><ProfileSettings /></Card>
           </Section>
           <Section id="privacy" title={t('Friends and privacy', '好友与隐私')}>
             <Card pad><FriendsSettings /></Card>

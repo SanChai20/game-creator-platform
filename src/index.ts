@@ -1,5 +1,7 @@
 // HearthCade platform Worker: web API, OAuth authorization server, MCP server, and static hosting
 // for the web app, the SDK, the kits and the vendored Three.js build.
+// @ts-ignore plain JS module
+import { phaseNotices as jamNotices } from './jams.js';
 import { AuthorizationError, CimdFetchError, OAuthProvider, type ConsentDescription } from '@cloudflare/workers-oauth-provider';
 import { Hono } from 'hono';
 import { AppError, type Env, type User } from './env';
@@ -37,6 +39,8 @@ import { getSettings } from './settings';
 import { dayOf, esc, now, parseJson } from './util';
 import { GUIDES, creatorPage, gamePage, homePage, injectMeta, isPrivatePath, llmsTxt, robotsTxt, siteJsonLd, sitemapXml, staticPage, type PageMeta, type SitemapEntry } from './seo';
 import { GENRES } from '../web/src/gamemeta';
+import { embedHtml, embedLang, embedSize, oembed, shareDescription, slugFromUrl, type ShareGame } from './share';
+import { onlineNow } from './analytics';
 import { TAGS, normalizeStoredTags } from '../web/src/tags';
 import { OPERATOR } from '../web/src/operator';
 import { backfill, backfillIdentity } from './originality-check';
@@ -423,6 +427,38 @@ app.get('/llms-full.txt', async (c) => {
   return c.text(parts.join(''), 200, PUBLIC_TXT);
 });
 
+/** A live game as a link card, an embed and oEmbed show it (src/share.ts), with the players in it right now. Embeds
+    leave out games taken off the store listings (listed); the game's own page keeps its link card. */
+async function shareGame(env: Env, origin: string, slug: string, listed = true, soon = false): Promise<(ShareGame & { coming_soon: boolean; release_note: string | null; tags: string; description: string | null; published_at: number | null; updated_at: number | null }) | null> {
+  const g = await env.DB.prepare(`SELECT p.id, p.slug, p.title, p.tagline, p.description, p.tags, p.price_cents, p.rating_sum, p.rating_count, p.cover_key, p.age, p.published_at, p.updated_at, p.plays, p.owner_id, p.status, p.release_note, u.name AS author
+    FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ? AND (p.status = 'live'${soon ? " OR (p.coming_soon_at IS NOT NULL AND p.published_at IS NULL AND p.status != 'removed' AND p.hidden_at IS NULL)" : ''})${listed ? ' AND p.hidden_at IS NULL' : ''}`).bind(slug).first<Record<string, any>>().catch(() => null);
+  if (!g) return null;
+  const live = g.status === 'live', playing = live ? await onlineNow(env, g.id).then((o) => o.online.live, () => 0) : 0;
+  return { slug: g.slug, title: g.title, tagline: g.tagline, description: g.description, tags: g.tags, author: g.author, author_id: g.owner_id, price_cents: g.price_cents, rating_sum: g.rating_sum, rating_count: g.rating_count,
+    cover: g.cover_key ? `${origin}/api/media/${g.cover_key}` : null, age: g.age, playing, plays: g.plays, published_at: g.published_at, updated_at: g.updated_at, coming_soon: !live, release_note: g.release_note || null };
+}
+
+// The embeddable game card: the one page any site may frame. Play opens the game on HearthCade in a new tab.
+app.get('/embed/:slug', async (c) => {
+  const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || 'HearthCade';
+  const g = await shareGame(c.env, origin, c.req.param('slug'));
+  const ref = /^[a-z0-9_-]{1,24}$/.test(c.req.query('ref') || '') ? c.req.query('ref')! : 'embed';
+  const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=60', 'content-security-policy': "frame-ancestors *; default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'", 'x-robots-tag': 'noindex' };
+  if (!g) return c.body(`<!doctype html><meta charset="utf-8"><title>${esc(brand)}</title><p style="font:14px system-ui;padding:12px">This game is not available.</p>`, 404, headers);
+  return c.body(embedHtml(origin, brand, g, embedLang(c.req.query('lang'), c.req.header('accept-language')), ref), 200, headers);
+});
+
+// oEmbed (https://oembed.com): a pasted game link becomes the embed card on sites that ask for it.
+app.get('/oembed', async (c) => {
+  const origin = c.get('origin'), brand = (await getSettings(c.env)).brand_name || 'HearthCade';
+  const cors = { 'access-control-allow-origin': '*', 'cache-control': 'public, max-age=3600' };
+  if ((c.req.query('format') || 'json') !== 'json') return c.json({ error: 'Only format=json is offered.' }, 501, cors);
+  const slug = slugFromUrl(origin, c.req.query('url') || '');
+  const g = slug ? await shareGame(c.env, origin, slug) : null;
+  if (!g) return c.json({ error: 'Not a live game on this site.' }, 404, cors);
+  return c.json(oembed(origin, brand, g, embedSize(c.req.query('maxwidth'), c.req.query('maxheight'))), 200, cors);
+});
+
 /** The page's meta tags, JSON-LD and noscript summary for the app's HTML, or null to send it as it is. */
 async function pageMeta(env: Env, origin: string, path: string): Promise<PageMeta | null> {
   const brand = (await getSettings(env)).brand_name || 'HearthCade';
@@ -434,15 +470,16 @@ async function pageMeta(env: Env, origin: string, path: string): Promise<PageMet
   }
   const m = path.match(/^\/g\/([^/]+)$/);
   if (m) {
-    const slug = decodeURIComponent(m[1]);
-    const g = await env.DB.prepare(`SELECT p.slug, p.title, p.tagline, p.description, p.tags, p.price_cents, p.rating_sum, p.rating_count, p.cover_key, p.age, p.published_at, p.updated_at, p.plays, u.name AS author
-      FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.slug = ? AND p.status = 'live'`).bind(slug).first<Record<string, any>>().catch(() => null);
+    const g = await shareGame(env, origin, decodeURIComponent(m[1]), false, true);
     if (!g) return null;
     const tags = normalizeStoredTags(parseJson<string[]>(g.tags, []));
     const meta = gamePage(origin, brand, { slug: g.slug, title: g.title, tagline: g.tagline, description: g.description, genre: tags[0] || null, tags: tags.slice(1), price_cents: g.price_cents, author: g.author,
-      rating_sum: g.rating_sum, rating_count: g.rating_count, cover: (g.age || 0) >= 18 || !g.cover_key ? null : `${origin}/api/media/${g.cover_key}`, age: g.age, published_at: g.published_at, updated_at: g.updated_at, plays: g.plays,
+      rating_sum: g.rating_sum, rating_count: g.rating_count, cover: (g.age || 0) >= 18 ? null : g.cover, age: g.age, published_at: g.published_at, updated_at: g.updated_at, plays: g.plays,
       multiplayer: tags.some((x) => ['multiplayer', 'co-op', 'pvp', 'local-multiplayer'].includes(x)) });
-    return { ...meta, jsonld: [...(meta.jsonld || []), ...site] };
+    // the link card other sites show: players in it now, rating and price, and the embed for sites that read oEmbed
+    // a coming soon page (src/wishlist.js): no play facts yet, just when
+    if (g.coming_soon) return { ...meta, title: `${g.title}: coming soon | ${brand}`, description: `${g.tagline ? g.tagline.replace(/[.!?]?$/, '.') : ''} Coming soon${g.release_note ? ` (${g.release_note})` : ''} on ${brand}. Wishlist it to hear when it is out.`.trim(), jsonld: site };
+    return { ...meta, description: shareDescription(g, brand), oembed: `${origin}/oembed?url=${encodeURIComponent(`${origin}/g/${g.slug}`)}&format=json`, jsonld: [...(meta.jsonld || []), ...site] };
   }
   const cm = path.match(/^\/creator\/([A-Za-z0-9_-]{2,64})$/);
   if (cm) {
@@ -538,7 +575,8 @@ function isolated(res: Response): Response {
   if (res.headers.has('origin-agent-cluster') || !(res.headers.get('content-type') || '').includes('text/html') || res.status === 101) return res;
   const h = new Headers(res.headers); h.set('origin-agent-cluster', '?1');
   if (!h.has('content-security-policy')) h.set('content-security-policy', "frame-ancestors 'self'");
-  if (!h.has('x-frame-options')) h.set('x-frame-options', 'SAMEORIGIN');
+  // the embed card (/embed/:slug) is the one page other sites may frame: it says so in its own CSP
+  if (!h.has('x-frame-options') && !/frame-ancestors \*/.test(h.get('content-security-policy') || '')) h.set('x-frame-options', 'SAMEORIGIN');
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
@@ -623,6 +661,8 @@ const handler = {
       await env.DB.batch([recentStmt(env.DB)]); await runJob(env, 'picks', () => ensurePicks(env));
     });
     job('transfers', () => retryTransfers(env));
+    // jam entrants hear when voting opens and when the results are out (src/jams.js)
+    job('jams', () => jamNotices(env.DB));
     // bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
     job('rollout', () => rolloutRuntime(env));
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)

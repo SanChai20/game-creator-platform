@@ -4,6 +4,7 @@
 // their own, from their account.
 import { useEffect, useRef, useState } from 'react';
 import { api, Fail, GameTile, Link, t, useAct, useData } from '../lib';
+import { WishlistSection } from '../wishlist-ui';
 import { Badge, Button, EmptyState, ListPager, PageHeader, Segmented } from '../ui';
 import { Skeleton, SkCard } from '../ui/skeleton';
 import { ContinueCard, useHide, type ContinueGame } from '../continue';
@@ -15,7 +16,7 @@ const CONT_PER = 12;
 const OWN_PER = 24;
 
 type Filter = 'all' | 'bought' | 'added';
-interface LibraryInfo { source: 'bought' | 'added'; added_at: number; owned: boolean; last_played: number | null }
+interface LibraryInfo { source: 'bought' | 'added'; added_at: number; owned: boolean; last_played: number | null; achievements?: { unlocked: number; total: number } | null }
 type OwnedGame = GameCard & { library: LibraryInfo };
 interface Page<T> { games: T[]; more: boolean; total?: number; pages?: number }
 interface LibraryData extends Page<ContinueGame> { owned: Page<OwnedGame> | null; counts: Record<Filter, number> | null }
@@ -124,6 +125,7 @@ export function Library() {
                   <div className="lib-tile-f">
                     {g.library.source === 'bought' ? <Badge tone="good">{t('Bought', '已购买')}</Badge> : <Badge>{t('Free', '免费')}</Badge>}
                     {g.library.source === 'bought' && <Link to="/purchases" className="fs-sm">{t('Refund', '退款')}</Link>}
+                    {g.library.achievements && <span className="dim fs-sm lib-ach" title={t('Achievements', '成就')}>★ {g.library.achievements.unlocked}/{g.library.achievements.total}</span>}
                     {g.library.source === 'added' && <button type="button" className="linkish fs-sm" onClick={() => remove(g)}>{t('Remove', '移除')}</button>}
                   </div>
                 </div>
@@ -133,6 +135,8 @@ export function Library() {
           )}
         </div>
       )}
+      {/* games coming soon, and paid games to buy later (src/wishlist.js) */}
+      <WishlistSection />
       {/* the creators this player follows: their new games show up under the bell (web/src/follow.tsx) */}
       <section id="following" className="lib-following">
         <SectionHead title={t('Creators you follow', '你关注的创作者')} note={t('When one of them publishes a new game, it shows up under the bell.', '他们发布新游戏时，会出现在通知中。')} />

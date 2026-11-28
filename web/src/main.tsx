@@ -48,6 +48,12 @@ import { announceAuth, GuestProgressPrompt, useAuthSync } from './account-sync';
 import { FriendsButton, SocialRoot } from './social';
 import { NotificationsButton } from './follow';
 import { Creator } from './pages/Creator';
+import { Profile } from './pages/Profile';
+import { PlaytestPage } from './playtest-ui';
+import { RedeemPage } from './coupon-ui';
+import { BundlePage } from './bundle-ui';
+import { CollectionPage, CollectionsPage } from './collection-ui';
+import { JamPage, JamsPage } from './jam-ui';
 import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
 import { pushLanguage, startPwa } from './pwa';
@@ -190,6 +196,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                 {open && (
                   <div className="pop" role="menu">
                     <div className="who"><b className="clip">{user.name}</b><div className="mute clip fs-sm">{user.email}</div></div>
+                    <Link to={`/u/${encodeURIComponent(user.id)}`}>{t('Your profile', '我的资料')}</Link>
                     <Link to="/library">{t('Library', '游戏库')}</Link>
                     <Link to="/purchases">{t('Purchases and refunds', '购买记录与退款')}</Link>
                     <Link to="/gifts">{t('Gifts', '礼物')}</Link>
@@ -272,6 +279,14 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/c\/([^/]+)$/))) return <Category key={m[1]} tag={decodeURIComponent(m[1]).toLowerCase()} />;
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if ((m = path.match(/^\/creator\/([^/]+)$/))) return <Creator key={m[1]} id={decodeURIComponent(m[1])} />;
+  if ((m = path.match(/^\/u\/([^/]+)$/))) return <Profile key={m[1]} id={decodeURIComponent(m[1])} />;
+  if ((m = path.match(/^\/playtest\/([a-z0-9]{6,20})$/))) return <PlaytestPage key={m[1]} code={m[1]} />;
+  if (path === '/redeem') return <RedeemPage />;
+  if (path === '/collections') return <CollectionsPage />;
+  if ((m = path.match(/^\/collections\/([a-z0-9-]{1,60})$/))) return <CollectionPage key={m[1]} slug={m[1]} />;
+  if ((m = path.match(/^\/bundles\/([a-z0-9-]{1,60})$/))) return <BundlePage key={m[1]} slug={m[1]} />;
+  if (path === '/jams') return <JamsPage />;
+  if ((m = path.match(/^\/jams\/([a-z0-9-]{3,60})$/))) return <JamPage key={m[1]} slug={m[1]} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
   if (path === '/verify') return <Verify />;
   // passwords are gone: old reset links and bookmarks land on the sign-in page
@@ -345,8 +360,8 @@ function App() {
             <p className="foot-tag">{state.config.settings.tagline}</p>
             <p className="foot-web">{t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</p>
           </div>
-          <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link><Link to="/download">{t('Get the app', '下载应用')}</Link></nav>
-          <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
+          <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link><Link to="/collections">{t('Lists', '清单')}</Link><Link to="/jams">{t('Jams and festivals', '游戏创作节与游戏节')}</Link><Link to="/redeem">{t('Redeem a key', '兑换激活码')}</Link><Link to="/download">{t('Get the app', '下载应用')}</Link></nav>
+          <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link><Link to="/jams">{t('Host a jam', '主办游戏创作节')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
           <nav className="foot-col" aria-label={t('Legal', '法律信息')}><b>{t('Legal', '法律信息')}</b>{LEGAL_DOCS.map((d) => <Link key={d} to={`/legal/${d}`}>{legalTitle(d)}</Link>)}</nav>
         </div>
         <div className="foot-note">
