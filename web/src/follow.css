@@ -203,3 +203,18 @@
 .list-tools { gap: 12px; }
 .list-pick { padding: 10px; border: 1px solid var(--line); border-radius: var(--r-md); }
 .list-fill { display: grid; place-items: center; background: hsl(var(--h) 60% 45%) !important; color: #fff; font-family: var(--font-display); font-size: 22px; }
+
+/* review replies and the community board (community-ui.tsx) */
+.rv-reply { margin: 6px 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--sunk); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.rv-reply .prose { margin: 4px 0 0; }
+.board { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); overflow: hidden; }
+.board-row + .board-row { border-top: 1px solid var(--line); }
+.board-row.off .board-head b { color: var(--text-3); }
+.board-head { all: unset; box-sizing: border-box; display: flex; width: 100%; padding: 12px 16px; cursor: pointer; }
+.board-head:hover { background: var(--sunk); }
+.board-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.board-body { padding: 4px 16px 16px; }
+.board-post { padding: 10px 0; border-bottom: 1px dashed var(--line); display: grid; gap: 6px; }
+.board-post.off { opacity: .7; }
+.board-post .prose { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.board-tools { gap: 12px; }

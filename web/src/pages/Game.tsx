@@ -23,6 +23,7 @@ import { ComingSoonPanel, WishButton } from '../wishlist-ui';
 import { CouponField, type Applied } from '../coupon-ui';
 import { BundleLines, type BundleLine } from '../bundle-ui';
 import { AddToList } from '../collection-ui';
+import { CommunityBoard, ReviewReply } from '../community-ui';
 
 
 export { Stage } from '../player';
@@ -355,7 +356,7 @@ export function Game({ slug }: { slug: string }) {
             {meta && <LanguagesSection l={meta.languages} declared={meta.languages_declared} listings={listings} />}
             {(live || soon) && <DevlogSection slug={slug} />}
 
-            <section className="stack l">
+            <section className="stack l" id="reviews">
               <SectionHead title={t('Ratings and reviews', '评分与评价')} note={g.rating_count ? <Verdict g={g} full /> : undefined} />
               {canReview ? (
                 <Card pad>
@@ -365,8 +366,9 @@ export function Game({ slug }: { slug: string }) {
                   <div><Button variant="primary" disabled={!rating || busy === 'review'} onClick={review}>{data.my_review ? t('Update review', '更新评价') : t('Post review', '发布评价')}</Button></div>
                 </Card>
               ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t('Play for at least {n} seconds to leave a review.', '游玩至少 {n} 秒后即可评价。', { n: config.settings.play_min_seconds })}</p>}
-              <ReviewsList slug={slug} initial={data.reviews} total={data.reviews_total ?? data.reviews.length} />
+              <ReviewsList slug={slug} initial={data.reviews} total={data.reviews_total ?? data.reviews.length} owner={!!data.is_owner || user?.role === 'admin'} onChange={reload} />
             </section>
+            {live && <CommunityBoard slug={slug} off={!!data.board_off} />}
             {user && live && !data.is_owner && <ReportGame slug={slug} />}
           </div>
 
@@ -478,7 +480,7 @@ function ReportGame({ slug }: { slug: string }) {
 }
 
 const REVIEWS_PER = 10;
-function ReviewsList({ slug, initial, total }: { slug: string; initial: any[]; total: number }) {
+function ReviewsList({ slug, initial, total, owner, onChange }: { slug: string; initial: any[]; total: number; owner: boolean; onChange: () => void }) {
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<any[]>(initial);
   const [countTotal, setCountTotal] = useState(total);
@@ -503,6 +505,7 @@ function ReviewsList({ slug, initial, total }: { slug: string; initial: any[]; t
         <div className="review" key={`${page}-${i}`}>
           <div className="row"><span className="rv-avatar">{String(r.name || '?').slice(0, 1).toUpperCase()}</span>{r.profile ? <Link to={`/u/${encodeURIComponent(r.profile)}`} className="rv-name"><b>{r.name}</b></Link> : <b>{r.name}</b>}{r.mine && <Badge dot={false}>{t('You', '你')}</Badge>}<span className={'rv-score' + (r.rating >= 4 ? ' up' : r.rating <= 2 ? ' down' : '')}>{r.rating >= 4 ? '▲' : r.rating <= 2 ? '▼' : '◆'} {r.rating}/5</span><span className="dim right fs-sm">{ago(r.at)}</span></div>
           {r.body && <p className="prose">{r.body}</p>}
+          <ReviewReply slug={slug} rid={r.rid} reply={r.reply} owner={owner} onDone={onChange} />
         </div>))}</div>
       <ListPager page={page} total={countTotal} perPage={REVIEWS_PER} onPage={go} />
     </div>

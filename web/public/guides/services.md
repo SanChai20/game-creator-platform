@@ -66,6 +66,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Paid games, free trials and payouts | available unless switched off | none (handled by the platform) | `update_project`, `get_stats` | none |
 | Discount codes and keys | available unless switched off | none (handled by the platform) | `coupons` | none |
 | Bundles (complete the set) | available unless switched off | none (handled by the platform) | `bundles` | none |
+| Review replies and the community board | available | none (handled by the platform) | `community` | none |
 | Analytics and runtime errors | automatic | `GCP.track(name, value)` (optional) | `get_stats` | none |
 | Open implementations | available | none | `find_implementations`, `get_implementation`, `build_skill` | none |
 | Agent access (MCP and OAuth) | available | none | every tool | versions |

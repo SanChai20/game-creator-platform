@@ -375,6 +375,16 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'testing',
     },
     {
+      id: 'community', name: 'Review replies and the community board', category: 'insight', status: 'available',
+      what: 'The creator answers reviews in public, and each game has a discussion board with threads the creator pins, locks and moderates.',
+      how_it_works: 'Under each review on the game page the creator can post one public reply; the reviewer is told under the bell. The game page\'s Community board lets signed-in players start threads and reply (20 posts an hour each). The creator pins up to 3 threads, locks threads, hides any post and can switch the board off. Players report posts; three reports hide a post until the creator or an admin restores it. community {action} does the same from here, posting under the owner\'s name.',
+      use_for: ['Answering a bad review with a fix', 'Known issues and FAQs as pinned threads', 'Hearing what players want next'],
+      sdk: [], mcp_tools: ['community'],
+      limits: { review_reply: '1000 characters', post: '2000 characters', posts_per_hour: 20, pinned: 3, reports_to_hide: 3 },
+      guidelines: ['Show the user what you will post and get their go-ahead: it appears under their name.', 'Read threads before a release to see what players ask for.'],
+      guide: null,
+    },
+    {
       id: 'bundles', name: 'Bundles (complete the set)', category: 'business', status: on(s.paid_games_enabled),
       what: 'A creator groups 2 to 10 of their paid games; a player who owns one of them pays less for the rest.',
       how_it_works: 'bundles {action: "create"} with a title, 5 to 60% off and the games. Each game is still bought on its own, so refunds work as for any game. A signed-in player who owns another game of the bundle sees the lower price on the game page and the bundle page (/bundles/<slug>), and checkout charges it. The buyer pays the lowest of the regular price, a sale, a discount code and the bundle price; discounts do not stack.',

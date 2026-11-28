@@ -19,6 +19,7 @@ import { getSettings } from '../settings';
 import { applySale, saleView } from '../sales';
 // @ts-ignore plain JS module
 import { JamError, bySlug as jamBySlug, eligibleGames as jamEligible, entriesOf as jamEntries, listJams, publicView as jamView, submit as jamSubmit, withdraw as jamWithdraw } from '../jams.js';
+import { CommunityError, moderatePost, reply as boardReply, replyToReview, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
 import { BundleError, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
 import { CouponError, batchKeys, createDiscount, createKeys, disable as disableCoupon, listCoupons } from '../coupons.js';
 import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
@@ -1692,6 +1693,34 @@ The whole set as one page: get_started {topic: "standards"}.`,
         return { ...(await playtestResults(c.env.DB, pt)), link: link((pt as any).code) };
       }
       throw bad('action must be list, open, close or results.');
+    },
+  },
+  {
+    name: 'community', title: 'Read and answer players: reviews and the game\'s board',
+    description: 'What players say about the game, and the creator\'s public answers. Actions: reviews (the latest reviews with ratings and any reply), reply_review (user_id, body: the creator\'s one public reply to a review, which the reviewer is told about; sending it again changes it), threads (the discussion board, pinned first), thread (id: a thread with its replies, including hidden ones and report counts), post (id, body: reply in a thread as the creator) and moderate (id, and any of pinned, locked, hidden). Everything posted appears under the owner\'s name, so show the user what you will post and get their go-ahead first.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['reviews', 'reply_review', 'threads', 'thread', 'post', 'moderate'] },
+      user_id: { type: 'string', description: 'reply_review: the reviewer\'s id from reviews.' },
+      id: { type: 'string', description: 'thread, post and moderate: a thread or post id.' },
+      body: { type: 'string', description: 'reply_review (up to 1000 characters) and post (up to 2000).' },
+      pinned: { type: 'boolean' }, locked: { type: 'boolean' }, hidden: { type: 'boolean' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      assertCan(roleIn(c, p), 'pricing', 'speaking for the game in public');
+      const me = { id: p.owner_id, role: 'player' };   // posts appear as the owner's
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof CommunityError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'reviews') {
+        const rows = (await c.env.DB.prepare('SELECT r.user_id, u.name, r.rating, r.body, r.updated_at FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0 ORDER BY r.updated_at DESC LIMIT 50').bind(p.id).all<Record<string, any>>()).results;
+        return { reviews: await withReplies(c.env.DB, p.id, rows) };
+      }
+      if (a.action === 'reply_review') return guard(() => replyToReview(c.env.DB, p, me, String(a.user_id || ''), a.body));
+      if (a.action === 'threads') return guard(() => boardThreads(c.env.DB, p, me, { limit: 50 }));
+      if (a.action === 'thread') return guard(() => boardThread(c.env.DB, p, me, String(a.id || '')));
+      if (a.action === 'post') return guard(() => boardReply(c.env.DB, p, me, String(a.id || ''), { body: a.body }));
+      if (a.action === 'moderate') return guard(() => moderatePost(c.env.DB, p, me, String(a.id || ''), { pinned: a.pinned, locked: a.locked, hidden: a.hidden }));
+      throw bad('action must be reviews, reply_review, threads, thread, post or moderate.');
     },
   },
   {
