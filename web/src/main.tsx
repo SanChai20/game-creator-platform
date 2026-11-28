@@ -51,6 +51,7 @@ import { Creator } from './pages/Creator';
 import { Profile } from './pages/Profile';
 import { PlaytestPage } from './playtest-ui';
 import { RedeemPage } from './coupon-ui';
+import { BundlePage } from './bundle-ui';
 import { JamPage, JamsPage } from './jam-ui';
 import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
@@ -280,6 +281,7 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/u\/([^/]+)$/))) return <Profile key={m[1]} id={decodeURIComponent(m[1])} />;
   if ((m = path.match(/^\/playtest\/([a-z0-9]{6,20})$/))) return <PlaytestPage key={m[1]} code={m[1]} />;
   if (path === '/redeem') return <RedeemPage />;
+  if ((m = path.match(/^\/bundles\/([a-z0-9-]{1,60})$/))) return <BundlePage key={m[1]} slug={m[1]} />;
   if (path === '/jams') return <JamsPage />;
   if ((m = path.match(/^\/jams\/([a-z0-9-]{3,60})$/))) return <JamPage key={m[1]} slug={m[1]} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
