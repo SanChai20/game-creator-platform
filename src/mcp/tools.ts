@@ -19,6 +19,7 @@ import { getSettings } from '../settings';
 import { applySale, saleView } from '../sales';
 // @ts-ignore plain JS module
 import { JamError, bySlug as jamBySlug, eligibleGames as jamEligible, entriesOf as jamEntries, listJams, publicView as jamView, submit as jamSubmit, withdraw as jamWithdraw } from '../jams.js';
+import { BundleError, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
 import { CouponError, batchKeys, createDiscount, createKeys, disable as disableCoupon, listCoupons } from '../coupons.js';
 import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
 import { WishError, announceIssues, isComingSoon, setComingSoon, wishCount } from '../wishlist.js';
@@ -1691,6 +1692,33 @@ The whole set as one page: get_started {topic: "standards"}.`,
         return { ...(await playtestResults(c.env.DB, pt)), link: link((pt as any).code) };
       }
       throw bad('action must be list, open, close or results.');
+    },
+  },
+  {
+    name: 'bundles', title: 'Bundles of your paid games (complete the set)',
+    description: 'Groups 2 to 10 of the user\'s own paid games into a bundle with a discount of 5 to 60%. Each game is still bought on its own; a player who owns any other game of a bundle gets its discount on the rest ("complete the set"), shown on each game page and on the bundle page (/bundles/<slug>). The buyer pays the lowest of the regular price, a sale, a discount code and the bundle price; discounts do not stack. Actions: list, create (title, percent_off, games: ids or slugs, optional description), update (bundle, and any of title, description, percent_off, games) and remove (bundle). The owner only, at most 10 bundles. Ask the user before creating or changing one: it sets prices.',
+    inputSchema: obj({
+      action: { type: 'string', enum: ['list', 'create', 'update', 'remove'] },
+      bundle: { type: 'string', description: 'update and remove: the bundle\'s id or slug from list.' },
+      title: { type: 'string', description: 'create and update: up to 80 characters.' },
+      description: { type: 'string', description: 'create and update: up to 600 characters.' },
+      percent_off: { type: 'integer', description: 'create and update: 5 to 60, off each remaining game\'s regular price.' },
+      games: { type: 'array', items: { type: 'string' }, description: 'create and update: 2 to 10 of the user\'s paid games, by id or slug, in the order shown.' },
+    }, ['action']),
+    run: async (a, c) => {
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof BundleError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return { bundles: (await myBundles(c.env.DB, c.user.id)).map((b: any) => ({ ...b, link: `${c.origin}/bundles/${b.slug}` })) };
+      // every game named must be one this connection may work on, and the user's to price
+      if (Array.isArray(a.games)) for (const g of a.games) { const p = await scopedProject(c, String(g)); assertCan(roleIn(c, p), 'pricing', 'putting games in a bundle'); }
+      if (a.action === 'create') { const r = await guard(() => createBundle(c.env.DB, c.user.id, a)); return { ok: true, ...r, link: `${c.origin}/bundles/${r.slug}` }; }
+      if (a.action === 'update' || a.action === 'remove') {
+        const b = (await myBundles(c.env.DB, c.user.id)).find((x: any) => x.id === a.bundle || x.slug === a.bundle);
+        if (!b) throw bad('No such bundle of yours.', 'Run bundles {action: "list"} for the ids.');
+        for (const g of b.games) { const p = await scopedProject(c, g.id); assertCan(roleIn(c, p), 'pricing', 'changing a bundle'); }
+      }
+      if (a.action === 'update') return guard(() => updateBundle(c.env.DB, c.user.id, String(a.bundle || ''), a));
+      if (a.action === 'remove') return guard(() => removeBundle(c.env.DB, c.user.id, String(a.bundle || '')));
+      throw bad('action must be list, create, update or remove.');
     },
   },
   {

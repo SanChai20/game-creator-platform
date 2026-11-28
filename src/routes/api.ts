@@ -58,6 +58,7 @@ import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
 import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
+import { BundleError, LIMITS as BUNDLE_LIMITS, bundleable, bundleDiscount, bundlesOf, bundleView, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
 import { CouponError, LIMITS as COUPON_LIMITS, batchKeys, checkDiscount, countDiscountUse, createDiscount, createKeys, disable as disableCoupon, discounted, listCoupons, redeemKey } from '../coupons.js';
 import { LIMITS as PLAYTEST_LIMITS, PlaytestError, answer, byCode, canPlay, closeExpired, closePlaytest, inviteView, join, listPlaytests, openPlaytest, results } from '../playtests.js';
 import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
@@ -735,6 +736,9 @@ api.get('/games/:slug', async (c) => {
     refund,
     // Gifts between friends: null when gifts are off or the game is free; otherwise the open requests either way.
     gift,
+    // Bundles the game is in (src/bundles.js), and the complete-the-set price this player gets when they own another game of one.
+    bundles: p.price_cents > 0 && p.status === 'live' ? await bundlesOf(c.env.DB, p.id, u?.id || null) : [],
+    bundle_offer: u && !owned && p.price_cents > 0 ? await bundleOffer(c.env.DB, p, u.id) : null,
     // A paid game's free trial, for a player who has not bought it: minutes offered and the time this account has left.
     trial,
     // What the game needs from the player's browser; the page compares it with what this browser has before launch.
@@ -990,6 +994,41 @@ api.put('/jams/:slug/votes/:pid', async (c) => {
   await rateLimit(c.env, 'jamvote:' + u.id, 300, 3600);
   const b = await c.req.json<{ scores?: Record<string, number> }>().catch(() => ({} as { scores?: Record<string, number> }));
   return c.json(await vote(c.env.DB, j, u.id, c.req.param('pid'), b.scores).catch(jamErr));
+});
+
+// Bundles (src/bundles.js): a creator groups their paid games; owning one lowers the price of the rest.
+const bundleErr = (e: unknown): never => { if (e instanceof BundleError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+/** What a game costs with a percentage off its regular price: the lower of that and any sale, at least 50 cents. */
+const bundlePrice = (p: any, pct: number | null) => { const sale = saleOf(p); return pct ? discounted(p.price_cents, pct, sale ? sale.price_cents : null) : sale ? sale.price_cents : p.price_cents; };
+async function bundleOffer(db: D1Database, p: any, uid: string) {
+  const d = await bundleDiscount(db, p.id, uid);
+  if (!d) return null;
+  const price_cents = bundlePrice(p, d.percent_off), now_cents = bundlePrice(p, null);
+  return price_cents < now_cents ? { ...d, price_cents } : null;
+}
+api.get('/bundles/:slug', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const u = c.get('user'), v = await bundleView(c.env.DB, c.req.param('slug'), u?.id || null, bundlePrice).catch(bundleErr);
+  return c.json({ ...v, games: v.games.map((x: any) => ({ ...x, game: card(c.get('origin'), x.game) })) });
+});
+api.get('/console/bundles', async (c) => {
+  const u = requireUser(c);
+  c.header('cache-control', 'private, no-store');
+  return c.json({ limits: BUNDLE_LIMITS, bundles: await myBundles(c.env.DB, u.id), games: await bundleable(c.env.DB, u.id) });
+});
+api.post('/console/bundles', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'bundle:' + u.id, 30, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json({ ok: true, ...(await createBundle(c.env.DB, u.id, b).catch(bundleErr)) });
+});
+api.put('/console/bundles/:id', async (c) => {
+  const u = requireUser(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await updateBundle(c.env.DB, u.id, c.req.param('id'), b).catch(bundleErr));
+});
+api.delete('/console/bundles/:id', async (c) => {
+  const u = requireUser(c);
+  return c.json(await removeBundle(c.env.DB, u.id, c.req.param('id')).catch(bundleErr));
 });
 
 // Coupons and keys (src/coupons.js): the creator's discount codes and batches of free keys for a paid game; a buyer
@@ -1347,11 +1386,15 @@ api.post('/games/:slug/buy', async (c) => {
   // least 30 minutes), so a sale price is never charged long after the sale. Stripe's amount_total is what gets recorded,
   // and what a refund gives back.
   // A discount code comes off the regular price; the buyer pays the lower of it and any sale (src/coupons.js).
+  // A player who owns another game of one of its bundles gets the bundle's discount (src/bundles.js). Discounts do not
+  // stack: the buyer pays the lowest of them.
   const b = await c.req.json<{ coupon?: string }>().catch(() => ({} as { coupon?: string }));
   const cp = b.coupon ? await checkDiscount(c.env.DB, b.coupon, p, u.id).catch(couponErr) : null;
   const sale = saleOf(p), base = sale ? sale.price_cents : p.price_cents;
-  const amount = cp ? discounted(p.price_cents, cp.percent_off, sale ? sale.price_cents : null) : base;
-  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}), ...(cp ? { coupon_id: cp.id } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
+  const withCode = cp ? discounted(p.price_cents, cp.percent_off, sale ? sale.price_cents : null) : base;
+  const offer = await bundleOffer(c.env.DB, p, u.id), useBundle = !!offer && offer.price_cents < withCode;
+  const amount = useBundle ? offer!.price_cents : withCode;
+  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}), ...(cp && !useBundle ? { coupon_id: cp.id } : {}), ...(useBundle ? { bundle_id: offer!.bundle_id } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
 });
 
 // ----- gifts between friends (src/gifts.ts) -------------------------------------------------------------------------------

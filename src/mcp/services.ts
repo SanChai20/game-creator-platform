@@ -375,6 +375,16 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'testing',
     },
     {
+      id: 'bundles', name: 'Bundles (complete the set)', category: 'business', status: on(s.paid_games_enabled),
+      what: 'A creator groups 2 to 10 of their paid games; a player who owns one of them pays less for the rest.',
+      how_it_works: 'bundles {action: "create"} with a title, 5 to 60% off and the games. Each game is still bought on its own, so refunds work as for any game. A signed-in player who owns another game of the bundle sees the lower price on the game page and the bundle page (/bundles/<slug>), and checkout charges it. The buyer pays the lowest of the regular price, a sale, a discount code and the bundle price; discounts do not stack.',
+      use_for: ['A series or trilogy', 'Games that share a world', 'Rewarding players who come back for your next game'],
+      sdk: [], mcp_tools: ['bundles'],
+      limits: { games: '2 to 10', percent_off: '5 to 60', bundles_per_creator: 10 },
+      guidelines: ['Ask the user before creating or changing a bundle: it sets prices.'],
+      guide: null,
+    },
+    {
       id: 'coupons', name: 'Discount codes and keys', category: 'business', status: on(s.paid_games_enabled),
       what: 'Discount codes and single-use keys for a paid game, for streamers, press and giveaways.',
       how_it_works: 'coupons {action: "discount"} makes a code for 5 to 90% off the regular price with a number of uses and an optional end; players enter it on the game page before checkout, each account once, and pay the lower of it and any sale, never below 50 cents. coupons {action: "keys"} makes up to 100 single-use keys at a time; a signed-in player redeems one on /redeem and owns the game at no charge. A key is not a sale: the creator is not credited and there is nothing to refund. Codes and unused keys can be switched off.',
