@@ -11,7 +11,7 @@ interface ShowGame extends Pick<GameCard, 'id' | 'slug' | 'title' | 'tagline' | 
 interface ProfileData {
   id: string; name: string; joined_at: number; self: boolean; private: boolean; relation: string | null;
   bio?: string | null; visibility?: string; creator?: boolean;
-  stats?: { games: number; minutes: number; achievements: number; reviews: number };
+  stats?: { games: number; minutes: number; achievements: number; reviews: number; best_streak?: number; daily_days?: number };
   showcase?: ShowGame[];
   achievements?: { id: string; name: string; description: string; unlocked_at: number; game: { slug: string; title: string } }[];
   reviews?: { rating: number; body: string; at: number; game: { slug: string; title: string; cover: string | null } }[];
@@ -54,6 +54,7 @@ export function Profile({ id }: { id: string }) {
         <Stat label={t('Time played', '游玩时长')} value={playTime(s.minutes * 60)} />
         <Stat label={t('Achievements', '成就')} value={num(s.achievements)} />
         <Stat label={t('Reviews', '评价')} value={num(s.reviews)} />
+        {!!s.best_streak && <Stat label={t('Best daily streak', '每日挑战最长连续')} value={s.best_streak === 1 ? t('1 day', '1 天') : t('{n} days', '{n} 天', { n: num(s.best_streak) })} />}
       </StatGrid>}
       {!!p.showcase?.length && (
         <section className="stack l">

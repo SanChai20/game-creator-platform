@@ -56,6 +56,7 @@ import { ProfileError, access, profileOf, publicIds, setSettings, settingsOf, sh
 // @ts-ignore plain JS module
 import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
+import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
 import { LIMITS as PLAYTEST_LIMITS, PlaytestError, answer, byCode, canPlay, closeExpired, closePlaytest, inviteView, join, listPlaytests, openPlaytest, results } from '../playtests.js';
 import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
@@ -821,7 +822,10 @@ api.post('/games/:slug/play', async (c) => {
     const tr = await beginTrial(c.env, p, await getSettings(c.env), u.id);
     return c.json(await startPlay(c, p, 'live', p.live_version, u, tr.remaining_seconds));
   }
-  return c.json(await startPlay(c, p, 'live', p.live_version, u));
+  const started = await startPlay(c, p, 'live', p.live_version, u);
+  // today's daily challenge: starting it keeps the player's streak going (src/challenges.js)
+  const streak = await recordDailyPlay(c.env.DB, p.id, u.id).catch(() => null);
+  return c.json({ ...started, ...(streak ? { daily_streak: streak.streak } : {}) });
 });
 
 // The signed-in player's own progress in one game (live). Only ever their own: the player comes from the session, not the request.
@@ -920,6 +924,19 @@ api.put('/console/projects/:id/coming-soon', async (c) => {
   const v = await comingSoonView(c, p);
   if (v.coming_soon !== before) await logEvent(c.env, p.id, v.coming_soon ? 'coming_soon' : 'coming_soon_off', v.coming_soon ? `Coming soon page is up${v.release_note ? ` (${v.release_note})` : ''}` : 'Coming soon page taken down', null, 'console');
   return c.json(v);
+});
+
+// Daily and weekly challenges (src/challenges.js): today's game with the day's board and the viewer's streak, and the
+// week's shared goal.
+api.get('/challenges', async (c) => {
+  const u = c.get('user') as User | undefined, origin = c.get('origin');
+  const v = await challengesView(c.env.DB, u?.id) as any;
+  const live = (g: any) => g && g.status === 'live' && !g.hidden_at;
+  return c.json({
+    daily: v.daily && live(v.daily.game) ? { ...v.daily, game: card(origin, v.daily.game) } : null,
+    weekly: v.weekly && live(v.weekly.game) ? { ...v.weekly, game: card(origin, v.weekly.game) } : null,
+    streak: v.streak,
+  });
 });
 
 // Game jams and festivals (src/jams.js): anyone reads them; licensed creators host and enter; players of an entry vote.

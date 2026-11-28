@@ -57,7 +57,7 @@ test('visibility: friends by default, everyone, nobody; blocks hide it all', asy
 test('a profile shows live listed games, and adults-only ones only to the owner', async () => {
   const db = world();
   const pub = await profileOf(db, 'u_me', { lang: 'zh' });
-  assert.deepEqual(pub.stats, { games: 2, minutes: 70, achievements: 1, reviews: 1 });
+  assert.deepEqual(pub.stats, { games: 2, minutes: 70, achievements: 1, reviews: 1, best_streak: 0, daily_days: 0 });
   assert.deepEqual(pub.showcase.map((g) => g.id), ['g1', 'g2']);
   assert.equal(pub.showcase[0].achievements, 1);
   assert.deepEqual(pub.achievements.map((a) => [a.name, a.game.slug]), [['首胜', 'g1']]);

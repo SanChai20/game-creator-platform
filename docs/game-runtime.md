@@ -75,6 +75,7 @@ What no script can fix is caught before publishing:
 
 ## Versions
 
+- **2.15.0** — `GCP.daily()`: the seed of the day, the same for every player of a game that UTC day, and whether the game is today's daily challenge (its scores on the challenge board that day make the day's board on the store). Offline it resolves with the same seed made in the page. Nothing changes for a game that does not call it.
 - **2.14.0** — `GCP.track(name, value)`: custom analytics events, counted per name and batched (at most every 10 seconds, and when the tab is hidden). The creator sees them in `get_stats` and the console's Analytics tab, with an ordered funnel from `gcp.json` `funnel`.
 - **2.13.0** — `GCP.achievements`: `unlock(id)`, `list()`, `on(fn)` and `toast`, for the achievements a version declares in `gcp.json` `achievements`. `GCP.playerStats` writes now report the achievements their stat goal unlocked, and the SDK shows a short corner notice for each unlock unless the game sets `GCP.achievements.toast = false`. Nothing changes for a game that declares none.
 - **2.12.0** — `splash-handoff`: a game that has not called `GCP.progress()` twice no longer gets its splash lifted after 1.2 s. It stays under the splash until `GCP.ready()` (at most 12 s), because what such a game draws first is often a stand-in: Ashen Signal drew its old code-drawn title while the new title picture downloaded, so every launch showed the old cover, then the new one. Games that show a loading screen with `GCP.progress()` are unchanged.
