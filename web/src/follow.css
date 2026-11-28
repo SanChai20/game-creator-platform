@@ -218,3 +218,14 @@
 .board-post.off { opacity: .7; }
 .board-post .prose { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .board-tools { gap: 12px; }
+
+/* Clips (clip-ui.tsx) */
+.clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+.clip-tile { position: relative; display: grid; gap: 8px; color: inherit; text-decoration: none; min-width: 0; }
+.clip-tile video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; background: #0c0a12; pointer-events: none; }
+.clip-tile:hover video { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
+.clip-len { position: absolute; top: 8px; right: 8px; padding: 3px 7px; border-radius: 8px; background: rgb(0 0 0 / .7); color: #fff; font-size: 11.5px; }
+.clip-cap { min-width: 0; gap: 2px; }
+.clip-video { display: block; width: 100%; max-height: 60vh; border-radius: 12px; background: #000; }
+.clip-video.big { max-width: 960px; max-height: 60vh; }
+.clip-save { width: min(640px, 100%); }

@@ -27,9 +27,9 @@ export function presenceOf(pages, prof, t = Date.now()) {
   const shown = { s };
   if (playing) {
     const a = playing.act;
-    self.game = a.g; self.since = a.since; if (a.detail) self.detail = a.detail; if (a.lobby) self.joinable = true;
+    self.game = a.g; self.since = a.since; if (a.detail) self.detail = a.detail; if (a.lobby) self.joinable = true; if (a.watch) self.watchable = true;
     if (prof?.show_game !== 0 && prof?.show_game !== false) {
-      shown.game = a.g; shown.since = a.since; if (a.detail) shown.detail = a.detail;
+      shown.game = a.g; shown.since = a.since; if (a.detail) shown.detail = a.detail; if (a.watch) shown.watchable = true;
       if (a.lobby && prof?.joinable !== 0 && prof?.joinable !== false) shown.joinable = true;
     }
   }

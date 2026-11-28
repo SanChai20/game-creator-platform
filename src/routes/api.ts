@@ -58,6 +58,7 @@ import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
 import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
+import { addClip, ClipError, clipsOf, clipsOpen, countView, deleteClip, getClip, LIMITS as CLIP_LIMITS, myClips, prepareClip, reportClip, setClipsOff, setHidden as setClipHidden } from '../clips.js';
 import { CommunityError, editPost, moderatePost, removePost, removeReviewReply, reply as boardReply, replyToReview, reportPost, setBoard, startThread, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
 import { CollectionError, addGame as addToList, browse as browseLists, createCollection, deleteCollection, follow as followList, listsFor, removeGame as removeFromList, reorder as reorderList, staffPicks, updateCollection, view as listView } from '../collections.js';
 import { BundleError, LIMITS as BUNDLE_LIMITS, bundleable, bundleDiscount, bundlesOf, bundleView, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
@@ -726,6 +727,8 @@ api.get('/games/:slug', async (c) => {
     reviews: await withProfiles(c.env.DB, await withReplies(c.env.DB, p.id, reviews.results), u?.id, !!u && (u.id === p.owner_id || u.role === 'admin')),
     // the game's discussion board (src/community.js): off when the creator switched it off
     board_off: !!(p as any).board_off,
+    // clips (src/clips.js): whether players can record this game, and its newest ones
+    clips_open: clipsOpen(p), clips_off: !!(p as any).clips_off,
     reviews_total: revTot?.n || 0,
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
@@ -1049,6 +1052,75 @@ api.post('/games/:slug/board/posts/:id/report', async (c) => {
   requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
   await rateLimit(c.env, 'boardreport:' + v!.id, 30, 3600);
   return c.json(await reportPost(c.env.DB, p, v, c.req.param('id'), String(b.reason || '')).catch(communityErr));
+});
+
+// Clips (src/clips.js): short recordings players make while playing, stored in R2 and shared by link.
+const clipErr = (e: unknown): never => { if (e instanceof ClipError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const clipView = (origin: string, x: any) => ({ ...x, video: `${origin}/api/clips/${x.id}/video` });
+api.get('/games/:slug/clips', async (c) => {
+  const { p, v } = await boardGame(c);
+  return c.json({ clips: (await clipsOf(c.env.DB, p.id, v?.id || null, 12)).map((x) => clipView(c.get('origin'), x)), open: clipsOpen(p) });
+});
+// the video itself, as the body (content-type video/webm or video/mp4); ?ms= its length, ?title= optional
+api.post('/games/:slug/clips', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c);
+  if (!v) throw new AppError(401, 'Sign in to save clips.', 'unauthenticated');
+  const len = Number(c.req.header('content-length') || 0);
+  if (len > CLIP_LIMITS.bytes) throw new AppError(413, 'A clip can be at most 25 MB.', 'too_big');
+  await rateLimit(c.env, 'clip:' + v.id, 10, 600);
+  const body = await c.req.arrayBuffer();
+  const row = await prepareClip(c.env.DB, v.id, p, { type: c.req.header('content-type'), bytes: body.byteLength, ms: c.req.query('ms'), title: c.req.query('title') }).catch(clipErr);
+  await c.env.FILES.put(row.r2_key, body, { httpMetadata: { contentType: row.type } });
+  await addClip(c.env.DB, row);
+  return c.json({ clip: clipView(c.get('origin'), (await getClip(c.env.DB, row.id, v.id))!) });
+});
+api.put('/games/:slug/clips', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ on?: boolean }>().catch(() => ({} as { on?: boolean }));
+  if (!v || (v.id !== p.owner_id && v.role !== 'admin')) throw new AppError(403, 'Only the game\'s creator can turn clips off.', 'forbidden');
+  await setClipsOff(c.env.DB, p.id, b.on === false);
+  return c.json({ clips_off: b.on === false });
+});
+api.get('/me/clips', async (c) => { const u = requireUser(c); c.header('cache-control', 'private, no-store'); return c.json({ clips: (await myClips(c.env.DB, u.id)).map((x) => clipView(c.get('origin'), x)), max: CLIP_LIMITS.per_user }); });
+api.get('/clips/:id', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const v = viewerOf(c), x = await getClip(c.env.DB, c.req.param('id'), v?.id || null, v?.role === 'admin');
+  if (!x) throw notFound('No such clip.');
+  const who = v?.id || clientNet(c.req.raw) || 'anon';
+  if (!x.mine && await rateLimit(c.env, `clipview:${x.id}:${who}`, 1, 3600).then(() => true, () => false)) await countView(c.env.DB, x.id);
+  return c.json({ clip: clipView(c.get('origin'), x) });
+});
+api.get('/clips/:id/video', async (c) => {
+  const v = viewerOf(c), x = await getClip(c.env.DB, c.req.param('id'), v?.id || null, v?.role === 'admin');
+  if (!x) throw notFound('No such clip.');
+  const key = `clips/${x.id}.${x.type === 'video/mp4' ? 'mp4' : 'webm'}`, range = c.req.header('range');
+  const obj = await c.env.FILES.get(key, range ? { range: c.req.raw.headers } : {});
+  if (!obj) throw notFound('No such clip.');
+  const h: Record<string, string> = { 'content-type': x.type, 'accept-ranges': 'bytes', 'cache-control': x.hidden ? 'private, no-store' : 'public, max-age=3600', etag: obj.httpEtag,
+    'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" };
+  const r = (obj as R2ObjectBody & { range?: { offset?: number; length?: number } }).range;
+  if (range && r && typeof r.offset === 'number') {
+    const len = r.length ?? obj.size - r.offset;
+    h['content-range'] = `bytes ${r.offset}-${r.offset + len - 1}/${obj.size}`; h['content-length'] = String(len);
+    return new Response(obj.body, { status: 206, headers: h });
+  }
+  h['content-length'] = String(obj.size);
+  return new Response(obj.body, { headers: h });
+});
+api.delete('/clips/:id', async (c) => {
+  const u = requireUser(c), key = await deleteClip(c.env.DB, c.req.param('id'), u.id, u.role === 'admin').catch(clipErr);
+  await c.env.FILES.delete(key).catch(() => {});
+  return c.json({ ok: true });
+});
+api.put('/clips/:id/hidden', async (c) => {
+  const u = requireUser(c), b = await c.req.json<{ hidden?: boolean }>().catch(() => ({} as { hidden?: boolean }));
+  await setClipHidden(c.env.DB, c.req.param('id'), u.id, b.hidden !== false, u.role === 'admin').catch(clipErr);
+  return c.json({ ok: true });
+});
+api.post('/clips/:id/report', async (c) => {
+  const u = requireUser(c); if (isGuestId(u.id)) throw new AppError(401, 'Sign in to report.', 'unauthenticated');
+  const b = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
+  await rateLimit(c.env, 'clipreport:' + u.id, 30, 3600);
+  return c.json(await reportClip(c.env.DB, c.req.param('id'), u.id, String(b.reason || '')).catch(clipErr));
 });
 
 // Curated collections (src/collections.js): lists of games that players and staff put together, followed and shared.

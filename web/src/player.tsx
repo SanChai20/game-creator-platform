@@ -257,7 +257,12 @@ export interface StageViewport {
   touch?: boolean;
 }
 
-export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false, onCaptureHook, social = false, viewport = null }: {
+/** A recording of the game the player made (Record clip): the video and how long it is. */
+export interface ClipTake { blob: Blob; type: string; ms: number }
+
+export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded, onQuit, orientation = 'any', badge, ctl, blur, tools, controls, starting = false, onCaptureHook, social = false, viewport = null, onClip }: {
+  /** Players can record a clip of the game (at most 30 seconds); the recording is handed over here. */
+  onClip?: (c: ClipTake) => void;
   /** Friends on the platform: the game's GCP.friends / GCP.presence messages reach the friends panel (the game page sets it). */
   social?: boolean;
   /** The game registered GCP.test.onCapture (true) or has not (false, also whenever a new game page loads). */
@@ -480,6 +485,15 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
   // The platform language, switched on the page while the game runs: the game keeps running and is told (GCP.lang, GCP.onLang).
   const lang = useLang();
   const socialRef = useRef(social); socialRef.current = social;
+  // Record clip: the SDK in the game records its own frame and hands the video back (clip_started, clip_result).
+  const [rec, setRec] = useState<{ id: string; at: number; on: boolean } | null>(null), [, recTick] = useState(0);
+  const recRef = useRef(rec); recRef.current = rec;
+  const onClipRef = useRef(onClip); onClipRef.current = onClip;
+  useEffect(() => { setRec(null); }, [url]);
+  useEffect(() => { if (!rec?.on) return; const i = setInterval(() => recTick((x) => x + 1), 500); return () => clearInterval(i); }, [rec?.on]);
+  const toGame = (m: Record<string, unknown>) => { const win = frame.current?.contentWindow, src = urlRef.current; if (win && src) win.postMessage(m, new URL(src, location.href).origin); };
+  const clipStart = () => { if (recRef.current) return; const id = Math.random().toString(36).slice(2, 12); setRec({ id, at: Date.now(), on: false }); setMenu(false); toGame({ gcp: 'clip_start', id, max: 30000 }); frame.current?.focus(); };
+  const clipStop = () => { const r = recRef.current; if (r) toGame({ gcp: 'clip_stop', id: r.id }); };
   // a new game page starts with no join listener; the friends panel talks to this frame while it runs
   useEffect(() => { if (!social) return; attachFrame(url ? frame.current?.contentWindow || null : null); return () => attachFrame(null); }, [url, social]);
   const postLang = useCallback(() => { frame.current?.contentWindow?.postMessage({ gcp: 'lang', lang: getLang() }, '*'); }, []);
@@ -507,6 +521,14 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
       if (d.gcp === 'session_ended') onSessionEnded?.(String(d.reason || 'unknown'));
       if (d.gcp === 'shown') splash.onShown(urlRef.current);
       if (d.gcp === 'capture_hook') hookRef.current?.(d.on === true);
+      if ((d.gcp === 'clip_started' || d.gcp === 'clip_result') && recRef.current && d.id === recRef.current.id) {
+        if (d.gcp === 'clip_started') setRec({ ...recRef.current, at: Date.now(), on: true });
+        else {
+          setRec(null);
+          if (d.blob instanceof Blob && d.blob.size) onClipRef.current?.({ blob: d.blob, type: String(d.type || d.blob.type || 'video/webm'), ms: Math.max(0, Number(d.ms) || 0) });
+          else setTip(d.error === 'no_canvas' ? t('This game cannot be recorded.', '这款游戏无法录制。') : d.error === 'unsupported' ? t('This browser cannot record clips.', '此浏览器无法录制片段。') : t('The clip could not be recorded.', '片段录制失败。'));
+        }
+      }
       if (socialRef.current && (d.gcp === 'presence' || d.gcp === 'friends_open' || d.gcp === 'social_hooks')) fromGame(d);
     };
     addEventListener('message', f); return () => removeEventListener('message', f);
@@ -632,6 +654,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
             <button type="button" onClick={() => { if (performance.now() >= noClick.current) setMenu(true); }} onPointerDown={onBtnDown} onPointerMove={onBtnMove} onPointerUp={onBtnUp} onPointerCancel={onBtnUp}
               aria-label={t('Game menu', '游戏菜单')} title={t('Game menu (drag to move)', '游戏菜单（可拖动）')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" /></svg></button>
             {badge && <span className="stage-badge">{badge}</span>}
+            {rec && <button type="button" className="stage-badge stage-rec" onClick={clipStop} aria-label={t('Stop recording', '停止录制')}><i aria-hidden="true" />{rec.on ? `${Math.floor((Date.now() - rec.at) / 1000)}s / 30s` : t('Starting…', '启动中…')}</button>}
           </div>
         )}
         {tip && active && url && !menu && !hung && !asking && <div className="stage-tip" role="status">{tip}</div>}
@@ -669,6 +692,7 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
                 </div>
               )}
               {tuckable && tuckOff && barsShowing(viewportSizes()) && <button type="button" className="stage-btn" onClick={askAgain}>{t('Hide Safari\'s bars', '隐藏 Safari 的地址栏')}</button>}
+              {onClip && !rec && <button type="button" className="stage-btn" onClick={clipStart}>{t('Record a clip', '录制片段')}</button>}
               {active ? <button type="button" className="stage-btn" onClick={exit}>{t('Exit fullscreen', '退出全屏')}</button>
                 : <button type="button" className="stage-btn" onClick={enter}>{t('Fullscreen', '全屏')}</button>}
               <button type="button" className="stage-btn" onClick={quit}>{t('Quit game', '退出游戏')}</button>
@@ -706,6 +730,8 @@ export function Stage({ poster, seed, url, children, onTrialOver, onSessionEnded
           <span className="mute fs-sm">{handheld ? t('Fullscreen gives the game the whole screen.', '全屏可让游戏占满整个屏幕。') : t('Click the game to give it keyboard focus. Alt+Enter toggles fullscreen.', '点击游戏画面以获取键盘焦点。Alt+Enter 切换全屏。')}</span>
           <span className="row right" style={{ gap: 8 }}>
             {tools}
+            {onClip && (rec ? <Button size="sm" variant="danger" onClick={clipStop}>{t('Stop recording', '停止录制')}</Button>
+              : <Button size="sm" variant="ghost" onClick={clipStart} title={t('Record up to 30 seconds to share', '录制最长 30 秒的片段用于分享')}>{t('Record clip', '录制片段')}</Button>)}
             {onQuit && <Button size="sm" variant="ghost" onClick={quit}>{t('Quit game', '退出游戏')}</Button>}
             <Button size="sm" variant="primary" onClick={toggle}>{t('Fullscreen', '全屏')}</Button>
           </span>

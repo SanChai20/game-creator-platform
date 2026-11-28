@@ -50,7 +50,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Realtime multiplayer rooms | available | `GCP.room` | `game_room`, `get_stats` | multiplayer |
 | Server-run matches | available unless switched off | `GCP.match.find` | `upload_files`, `deploy_preview`, `get_stats` | matches |
 | Matchmaking and ratings | available unless switched off | `GCP.match.find` | `get_stats` | matches |
-| Friends, invites and presence | available unless switched off | `GCP.friends`, `GCP.presence`, `GCP.launch.join`, `GCP.match.join` | none | multiplayer |
+| Friends, invites and presence | available unless switched off | `GCP.friends`, `GCP.presence`, `GCP.launch.join`, `GCP.launch.watch`, `GCP.match.join` | none | multiplayer |
 | Network smoothing | available | `GCP.smooth` | none | multiplayer |
 | Game server code | available unless switched off | `GCP.server` | `upload_files`, `deploy_preview` | saves |
 | Display, fullscreen and devices | available | `GCP.fullscreen`, `GCP.display`, `GCP.setDisplay` | `compatibility` | contract |

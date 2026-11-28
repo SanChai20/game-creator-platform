@@ -8,7 +8,7 @@ import { MoreFrom, MoreLike, SectionHead } from '../store';
 import { creatorPath, FollowButton } from '../follow';
 import { CompatGate, CompatPill, CompatSection, useCompat } from '../compat-ui';
 import { Stage, withPlayLang, type StageCtl } from '../player';
-import { encodeJoin, onLaunch, setActivity } from '../social';
+import { encodeJoin, onLaunch, onWatch, setActivity } from '../social';
 import { useInstallHold } from '../install-tip';
 import { AgeBadge, ageLabel, Glance, LangPill, LanguagesSection, playersText, type GameMeta } from '../meta-ui';
 import type { Lang } from '../lib';
@@ -24,6 +24,8 @@ import { CouponField, type Applied } from '../coupon-ui';
 import { BundleLines, type BundleLine } from '../bundle-ui';
 import { AddToList } from '../collection-ui';
 import { CommunityBoard, ReviewReply } from '../community-ui';
+import { ClipSaveDialog, ClipsSection } from '../clip-ui';
+import type { ClipTake } from '../player';
 
 
 export { Stage } from '../player';
@@ -103,6 +105,7 @@ function MatureGate({ cats, onConfirm, onCancel }: { cats: string[]; onConfirm: 
 
 /** The play URL with the viewer's platform language, read by the SDK as GCP.lang. */
 const withJoin = (u: string, j: string | null) => { if (!j) return u; try { const x = new URL(u, location.href); x.searchParams.set('gcp_join', j); return x.toString(); } catch { return u; } };
+const withWatch = (u: string, w: string | null) => { if (!w) return u; try { const x = new URL(u, location.href); x.searchParams.set('gcp_watch', w); return x.toString(); } catch { return u; } };
 const withLang = (u: string, cont = false) => { const l = withPlayLang(u); if (!cont) return l; try { const x = new URL(l, location.href); x.searchParams.set('gcp_continue', '1'); return x.toString(); } catch { return l; } };
 
 /** Where the player left off, from the game's GCP.resume or else from the platform's own record: one line under Continue. */
@@ -121,6 +124,7 @@ export function Game({ slug }: { slug: string }) {
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null), ticket = useRef<string | null>(null);
   const [giftMode, setGiftMode] = useState<{ mode: 'give' | 'ask'; to?: string } | null>(null);
   const [coupon, setCoupon] = useState<Applied | null>(null);
+  const [take, setTake] = useState<ClipTake | null>(null);
   useInstallHold(!!url || busy === 'play');   // the install popup never opens over a game that is starting or running
   // While the game is open, this page checks in with the platform every 30 seconds: the platform's own play clock, which
   // every play number comes from (plays, play time, players online, trial and refund time), not the game's heartbeats.
@@ -176,6 +180,14 @@ export function Game({ slug }: { slug: string }) {
   // A friend's invite or a join from the friends panel (?join=…, or handed over while this page is open): the game is
   // started with it in gcp_join, where the SDK reads it (GCP.launch.join) to seat the player in the friend's match.
   const joinRef = useRef<string | null>(query().get('join'));
+  // "Watch" on a friend (?watch=<room>): the game opens with GCP.launch.watch and joins that room as a spectator.
+  const watchRef = useRef<string | null>(query().get('watch'));
+  useEffect(() => onWatch((s, w) => {
+    if (s !== slug || !data) return false;
+    watchRef.current = w; joinRef.current = null;
+    if (url) { setUrl(null); setTimeout(() => startRef.current(), 50); } else startRef.current();
+    return true;
+  }), [slug, data, url]);
   useEffect(() => onLaunch((s, j) => {
     if (s !== slug || !data) return false;
     joinRef.current = encodeJoin(j);
@@ -223,7 +235,7 @@ export function Game({ slug }: { slug: string }) {
     setGate(false);
     if (!user && !guestOk) return navigate(loginUrl(`/g/${slug}?play=1`));
     stage.current?.enterOnPhone();   // phones and tablets start in fullscreen; in the click itself, or the browser refuses
-    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current; joinRef.current = null; setUrl(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j), j)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null, lang: g.lang, i18n: adult ? undefined : g.i18n }); }).then((ok) => { if (!ok) stage.current?.exit(); });
+    void act('play', async () => { const r = await api<{ url: string; session: string; clock?: string; trial?: { remaining_seconds: number }; player?: { id: string; name: string; guest: boolean } }>(`/games/${slug}/play`, { method: 'POST', ...(adult ? { body: { confirm_mature: confirmed } } : {}) }); session.current = r.session; ticket.current = r.clock || null; setTrialDone(false); setEnded(null); setPlayingAs(r.player || null); setTrialEnd(r.trial ? Date.now() + r.trial.remaining_seconds * 1000 : null); const j = joinRef.current, w = j ? null : watchRef.current; joinRef.current = null; watchRef.current = null; setUrl(withWatch(withJoin(withLang(r.url, wantCont.current && !!data.continue && !j && !w), j), w)); rememberPlay({ slug: g.slug, title: g.title, cover: adult ? null : g.cover || g.screenshot || null, lang: g.lang, i18n: adult ? undefined : g.i18n }); }).then((ok) => { if (!ok) stage.current?.exit(); });
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
@@ -292,7 +304,7 @@ export function Game({ slug }: { slug: string }) {
           </div>
         )}
         <div className="gp-top">
-          <Stage social={!!user} ctl={stage} poster={shown(g).cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined}>
+          <Stage social={!!user} ctl={stage} poster={shown(g).cover || g.screenshot} blur={adult && !adultOk} seed={g.slug} url={url} starting={busy === 'play'} onTrialOver={endTrial} onSessionEnded={onSessionEnded} onQuit={quitGame} orientation={data.compat?.requirements?.orientation} controls={data.controls} badge={url && trialEnd !== null ? clock(left) : undefined} onClip={data.clips_open && user && !playingAs?.guest ? (c) => { stage.current?.exit(); setTake(c); } : undefined}>
             <div className="stack l" style={{ justifyItems: 'center' }}>
               {adultGate ? <MatureGate cats={mature} onConfirm={confirmAdult} onCancel={() => setAdultGate(false)} /> : gate && cv ? <CompatGate v={cv} onPlay={() => start()} onCancel={() => setGate(false)} /> : !live ? (soon ? <ComingSoonPanel slug={slug} note={soon.release_note} wished={wished} onChange={setWished} owner={!!data.is_owner} /> : <><Badge tone="accent">{t('Offline', '已下线')}</Badge><p className="mute">{t('This game is not live right now.', '该游戏目前未上线。')}</p></>)
                 : locked && canTry ? <>
@@ -368,7 +380,9 @@ export function Game({ slug }: { slug: string }) {
               ) : !data.is_owner && <p className="mute">{!user ? <><Link to={loginUrl()} className="sig">{t('Sign in', '登录')}</Link> {t('and play to leave a review.', '并游玩后即可评价。')}</> : t('Play for at least {n} seconds to leave a review.', '游玩至少 {n} 秒后即可评价。', { n: config.settings.play_min_seconds })}</p>}
               <ReviewsList slug={slug} initial={data.reviews} total={data.reviews_total ?? data.reviews.length} owner={!!data.is_owner || user?.role === 'admin'} onChange={reload} />
             </section>
+            {live && <ClipsSection slug={slug} owner={!!data.is_owner} off={!!data.clips_off} />}
             {live && <CommunityBoard slug={slug} off={!!data.board_off} />}
+            {take && <ClipSaveDialog slug={slug} take={take} onClose={() => setTake(null)} />}
             {user && live && !data.is_owner && <ReportGame slug={slug} />}
           </div>
 

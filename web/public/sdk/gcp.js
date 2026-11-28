@@ -32,7 +32,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.15.0', fixes: {} };
+  var RT = S.runtime = { version: '2.16.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -631,6 +631,8 @@
   function Room(code, opts) {
     var self = this, handlers = {}, ws = null, closed = false, tries = 0;
     this.code = code; this.id = null; this.hostId = null; this.peers = []; this.state = null; this.connected = false;
+    // a spectator (GCP.room(code, { watch: true })): receives what is sent to the whole room and the snapshot, sends nothing
+    this.spectator = !!(opts && opts.watch); this.watchers = 0;
     var seen = { messages: 0, worldOps: 0, states: 0, closes: 0, peers: {} };   // what arrived, for the two-player check's report
     // ever_peers: every peer id this room has known, including ones that left since (peers is only who is there now)
     var know = function (list) { (list || []).forEach(function (p) { if (p && p.id != null) seen.peers[p.id] = 1; }); };
@@ -642,7 +644,7 @@
     /** Send to everyone else, or to one peer id, or to 'host'. Each message carries its send time, which receivers get as meta.at.
         data is JSON, or an ArrayBuffer / typed array for packed binary data (receivers get an ArrayBuffer). */
     this.send = function (data, to) {
-      if (!ws || ws.readyState !== 1) return false;
+      if (!ws || ws.readyState !== 1 || self.spectator) return false;
       if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) { ws.send(binFrame(data, to)); return true; }
       ws.send(JSON.stringify(to ? { t: 'msg', to: to, d: data, at: clock() } : { t: 'msg', d: data, at: clock() }));
       return true;
@@ -670,18 +672,18 @@
       emit('message', buf.slice(2 + u[1] + 8), from, { at: isFinite(at) ? at : undefined, received: performance.now() });
     }
     /** Host only: store a snapshot that late joiners receive in their 'open' event (max 256 KB). */
-    this.setState = function (data) { self.state = data; if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'state', d: data })); };
+    this.setState = function (data) { if (self.spectator) return; self.state = data; if (ws && ws.readyState === 1) ws.send(JSON.stringify({ t: 'state', d: data })); };
     this.leave = function () { closed = true; clearInterval(pingTimer); if (ws) ws.close(1000); };
     function connect() {
       if (standalone) { setTimeout(function () { self.id = 'local'; self.hostId = 'local'; self.connected = true; emit('open', { id: 'local', host: true, peers: [], state: null }); }, 0); return; }
-      var u = cfg.api.replace(/^http/, 'ws') + '/api/rt/room?room=' + encodeURIComponent(code) + '&t=' + encodeURIComponent(cfg.token) + (opts && opts.max ? '&max=' + opts.max : '');
+      var u = cfg.api.replace(/^http/, 'ws') + '/api/rt/room?room=' + encodeURIComponent(code) + '&t=' + encodeURIComponent(cfg.token) + (opts && opts.max ? '&max=' + opts.max : '') + (self.spectator ? '&watch=1' : '');
       ws = new WebSocket(u);
       ws.binaryType = 'arraybuffer';
       ws.onmessage = function (ev) {
         if (typeof ev.data !== 'string') return onBinary(ev.data);
         var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
         if (m.t === 'welcome') {
-          tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true; know(m.peers);
+          tries = 0; self.id = m.id; self.hostId = m.host; self.peers = m.peers; self.state = m.state; self.connected = true; self.watchers = m.watchers || 0; know(m.peers);
           clearInterval(pingTimer); ping(); pingTimer = setInterval(ping, 5000);
           emit('open', { id: m.id, host: self.isHost, peers: m.peers, state: m.state });
         }
@@ -690,11 +692,12 @@
         else if (m.t === 'leave') { self.peers = self.peers.filter(function (p) { return p.id !== m.id; }); var was = self.hostId; self.hostId = m.host; emit('leave', m.id); if (was !== m.host) emit('host', m.host); }
         else if (m.t === 'msg') { seen.messages++; if (m.d && m.d.gcpWorld === 'op') seen.worldOps++; emit('message', m.d, m.from, { at: typeof m.at === 'number' ? m.at : undefined, received: performance.now() }); }
         else if (m.t === 'state') { seen.states++; self.state = m.d; emit('state', m.d); }
+        else if (m.t === 'watchers') { self.watchers = m.n || 0; emit('watchers', self.watchers); }
         else if (m.t === 'error') { var err = new Error(m.message); if (m.code) err.code = m.code; emit('error', err); }
       };
       ws.onclose = function (ev) {
         self.connected = false; seen.closes++; clearInterval(pingTimer); pingAt = {}; emit('close', ev.code);
-        if (!closed && ev.code !== 4001 && ev.code !== 4003 && ev.code !== 4008 && tries < 6) setTimeout(connect, Math.min(8000, 500 * Math.pow(2, tries++)));
+        if (!closed && ev.code !== 4001 && ev.code !== 4003 && ev.code !== 4004 && ev.code !== 4008 && tries < 6) setTimeout(connect, Math.min(8000, 500 * Math.pow(2, tries++)));
       };
     }
     connect();
@@ -2149,7 +2152,7 @@
     playRecord: function () { return api('record', {}).catch(function () { return null; }); },
     /** How the player opened the game. continue is true when they pressed Continue on the platform (their Continue row,
         library or the game page after playing before): skip the title screen and load their saved run if there is one. */
-    launch: { continue: q.get('gcp_continue') === '1', join: launchJoin },
+    launch: { continue: q.get('gcp_continue') === '1', join: launchJoin, watch: /^[A-Za-z0-9_.:-]{1,40}$/.test(q.get('gcp_watch') || '') ? q.get('gcp_watch') : null },
     /** Where the player left off, shown on their Continue row and library. Optional; games without it still appear there.
         set({ label: 'Act 2, Floor 14', detail?: 'Ember Knight, 3 relics', progress?: 0..1 }) at checkpoints; clear() when
         the run ends and there is nothing to resume; get() returns what was last set, or null. */
@@ -2219,8 +2222,8 @@
     /** What friends see the player doing in this game. set({ detail: 'Private court, 3 of 8', joinable: match }) (detail at
         most 60 characters; joinable: a private match friends may join with "Join"); clear() when it no longer applies. */
     presence: {
-      set: function (o) { o = o || {}; toParent({ gcp: 'presence', detail: o.detail == null ? '' : String(o.detail).slice(0, 60), lobby: lobbyOf(o.joinable), label: cleanLabel(o.label) || '' }); },
-      clear: function () { toParent({ gcp: 'presence', detail: '', lobby: null }); },
+      set: function (o) { o = o || {}; var w = o.watch && typeof o.watch === 'object' ? o.watch.code : o.watch; toParent({ gcp: 'presence', detail: o.detail == null ? '' : String(o.detail).slice(0, 60), lobby: lobbyOf(o.joinable), label: cleanLabel(o.label) || '', watch: typeof w === 'string' && w ? w.slice(0, 40) : null }); },
+      clear: function () { toParent({ gcp: 'presence', detail: '', lobby: null, watch: null }); },
     },
     /** A playback buffer for one remote stream (a host's snapshots, one player's position): push(value, meta.at) when a message
         arrives, value() or sample() every frame. Movement comes out smooth on a jittery connection. Options: delay (fixed ms;
@@ -3189,6 +3192,43 @@
     var tap = menuTap; menuTap = null;
     if (menuGesture && !tap.moved && performance.now() - tap.at < 600 && display.fullscreen && !display.menu) toParent({ gcp: 'menu', on: true });
   }, { capture: true, passive: true });
+  // Clips: a recording of the frame the game hands over (GCP.test.onCapture, else its canvases), video only, at most
+  // 30 seconds. One canvas is recorded as it is (WebGL included); several are drawn into one, bottom to top, each frame.
+  var clipRec = null;
+  function clipStart(id, max) {
+    var fail = function (err) { toParent({ gcp: 'clip_result', id: id, error: err }); };
+    if (clipRec) return fail('busy');
+    if (typeof MediaRecorder !== 'function') return fail('unsupported');
+    var asked = null; try { asked = captureFn ? captureFn() : null; } catch (err) { asked = null; }
+    Promise.resolve(asked).then(null, function () { return null; }).then(function (v) {
+      var list = (Array.isArray(v) ? v : v ? [v] : []).filter(function (x) { return typeof HTMLCanvasElement === 'function' && x instanceof HTMLCanvasElement && x.isConnected && x.width && x.height; });
+      if (!list.length) list = Array.prototype.slice.call(document.querySelectorAll('canvas')).filter(function (c) { var r = c.getBoundingClientRect(); return c.width && c.height && r.width > 40 && r.height > 40; });
+      if (!list.length || typeof list[0].captureStream !== 'function') return fail('no_canvas');
+      var stream, raf = 0;
+      if (list.length === 1) stream = list[0].captureStream(30);
+      else {
+        var vw = Math.max(1, innerWidth), vh = Math.max(1, innerHeight), k = Math.min(1, 1280 / Math.max(vw, vh)), out = document.createElement('canvas'), g;
+        out.width = Math.round(vw * k); out.height = Math.round(vh * k); g = out.getContext('2d');
+        var draw = function () { g.fillStyle = '#000'; g.fillRect(0, 0, out.width, out.height); list.forEach(function (c) { var r = c.getBoundingClientRect(); try { g.drawImage(c, r.left * k, r.top * k, r.width * k, r.height * k); } catch (err) { /* tainted or gone */ } }); raf = requestAnimationFrame(draw); };
+        draw(); stream = out.captureStream(30);
+      }
+      var types = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'], type = '';
+      for (var i = 0; i < types.length; i++) if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(types[i])) { type = types[i]; break; }
+      var rec; try { rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 2500000 } : { videoBitsPerSecond: 2500000 }); } catch (err) { cancelAnimationFrame(raf); return fail('unsupported'); }
+      var parts = [], t0 = Date.now(), cap = setTimeout(function () { clipStop(id); }, Math.min(30000, Math.max(1000, max)));
+      rec.ondataavailable = function (ev) { if (ev.data && ev.data.size) parts.push(ev.data); };
+      rec.onstop = function () {
+        clearTimeout(cap); cancelAnimationFrame(raf); stream.getTracks().forEach(function (tr) { tr.stop(); }); clipRec = null;
+        var mime = (rec.mimeType || type || 'video/webm').split(';')[0], blob = new Blob(parts, { type: mime });
+        if (!blob.size) return fail('empty');
+        toParent({ gcp: 'clip_result', id: id, blob: blob, type: mime, ms: Date.now() - t0 });
+      };
+      clipRec = { id: id, rec: rec };
+      rec.start(1000);
+      toParent({ gcp: 'clip_started', id: id, max: Math.min(30000, max) });
+    });
+  }
+  function clipStop(id) { if (clipRec && clipRec.id === id && clipRec.rec.state !== 'inactive') clipRec.rec.stop(); }
   window.addEventListener('message', function (e) {
     var d = e.data;
     if (e.source === window.parent && d && d.gcp === 'capture') {
@@ -3197,6 +3237,9 @@
       else toParent({ gcp: 'capture_result', id: String(d.id || '').slice(0, 40), error: 'not_allowed' });
       return;
     }
+    // A clip (2.16.0): the platform page asks for a short recording of the game's frame for the player to share.
+    if (e.source === window.parent && d && e.origin === platformOrigin && d.gcp === 'clip_start') { clipStart(String(d.id || '').slice(0, 40), +d.max || 30000); return; }
+    if (e.source === window.parent && d && e.origin === platformOrigin && d.gcp === 'clip_stop') { clipStop(String(d.id || '').slice(0, 40)); return; }
     // The player's watchdog: an answer proves the game's main thread is free. A game stuck in a long loop cannot answer,
     // and the player then offers Wait or Quit game.
     if (e.source === window.parent && d && d.gcp === 'ping') { toParent({ gcp: 'pong', n: d.n, frames: S.frames }); return; }

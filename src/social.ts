@@ -19,7 +19,7 @@ import { friendIds, gameRef, getProfile } from './social-rules.js';
 type GameRef = { id: string; slug: string; title: string; lang?: string; i18n?: Record<string, { title: string }> };
 
 export interface Presence { s: 'online' | 'away' | 'busy' | 'offline' | 'invisible'; chosen?: string; game?: GameRef; since?: number; detail?: string; joinable?: boolean }
-interface Act { g: GameRef; since: number; detail?: string; lobby?: string; label?: string }
+interface Act { g: GameRef; since: number; detail?: string; lobby?: string; label?: string; watch?: string }
 interface Page { uid: string; login: string; vis: boolean; hidAt: number | null; at: number; act: Act | null; actAt: number }
 interface Prof { status: string; show_game: number; joinable: number; invites_from: string }
 
@@ -96,7 +96,7 @@ export class SocialHub extends DurableObject<Env> {
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const page = ws.deserializeAttachment() as Page | null;
     if (!page || typeof raw !== 'string' || raw.length > 2000) return;
-    let m: { t?: string; vis?: boolean; slug?: string | null; detail?: string; lobby?: string; label?: string };
+    let m: { t?: string; vis?: boolean; slug?: string | null; detail?: string; lobby?: string; label?: string; watch?: string | null };
     try { m = JSON.parse(raw); } catch { return; }
     if (m.t === 'ping') { this.send(ws, { t: 'pong' }); return; }
     if (m.t === 'vis') {
@@ -119,7 +119,9 @@ export class SocialHub extends DurableObject<Env> {
       // a place to join, only for a genuine lobby of this game (the token is signed by the platform for this game)
       const lobby = m.lobby && (await readLobby(this.env, m.lobby, g.id, 'live')) ? String(m.lobby) : '';
       const since = page.act && page.act.g.id === g.id ? page.act.since : Date.now();
-      const act: Act = { g, since, ...(detail ? { detail } : {}), ...(lobby ? { lobby, label: typeof m.label === 'string' ? m.label.slice(0, 60) : '' } : {}) };
+      // a room friends may watch (src/room.ts spectators): just its code, which the game chose to share
+      const watch = typeof m.watch === 'string' && /^[A-Za-z0-9_.:-]{1,40}$/.test(m.watch) ? m.watch : '';
+      const act: Act = { g, since, ...(detail ? { detail } : {}), ...(lobby ? { lobby, label: typeof m.label === 'string' ? m.label.slice(0, 60) : '' } : {}), ...(watch ? { watch } : {}) };
       if (JSON.stringify(act) === JSON.stringify(page.act)) return;
       page.act = act; page.actAt = Date.now(); ws.serializeAttachment(page);
       await this.changed();
@@ -238,6 +240,13 @@ export class SocialHub extends DurableObject<Env> {
     const pages = this.pages().filter((x) => x.p.act && x.p.act.lobby).sort((a, b) => b.p.actAt - a.p.actAt);
     const a = pages[0]?.p.act;
     return a && a.lobby ? { game: a.g, lobby: a.lobby, label: a.label || '' } : null;
+  }
+  /** The room a friend may watch, if this account is in a game that offers one and shows friends its game. */
+  async watchInfo(_viewer: string): Promise<{ game: { id: string; slug: string; title: string }; room: string } | null> {
+    const prof = await this.profile();
+    if (prof.show_game === 0 || (prof as any).show_game === false || prof.status === 'invisible') return null;
+    const a = this.pages().filter((x) => x.p.act).sort((x, y) => y.p.actAt - x.p.actAt)[0]?.p.act;
+    return a && a.watch ? { game: a.g, room: a.watch } : null;
   }
   /** Signing out in this browser closes that sign-in's pages at once. */
   async closeLogin(login: string): Promise<void> {

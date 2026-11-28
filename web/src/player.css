@@ -138,3 +138,8 @@ html:has(.stage.filled), html:has(.stage.filled) body { overscroll-behavior: non
 @keyframes splash-orb { from { transform: rotate(-35deg) scale(.82); } to { transform: none; } }
 @keyframes splash-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 @media (prefers-reduced-motion: reduce) { .splash-mark, .splash-mark .logo, .splash-bar { animation: none; } .splash-bar i { animation: none; width: 100%; opacity: .5; } .stage-splash { transition-duration: .2s; } }
+/* Recording a clip (Record clip): a pill beside the menu button; pressing it stops the recording. */
+.stage-exit button.stage-rec { display: inline-flex; gap: 7px; width: auto; height: 28px; padding: 0 11px; border-radius: 14px; border: 0; background: rgb(150 20 30 / .85); animation: none; opacity: 1; font: 600 12px/1 var(--font-mono, ui-monospace, monospace); touch-action: manipulation; }
+.stage-rec i { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: stage-rec 1s steps(2, jump-none) infinite; }
+@keyframes stage-rec { 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .stage-rec i { animation: none; } }

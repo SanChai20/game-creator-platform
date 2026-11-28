@@ -11,6 +11,7 @@ import { deleteAccountStmts as socialDeleteStmts } from './social-rules.js';
 import { deleteAccountStmts as followDeleteStmts } from './follows.js';
 import { deleteStatements as collectionDeleteStmts } from './collections.js';
 import { deleteStatements as communityDeleteStmts } from './community.js';
+import { deleteStatements as clipDeleteStmts, keysOf as clipKeys } from './clips.js';
 
 /** Why this account cannot be deleted yet, or null when it can. Each reason is something the person can do first. */
 export async function deleteBlocker(env: Env, u: { id: string; role: string }): Promise<string | null> {
@@ -27,6 +28,9 @@ export async function deleteBlocker(env: Env, u: { id: string; role: string }): 
 /** Deletes the account's personal data and ends every sign-in. Call deleteBlocker first. */
 export async function deleteAccount(env: Env, userId: string): Promise<void> {
   const db = env.DB, t = now();
+  // the account's clips: their videos first, then their rows below
+  const clipFiles = await clipKeys(db, userId).catch(() => [] as string[]);
+  for (let i = 0; i < clipFiles.length; i += 100) await env.FILES.delete(clipFiles.slice(i, i + 100)).catch(() => {});
   await db.batch([
     // Reviews leave their games' ratings, unless they were already hidden (a hidden review is not counted).
     db.prepare(`UPDATE projects SET rating_sum = rating_sum - (SELECT r.rating FROM reviews r WHERE r.project_id = projects.id AND r.user_id = ?1),
@@ -68,6 +72,7 @@ export async function deleteAccount(env: Env, userId: string): Promise<void> {
     ...(followDeleteStmts(db, userId) as D1PreparedStatement[]),
     ...(collectionDeleteStmts(db, userId) as D1PreparedStatement[]),
     ...(communityDeleteStmts(db, userId) as D1PreparedStatement[]),
+    ...(clipDeleteStmts(db, userId) as D1PreparedStatement[]),
     // gift requests to and from it (gifts already given stay: they are purchases)
     db.prepare('DELETE FROM gift_requests WHERE from_id = ?1 OR to_id = ?1').bind(userId),
     // the address is freed for a new account; the row stays so purchases and the ledger keep their owner

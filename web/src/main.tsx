@@ -53,6 +53,7 @@ import { PlaytestPage } from './playtest-ui';
 import { RedeemPage } from './coupon-ui';
 import { BundlePage } from './bundle-ui';
 import { CollectionPage, CollectionsPage } from './collection-ui';
+import { ClipPage, MyClipsPage } from './clip-ui';
 import { JamPage, JamsPage } from './jam-ui';
 import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
@@ -200,6 +201,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
                     <Link to="/library">{t('Library', '游戏库')}</Link>
                     <Link to="/purchases">{t('Purchases and refunds', '购买记录与退款')}</Link>
                     <Link to="/gifts">{t('Gifts', '礼物')}</Link>
+                    <Link to="/clips">{t('Your clips', '我的片段')}</Link>
                     {/* the creator's side, only for creators: a player-only account has no console or earnings to look at */}
                     {user.makes_games && <><Link to="/console">{t('Console', '控制台')}</Link><Link to="/console/earnings">{t('Earnings', '收益')}</Link></>}
                     <Link to="/team">{t('Team projects', '团队项目')}</Link>
@@ -268,7 +270,7 @@ function ToLogin() { useEffect(() => navigate('/login', true), []); return null;
 
 function Routes({ user }: { user: Me | null }) {
   const loc = useLocation(), path = loc.split('?')[0].replace(/\/+$/, '') || '/';
-  const needUser = path === '/library' || path === '/purchases' || path === '/gifts' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account' || path === '/team' || path.startsWith('/team/');
+  const needUser = path === '/library' || path === '/purchases' || path === '/gifts' || path === '/clips' || path === '/license' || path.startsWith('/console') || path.startsWith('/admin') || path === '/claim-admin' || path === '/device' || path === '/account' || path === '/team' || path.startsWith('/team/');
   useEffect(() => { if (needUser && !user) navigate(loginUrl(), true); }, [needUser, user, loc]);
   if (needUser && !user) return <RouteSkeleton path={path} />;
   let m: RegExpMatchArray | null;
@@ -283,6 +285,8 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/playtest\/([a-z0-9]{6,20})$/))) return <PlaytestPage key={m[1]} code={m[1]} />;
   if (path === '/redeem') return <RedeemPage />;
   if (path === '/collections') return <CollectionsPage />;
+  if (path === '/clips') return <MyClipsPage />;
+  if ((m = path.match(/^\/clip\/(clp_[a-z0-9]{6,20})$/))) return <ClipPage key={m[1]} id={m[1]} />;
   if ((m = path.match(/^\/collections\/([a-z0-9-]{1,60})$/))) return <CollectionPage key={m[1]} slug={m[1]} />;
   if ((m = path.match(/^\/bundles\/([a-z0-9-]{1,60})$/))) return <BundlePage key={m[1]} slug={m[1]} />;
   if (path === '/jams') return <JamsPage />;

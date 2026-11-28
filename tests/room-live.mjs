@@ -92,3 +92,29 @@ test('the host leaving promotes the next player once', async () => {
   assert.equal(leaves.length, 1); assert.equal(leaves[0].host, 'g1');
   b.ws.close(); c.ws.close();
 });
+
+test('spectators receive the room, send nothing, are counted for the players, and are closed when the match ends', async () => {
+  const room = 'watch-' + Date.now();
+  // nobody to watch yet
+  const early = new WebSocket(`${BASE}/?r=${room}&uid=early&name=early&cap=8&w=1`);
+  assert.equal(await new Promise((r) => { early.onclose = (ev) => r(ev.code); }), 4004);
+  const a = await join(room, 'alice'), b = await join(room, 'bob');
+  const w = await join(room, 'watcher', '&w=1');
+  assert.equal(w.welcome.spectator, true);
+  assert.deepEqual(w.welcome.peers.map((p) => p.id).sort(), ['alice', 'bob']);
+  assert.ok(await until(() => a.got.some((m) => m.t === 'watchers' && m.n === 1)));
+  assert.ok(!a.got.some((m) => m.t === 'join' && /watcher/.test(m.id || m.peer?.id || '')), 'a spectator is not a player');
+  // broadcasts reach the spectator; a message to one player does not
+  a.ws.send(JSON.stringify({ t: 'msg', d: { all: 1 } }));
+  a.ws.send(JSON.stringify({ t: 'msg', to: 'bob', d: { only: 'bob' } }));
+  assert.ok(await until(() => w.got.some((m) => m.t === 'msg' && m.d?.all === 1)));
+  await sleep(200);
+  assert.ok(!w.got.some((m) => m.t === 'msg' && m.d?.only), 'addressed messages stay with players');
+  // what a spectator sends is not relayed
+  w.ws.send(JSON.stringify({ t: 'msg', d: 'from the stands' }));
+  await sleep(300);
+  assert.ok(!b.got.some((m) => m.t === 'msg' && m.d === 'from the stands'));
+  // the last player leaving ends it for the spectator
+  a.ws.close(); b.ws.close();
+  assert.equal(await Promise.race([w.closed, sleep(3000).then(() => 'open')]), 4004);
+});
