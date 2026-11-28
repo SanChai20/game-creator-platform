@@ -225,7 +225,15 @@ function connect() {
 const startedAt = Date.now();
 connect();
 setInterval(() => { if (wsOpen) try { ws.send('{"type":"ping"}'); } catch { /* ignore */ } }, 25_000).unref();
+// the first run of an npx or uvx agent downloads it first, silently: say so, so a long wait does not look stuck
+const slow = setInterval(() => {
+  if (core.status !== 'starting') { clearInterval(slow); return; }
+  const min = Math.round((Date.now() - core.startedAt) / 60_000);
+  say(dim('bridge │ ') + `Still starting ${agent.name}${min ? ` (${min} min)` : ''}. The first run downloads it, which can take several minutes for a large agent.`);
+}, 20_000);
+slow.unref();
 core.start().then(() => {
+  clearInterval(slow);
   if (core.status === 'ready') say(green('✓ ') + `${core.init?.agentInfo?.title || core.init?.agentInfo?.name || agent.name} is ready.`);
   else {
     say(red('✗ ') + core.statusDetail);

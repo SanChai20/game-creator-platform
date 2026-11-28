@@ -2782,5 +2782,7 @@
  "Who may change main directly": "誰可以直接修改 main",
  "Maintainers and above": "維護者及以上",
  "Admins and the owner": "管理員和擁有者",
- "Only the owner": "只有擁有者"
+ "Only the owner": "只有擁有者",
+ "{n} s": "{n} 秒",
+ "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "首次執行會先下載智慧體，像 Codex 這樣較大的智慧體可能需要幾分鐘。進度會顯示在它的終端機中。"
 }
