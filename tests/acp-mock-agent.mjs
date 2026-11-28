@@ -10,6 +10,14 @@
 // MOCK_INIT_DELAY=ms: initialize answers late. MOCK_NO_HTTP=1: does not offer HTTP MCP servers (tests the stdio proxy). MOCK_AUTH=1: session/new needs authenticate.
 import { spawn } from 'node:child_process';
 
+// settings shaped like a real agent's (Codex shows five): the model and mode, plus named ones
+const cfg = { model: 'fast', effort: 'high', speed: 'off', mode: 'auto' };
+const configOptions = () => [
+  { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: cfg.model, options: [{ value: 'fast', name: 'Fast' }, { value: 'smart', name: 'Smart' }] },
+  { id: 'effort', name: 'Reasoning effort', category: 'thought_level', type: 'select', currentValue: cfg.effort, options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] },
+  { id: 'speed', name: 'Fast mode', type: 'select', currentValue: cfg.speed, options: [{ value: 'off', name: 'Off' }, { value: 'on', name: 'On' }] },
+  { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: cfg.mode, options: [{ value: 'auto', name: 'Auto review' }, { value: 'ask', name: 'Ask first' }] },
+];
 let buf = '', authed = !process.env.MOCK_AUTH, nextReq = 1;
 const sessions = new Map(), waiting = new Map();
 const send = (m) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\n');
@@ -42,7 +50,7 @@ async function handle(m) {
         sessions.set(sid, { cwd: params.cwd, mcp: params.mcpServers, system: params.systemPrompt, cancel: false, mode: 'ask' });
         setTimeout(() => update(sid, { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'test', description: 'Run the tests' }, { name: 'plan', description: 'Make a plan', input: { hint: 'what to plan' } }] }), 5);
         return ok({ sessionId: sid, modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }, { id: 'code', name: 'Code' }] },
-          configOptions: [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'fast', options: [{ value: 'fast', name: 'Fast' }, { value: 'smart', name: 'Smart' }] }], _seen: { cwd: params.cwd, mcpServers: params.mcpServers, systemPrompt: params.systemPrompt } });
+          configOptions: configOptions(), _seen: { cwd: params.cwd, mcpServers: params.mcpServers, systemPrompt: params.systemPrompt } });
       }
       case 'session/load': {
         const s = sessions.get(params.sessionId) || { cwd: params.cwd };
@@ -53,7 +61,7 @@ async function handle(m) {
       }
       case 'session/set_mode': { const s = sessions.get(params.sessionId); if (s) s.mode = params.modeId; return ok({}); }
       case 'session/set_config_option':
-        return ok({ configOptions: [{ id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: params.value, options: [{ value: 'fast', name: 'Fast' }, { value: 'smart', name: 'Smart' }] }] });
+        cfg[params.configId] = params.value; return ok({ configOptions: configOptions() });
       case 'session/cancel': { const s = sessions.get(params.sessionId); if (s) s.cancel = true; return; }
       case 'session/prompt': return ok(await prompt(params));
       default: if (id !== undefined) return fail(-32601, 'Method not found: ' + method);

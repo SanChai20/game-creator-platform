@@ -138,10 +138,11 @@ app.route('/oauth/device', deviceOAuth(exchange));
 app.route('/acp/v1', acpMachine(exchange));
 // The bridge itself, a tarball npx installs. Versioned names, so a cached copy is never a stale one.
 app.get('/acp/:file{hearthcade-acp-[0-9.]+\\.tgz}', async (c) => {
-  if (c.req.param('file') !== BRIDGE_FILE) return c.text('Not found. Copy the current command from the workbench in your console.', 404);
+  // An older version's name (a command copied before an update) gets the current bridge, never cached, so it updates.
+  const current = c.req.param('file') === BRIDGE_FILE;
   const r = await c.env.ASSETS.fetch(new Request(new URL(`/acp/${BRIDGE_FILE}`, c.req.url)));
   if (!r.ok) return c.text('Not found', 404);
-  return new Response(r.body, { headers: { 'content-type': 'application/gzip', 'cache-control': 'public, max-age=86400', 'access-control-allow-origin': '*' } });
+  return new Response(r.body, { headers: { 'content-type': 'application/gzip', 'cache-control': current ? 'public, max-age=86400' : 'no-cache', 'access-control-allow-origin': '*' } });
 });
 
 // Platform-hosted modules that games import cross-origin.

@@ -42,7 +42,7 @@ export class BridgeCore {
     this.log = o.log || (() => {});
     this.spawn = o.spawn || nodeSpawn;
     this.platform = o.platform || process.platform;
-    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.0' };
+    this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.1' };
     this.status = 'idle'; this.statusDetail = '';
     this.init = null;                     // the agent's initialize result
     this.sessions = new Map();            // sessionId → session

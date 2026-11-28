@@ -1,7 +1,7 @@
 // The workbench: the creator's own coding agent, on their machine, used from the console over the Agent Client Protocol.
 // The platform hosts no agent. A bridge on the creator's machine (acp-bridge/) runs it and relays to this page; see
 // src/acp.ts for the platform side and web/src/workbench/store.ts for the live connection.
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { ago, api, date, Fail, Link, navigate, num, query, t, useAct, useApp, useData, useLocation } from '../lib';
 import { Badge, Button, Card, Code, Modal, Notice, PageHeader } from '../ui';
 import { Skeleton, SkRows } from '../ui/skeleton';
@@ -324,18 +324,24 @@ function Conversation({ b, s, onSession, onRail }: { b: BridgeState; s: SessionI
           <b className="clip">{title}</b>
           <small className="dim clip">{agentTitle(b)}{b.init?.agentInfo?.version ? ` ${b.init.agentInfo.version}` : ''} · <span className="mono">{b.info.cwd || b.cwd}</span></small>
         </div>
-        {s && <SessionControls b={b} s={s} />}
         <button className="btn btn-sm btn-ghost wb-rail-btn" onClick={onRail}>{t('Plan', '计划')}</button>
       </header>
 
       <div className="wb-scroll" ref={scroller} onScroll={onScroll}>
-        <AgentState b={b} />
-        {authNeeded !== null && <AuthCard b={b} detail={authNeeded} onDone={() => { setAuthNeeded(null); void newSession(); }} />}
-        {s?.trimmed && <p className="dim fs-sm wb-trim">{t('The start of this long session is not shown.', '这个长会话的开头部分未显示。')}</p>}
-        {!s && b.status === 'ready' && authNeeded === null && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
-        {items.map((it) => <ItemView key={it.key} it={it} cwd={b.info.cwd} />)}
-        {asks.map((a) => <AskCard key={a.key} b={b} a={a} />)}
-        {s?.running && !asks.length && <div className="wb-working" role="status"><span className="wb-dot pulse" />{t('Working…', '工作中…')}</div>}
+        <div className="wb-thread">
+          <AgentState b={b} />
+          {authNeeded !== null && <AuthCard b={b} detail={authNeeded} onDone={() => { setAuthNeeded(null); void newSession(); }} />}
+          {s?.trimmed && <p className="dim fs-sm wb-trim">{t('The start of this long session is not shown.', '这个长会话的开头部分未显示。')}</p>}
+          {!s && b.status === 'ready' && authNeeded === null && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
+          {items.map((it, i) => (
+            <Fragment key={it.key}>
+              {it.kind !== 'user' && it.kind !== 'end' && (i === 0 || items[i - 1].kind === 'user') && <div className="wb-who"><AgentMark id={b.info.agentId || ''} name={agentTitle(b)} size="s" /><b>{agentTitle(b)}</b></div>}
+              <ItemView it={it} cwd={b.info.cwd} />
+            </Fragment>
+          ))}
+          {asks.map((a) => <AskCard key={a.key} b={b} a={a} />)}
+          {s?.running && !asks.length && <div className="wb-working" role="status"><span className="wb-dots" aria-hidden="true"><i /><i /><i /></span>{t('Working…', '工作中…')}</div>}
+        </div>
       </div>
 
       <Composer b={b} s={s} onSend={send} disabled={b.status !== 'ready' || creating} />
@@ -402,13 +408,28 @@ function SessionControls({ b, s }: { b: BridgeState; s: SessionInfo }) {
     for (const o of s.configOptions) {
       if (o.type !== 'select' || !o.options) continue;
       const flat = o.options.flatMap((x: any) => (x.options ? x.options.map((y: any) => ({ ...y, group: x.name })) : [x]));
-      controls.push(<label key={o.id} className="wb-sel" title={o.description || o.name}><span>{o.name}</span><select className="input" value={String(o.currentValue)} onChange={(e) => void setOpt(o, e.target.value)}>{flat.map((x: any) => <option key={x.value} value={x.value}>{x.group ? `${x.group} · ` : ''}{x.name}</option>)}</select></label>);
+      // the model and the mode speak for themselves; other settings ("Fast mode: Off") keep their name
+      const named = o.category !== 'model' && o.category !== 'mode';
+      controls.push(<Pill key={o.id} label={o.name} named={named} title={o.description || o.name} value={String(o.currentValue)} onChange={(v) => void setOpt(o, v)} options={flat.map((x: any) => ({ value: x.value, name: x.group ? `${x.group} · ${x.name}` : x.name }))} />);
     }
   } else {
-    if (s.modes?.availableModes?.length) controls.push(<label key="mode" className="wb-sel"><span>{t('Mode', '模式')}</span><select className="input" value={s.modes.currentModeId} onChange={(e) => rpc(b.info.id, 'session/set_mode', { sessionId: s.sessionId, modeId: e.target.value }).catch((er) => toast(er.message, true))}>{s.modes.availableModes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>);
-    if (s.models?.availableModels?.length) controls.push(<label key="model" className="wb-sel"><span>{t('Model', '模型')}</span><select className="input" value={s.models.currentModelId} onChange={(e) => rpc(b.info.id, 'session/set_model', { sessionId: s.sessionId, modelId: e.target.value }).catch((er) => toast(er.message, true))}>{s.models.availableModels.map((m) => <option key={m.modelId} value={m.modelId}>{m.name}</option>)}</select></label>);
+    if (s.models?.availableModels?.length) controls.push(<Pill key="model" label={t('Model', '模型')} value={s.models.currentModelId} onChange={(v) => rpc(b.info.id, 'session/set_model', { sessionId: s.sessionId, modelId: v }).catch((er) => toast(er.message, true))} options={s.models.availableModels.map((m) => ({ value: m.modelId, name: m.name }))} />);
+    if (s.modes?.availableModes?.length) controls.push(<Pill key="mode" label={t('Mode', '模式')} value={s.modes.currentModeId} onChange={(v) => rpc(b.info.id, 'session/set_mode', { sessionId: s.sessionId, modeId: v }).catch((er) => toast(er.message, true))} options={s.modes.availableModes.map((m) => ({ value: m.id, name: m.name }))} />);
   }
-  return <div className="wb-controls">{controls}</div>;
+  return <>{controls}</>;
+}
+
+/** A setting as a small pill: the native menu opens on it, so it works with keyboards, screen readers and phones. */
+function Pill({ label, named, title, value, options, onChange }: { label: string; named?: boolean; title?: string; value: string; options: { value: string; name: string }[]; onChange: (v: string) => void }) {
+  const cur = options.find((o) => o.value === value);
+  return (
+    <label className="wb-pill" title={title || label}>
+      {named && <span className="dim">{label}</span>}
+      <b>{cur?.name ?? value}</b>
+      <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>
+      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>{options.map((o) => <option key={o.value} value={o.value}>{o.name}</option>)}</select>
+    </label>
+  );
 }
 
 // ----- transcript items -------------------------------------------------------------------------------------------
@@ -545,16 +566,19 @@ function Composer({ b, s, onSend, disabled }: { b: BridgeState; s: SessionInfo |
         </div>
       )}
       {imgs.length > 0 && <div className="wb-imgs">{imgs.map((im, i) => <span key={i}><img src={`data:${im.mimeType};base64,${im.data}`} alt={im.name} /><button aria-label={t('Remove', '移除')} onClick={() => setImgs((v) => v.filter((_, j) => j !== i))}>×</button></span>)}</div>}
-      <textarea ref={box} className="input" rows={2} value={text} disabled={disabled} onChange={(e) => { setText(e.target.value); setMenu(0); }} onKeyDown={key} onPaste={paste}
+      <div className="wb-box">
+      <textarea ref={box} rows={2} value={text} disabled={disabled} onChange={(e) => { setText(e.target.value); setMenu(0); }} onKeyDown={key} onPaste={paste}
         placeholder={disabled ? t('The agent is not ready.', '智能体尚未就绪。') : s?.commands.length ? t('Message {name} · / for commands', '给 {name} 发消息 · 输入 / 查看命令', { name: agentTitle(b) }) : t('Message {name}', '给 {name} 发消息', { name: agentTitle(b) })} aria-label={t('Message', '消息')} />
       <div className="wb-compose-bar">
-        {canImg && <label className="btn btn-sm btn-ghost"><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ''; }} />{t('Add picture', '添加图片')}</label>}
+        {canImg && <label className="wb-icon" title={t('Add picture', '添加图片')}><input type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ''; }} /><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4" width="15" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" /><circle cx="7" cy="8.5" r="1.5" fill="currentColor" /><path d="M3 14l4.5-4 3.5 3 2.5-2 3.5 3" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg><span className="sr-only">{t('Add picture', '添加图片')}</span></label>}
+        <div className="wb-pills">{s && <SessionControls b={b} s={s} />}</div>
         {s?.usage && s.usage.size > 0 && <span className="wb-usage" title={t('Context used', '已用上下文')}><i style={{ width: `${Math.min(100, (100 * s.usage.used) / s.usage.size)}%` }} />{Math.round((100 * s.usage.used) / s.usage.size)}%{s.usage.cost ? ` · ${s.usage.cost.amount.toFixed(2)} ${s.usage.cost.currency}` : ''}</span>}
-        <span className="grow dim fs-sm wb-hint">{t('Enter to send · Shift+Enter for a new line', 'Enter 发送 · Shift+Enter 换行')}</span>
         {s?.running
-          ? <Button size="sm" onClick={() => cancel(b.info.id, s.sessionId)}>{t('Stop', '停止')}</Button>
-          : <Button size="sm" variant="primary" onClick={() => void submit()} disabled={disabled || (!text.trim() && !imgs.length)}>{t('Send', '发送')}</Button>}
+          ? <button className="wb-send stop" onClick={() => cancel(b.info.id, s.sessionId)} title={t('Stop', '停止')} aria-label={t('Stop', '停止')}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1.5" fill="currentColor" /></svg></button>
+          : <button className="wb-send" onClick={() => void submit()} disabled={disabled || (!text.trim() && !imgs.length)} title={t('Send', '发送')} aria-label={t('Send', '发送')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M4.5 9.5L10 4l5.5 5.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
       </div>
+      </div>
+      <p className="wb-hint">{t('Enter to send · Shift+Enter for a new line', 'Enter 发送 · Shift+Enter 换行')}</p>
     </div>
   );
 }
