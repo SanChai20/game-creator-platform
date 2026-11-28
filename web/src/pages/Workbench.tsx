@@ -7,7 +7,7 @@ import { Badge, Button, Card, Code, Modal, Notice, PageHeader } from '../ui';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { ConsoleTabs } from './Console';
 import { acpCommand } from './Creators';
-import { agentTitle, answer, cancel, fold, reconnectNow, restart, rpc, useWorkbench, type Ask, type BridgeState, type ConfigOption, type Item, type Plan, type SessionInfo, type ToolCall } from '../workbench/store';
+import { agentTitle, answer, cancel, fold, launchAgent, quitAgent, reconnectNow, restart, rpc, useWorkbench, type Ask, type BridgeState, type ConfigOption, type Item, type Plan, type SessionInfo, type ToolCall } from '../workbench/store';
 import { Diff, Markdown } from '../workbench/render';
 import CATALOG from '../../../acp-bridge/agents.json';
 import '../workbench/workbench.css';
@@ -111,7 +111,7 @@ function PairApproval({ code, onDone }: { code: string; onDone: () => void }) {
 }
 
 /** A dropdown of the known agents with a search box, and "Another agent" for anything else. */
-function AgentSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+function AgentSelect({ value, onChange, running }: { value: string; onChange: (id: string) => void; running?: Set<string> }) {
   const [open, setOpen] = useState(false), [q, setQ] = useState(''), [hi, setHi] = useState(0);
   const box = useRef<HTMLDivElement>(null), listRef = useRef<HTMLDivElement>(null);
   const needle = q.trim().toLowerCase();
@@ -152,7 +152,7 @@ function AgentSelect({ value, onChange }: { value: string; onChange: (id: string
                 <AgentMark id={x.id} name={x.name} size="s" />
                 <b className="clip">{x.name}</b>
                 <span className="dim clip grow">{x.description}</span>
-                {isBin(x) && <span className="wb-tag" title={t('Install it first', '需要先安装')}>{t('Install first', '需先安装')}</span>}
+                {running?.has(x.id) ? <span className="wb-tag on">{t('Running', '运行中')}</span> : isBin(x) && <span className="wb-tag" title={t('Install it first', '需要先安装')}>{t('Install first', '需先安装')}</span>}
               </div>
             ))}
             {!shown.length && <p className="dim fs-sm pad-s">{t('No agent in the list matches. Add it as another agent below.', '列表中没有匹配的智能体。可以在下方把它添加为其他智能体。')}</p>}
@@ -169,14 +169,14 @@ function AgentSelect({ value, onChange }: { value: string; onChange: (id: string
 }
 
 /** Pick an agent and get the one command that starts it. */
-function AgentPicker({ ov, value, onChange, custom, setCustom }: { ov: Overview; value: string; onChange: (id: string) => void; custom: string; setCustom: (s: string) => void }) {
+function AgentPicker({ ov, value, onChange, custom, setCustom, select = true }: { ov: Overview; value: string; onChange: (id: string) => void; custom: string; setCustom: (s: string) => void; select?: boolean }) {
   const [name, setName] = useState('');
   const a = agentById(value);
   const isCustom = value === 'custom';
   const cmd = isCustom ? acpCommand(ov.server, '', custom.trim() || '<command>', name) : acpCommand(ov.server, value);
   return (
     <div className="stack">
-      <AgentSelect value={value} onChange={onChange} />
+      {select && <AgentSelect value={value} onChange={onChange} />}
       {isCustom && (
         <div className="wb-custom">
           <label className="stack s"><span className="fs-sm"><b>{t('Command', '命令')}</b> <span className="dim">{t('starts the agent in ACP mode, as you would type it in a terminal', '以 ACP 模式启动智能体，与在终端中输入的一样')}</span></span>
@@ -278,6 +278,13 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
   const [sid, setSid] = useState<string>('');
   const s = b.sessions.get(sid) || null;
   const [adding, setAdding] = useState(false), [rail, setRail] = useState(false);
+  // an agent started from "Add an agent": it is selected as soon as it shows up
+  const [want, setWant] = useState<{ agentId: string; host?: string; cwd?: string } | null>(null);
+  useEffect(() => {
+    if (!want) return;
+    const got = bridges.find((x) => x.info.agentId === want.agentId && x.info.host === want.host && x.info.cwd === want.cwd);
+    if (got) { setSel(got.info.id); setSid(''); setWant(null); }
+  }, [want, bridges]);
   const [sideOff, setSideOff] = useStored('wb.side-off'), [railOff, setRailOff] = useStored('wb.rail-off');
   useEffect(() => { try { sessionStorage.setItem('wb.bridge', b.info.id); } catch { /* fine */ } }, [b.info.id]);
   useEffect(() => { if (sid !== NEW && !s && sessions.length) setSid(sessions[0].sessionId); }, [sid, s, sessions]);
@@ -331,8 +338,8 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
         <Modal onClose={() => setAdding(false)} wide>
           <div className="stack l pad-l">
             <h2 className="wb-modal-h">{t('Add an agent', '添加智能体')}</h2>
-            <p className="mute">{t('Run another agent on a connected computer, in any folder: it shows up here next to this one. On a new computer you approve a code first.', '在已连接的电脑上、任意文件夹中运行另一个智能体，它会出现在这里。在新电脑上需要先确认代码。')}</p>
-            <AddAgent ov={ov} />
+            <p className="mute">{t('Run more agents side by side: one of each kind per folder. Each shows up in the list on the left.', '同时运行多个智能体：每个文件夹中每种智能体最多一个。每个都会出现在左侧列表中。')}</p>
+            <AddAgent ov={ov} bridges={bridges} current={b} onStarted={(want) => { setWant(want); setAdding(false); }} />
             <Machines ov={ov} reload={reloadOv} />
             <div className="row"><Button onClick={() => setAdding(false)}>{t('Done', '完成')}</Button></div>
           </div>
@@ -342,9 +349,59 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
   );
 }
 
-function AddAgent({ ov }: { ov: Overview }) {
-  const [agent, setAgent] = useState('claude'), [custom, setCustom] = useState('');
-  return <AgentPicker ov={ov} value={agent} onChange={setAgent} custom={custom} setCustom={setCustom} />;
+/** Another agent: started from here in a folder where one already runs, or by its command anywhere else. */
+function AddAgent({ ov, bridges, current, onStarted }: { ov: Overview; bridges: BridgeState[]; current: BridgeState; onStarted: (want: { agentId: string; host?: string; cwd?: string }) => void }) {
+  // the folders an agent can be started in from the console: where a bridge that can start others runs
+  const targets = bridges.filter((x) => x.info.launch);
+  const [target, setTarget] = useState(() => (targets.find((x) => x.info.host === current.info.host && x.info.cwd === current.info.cwd) || targets[0])?.info.id || '');
+  const tb = targets.find((x) => x.info.id === target) || targets[0];
+  const here = (x: BridgeState) => !!tb && x.info.host === tb.info.host && x.info.cwd === tb.info.cwd;
+  const running = new Set(bridges.filter(here).map((x) => x.info.agentId || ''));
+  const [agent, setAgent] = useState(() => AGENTS.find((a) => !running.has(a.id))?.id || 'claude'), [custom, setCustom] = useState('');
+  const { busy, act } = useAct();
+  const [err, setErr] = useState('');
+  const known = !!agentById(agent);
+  if (!tb || !known) {
+    return (
+      <div className="stack">
+        <AgentSelect value={agent} onChange={setAgent} running={running} />
+        {!tb && <p className="dim fs-sm">{t('Run it in a terminal on the computer, in the folder it should work in:', '在那台电脑上、智能体要工作的文件夹中，用终端运行：')}</p>}
+        {tb && agent === 'custom' && <p className="dim fs-sm">{t('An agent outside the list starts from a terminal, in the folder it should work in:', '列表之外的智能体需要在终端中、它要工作的文件夹里启动：')}</p>}
+        <AgentPicker ov={ov} value={agent} onChange={setAgent} custom={custom} setCustom={setCustom} select={false} />
+      </div>
+    );
+  }
+  const a = agentById(agent)!, already = running.has(agent);
+  const start = () => act('launch', async () => {
+    setErr('');
+    try { await launchAgent(tb.info.id, agent); onStarted({ agentId: agent, host: tb.info.host, cwd: tb.info.cwd }); }
+    catch (e: any) { setErr(String(e?.message || e)); }
+  });
+  return (
+    <div className="stack">
+      <AgentSelect value={agent} onChange={(id) => { setAgent(id); setErr(''); }} running={running} />
+      <div className="wb-launch">
+        <div className="grow stack s">
+          <span className="fs-sm dim">{t('Starts on', '启动位置')}</span>
+          {targets.length > 1
+            ? <select className="input" value={tb.info.id} onChange={(e) => setTarget(e.target.value)} aria-label={t('Computer and folder', '电脑和文件夹')}>
+                {targets.map((x) => <option key={x.info.id} value={x.info.id}>{x.info.host} · {x.info.cwd}</option>)}
+              </select>
+            : <span><b>{tb.info.host}</b> · <span className="mono">{tb.info.cwd}</span></span>}
+        </div>
+        <Button variant="primary" onClick={start} disabled={already || busy === 'launch'}>{already ? t('Already running', '已在运行') : t('Start {name}', '启动 {name}', { name: a.name })}</Button>
+      </div>
+      {err && <Notice tone="bad">{err}</Notice>}
+      <p className="dim fs-sm">
+        {isBin(a) ? t('{name} must be installed on that computer ("{bin}" works in a terminal).', '{name} 需要已安装在那台电脑上（终端中可以运行 “{bin}”）。', { name: a.name, bin: a.launch.bin! }) : t('{name} is downloaded with npx the first time; the progress shows here.', '首次运行时会通过 npx 下载 {name}，进度会显示在这里。', { name: a.name })}{' '}
+        {t('It stops when the first agent in that folder stops.', '该文件夹中的第一个智能体停止时，它也会停止。')}
+      </p>
+      <details className="wb-more">
+        <summary>{t('Another computer or folder? Run it in a terminal', '其他电脑或文件夹？在终端中运行')}</summary>
+        <AgentPicker ov={ov} value={agent} onChange={setAgent} custom={custom} setCustom={setCustom} select={false} />
+      </details>
+    </div>
+  );
 }
 
 function StatusDot({ b }: { b: BridgeState }) {
@@ -360,19 +417,20 @@ function Conversation({ b, s, onSession, onRail, onSide, sideOff, railOff }: { b
   const { items } = useMemo(() => fold(entries), [entries, entries.length]);
   const asks = [...b.asks.values()].filter((a) => s && a.sessionId === s.sessionId);
   const [authNeeded, setAuthNeeded] = useState<string | null>(null);
+  const [failure, setFailure] = useState<AgentFail | null>(null);
   const [creating, setCreating] = useState(false);
   const scroller = useRef<HTMLDivElement>(null), atBottom = useRef(true);
   useEffect(() => { const el = scroller.current; if (el && atBottom.current) el.scrollTop = el.scrollHeight; });
   const onScroll = () => { const el = scroller.current; if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60; };
 
   const newSession = async (): Promise<string | null> => {
-    setCreating(true);
+    setCreating(true); setFailure(null);
     try {
       const r = await rpc<{ sessionId: string }>(b.info.id, 'session/new', {});
       setAuthNeeded(null); onSession(r.sessionId); return r.sessionId;
     } catch (e: any) {
-      if (e?.code === -32000 || /auth/i.test(String(e?.message))) setAuthNeeded(String(e.message || ''));
-      else toast(e?.message || String(e), true);
+      if ((e?.code === -32000 || /auth/i.test(String(e?.message))) && b.init?.authMethods?.length) setAuthNeeded(String(e.message || ''));
+      else setFailure({ what: 'session', message: String(e?.message || e), code: e?.code ?? null, log: e?.log || [] });
       return null;
     } finally { setCreating(false); }
   };
@@ -381,7 +439,8 @@ function Conversation({ b, s, onSession, onRail, onSide, sideOff, railOff }: { b
     const id = s?.sessionId || await newSession();
     if (!id) return false;
     atBottom.current = true;
-    rpc(b.info.id, 'session/prompt', { sessionId: id, prompt: blocks }).catch((e) => toast(e?.message || String(e), true));
+    // a failed turn shows in the conversation (the bridge records it); anything else is a short note
+    rpc(b.info.id, 'session/prompt', { sessionId: id, prompt: blocks }).catch((e) => { if (!e?.recorded) toast(e?.message || String(e), true); });
     return true;
   };
 
@@ -401,12 +460,13 @@ function Conversation({ b, s, onSession, onRail, onSide, sideOff, railOff }: { b
         <div className="wb-thread">
           <AgentState b={b} />
           {authNeeded !== null && <AuthCard b={b} detail={authNeeded} onDone={() => { setAuthNeeded(null); void newSession(); }} />}
+          {failure && <AgentError b={b} f={failure} onRetry={() => void newSession()} />}
           {s?.trimmed && <p className="dim fs-sm wb-trim">{t('The start of this long session is not shown.', '这个长会话的开头部分未显示。')}</p>}
-          {!s && b.status === 'ready' && authNeeded === null && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
+          {!s && b.status === 'ready' && authNeeded === null && !failure && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
           {items.map((it, i) => (
             <Fragment key={it.key}>
               {it.kind !== 'user' && it.kind !== 'end' && (i === 0 || items[i - 1].kind === 'user') && <div className="wb-who"><AgentMark id={b.info.agentId || ''} name={agentTitle(b)} size="s" /><b>{agentTitle(b)}</b></div>}
-              <ItemView it={it} cwd={b.info.cwd} />
+              <ItemView it={it} cwd={b.info.cwd} b={b} />
             </Fragment>
           ))}
           {asks.map((a) => <AskCard key={a.key} b={b} a={a} />)}
@@ -431,6 +491,46 @@ function AgentState({ b }: { b: BridgeState }) {
         <span>{b.detail}</span>
         {/not found/i.test(b.detail) && a && <span>{t('Install {name} on that computer first:', '请先在那台电脑上安装 {name}：', { name: a.name })} <a href={a.website} target="_blank" rel="noreferrer">{a.website}</a></span>}
         {b.stderr.length > 0 && <details open={b.status === 'failed'}><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{b.stderr.slice(-30).join('\n')}</pre></details>}
+      </div>
+    </Notice>
+  );
+}
+
+interface AgentFail { what: 'session' | 'turn'; message: string; code: number | null; log: string[] }
+/** Folders an agent should not work in (the bridge says the same in the terminal). */
+function isSystemFolder(cwd: string) {
+  const p = String(cwd || '').replace(/[\\/]+$/, '');
+  return /^[a-z]:\\windows(\\|$)/i.test(p) || /^[a-z]:\\program files/i.test(p) || /^[a-z]:$/i.test(p) || /^\/(bin|sbin|usr|etc|System|Library|proc|dev)(\/|$)/.test(p);
+}
+/** What to do about an agent's error, from its text: the reason is the agent's own, the next step is ours. */
+export function errorHint(text: string, code: number | null, b: { name: string; agentId?: string; host?: string; cwd?: string }): string {
+  const x = text.toLowerCase();
+  if (code === -32000 || /auth|log ?in|api key|apikey|unauthori[sz]ed|\b401\b|credential|not signed|subscription/.test(x)) {
+    const how = b.agentId === 'claude' ? t('For Claude Agent: run "claude" in a terminal and sign in with /login, or set ANTHROPIC_API_KEY.', '对于 Claude Agent：在终端中运行 “claude” 并用 /login 登录，或设置 ANTHROPIC_API_KEY。')
+      : b.agentId === 'codex' ? t('For Codex: run "codex login" in a terminal, or set OPENAI_API_KEY.', '对于 Codex：在终端中运行 “codex login”，或设置 OPENAI_API_KEY。')
+      : b.agentId === 'gemini' ? t('For Gemini CLI: run "gemini" once in a terminal to sign in, or set GEMINI_API_KEY.', '对于 Gemini CLI：在终端中运行一次 “gemini” 登录，或设置 GEMINI_API_KEY。') : '';
+    return [t('Sign in to {name} on {host} the way it asks, then restart the agent and try again.', '在 {host} 上按 {name} 要求的方式登录，然后重启智能体再试。', { name: b.name, host: b.host || t('that computer', '那台电脑') }), how].filter(Boolean).join(' ');
+  }
+  if (b.cwd && isSystemFolder(b.cwd)) return t('It works in {folder}, a system folder, which agents often cannot use. Stop it with Ctrl+C, open a terminal in your game\'s folder, and run the command again.', '它在系统文件夹 {folder} 中工作，智能体通常无法使用这里。请按 Ctrl+C 停止，在你的游戏文件夹中打开终端，然后重新运行命令。', { folder: b.cwd });
+  if (/eperm|eacces|permission denied|operation not permitted|access is denied/.test(x)) return t('The agent may not read or write in this folder. Run it in a folder you own, such as your game\'s folder.', '智能体无权在这个文件夹中读写。请在你自己的文件夹（例如游戏文件夹）中运行它。');
+  if (/rate.?limit|\b429\b|overloaded|quota|credit|billing|insufficient/.test(x)) return t('The agent\'s service turned the request down for now (a limit or the account\'s balance). Wait a moment, or check the account, then try again.', '智能体的服务暂时拒绝了请求（达到限制或账户余额不足）。稍等片刻或检查账户后再试。');
+  if (/etimedout|enotfound|econnre|fetch failed|network|socket hang up|getaddrinfo|proxy/.test(x)) return t('The agent could not reach its service. Check the internet connection (and any proxy) on {host}, then try again.', '智能体无法连接到它的服务。请检查 {host} 上的网络连接（以及代理），然后重试。', { host: b.host || t('that computer', '那台电脑') });
+  if (/exited|query closed|process.*(ended|stopped|exit)|epipe|not running/.test(x)) return t('The agent\'s process stopped. Restart the agent; if it happens again, the log below shows why.', '智能体的进程已停止。请重启智能体；如果再次发生，下面的日志会说明原因。');
+  return t('Try again. If it keeps happening, restart the agent; the log below shows what the agent printed.', '请重试。如果一直出现，请重启智能体；下面的日志显示了智能体输出的内容。');
+}
+function AgentError({ b, f, onRetry }: { b: BridgeState; f: AgentFail; onRetry?: () => void }) {
+  const name = agentTitle(b);
+  const hint = errorHint(f.message + '\n' + f.log.join('\n'), f.code, { name, agentId: b.info.agentId, host: b.info.host, cwd: b.info.cwd || b.cwd });
+  return (
+    <Notice tone="bad" title={f.what === 'session' ? t('{name} could not start a session', '{name} 无法开始会话', { name }) : t('{name} stopped with an error', '{name} 因错误而停止', { name })}>
+      <div className="stack s wb-err">
+        <span className="mono wb-err-msg">{f.message || t('No reason given.', '没有给出原因。')}</span>
+        <span>{hint}</span>
+        <div className="row wrapx">
+          {onRetry && <Button size="sm" variant="primary" onClick={onRetry}>{t('Try again', '重试')}</Button>}
+          <Button size="sm" onClick={() => restart(b.info.id, true)}>{t('Restart agent', '重启智能体')}</Button>
+        </div>
+        {f.log.length > 0 && <details><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{f.log.join('\n')}</pre></details>}
       </div>
     </Notice>
   );
@@ -465,6 +565,7 @@ function Welcome({ b, onPick, busy }: { b: BridgeState; onPick: (text: string) =
       <AgentMark id={b.info.agentId || ''} name={agentTitle(b)} size="l" />
       <h2>{t('What should {name} work on?', '{name} 要做什么？', { name: agentTitle(b) })}</h2>
       <p className="mute">{b.mcp ? t('It works in {folder} on your computer and has HearthCade\'s tools for your account.', '它在你电脑上的 {folder} 中工作，并可以使用你账户的 HearthCade 工具。', { folder: base(b.info.cwd || b.cwd) }) : t('It works in {folder} on your computer.', '它在你电脑上的 {folder} 中工作。', { folder: base(b.info.cwd || b.cwd) })}</p>
+      {isSystemFolder(b.info.cwd || b.cwd) && <Notice tone="accent" title={t('This is a system folder', '这是一个系统文件夹')}>{t('The agent works in {folder}, where a terminal opened as administrator starts. Agents often cannot work there. Stop it with Ctrl+C, open a terminal in your game\'s folder, and run the command again.', '智能体在 {folder} 中工作，以管理员身份打开的终端会从这里开始。智能体通常无法在这里正常工作。请按 Ctrl+C 停止，在你的游戏文件夹中打开终端，然后重新运行命令。', { folder: b.info.cwd || b.cwd })}</Notice>}
       <div className="wb-suggest">{SUGGEST().map((x) => <button key={x} onClick={() => onPick(x)} disabled={busy}>{x}</button>)}</div>
     </div>
   );
@@ -538,7 +639,7 @@ function Starting({ b }: { b: BridgeState }) {
   );
 }
 
-function ItemView({ it, cwd }: { it: Item; cwd?: string }) {
+function ItemView({ it, cwd, b }: { it: Item; cwd?: string; b?: BridgeState }) {
   switch (it.kind) {
     case 'user': return <div className="wb-msg user">{it.blocks.map((c, i) => <Block key={i} c={c} />)}</div>;
     case 'agent': return <div className="wb-msg agent"><Markdown text={it.text} />{it.blocks.map((c, i) => <Block key={i} c={c} />)}</div>;
@@ -546,7 +647,7 @@ function ItemView({ it, cwd }: { it: Item; cwd?: string }) {
     case 'tool': return <ToolView c={it.call} cwd={cwd} />;
     case 'end':
       if (it.stopReason === 'end_turn') return <div className="wb-end" aria-hidden="true" />;
-      if (it.stopReason === 'error') return <Notice tone="bad" title={t('The agent reported an error', '智能体报告了一个错误')}>{it.error}</Notice>;
+      if (it.stopReason === 'error') return b ? <AgentError b={b} f={{ what: 'turn', message: it.error || '', code: it.code ?? null, log: it.log || [] }} /> : <Notice tone="bad" title={t('The agent reported an error', '智能体报告了一个错误')}>{it.error}</Notice>;
       return <div className="wb-end labelled"><span>{it.stopReason === 'cancelled' ? t('Stopped', '已停止') : it.stopReason === 'max_tokens' ? t('Stopped: the answer reached the agent\'s length limit', '已停止：回答达到智能体的长度上限') : it.stopReason === 'max_turn_requests' ? t('Stopped: the agent reached its step limit for one message', '已停止：智能体达到单条消息的步骤上限') : it.stopReason === 'refusal' ? t('The agent declined this request', '智能体拒绝了这个请求') : it.stopReason}</span></div>;
     default: return null;
   }
@@ -696,7 +797,9 @@ function Rail({ b, s }: { b: BridgeState; s: SessionInfo | null }) {
         </dl>
         {(b.status === 'exited' || b.status === 'failed') && <Button size="sm" onClick={() => restart(b.info.id, true)}>{t('Retry', '重试')}</Button>}
       </section>
-      <p className="dim fs-sm">{t('To stop this agent, press Ctrl+C in its terminal.', '要停止这个智能体，请在它的终端中按 Ctrl+C。')}</p>
+      {b.info.child
+        ? <div className="row"><Button size="sm" onClick={() => quitAgent(b.info.id)}>{t('Stop this agent', '停止这个智能体')}</Button></div>
+        : <p className="dim fs-sm">{t('To stop this agent, press Ctrl+C in its terminal.', '要停止这个智能体，请在它的终端中按 Ctrl+C。')}</p>}
     </div>
   );
 }

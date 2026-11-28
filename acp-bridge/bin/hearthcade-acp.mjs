@@ -18,11 +18,12 @@ import { join, resolve, dirname } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { BridgeCore, launchOf, splitCommand } from '../core.mjs';
+import { BridgeCore, launchOf, splitCommand, systemFolder } from '../core.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8'));
-const CATALOG = JSON.parse(readFileSync(join(HERE, '..', 'agents.json'), 'utf8')).agents;
+// HEARTHCADE_ACP_AGENTS: another catalog file (the tests start a mock agent from the console this way)
+const CATALOG = JSON.parse(readFileSync(process.env.HEARTHCADE_ACP_AGENTS || join(HERE, '..', 'agents.json'), 'utf8')).agents;
 const DEFAULT_SERVER = PKG.hearthcade?.server || 'https://hearthcade.com';
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code, s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -50,6 +51,8 @@ const cwdArg = opt('--cwd');
 const fresh = flag('--new');
 const verbose = flag('--verbose');
 const nameArg = opt('--name');
+// started by another bridge from the console ("Add an agent"): it stops with that bridge and never pairs on its own
+const child = flag('--child');
 const cmd = args[0] || '';
 
 if (cmd === 'list') { listAgents(); process.exit(0); }
@@ -124,10 +127,11 @@ function openBrowser(url) {
 
 // ----- start ------------------------------------------------------------------------------------------------------------
 if (fresh) forget();
-let secret = creds()[server]?.secret || await pair();
+if (child) { process.stdin.on('end', () => shutdown(0)); process.stdin.on('error', () => shutdown(0)); process.stdin.resume(); }
+let secret = creds()[server]?.secret || (child ? die('This computer is not connected any more. Run the command again in a terminal.') : await pair());
 const bridgeId = randomUUID();
 let started = await call('/acp/v1/bridges', { bridge: bridgeId, agent: agent.name, agent_id: agent.id, host, cwd, os: platform(), version: PKG.version }, secret);
-if (started.status === 401) { forget(); secret = await pair(); started = await call('/acp/v1/bridges', { bridge: bridgeId, agent: agent.name, agent_id: agent.id, host, cwd, os: platform(), version: PKG.version }, secret); }
+if (started.status === 401) { if (child) die('This computer was disconnected in the console.'); forget(); secret = await pair(); started = await call('/acp/v1/bridges', { bridge: bridgeId, agent: agent.name, agent_id: agent.id, host, cwd, os: platform(), version: PKG.version }, secret); }
 if (started.status !== 200) die(started.json.error || `The site answered ${started.status}.`);
 const S = started.json;   // { ws, user, workbench, mcp: { url, access_token, refresh_token, client_id, token_endpoint, expires_in }, system_prompt, scope }
 
@@ -191,6 +195,11 @@ say(`  ${dim('folder')} ${cwd}`);
 say(`  ${dim('tools ')} ${proxyUrl ? 'HearthCade MCP' + (S.scope ? dim(' · ' + S.scope) : '') : 'none'}`);
 say(`  ${dim('open  ')} ${accent(S.workbench)}`);
 say('');
+if (systemFolder(cwd)) {
+  say(yellow('! ') + `The agent will work in ${bold(cwd)}, a system folder. A terminal opened as administrator starts here.`);
+  say(`  Press Ctrl+C, open a terminal in your game's folder (or pass --cwd <folder>), and run the command again.`);
+  say('');
+}
 
 let attempt = 0, stopping = false;
 function connect() {
@@ -210,7 +219,7 @@ function connect() {
   ws = sock;
   ws.onopen = () => {
     wsOpen = true; attempt = 0;
-    ws.send(JSON.stringify({ type: 'meta', meta: { agent: agent.name, agentId: agent.id, host, cwd, os: platform(), version: PKG.version, startedAt } }));
+    ws.send(JSON.stringify({ type: 'meta', meta: { agent: agent.name, agentId: agent.id, host, cwd, os: platform(), version: PKG.version, startedAt, launch: !child, child } }));
     core.send(core.state());
     say(green('✓ ') + 'Connected to the console. Leave this running while you work; press Ctrl+C to stop.');
   };
@@ -219,6 +228,8 @@ function connect() {
     if (m.type === 'ping') return;
     if (m.type === 'view_open') { if (verbose) say(dim('bridge │ a console page joined')); return; }
     if (m.type === 'view_close') return;
+    if (m.type === 'launch') { launch(m); return; }
+    if (m.type === 'quit') { if (child) { say(dim('bridge │ ') + 'Stopped from the console.'); shutdown(0); } return; }
     if (m.type === 'rpc' && m.method === 'session/prompt') say(dim('bridge │ ') + 'Message from the console');
     core.onView(m).catch((e) => say(dim('bridge │ ') + red(String(e?.message || e))));
   };
@@ -253,8 +264,32 @@ core.start().then(() => {
   }
 });
 
+// ----- more agents in this folder, started from the console ("Add an agent") ----------------------------------------
+// Each one is this same program run again for a known agent, as a child process: it connects on its own, so it shows
+// up in the console as its own agent, and it stops when this one stops. One of each agent per folder; only agents from
+// the catalog (a page cannot make this computer run a command of its choosing).
+const children = new Map();   // agent id → child process
+function launch(m) {
+  const reply = (ok, error) => core.send({ type: 'launch_result', to: m.from, id: m.id ?? null, agentId: m.agentId ?? null, ok, ...(error ? { error } : {}) });
+  if (child) return reply(false, 'Start other agents from the first agent in this folder.');
+  const e = CATALOG.find((a) => a.id === String(m.agentId || ''));
+  if (!e) return reply(false, 'Unknown agent. Agents outside the list start from a terminal.');
+  if (e.id === agent.id || children.has(e.id)) return reply(false, `${e.name} is already running in this folder.`);
+  const p = spawn(process.execPath, [fileURLToPath(import.meta.url), e.id, '--cwd', cwd, '--server', server, '--child', ...(verbose ? ['--verbose'] : [])], { cwd, env: { ...process.env, HEARTHCADE_NO_BROWSER: '1' }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+  children.set(e.id, p);
+  const tag = dim(`[${e.name}] `);
+  const pipe = (stream, to) => { let buf = ''; stream.setEncoding('utf8'); stream.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i).replace(/\r$/, ''); buf = buf.slice(i + 1); if (l.trim()) to(tag + l); } }); };
+  pipe(p.stdout, (l) => console.log(l)); pipe(p.stderr, (l) => console.error(l));
+  p.stdin.on('error', () => {});
+  p.on('error', (err) => { children.delete(e.id); say(red('✗ ') + `Could not start ${e.name}: ${err.message}`); });
+  p.on('exit', (code) => { if (children.get(e.id) === p) children.delete(e.id); if (!stopping) say(dim('bridge │ ') + `${e.name} stopped${code ? ` (code ${code})` : ''}.`); });
+  say(dim('bridge │ ') + `Starting ${e.name} here, from the console.`);
+  reply(true);
+}
+
 async function shutdown(code = 0) {
   if (stopping) return; stopping = true;
+  for (const p of children.values()) { try { p.stdin.end(); } catch { /* gone */ } }
   core.stop();
   try { ws?.close(1000, 'bye'); } catch { /* fine */ }
   await call(`/acp/v1/bridges/${bridgeId}/stop`, {}, secret).catch(() => {});
@@ -271,6 +306,7 @@ function help() {
   hearthcade-acp [--name <name>] -- <command…>   start any ACP agent by its command
   hearthcade-acp list                            the agents it knows
   hearthcade-acp logout                          forget this machine's connection
+  More agents in the same folder start from the console: Add an agent.
   options: --server <url>  --new (connect again)  --verbose (show the agent's log)`);
 }
 function listAgents() {
