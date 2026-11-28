@@ -7,7 +7,8 @@
 //
 // Rules, enforced here and nowhere else:
 //   - A daily challenge is a live, listed, free game that is not adults-only, with a leaderboard on which at least
-//     3 players scored in the last 90 days, and that was not the challenge in the last 14 days. The pick is fixed per day.
+//     3 players scored in the last 90 days, that was not the challenge in the last 14 days and is not this week's goal
+//     game. The pick is fixed per day.
 //   - The day's board counts only scores sent that UTC day, on that board, from signed-in players of the live game.
 //   - A streak counts the days in a row on which a signed-in player started the daily challenge game.
 //   - The weekly goal is a free, live, listed game that is not adults-only, not picked in the last 4 weeks, and was
@@ -29,14 +30,14 @@ const shown = `p.status = 'live' AND p.hidden_at IS NULL AND COALESCE(p.age, 0) 
 
 /** Today's daily challenge, picked on first ask. null when no game qualifies. */
 export async function ensureDaily(db, t = now()) {
-  const day = dayOf(t);
+  const day = dayOf(t), weekly = (await db.prepare('SELECT project_id FROM weekly_goals WHERE week = ?').bind(weekOf(t)).first())?.project_id || '';
   const have = await db.prepare('SELECT * FROM daily_challenges WHERE day = ?').bind(day).first();
   if (have) return have;
   const since = t - 90 * DAY, recent = dayOf(t - LIMITS.daily_gap_days * DAY);
   const rows = (await db.prepare(`SELECT p.id, b.board, b.asc, COUNT(s.user_id) AS scorers FROM projects p JOIN boards b ON b.project_id = p.id
       JOIN scores s ON s.project_id = p.id AND s.board = b.board AND s.updated_at >= ?1
-      WHERE ${shown} AND p.id NOT IN (SELECT project_id FROM daily_challenges WHERE day >= ?2)
-      GROUP BY p.id, b.board HAVING COUNT(s.user_id) >= ?3 ORDER BY p.plays DESC, scorers DESC LIMIT 200`).bind(since, recent, LIMITS.min_scorers).all()).results;
+      WHERE ${shown} AND p.id NOT IN (SELECT project_id FROM daily_challenges WHERE day >= ?2) AND p.id != ?4
+      GROUP BY p.id, b.board HAVING COUNT(s.user_id) >= ?3 ORDER BY p.plays DESC, scorers DESC LIMIT 200`).bind(since, recent, LIMITS.min_scorers, weekly).all()).results;
   // the busiest board of each game, then one of the 20 most played games, chosen by the day
   const best = new Map();
   for (const r of rows) if (!best.has(r.id) || best.get(r.id).scorers < r.scorers) best.set(r.id, r);
@@ -133,7 +134,7 @@ export async function dayBoard(db, c, viewer, limit = LIMITS.board_size) {
 
 /** Everything the challenges card shows: today's challenge with its board and the viewer's streak, and the week's goal. */
 export async function challengesView(db, viewer, t = now()) {
-  const [c, w] = await Promise.all([ensureDaily(db, t), ensureWeekly(db, t)]);
+  const w = await ensureWeekly(db, t), c = await ensureDaily(db, t);   // the week's game first: the daily pick leaves it out
   const game = async (id) => db.prepare('SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id = ?').bind(id).first();
   const daily = c ? { day: c.day, board: c.board, lower_wins: !!c.asc, ends_at: dayMs(c.day) + DAY, game: await game(c.project_id), ...(await dayBoard(db, c, viewer)) } : null;
   let weekly = null;
