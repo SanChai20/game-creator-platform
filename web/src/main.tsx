@@ -60,6 +60,7 @@ import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
 import { pushLanguage, startPwa } from './pwa';
 import { BigScreenPage, PadPrompt } from './bigscreen';
+import { AreaBar, areaHome, areaOf, AreaSwitch, useArea } from './areas';
 import { startPadNav } from './gamepad';
 
 /** Store pages get the store bar (categories menu, lists, queue, search) under the top bar. */
@@ -137,15 +138,13 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
     addEventListener('mousedown', f); return () => removeEventListener('mousedown', f);
   }, []);
   const path = loc.split('?')[0], onAuth = path === '/login' || path === '/signup', keep = onAuth && loc.includes('?') ? loc.slice(loc.indexOf('?')) : '';   // someone sent here to approve an agent keeps their place
+  const area = useArea(path);
+  // the header's row is the player's side; the creator's and the admin's pages sit behind the area switch on the right
   const places: { to: string; label: string; on: boolean }[] = [
     { to: '/', label: t('Store', '商店'), on: isStore(path) },
     ...(user ? [{ to: '/library', label: t('Library', '游戏库'), on: path.startsWith('/library') }] : []),
-    { to: '/create', label: t('For creators', '创作者'), on: path === '/create' },
-    { to: '/creator-store', label: t('Creator Store', '创作者商店'), on: path.startsWith('/creator-store') },
-    { to: '/docs', label: t('Docs', '文档'), on: path.startsWith('/docs') },
+    { to: '/tournaments', label: t('Tournaments', '锦标赛'), on: path.startsWith('/tournaments') },
     ...(desktopShell() ? [] : [{ to: '/download', label: t('Get the app', '下载应用'), on: path === '/download' }]),
-    ...(user?.makes_games ? [{ to: '/console', label: t('Console', '控制台'), on: path.startsWith('/console') }] : []),
-    ...(user?.role === 'admin' ? [{ to: '/admin', label: t('Admin', '管理'), on: path.startsWith('/admin') }] : []),
   ];
   const fit = useNavFit(places.length, [lang, user?.id]);
   const inRow = places.slice(0, fit.shown), folded = places.slice(fit.shown);
@@ -190,6 +189,7 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
             {searchOpen && <button type="button" className="icon-btn nav-search-x" onClick={() => setSearchOpen(false)} aria-label={t('Close', '关闭')}>×</button>}
           </div>
           <div className="nav-tools">
+            <AreaSwitch area={area} user={user} />
             {user && <NotificationsButton />}
             {user && <FriendsButton />}
             <ThemeSwitch />
@@ -198,20 +198,20 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
               <div className="menu" ref={ref}>
                 <button className="avatar" onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open} aria-label={t('Account menu', '账户菜单')}>{user.name.slice(0, 1).toUpperCase()}</button>
                 {open && (
-                  <div className="pop" role="menu">
+                  <div className="pop pop-acct" role="menu">
                     <div className="who"><b className="clip">{user.name}</b><div className="mute clip fs-sm">{user.email}</div></div>
+                    <span className="pop-h is-play">{t('Playing', '游玩')}</span>
                     <Link to={`/u/${encodeURIComponent(user.id)}`}>{t('Your profile', '我的资料')}</Link>
                     <Link to="/library">{t('Library', '游戏库')}</Link>
                     <Link to="/purchases">{t('Purchases and refunds', '购买记录与退款')}</Link>
                     <Link to="/gifts">{t('Gifts', '礼物')}</Link>
                     <Link to="/clips">{t('Your clips', '我的片段')}</Link>
-                    {/* the creator's side, only for creators: a player-only account has no console or earnings to look at */}
-                    {user.makes_games && <><Link to="/console">{t('Console', '控制台')}</Link><Link to="/console/earnings">{t('Earnings', '收益')}</Link></>}
+                    <span className="pop-h is-create">{t('Creating', '创作')}</span>
+                    {user.makes_games ? <><Link to="/console">{t('Console', '控制台')}</Link><Link to="/console/earnings">{t('Earnings', '收益')}</Link></> : <Link to="/create">{t('Start creating', '开始创作')}</Link>}
                     <Link to="/team">{t('Team projects', '团队项目')}</Link>
-                    <Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link>
-                    <Link to="/docs">{t('Docs', '文档')}</Link>
-                    <Link to="/account">{t('Account', '账户')}</Link>
-                    {user.role === 'admin' && <Link to="/admin">{t('Admin', '管理后台')}</Link>}
+                    {user.role === 'admin' && <><span className="pop-h is-admin">{t('Admin', '管理')}</span><Link to="/admin">{t('Admin', '管理后台')}</Link></>}
+                    <span className="pop-sep" role="separator" />
+                    <Link to="/account">{t('Account settings', '账户设置')}</Link>
                     <button onClick={onLogout}>{t('Sign out', '退出登录')}</button>
                   </div>
                 )}
@@ -230,8 +230,8 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
         <Link to="/" className={path === '/' || path.startsWith('/g/') ? 'on' : ''}><Icon kind="store" /><span>{t('Store', '商店')}</span></Link>
         <Link to="/categories" className={path === '/categories' || path === '/browse' || path.startsWith('/c/') ? 'on' : ''}><Icon kind="grid" /><span>{t('Categories', '分类')}</span></Link>
         {user && <Link to="/library" className={path === '/library' ? 'on' : ''}><Icon kind="shelf" /><span>{t('Library', '游戏库')}</span></Link>}
-        <Link to="/create" className={path === '/create' || path.startsWith('/creator-store') || path.startsWith('/docs') ? 'on' : ''}><Icon kind="spark" /><span>{t('Creators', '创作者')}</span></Link>
-        {user?.makes_games ? <Link to="/console" className={path.startsWith('/console') || path.startsWith('/admin') ? 'on' : ''}><Icon kind="desk" /><span>{t('Console', '控制台')}</span></Link>
+        <Link to={areaHome('create', user)} className={area === 'create' ? 'on is-create' : 'is-create'}><Icon kind="spark" /><span>{t('Create', '创作')}</span></Link>
+        {user?.role === 'admin' ? <Link to="/admin" className={area === 'admin' ? 'on is-admin' : 'is-admin'}><Icon kind="shield" /><span>{t('Admin', '管理')}</span></Link>
           : user ? <Link to="/account" className={path === '/account' ? 'on' : ''}><Icon kind="user" /><span>{t('Account', '账户')}</span></Link>
           : <Link to={onAuth ? '/login' + keep : loginUrl()} className={onAuth ? 'on' : ''}><Icon kind="user" /><span>{t('Sign in', '登录')}</span></Link>}
       </nav>
@@ -239,9 +239,9 @@ function Nav({ user, brand, onLogout }: { user: Me | null; brand: string; onLogo
   );
 }
 
-function StoreBarSlot() {
-  const path = useLocation().split('?')[0];
-  return isStore(path) ? <StoreBar /> : null;
+function StoreBarSlot({ user }: { user: Me | null }) {
+  const path = useLocation().split('?')[0], area = areaOf(path);
+  return isStore(path) ? <StoreBar /> : area !== 'play' ? <AreaBar area={area} user={user} /> : null;
 }
 
 /** Each page enters like a new level: the wrapper is keyed on the path, so its entrance animation replays. */
@@ -320,6 +320,7 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/console/earnings') return <Earnings />;
   if (path === '/console/workbench') return <Workbench />;
   if ((m = path.match(/^\/console\/(?:p|projects)\/([^/]+)$/))) return <Project key={m[1]} id={m[1]} />;
+  if ((m = path.match(/^\/console\/p\/([^/]+)\/(selling|community)$/))) return <Project key={m[1] + m[2]} id={m[1]} section={m[2] as 'selling' | 'community'} />;
   if ((m = path.match(/^\/console\/p\/([^/]+)\/analytics$/))) return <Analytics key={m[1]} id={m[1]} />;
   if ((m = path.match(/^\/console\/p\/([^/]+)\/team$/))) return <TeamProject key={m[1]} id={m[1]} inConsole />;
   if (path === '/claim-admin') return <ClaimAdmin />;
@@ -361,7 +362,7 @@ function App() {
   return (
     <AppCtx.Provider value={{ ...state, refresh, toast }}>
       {!bare && <><Nav user={state.user} brand={brand} onLogout={logout} />
-      <StoreBarSlot /></>}
+      <StoreBarSlot user={state.user} /></>}
       <main><RouteFrame><Routes user={state.user} /></RouteFrame></main>
       {!bare && <footer className="foot ink"><div className="wrap">
         <div className="foot-top">

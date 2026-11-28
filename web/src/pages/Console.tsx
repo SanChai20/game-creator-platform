@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ago, api, artStyle, date, Fail, Link, num, price, Stars, t, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Button, Card, Code, ListPager, ListRow, Notice, PageHeader, Segmented, Stat, StatGrid, StatusBadge, Tabs } from '../ui';
+import { Badge, Button, Card, Code, ListPager, ListRow, Notice, PageHeader, Segmented, Stat, StatGrid, StatusBadge } from '../ui';
 import { ConsoleSkeleton } from '../skeletons';
 import { Skeleton, SkRows } from '../ui/skeleton';
 import { ConnectChoice, starterPrompt } from './Creators';
@@ -15,9 +15,6 @@ interface AgentGrant {
   project_scope?: 'all' | 'selected'; projects?: AgentProject[] | null;
 }
 
-export function ConsoleTabs({ on }: { on: 'games' | 'workbench' | 'earnings' }) {
-  return <Tabs active={on} items={[{ key: 'games', to: '/console', label: t('Games', '游戏') }, { key: 'workbench', to: '/console/workbench', label: t('Workbench', '工作台') }, { key: 'earnings', to: '/console/earnings', label: t('Earnings', '收益') }]} />;
-}
 
 export function Console() {
   const { user: me } = useApp(), { busy, act } = useAct();
@@ -50,7 +47,6 @@ export function Console() {
     <div className="wrap page">
       <PageHeader eyebrow={t('Console', '控制台')} title={<>{t('Hello', '你好')}, {u.name}</>}
         actions={<LicensePass license={u.license} name={u.name} />} />
-      <ConsoleTabs on="games" />
 
       <div className="stack l">
         {u.creator && !me?.two_factor && (

@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ago, api, bytes, date, dateTime, Fail, Link, num, playTime, series, t, tr, usd, useAct, useApp, useData, count } from '../lib';
-import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, ListPager, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, RowMenu, Table, Tabs, useClientPage } from '../ui';
+import { Badge, Bars, Button, Card, ChartBlock, CheckRow, Input, ListPager, PageHeader, SearchInput, Stat, StatGrid, StatusBadge, Switch, RowMenu, Table, useClientPage } from '../ui';
 import { AdminSkeleton } from '../skeletons';
+import { adminTabs } from '../areas';
 
 const MB = 1024 * 1024;
 
-const tabs = (): [string, string][] => [['overview', t('Overview', '概览')], ['settings', t('Settings', '参数设置')], ['users', t('Users', '用户')], ['games', t('Games', '游戏')], ['money', t('Money', '资金')], ['reports', t('Reports', '举报')]];
+// the admin pages are listed in the Admin area's bar under the header (src/areas.tsx)
+const tabs = adminTabs;
 
 export function Admin({ tab }: { tab: string }) {
   return (
     <div className="wrap page">
       <PageHeader eyebrow={t('Admin', '管理后台')} title={tabs().find(([k]) => k === tab)?.[1] || t('Admin', '管理后台')} />
-      <Tabs active={tab} items={tabs().map(([k, label]) => ({ key: k, to: k === 'overview' ? '/admin' : `/admin/${k}`, label }))} />
       {tab === 'overview' ? <Overview /> : tab === 'settings' ? <Settings /> : tab === 'users' ? <Users /> : tab === 'games' ? <Games /> : tab === 'money' ? <Money /> : tab === 'reports' ? <Reports /> : null}
     </div>
   );

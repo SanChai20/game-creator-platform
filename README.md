@@ -155,6 +155,17 @@ Players add friends by name or by friend code (`XXXX-XXXX`); a request becomes a
 - Parties and voice: friends group up (at most 8, one party at a time) from the friends panel; any member invites their own friends from a friend's menu. When the leader starts a game, the others get a Play button for it. Voice chat is audio only and peer to peer between members (WebRTC): the platform passes the connection messages over the friends connection (`/api/social/party/signal`, only between members of the same party) and never carries the audio. A bar in the corner mutes or hangs up on any page and over fullscreen games. STUN is Cloudflare's public server; set the `TURN_KEY_ID` and `TURN_KEY_TOKEN` secrets (a Cloudflare Realtime TURN key) to relay players behind strict networks. Rules in `src/parties.js` (migration `0068_parties.sql`, tests in `tests/parties.mjs`); admin settings `parties_enabled` and `party_voice_enabled`.
 - Limits (admin settings, group "Friends and chat"): friends per account, requests per day, messages per minute, invites per 10 minutes, days chat is kept. Guests and the verifier have no friends.
 
+## Play, Create and Admin areas
+
+The site has three areas, kept apart so each kind of user knows where they are (`web/src/areas.tsx`). **Play** is the
+player's side: the store, library, tournaments and account. **Create** is for developers: the console, workbench,
+earnings, team projects, the Creator Store, docs and the creator license. **Admin** runs the platform. The header's
+row lists the player's places, and the area switch beside it (Play, Create, and Admin for admins) leads to the others.
+Each area has its own colour on `<html data-area>` (accent, `--info`, `--warn`), shown on the header's top edge, the
+switch, the bar of the area's pages under the header in Create and Admin, and the phone tab bar. The account menu is
+grouped the same way. In the console, a game's pages are Overview, Analytics, Sales and pricing
+(`/console/p/:id/selling`), Players and community (`/console/p/:id/community`) and Team.
+
 ## Big-screen mode
 
 `/tv` is the store laid out for a TV or a desktop across the room (`web/src/bigscreen.tsx`): rows of large covers

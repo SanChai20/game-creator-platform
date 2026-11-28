@@ -9,8 +9,10 @@ const LENGTH: Record<string, () => string> = { 'under 30 s': () => t('under 30 s
 const mins = (m: number) => (m >= 120 ? `${num(m / 60)} ${t('h', '小时')}` : `${num(m)} ${t('min', '分钟')}`);
 const pct = (v: number) => `${v}%`;
 
-export const projectTabs = (id: string, on: 'overview' | 'analytics' | 'team') => (
-  <Tabs active={on} items={[{ key: 'overview', to: `/console/p/${id}`, label: t('Overview', '概览') }, { key: 'analytics', to: `/console/p/${id}/analytics`, label: t('Analytics', '数据分析') }, { key: 'team', to: `/console/p/${id}/team`, label: t('Team', '团队') }]} />
+/** A game's pages in the console: its overview (versions, errors, the store listing), analytics, how it is sold, its
+    players and community, and its team. */
+export const projectTabs = (id: string, on: 'overview' | 'analytics' | 'selling' | 'community' | 'team') => (
+  <Tabs active={on} items={[{ key: 'overview', to: `/console/p/${id}`, label: t('Overview', '概览') }, { key: 'analytics', to: `/console/p/${id}/analytics`, label: t('Analytics', '数据分析') }, { key: 'selling', to: `/console/p/${id}/selling`, label: t('Sales and pricing', '销售与定价') }, { key: 'community', to: `/console/p/${id}/community`, label: t('Players and community', '玩家与社区') }, { key: 'team', to: `/console/p/${id}/team`, label: t('Team', '团队') }]} />
 );
 
 /** Players online now, refreshed every 15 seconds. */
