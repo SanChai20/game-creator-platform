@@ -53,6 +53,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
   { id: 'testing', title: 'Testing and feedback', tools: [
     ['debug_preview', 'drive the preview in a real browser: screenshots (PNG, zoom), clicks, taps, keys, typing, waits, eval; returns the game\'s state and errors; desktop, phone, tablet, iPhone and iPad viewports'],
     ['creator_feedback', 'the creator\'s annotated screenshots and notes from playing the preview; read every session'],
+    ['community', 'read reviews and the game\'s discussion board, and answer players as the creator'],
     ['bundles', 'group your paid games so owning one lowers the price of the rest'],
     ['coupons', 'discount codes and single-use free keys for a paid game, for streamers, press and giveaways'],
     ['playtest', 'invite real players to the preview by link, ask them questions, read how each played and what they said'],

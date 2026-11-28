@@ -46,6 +46,7 @@ export const TOOL_ROLES: Record<string, Role> = {
   playtest: 'maintain', // opens the preview to outside players
   coupons: 'admin', // discounts and free copies of a paid game
   bundles: 'admin', // sets prices across the owner's games
+  community: 'admin', // speaks for the game in public, under the owner's name
   devlog: 'admin', // posts news to the game's players, like a release
 };
 

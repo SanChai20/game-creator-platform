@@ -58,6 +58,7 @@ import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
 import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
+import { CommunityError, editPost, moderatePost, removePost, removeReviewReply, reply as boardReply, replyToReview, reportPost, setBoard, startThread, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
 import { CollectionError, addGame as addToList, browse as browseLists, createCollection, deleteCollection, follow as followList, listsFor, removeGame as removeFromList, reorder as reorderList, staffPicks, updateCollection, view as listView } from '../collections.js';
 import { BundleError, LIMITS as BUNDLE_LIMITS, bundleable, bundleDiscount, bundlesOf, bundleView, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
 import { CouponError, LIMITS as COUPON_LIMITS, batchKeys, checkDiscount, countDiscountUse, createDiscount, createKeys, disable as disableCoupon, discounted, listCoupons, redeemKey } from '../coupons.js';
@@ -672,9 +673,10 @@ async function liveGame(c: Ctx, slug: string): Promise<Project & { author: strin
 }
 
 /** Reviews as the game page shows them: a reviewer whose profile is public gets a link to it (src/profiles.js). */
-async function withProfiles(db: D1Database, rows: Record<string, any>[], me?: string) {
+// reply: the creator's public reply (src/community.js); rid: the reviewer's id, only for the creator, who replies by it.
+async function withProfiles(db: D1Database, rows: Record<string, any>[], me?: string, mod = false) {
   const open = await publicIds(db, rows.map((r) => r.user_id)) as Set<string>;
-  return rows.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!me && r.user_id === me, profile: open.has(r.user_id) || r.user_id === me ? r.user_id : null }));
+  return rows.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, name: r.name, mine: !!me && r.user_id === me, profile: open.has(r.user_id) || r.user_id === me ? r.user_id : null, reply: r.reply ?? null, ...(mod ? { rid: r.user_id } : {}) }));
 }
 
 /** A game whose page anyone may open: live, or announced on a coming soon page (src/wishlist.js). */
@@ -721,7 +723,9 @@ api.get('/games/:slug', async (c) => {
   ]);
   return c.json({
     game: { ...card(origin, { ...p, playing: on?.n || 0 }), description: p.description, controls: p.controls, listing_i18n: listingLangs(p, ['title', 'tagline', 'description', 'controls'], (k) => media(origin, k)).i18n || {}, version: p.live_version, updated_at: v?.published_at || p.updated_at, screenshot: media(origin, v?.screenshot_key || null), owner_id: p.owner_id },
-    reviews: await withProfiles(c.env.DB, reviews.results, u?.id),
+    reviews: await withProfiles(c.env.DB, await withReplies(c.env.DB, p.id, reviews.results), u?.id, !!u && (u.id === p.owner_id || u.role === 'admin')),
+    // the game's discussion board (src/community.js): off when the creator switched it off
+    board_off: !!(p as any).board_off,
     reviews_total: revTot?.n || 0,
     rating_dist: [1, 2, 3, 4, 5].map((n) => dist.results.find((d) => d.rating === n)?.n || 0),
     my_review: mine, played, owned, is_owner: !!u && u.id === p.owner_id,
@@ -764,7 +768,7 @@ api.get('/games/:slug/reviews', async (c) => {
     c.env.DB.prepare('SELECT COUNT(*) AS n FROM reviews r JOIN users u ON u.id = r.user_id WHERE r.project_id = ? AND r.hidden = 0').bind(p.id).first<{ n: number }>(),
   ]);
   return c.json({
-    reviews: await withProfiles(c.env.DB, rows.results, u?.id),
+    reviews: await withProfiles(c.env.DB, await withReplies(c.env.DB, p.id, rows.results), u?.id, !!u && (u.id === p.owner_id || u.role === 'admin')),
     ...pageMeta(tot?.n || 0, pg.page, pg.per_page),
   });
 });
@@ -995,6 +999,56 @@ api.put('/jams/:slug/votes/:pid', async (c) => {
   await rateLimit(c.env, 'jamvote:' + u.id, 300, 3600);
   const b = await c.req.json<{ scores?: Record<string, number> }>().catch(() => ({} as { scores?: Record<string, number> }));
   return c.json(await vote(c.env.DB, j, u.id, c.req.param('pid'), b.scores).catch(jamErr));
+});
+
+// Creator replies to reviews and each game's community board (src/community.js).
+const communityErr = (e: unknown): never => { if (e instanceof CommunityError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const viewerOf = (c: Ctx) => { const u = c.get('user'); return u && !isGuestId(u.id) ? { id: u.id, role: u.role } : null; };
+const boardGame = async (c: Ctx) => {
+  const p = await c.env.DB.prepare('SELECT * FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<any>(), v = viewerOf(c);
+  if (!p || p.status === 'removed' || (p.status !== 'live' && !(v && (v.id === p.owner_id || v.role === 'admin')))) throw notFound('No such game.');
+  return { p, v };
+};
+api.put('/games/:slug/reviews/:uid/reply', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ body?: string }>().catch(() => ({} as { body?: string }));
+  return c.json(await replyToReview(c.env.DB, p, v, c.req.param('uid'), b.body).catch(communityErr));
+});
+api.delete('/games/:slug/reviews/:uid/reply', async (c) => { requireUser(c); const { p, v } = await boardGame(c); return c.json(await removeReviewReply(c.env.DB, p, v, c.req.param('uid')).catch(communityErr)); });
+api.get('/games/:slug/board', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const { p, v } = await boardGame(c), pg = parsePage((k) => c.req.query(k), 20, 50);
+  return c.json(await boardThreads(c.env.DB, p, v, { offset: pg.offset, limit: pg.limit }));
+});
+api.post('/games/:slug/board', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await startThread(c.env.DB, p, v, b).catch(communityErr));
+});
+api.put('/games/:slug/board', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ on?: boolean }>().catch(() => ({} as { on?: boolean }));
+  return c.json(await setBoard(c.env.DB, p, v, b.on !== false).catch(communityErr));
+});
+api.get('/games/:slug/board/:id', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  const { p, v } = await boardGame(c);
+  return c.json(await boardThread(c.env.DB, p, v, c.req.param('id')).catch(communityErr));
+});
+api.post('/games/:slug/board/:id', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await boardReply(c.env.DB, p, v, c.req.param('id'), b).catch(communityErr));
+});
+api.patch('/games/:slug/board/posts/:id', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await editPost(c.env.DB, p, v, c.req.param('id'), b).catch(communityErr));
+});
+api.delete('/games/:slug/board/posts/:id', async (c) => { requireUser(c); const { p, v } = await boardGame(c); return c.json(await removePost(c.env.DB, p, v, c.req.param('id')).catch(communityErr)); });
+api.put('/games/:slug/board/posts/:id/moderate', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  return c.json(await moderatePost(c.env.DB, p, v, c.req.param('id'), b).catch(communityErr));
+});
+api.post('/games/:slug/board/posts/:id/report', async (c) => {
+  requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
+  await rateLimit(c.env, 'boardreport:' + v!.id, 30, 3600);
+  return c.json(await reportPost(c.env.DB, p, v, c.req.param('id'), String(b.reason || '')).catch(communityErr));
 });
 
 // Curated collections (src/collections.js): lists of games that players and staff put together, followed and shared.
