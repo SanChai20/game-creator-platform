@@ -18,6 +18,7 @@ import { CouponsCard } from '../coupon-ui';
 import { TournamentsCard } from '../tournament-ui';
 import { BundlesCard } from '../bundle-ui';
 import { PublishElsewhereCard } from '../export-ui';
+import { CoverUpload } from '../cover-ui';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
 const metaField = (f: string) => ({ genre: t('Genre', '类型'), tags: t('Tags from the platform list', '平台标签'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
@@ -352,6 +353,7 @@ export function Project({ id, section = 'overview' }: { id: string; section?: 'o
             {s.feedback_enabled !== false && <FeedbackQueue projectId={id} stamp={fbStamp} />}
             {data.store && <StoreStanding st={data.store} live={data.project.status === 'live'} />}
             {data.metadata && <StoreMetadata m={data.metadata} />}
+            {p.status !== 'removed' && <Card title={t('Cover', '封面')} pad><CoverUpload id={id} onChange={() => void reload()} /></Card>}
             <Card title={t('Details', '详情')} pad>
               <KeyValue items={[
                 [t('Address', '地址'), `/g/${p.slug}`, 'mono'],

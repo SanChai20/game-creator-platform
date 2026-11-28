@@ -3478,5 +3478,18 @@
   "Sales and pricing": "銷售與定價",
   "Players and community": "玩家與社群",
   "What the game costs and how it is sold: price, sales, discount codes, bundles, the free trial, its build skill in the Creator Store, and other storefronts.": "遊戲的價格和銷售方式：價格、特價、折扣碼、組合包、免費試玩、在創作者商店出售的製作技能，以及其他平台。",
-  "Reaching and gathering players: tournaments, news posts, the coming soon page and playtests.": "吸引和聚集玩家：錦標賽、新聞動態、即將推出頁面和試玩測試。"
+  "Reaching and gathering players: tournaments, news posts, the coming soon page and playtests.": "吸引和聚集玩家：錦標賽、新聞動態、即將推出頁面和試玩測試。",
+  "The cover must be under 2 MB.": "封面必須小於 2 MB。",
+  "The upload failed. Try again.": "上傳失敗，請重試。",
+  "Cover uploaded.": "封面已上傳。",
+  "Current cover": "目前封面",
+  "No cover yet": "還沒有封面",
+  "A png, jpg or webp under 2 MB, 16:9, ideally {w}×{h}. Keep the title and the main subject near the middle.": "png、jpg 或 webp 格式，小於 2 MB，16:9，最好是 {w}×{h}。標題和主體盡量放在中間。",
+  "Uploading…": "正在上傳…",
+  "Change cover": "更換封面",
+  "Upload a cover": "上傳封面",
+  "Cover": "封面",
+  "Upload a cover: it is the picture of the coming soon page and of its store card. You can upload it right here.": "上傳封面：它是即將推出頁面和商店卡片上的圖片。可以直接在下面上傳。",
+  "Give the game a title.": "給遊戲取個標題。",
+  "Write a tagline: one line that says what the game is.": "寫一句簡介：用一句話說明這是什麼遊戲。"
 }

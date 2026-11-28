@@ -266,3 +266,10 @@
 /* Publish elsewhere (export-ui.tsx) */
 .ytx-list { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
 .ytx-list li { list-style: disc; }
+
+/* The cover upload in the console (cover-ui.tsx) */
+.cover-up { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.cover-up.compact { grid-template-columns: minmax(0, 140px) minmax(0, 1fr); }
+.cover-up-art { aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; background: var(--sunk); display: grid; place-items: center; color: var(--text-3); font-size: 13px; text-align: center; padding: 0; }
+.cover-up-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+@media (max-width: 520px) { .cover-up, .cover-up.compact { grid-template-columns: 1fr; } }

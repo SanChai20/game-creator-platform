@@ -3457,5 +3457,18 @@
   "Sales and pricing": "販売と価格",
   "Players and community": "プレイヤーとコミュニティ",
   "What the game costs and how it is sold: price, sales, discount codes, bundles, the free trial, its build skill in the Creator Store, and other storefronts.": "ゲームの価格と販売方法：価格、セール、割引コード、バンドル、無料体験、クリエイターストアの制作スキル、他のストア。",
-  "Reaching and gathering players: tournaments, news posts, the coming soon page and playtests.": "プレイヤーを集める：トーナメント、ニュース投稿、近日公開ページ、プレイテスト。"
+  "Reaching and gathering players: tournaments, news posts, the coming soon page and playtests.": "プレイヤーを集める：トーナメント、ニュース投稿、近日公開ページ、プレイテスト。",
+  "The cover must be under 2 MB.": "カバーは 2 MB 未満にしてください。",
+  "The upload failed. Try again.": "アップロードに失敗しました。もう一度お試しください。",
+  "Cover uploaded.": "カバーをアップロードしました。",
+  "Current cover": "現在のカバー",
+  "No cover yet": "カバーはまだありません",
+  "A png, jpg or webp under 2 MB, 16:9, ideally {w}×{h}. Keep the title and the main subject near the middle.": "png・jpg・webp で 2 MB 未満、16:9、できれば {w}×{h}。タイトルと主役は中央寄りに。",
+  "Uploading…": "アップロード中…",
+  "Change cover": "カバーを変更",
+  "Upload a cover": "カバーをアップロード",
+  "Cover": "カバー",
+  "Upload a cover: it is the picture of the coming soon page and of its store card. You can upload it right here.": "カバーをアップロードしてください。近日公開ページとストアカードの画像になります。すぐ下からアップロードできます。",
+  "Give the game a title.": "ゲームにタイトルを付けてください。",
+  "Write a tagline: one line that says what the game is.": "キャッチコピーを書いてください。どんなゲームかを一行で。"
 }
