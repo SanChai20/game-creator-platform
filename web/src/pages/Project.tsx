@@ -15,6 +15,7 @@ import { DevlogCard } from '../devlog-ui';
 import { ComingSoonCard } from '../wishlist-ui';
 import { PlaytestCard } from '../playtest-ui';
 import { CouponsCard } from '../coupon-ui';
+import { TournamentsCard } from '../tournament-ui';
 import { BundlesCard } from '../bundle-ui';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
@@ -323,6 +324,7 @@ export function Project({ id }: { id: string }) {
             {s.paid_games_enabled && p.status !== 'removed' && <CouponsCard id={id} paid={p.price_cents > 0} />}
             {s.paid_games_enabled && p.status !== 'removed' && <BundlesCard id={p.id} paid={p.price_cents > 0} />}
             {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
+            {p.status === 'live' && <TournamentsCard id={p.id} />}
             <BuildSkill id={id} p={p} skill={data.skill} reload={reload} />
             {p.status !== 'removed' && <ComingSoonCard id={id} onChange={reload} />}
             {p.status !== 'removed' && <PlaytestCard id={id} />}

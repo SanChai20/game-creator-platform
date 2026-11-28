@@ -96,6 +96,8 @@ function noteView(n: Note): { text: string; to: string } | null {
     // the creator answered the player's review; someone replied in the player's thread (src/community.js)
     case 'review_reply': return g ? { text: t('{name} replied to your review of {game}', '{name} 回复了你对 {game} 的评价', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}#reviews` } : null;
     case 'board_reply': return g ? { text: t('{name} replied to your thread on {game}', '{name} 回复了你在 {game} 的帖子', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}?thread=${encodeURIComponent(String(n.data?.thread || ''))}#community` } : null;
+    // a bracket round with the player in it started (src/tournaments.js)
+    case 'tournament_match': return n.data?.tournament ? { text: t('Your round {round} match in {title} is ready', '{title} 第 {round} 轮比赛已就绪', { round: Number(n.data.round) || 1, title: String(n.data.title || '') }), to: `/tournaments/${encodeURIComponent(String(n.data.tournament))}` } : null;
     // gifts between friends (src/gifts.ts)
     case 'gift_request': return g ? { text: t('{name} would like {game} as a gift', '{name} 想请你赠送 {game}', { name: n.actor.name, game: g.title }), to: '/gifts' } : null;
     case 'gift_declined': return g ? { text: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;

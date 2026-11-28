@@ -405,6 +405,16 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: null,
     },
     {
+      id: 'tournaments', name: 'Tournaments', category: 'multiplayer', status: on(s.allow_matches),
+      what: 'Timed cups and single-elimination brackets on a game\'s server-run matches, on /tournaments and the game page.',
+      how_it_works: 'tournaments {action: "create"} schedules one on a live game with server/match.js. Players sign up on its page. A cup scores every rated match in its queue between its start and end: 1 point a match, 3 more a win. A bracket seeds signed-up players by rating in its queue when it starts and gives each round a set time; during a round a player\'s GCP.match.find({ queue }) meets only their bracket opponent, so the game needs no change. The match\'s ranking (ctx.end) decides it; when time runs out, the one who searched goes through, else the better seed. Players are told under the bell when their match is ready.',
+      use_for: ['A launch weekend cup', 'A monthly bracket for the best players', 'Community events with a prize the creator gives'],
+      sdk: [], mcp_tools: ['tournaments'],
+      limits: { open_per_game: 5, bracket_players: 128, round_minutes: '15 to 1440', cup_length: '1 hour to 30 days' },
+      guidelines: ['End every match with ctx.end({ ranking }) so results count; a draw decides nothing in a bracket.', 'Run a bracket on a 2-player queue.', 'Ask the user before scheduling one: players see it at once.', 'The prize is text only: the platform pays nothing out.'],
+      guide: null,
+    },
+    {
       id: 'jams', name: 'Game jams and festivals', category: 'business', status: 'available',
       what: 'Timed events on the /jams page: themed jams with voting, and festivals that show games together for a few days.',
       how_it_works: 'Licensed creators and the platform host events on the /jams page. A jam keeps its theme hidden until it starts, takes entries (live games, made for the jam when it says so) until its entries close, then players who played an entry score it from 1 to 5 on the host\'s criteria; entries with enough voters are ranked when voting closes, and entrants are told under the bell when voting opens and when the results are out. A festival shows live and coming soon games together, with no voting. The platform\'s own event gets a shelf on the store\'s home page. jam {action: "enter"} enters a game.',

@@ -21,6 +21,7 @@ import { applySale, saleView } from '../sales';
 import { JamError, bySlug as jamBySlug, eligibleGames as jamEligible, entriesOf as jamEntries, listJams, publicView as jamView, submit as jamSubmit, withdraw as jamWithdraw } from '../jams.js';
 import { CommunityError, moderatePost, reply as boardReply, replyToReview, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
 import { BundleError, createBundle, myBundles, removeBundle, updateBundle } from '../bundles.js';
+import { cancel as cancelTournament, create as createTournament, list as listTournaments, TournamentError, view as viewTournament } from '../tournaments.js';
 import { CouponError, batchKeys, createDiscount, createKeys, disable as disableCoupon, listCoupons } from '../coupons.js';
 import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
 import { WishError, announceIssues, isComingSoon, setComingSoon, wishCount } from '../wishlist.js';
@@ -1783,6 +1784,41 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (a.action === 'batch') return { keys: await batchKeys(c.env.DB, p.id, String(a.batch || '')) };
       if (a.action === 'off') return guard(() => disableCoupon(c.env.DB, p.id, { id: a.id, batch: a.batch }));
       throw bad('action must be list, discount, keys, batch or off.');
+    },
+  },
+  {
+    name: 'tournaments', title: 'Run tournaments on a game\'s matches',
+    description: 'Timed cups and single-elimination brackets on a live game\'s server-run matches (server/match.js), shown on /tournaments and the game page. A cup scores every rated match in its queue between starts_at and ends_at for players who signed up: 1 point a match, 3 more a win. A bracket closes sign-up at starts_at, seeds players by rating in its queue and gives each round round_minutes: during a round a player\'s GCP.match.find({ queue }) meets only their bracket opponent (2 players), with no change to the game; the match\'s ranking decides it, and when time runs out the one who searched goes through, else the better seed. Actions: list, get (id), create (title, kind cup|bracket, queue, starts_at and ends_at as ms timestamps or ISO dates, round_minutes for a bracket, max_players, description, prize) and cancel (id). The owner only. Ask the user before scheduling one: players see it.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'get', 'create', 'cancel'] },
+      id: { type: 'string', description: 'get and cancel: the tournament id or slug.' },
+      title: { type: 'string', description: 'create: 3 to 80 characters.' },
+      kind: { type: 'string', enum: ['cup', 'bracket'] },
+      queue: { type: 'string', description: 'create: the GCP.match.find queue it runs on. A bracket\'s queue should be a 2-player queue.' },
+      starts_at: { type: ['integer', 'string'], description: 'create: when it starts (5 minutes to 60 days ahead), ms or ISO date.' },
+      ends_at: { type: ['integer', 'string'], description: 'create, cup: when scoring closes (1 hour to 30 days after the start).' },
+      round_minutes: { type: 'integer', description: 'create, bracket: minutes to play each round, 15 to 1440. Default 60.' },
+      max_players: { type: 'integer', description: 'create: up to 128 for a bracket, 10000 for a cup.' },
+      description: { type: 'string' }, prize: { type: 'string', description: 'create: what the winner gets, in words (the platform pays nothing out).' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      assertCan(roleIn(c, p), 'pricing', 'running tournaments');
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof TournamentError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      const when = (v: unknown) => (typeof v === 'string' && !/^\d+$/.test(v) ? Date.parse(v) : Number(v));
+      if (a.action === 'list') return { tournaments: await listTournaments(c.env.DB, { game: p.id, all: true }), page: `${c.origin}/tournaments` };
+      if (a.action === 'get') { const x = await viewTournament(c.env.DB, String(a.id || '')); if (!x || x.game?.id !== p.id) throw new AppError(404, 'No such tournament for this game.', 'not_found'); return x; }
+      if (a.action === 'cancel') { const x = await viewTournament(c.env.DB, String(a.id || '')); if (!x || x.game?.id !== p.id) throw new AppError(404, 'No such tournament for this game.', 'not_found'); return guard(() => cancelTournament(c.env.DB, { id: c.user.id, admin: c.user.role === 'admin' }, x.id)); }
+      if (a.action === 'create') {
+        const lv = p.live_version ? await getVersion(c.env, p.id, p.live_version) : null;
+        let matches = false; try { matches = !!JSON.parse(lv?.manifest || '{}').hasMatch; } catch { /* old manifest */ }
+        if (!matches) throw new AppError(409, 'Tournaments run on server-run matches: the live version needs server/match.js.', 'no_match_code');
+        const r = await guard(() => createTournament(c.env.DB, { id: c.user.id, admin: c.user.role === 'admin' }, p, { ...a, starts_at: when(a.starts_at), ends_at: a.ends_at == null ? null : when(a.ends_at) }));
+        await logEvent(c.env, p.id, 'tournament', `Tournament scheduled: ${String(a.title || '').slice(0, 80)}`, null, c.client);
+        return { ok: true, ...r, page: `${c.origin}/tournaments/${r.slug}` };
+      }
+      throw bad('action must be list, get, create or cancel.');
     },
   },
   {
