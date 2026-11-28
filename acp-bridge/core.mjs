@@ -23,6 +23,7 @@
 // Every message from a view carries `from` (its connection id, set by the relay, never by the page).
 import { spawn as nodeSpawn } from 'node:child_process';
 
+export const INIT_TIMEOUT = 30 * 60_000;
 export const PROTOCOL_VERSION = 1;
 /** What a page may ask the agent to do. Everything else (fs, terminals, raw initialize) is refused. */
 export const VIEW_METHODS = new Set(['session/new', 'session/load', 'session/resume', 'session/prompt', 'session/set_mode', 'session/set_config_option', 'session/set_model', 'session/list', 'session/close', 'authenticate', 'logout']);
@@ -40,6 +41,7 @@ export class BridgeCore {
     this.send = o.send;                   // (msg) => void, to the relay
     this.log = o.log || (() => {});
     this.spawn = o.spawn || nodeSpawn;
+    this.platform = o.platform || process.platform;
     this.clientInfo = o.clientInfo || { name: 'hearthcade-workbench', title: 'HearthCade Workbench', version: '1.0.0' };
     this.status = 'idle'; this.statusDetail = '';
     this.init = null;                     // the agent's initialize result
@@ -54,13 +56,16 @@ export class BridgeCore {
 
   // ----- the agent process -------------------------------------------------------------------------
   async start() {
+    this.startedAt = Date.now();
     this.setStatus('starting', `${this.agent.command} ${(this.agent.args || []).join(' ')}`.trim());
     let proc;
     try {
-      proc = this.spawn(this.agent.command, this.agent.args || [], {
-        cwd: this.cwd, env: { ...process.env, ...(this.agent.env || {}) }, stdio: ['pipe', 'pipe', 'pipe'],
-        shell: process.platform === 'win32', windowsHide: true,
-      });
+      const env = { ...process.env, ...(this.agent.env || {}) };
+      // Windows runs npx, uvx and most agents as .cmd scripts, which only start through the shell (cmd.exe). Node
+      // joins arguments for the shell without quoting them, so the command line is built here, quoted for cmd.
+      proc = this.platform === 'win32'
+        ? this.spawn(winCommandLine(this.agent.command, this.agent.args || []), [], { cwd: this.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], shell: true, windowsHide: true })
+        : this.spawn(this.agent.command, this.agent.args || [], { cwd: this.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     } catch (e) { this.failAll(e); this.setStatus('failed', String(e?.message || e)); return; }
     this.proc = proc; this.buf = '';
     const gen = proc;
@@ -88,7 +93,9 @@ export class BridgeCore {
         // file system or terminals: the agent's file edits and commands stay on the machine, under its own permissions.
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         clientInfo: this.clientInfo,
-      }, 120_000);
+        // No short limit: the first run of an npx or uvx agent downloads it before it can answer, and some are large
+        // (Codex brings a ~550 MB binary on Windows). While the process lives, it is still starting.
+      }, INIT_TIMEOUT);
       if (r?.protocolVersion !== PROTOCOL_VERSION) {
         this.setStatus('failed', `The agent speaks ACP version ${r?.protocolVersion}; the workbench speaks version ${PROTOCOL_VERSION}.`);
         this.kill(); return;
@@ -100,7 +107,13 @@ export class BridgeCore {
     }
   }
 
-  kill() { const p = this.proc; this.proc = null; try { p?.kill(); } catch { /* gone */ } }
+  kill() {
+    const p = this.proc; this.proc = null;
+    if (!p) return;
+    // on Windows the process is cmd.exe; the agent under it (and what the agent started) only stops with its tree
+    if (this.platform === 'win32' && p.pid) { try { this.spawn('taskkill', ['/pid', String(p.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on?.('error', () => {}); } catch { /* gone */ } }
+    try { p.kill(); } catch { /* gone */ }
+  }
   stop() { this.closed = true; this.kill(); }
   async restart() {
     if (this.proc) return;
@@ -232,7 +245,7 @@ export class BridgeCore {
   // ----- the views -------------------------------------------------------------------------------
   state() {
     return {
-      type: 'state', status: this.status, detail: this.statusDetail,
+      type: 'state', status: this.status, detail: this.statusDetail, since: this.startedAt || null,
       agent: { id: this.agent.id, name: this.agent.name, command: [this.agent.command, ...(this.agent.args || [])].join(' ') },
       cwd: this.cwd, init: this.init, stderr: this.stderr.slice(-40), mcp: !!this.mcp,
       sessions: [...this.sessions.values()].map((s) => this.summary(s)),
@@ -242,7 +255,7 @@ export class BridgeCore {
 
   setStatus(status, detail) {
     this.status = status; this.statusDetail = detail || '';
-    this.send({ type: 'status', status, detail: this.statusDetail, init: this.init, stderr: status === 'failed' || status === 'exited' ? this.stderr.slice(-40) : undefined });
+    this.send({ type: 'status', status, detail: this.statusDetail, since: this.startedAt || null, init: this.init, stderr: status === 'failed' || status === 'exited' ? this.stderr.slice(-40) : undefined });
   }
 
   sendTranscript(to, sessionId) {
@@ -376,6 +389,16 @@ export class BridgeCore {
 }
 
 /** Splits a command line the way a shell would for simple cases: spaces, and single or double quotes. */
+/** One command line for cmd.exe: arguments with spaces or cmd's special characters are quoted. */
+export function winCommandLine(command, args) {
+  const q = (a) => {
+    a = String(a);
+    if (a && !/[\s"&|<>^!()]/.test(a)) return a;
+    return '"' + a.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1') + '"';
+  };
+  return [q(command), ...args.map(q)].join(' ');
+}
+
 export function splitCommand(s) {
   const out = []; let cur = '', q = null, any = false;
   for (const ch of String(s)) {

@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BridgeCore, VIEW_METHODS, launchOf, splitCommand } from '../acp-bridge/core.mjs';
+import { spawn } from 'node:child_process';
+import { BridgeCore, VIEW_METHODS, launchOf, splitCommand, winCommandLine } from '../acp-bridge/core.mjs';
 
 const MOCK = fileURLToPath(new URL('./acp-mock-agent.mjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -204,6 +205,27 @@ test('an agent that is not installed fails clearly', async () => {
   await sleep(100);
   assert.equal(core.status, 'failed');
   assert.match(core.statusDetail, /not found|ENOENT|did not start/i);
+});
+
+test('Windows: one quoted command line through the shell, a slow first start, and the whole tree stopped', async () => {
+  assert.equal(winCommandLine('npx', ['-y', '@agentclientprotocol/codex-acp']), 'npx -y @agentclientprotocol/codex-acp');
+  assert.equal(winCommandLine('C:\\Program Files\\nodejs\\node.exe', ['a b', 'x"y', 'a&b', '']), '"C:\\Program Files\\nodejs\\node.exe" "a b" "x\\"y" "a&b" ""');
+  // the Windows branch, run here through /bin/sh: the agent sits in a folder with a space and answers initialize late
+  const calls = [];
+  const spy = (cmd, args, opts) => { calls.push({ cmd, args, opts }); return spawn(cmd, args, opts); };
+  const dir = mkdtempSync(join(tmpdir(), 'acp win '));
+  const { core, until } = harness({ MOCK_INIT_DELAY: '1500' }, { platform: 'win32', spawn: spy, cwd: dir });
+  const t0 = Date.now();
+  await core.start();
+  assert.equal(core.status, 'ready');
+  assert.ok(Date.now() - t0 >= 1400, 'it waited for the late answer');
+  assert.equal(calls[0].opts.shell, true);
+  assert.deepEqual(calls[0].args, []);
+  assert.match(calls[0].cmd, /acp-mock-agent\.mjs/);
+  await until((m) => m.type === 'status' && m.status === 'starting' && typeof m.since === 'number');
+  core.stop();
+  await sleep(50);
+  assert.ok(calls.some((c) => c.cmd === 'taskkill' && c.args.includes('/T')), 'stops the process tree');
 });
 
 test('stress: 8 sessions in parallel, a 2 MB answer, 500 quick prompts in a row', async () => {

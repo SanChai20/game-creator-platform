@@ -347,7 +347,7 @@ const EMPTY: any[] = [];
 function AgentState({ b }: { b: BridgeState }) {
   const a = agentById(b.info.agentId);
   if (b.status === 'ready') return null;
-  if (b.status === 'starting' || b.status === 'connecting' || !b.ready) return <div className="wb-working" role="status"><span className="wb-dot pulse" />{t('Starting {name}…', '正在启动 {name}…', { name: agentTitle(b) })} {b.detail && <span className="mono dim fs-sm">{b.detail}</span>}</div>;
+  if (b.status === 'starting' || b.status === 'connecting' || !b.ready) return <Starting b={b} />;
   return (
     <Notice tone="bad" title={b.status === 'exited' ? t('{name} stopped', '{name} 已停止', { name: agentTitle(b) }) : t('{name} could not start', '{name} 无法启动', { name: agentTitle(b) })}
       actions={<Button size="sm" onClick={() => restart(b.info.id)}>{t('Start again', '重新启动')}</Button>}>
@@ -413,6 +413,23 @@ function SessionControls({ b, s }: { b: BridgeState; s: SessionInfo }) {
 
 // ----- transcript items -------------------------------------------------------------------------------------------
 const KIND_GLYPH: Record<string, string> = { read: '◱', edit: '✎', delete: '⌫', move: '⇄', search: '⌕', execute: '›_', think: '∴', fetch: '↓', switch_mode: '⇋', other: '•' };
+/** An agent on its way up. The first run of an npx or uvx agent downloads it first, which can take minutes. */
+function Starting({ b }: { b: BridgeState }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const h = setInterval(() => tick((n) => n + 1), 5000); return () => clearInterval(h); }, []);
+  const secs = b.since ? Math.max(0, Math.round((Date.now() - b.since) / 1000)) : 0;
+  return (
+    <div className="wb-working" role="status">
+      <span className="wb-dot pulse" />
+      <div className="stack s">
+        <span>{t('Starting {name}…', '正在启动 {name}…', { name: agentTitle(b) })}{secs >= 15 && <span className="dim"> {secs >= 60 ? t('{n} min', '{n} 分钟', { n: Math.floor(secs / 60) }) : t('{n} s', '{n} 秒', { n: secs })}</span>}</span>
+        {secs >= 15 && <span className="dim fs-sm">{t('The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.', '首次运行会先下载智能体，像 Codex 这样较大的智能体可能需要几分钟。进度会显示在它的终端里。')}</span>}
+        {b.detail && <span className="mono dim fs-sm">{b.detail}</span>}
+      </div>
+    </div>
+  );
+}
+
 function ItemView({ it, cwd }: { it: Item; cwd?: string }) {
   switch (it.kind) {
     case 'user': return <div className="wb-msg user">{it.blocks.map((c, i) => <Block key={i} c={c} />)}</div>;

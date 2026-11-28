@@ -7,7 +7,7 @@
 //   "mcp"       calls the MCP server it was given (http) and reports the answer to initialize
 //   "crash"     exits with code 3
 //   "big N"     streams N KB of text in 1 KB chunks
-// MOCK_NO_HTTP=1: does not offer HTTP MCP servers (tests the stdio proxy). MOCK_AUTH=1: session/new needs authenticate.
+// MOCK_INIT_DELAY=ms: initialize answers late. MOCK_NO_HTTP=1: does not offer HTTP MCP servers (tests the stdio proxy). MOCK_AUTH=1: session/new needs authenticate.
 import { spawn } from 'node:child_process';
 
 let buf = '', authed = !process.env.MOCK_AUTH, nextReq = 1;
@@ -31,6 +31,8 @@ async function handle(m) {
   try {
     switch (method) {
       case 'initialize':
+        // MOCK_INIT_DELAY=ms: answers late, like an agent that npx is still downloading
+        if (process.env.MOCK_INIT_DELAY) await new Promise((r) => setTimeout(r, +process.env.MOCK_INIT_DELAY));
         return ok({ protocolVersion: 1, agentInfo: { name: 'mock-agent', title: 'Mock Agent', version: '0.1.0' }, authMethods: process.env.MOCK_AUTH ? [{ id: 'mock-login', name: 'Log in to Mock' }] : [],
           agentCapabilities: { loadSession: true, promptCapabilities: { image: true, embeddedContext: true }, mcpCapabilities: { http: !process.env.MOCK_NO_HTTP }, sessionCapabilities: { systemPrompt: {} } }, _client: params });
       case 'authenticate': authed = true; return ok({});

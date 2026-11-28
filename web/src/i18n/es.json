@@ -2760,5 +2760,7 @@
  "Who may change main directly": "Quién puede cambiar main directamente",
  "Maintainers and above": "Mantenedores y superiores",
  "Admins and the owner": "Administradores y el propietario",
- "Only the owner": "Solo el propietario"
+ "Only the owner": "Solo el propietario",
+ "{n} s": "{n} s",
+ "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "La primera vez se descarga el agente, lo que puede tardar varios minutos si es grande, como Codex. Su terminal muestra el progreso."
 }

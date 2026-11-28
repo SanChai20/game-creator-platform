@@ -2761,5 +2761,7 @@
  "Who may change main directly": "main을 직접 바꿀 수 있는 사람",
  "Maintainers and above": "유지 관리자 이상",
  "Admins and the owner": "관리자와 소유자",
- "Only the owner": "소유자만"
+ "Only the owner": "소유자만",
+ "{n} s": "{n}초",
+ "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "처음 실행할 때 에이전트를 내려받으므로 Codex처럼 큰 에이전트는 몇 분 걸릴 수 있습니다. 진행 상황은 터미널에 표시됩니다."
 }

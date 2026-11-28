@@ -2761,5 +2761,7 @@
  "Who may change main directly": "main を直接変更できる人",
  "Maintainers and above": "メンテナー以上",
  "Admins and the owner": "管理者とオーナー",
- "Only the owner": "オーナーのみ"
+ "Only the owner": "オーナーのみ",
+ "{n} s": "{n} 秒",
+ "The first run downloads the agent, which can take several minutes for a large one such as Codex. Its terminal shows the progress.": "初回はエージェントをダウンロードするため、Codex のような大きなエージェントでは数分かかることがあります。進行状況はターミナルに表示されます。"
 }
