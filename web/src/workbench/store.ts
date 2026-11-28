@@ -13,6 +13,8 @@ export interface SessionInfo {
   commands: { name: string; description: string; input?: { hint?: string } | null }[];
   usage: { used: number; size: number; cost?: { amount: number; currency: string } | null } | null;
 }
+/** While an agent starts: its first download (npx), the last line it printed, and whether it looks stuck. */
+export interface StartProgress { phase: 'starting' | 'downloading'; bytes: number; total: number | null; line: string; stalled: boolean }
 export interface ConfigOption { id: string; name: string; description?: string; category?: string; type: string; currentValue: string | boolean; options?: ({ value: string; name: string; description?: string } | { group: string; name: string; options: { value: string; name: string; description?: string }[] })[] }
 export interface Ask { key: string; sessionId: string; params: { toolCall?: Record<string, any>; options: { optionId: string; name: string; kind: string }[] } }
 export interface Entry { sessionUpdate: string; [k: string]: any }
@@ -23,7 +25,7 @@ export interface AgentInit {
 }
 export interface BridgeState {
   info: BridgeInfo; ready: boolean;   // ready: the bridge answered hello
-  status: string; detail: string; since: number | null; init: AgentInit | null; cwd: string; stderr: string[]; mcp: boolean;
+  status: string; detail: string; since: number | null; progress: StartProgress | null; init: AgentInit | null; cwd: string; stderr: string[]; mcp: boolean;
   agent: { id: string; name: string; command: string } | null;
   sessions: Map<string, SessionInfo>; transcripts: Map<string, Entry[]>; asks: Map<string, Ask>;
   answered: Map<string, string | null>;
@@ -47,7 +49,7 @@ const send = (m: unknown) => { if (ws && ws.readyState === 1) ws.send(JSON.strin
 function bridge(id: string): BridgeState {
   let b = bridges.get(id);
   if (!b) {
-    b = { info: { id, at: Date.now() }, ready: false, status: 'connecting', detail: '', since: null, init: null, cwd: '', stderr: [], mcp: false, agent: null, sessions: new Map(), transcripts: new Map(), asks: new Map(), answered: new Map() };
+    b = { info: { id, at: Date.now() }, ready: false, status: 'connecting', detail: '', since: null, progress: null, init: null, cwd: '', stderr: [], mcp: false, agent: null, sessions: new Map(), transcripts: new Map(), asks: new Map(), answered: new Map() };
     bridges.set(id, b);
   }
   return b;
@@ -81,14 +83,15 @@ function onMessage(m: any) {
   const b = bridge(id);
   switch (m.type) {
     case 'state':
-      b.ready = true; b.status = m.status; b.detail = m.detail || ''; b.since = m.since ?? null; b.init = m.init; b.cwd = m.cwd; b.stderr = m.stderr || []; b.mcp = !!m.mcp; b.agent = m.agent;
+      b.ready = true; b.status = m.status; b.detail = m.detail || ''; b.since = m.since ?? null; b.progress = m.progress ?? null; b.init = m.init; b.cwd = m.cwd; b.stderr = m.stderr || []; b.mcp = !!m.mcp; b.agent = m.agent;
       b.sessions = new Map((m.sessions || []).map((s: SessionInfo) => [s.sessionId, s]));
       b.asks = new Map((m.asks || []).map((a: Ask) => [a.key, a]));
       for (const sid of [...b.transcripts.keys()]) if (!b.sessions.has(sid)) b.transcripts.delete(sid);
       break;
     case 'status':
-      b.status = m.status; b.detail = m.detail || ''; b.since = m.since ?? b.since; if (m.init !== undefined) b.init = m.init; if (m.stderr) b.stderr = m.stderr;
+      b.status = m.status; b.detail = m.detail || ''; b.since = m.since ?? b.since; b.progress = m.progress ?? null; if (m.init !== undefined) b.init = m.init; if (m.stderr) b.stderr = m.stderr;
       break;
+    case 'progress': b.progress = m.progress ?? null; if (m.stderr) b.stderr = m.stderr; break;
     case 'session': b.sessions.set(m.session.sessionId, m.session); break;
     case 'session_closed': b.sessions.delete(m.sessionId); b.transcripts.delete(m.sessionId); break;
     case 'transcript': {
@@ -161,7 +164,7 @@ export function rpc<T = any>(b: string, method: string, params: Record<string, u
 }
 export const answer = (b: string, key: string, optionId: string | null) => send({ b, type: 'answer', key, optionId });
 export const cancel = (b: string, sessionId: string) => send({ b, type: 'cancel', sessionId });
-export const restart = (b: string) => send({ b, type: 'restart' });
+export const restart = (b: string, force = false) => send({ b, type: 'restart', ...(force ? { force: true } : {}) });
 export const reconnectNow = () => { if (!ws && users) { clearTimeout(timer); attempt = 0; open(); } };
 
 // ----- turning a transcript into what the page shows ----------------------------------------------------------------
