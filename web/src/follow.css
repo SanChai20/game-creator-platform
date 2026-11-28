@@ -178,3 +178,17 @@
 .jam-vote { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); }
 .jam-vote .pt-fun button { font-size: 20px; }
 @media (max-width: 560px) { .jam-row { flex-direction: column; align-items: flex-start; } }
+
+/* daily and weekly challenges (challenge-ui.tsx) */
+.chal { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+.chal-day { display: grid; grid-template-columns: minmax(160px, 240px) minmax(0, 1fr); gap: 16px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.chal-week { padding: 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); align-content: start; }
+.chal-board { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.chal-board li { display: flex; gap: 10px; align-items: baseline; padding: 4px 8px; border-radius: var(--r-sm); }
+.chal-board li.me { background: var(--accent-wash); }
+.chal-rank { width: 1.5em; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.chal-streak { font-weight: 600; }
+.chal-bar { height: 10px; border-radius: 999px; background: var(--sunk); overflow: hidden; }
+.chal-bar b { display: block; height: 100%; background: var(--accent); }
+@media (max-width: 860px) { .chal { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .chal-day { grid-template-columns: 1fr; } }

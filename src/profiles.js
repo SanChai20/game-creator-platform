@@ -93,11 +93,12 @@ const shownGame = (self) => `p.status = 'live' AND p.hidden_at IS NULL${self ? '
 /** Everything a profile shows. `self` lets the owner see their adults-only games too. */
 export async function profileOf(db, uid, { self = false, lang = 'en' } = {}) {
   const st = await settingsOf(db, uid);
-  const [stats, ach, revs, creator] = await Promise.all([
+  const [stats, ach, revs, creator, daily] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS games, COALESCE(SUM(g.seconds), 0) AS seconds FROM player_games g JOIN projects p ON p.id = g.project_id WHERE g.user_id = ? AND ${shownGame(self)}`).bind(uid).first(),
     db.prepare(`SELECT COUNT(*) AS n FROM achievement_unlocks a JOIN projects p ON p.id = a.project_id WHERE a.user_id = ? AND ${shownGame(self)}`).bind(uid).first(),
     db.prepare(`SELECT COUNT(*) AS n FROM reviews r JOIN projects p ON p.id = r.project_id WHERE r.user_id = ? AND r.hidden = 0 AND ${shownGame(self)}`).bind(uid).first(),
     db.prepare("SELECT 1 AS x FROM users u WHERE u.id = ? AND (u.creator = 1 OR EXISTS (SELECT 1 FROM projects p WHERE p.owner_id = u.id AND p.published_at IS NOT NULL))").bind(uid).first(),
+    db.prepare('SELECT best, days FROM challenge_streaks WHERE user_id = ?').bind(uid).first(),   // daily challenges (src/challenges.js)
   ]);
   // the showcase: the games the owner picked, in their order, else the most played
   let games;
@@ -122,7 +123,7 @@ export async function profileOf(db, uid, { self = false, lang = 'en' } = {}) {
       WHERE r.user_id = ? AND r.hidden = 0 AND ${shownGame(self)} ORDER BY r.updated_at DESC LIMIT ?`).bind(uid, LIMITS.reviews).all()).results;
   return {
     bio: st.bio, visibility: st.visibility, creator: !!creator,
-    stats: { games: stats?.games || 0, minutes: Math.round((stats?.seconds || 0) / 60), achievements: ach?.n || 0, reviews: revs?.n || 0 },
+    stats: { games: stats?.games || 0, minutes: Math.round((stats?.seconds || 0) / 60), achievements: ach?.n || 0, reviews: revs?.n || 0, best_streak: daily?.best || 0, daily_days: daily?.days || 0 },
     showcase: games.map((g) => ({ ...g, minutes: Math.round((g.seconds || 0) / 60), achievements: counts[g.id] || 0, picked: !!st.showcase?.length })),
     achievements,
     reviews: reviews.map((r) => ({ rating: r.rating, body: r.body, at: r.updated_at, game: { slug: r.slug, title: r.title, cover_key: r.cover_key } })),

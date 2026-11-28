@@ -46,6 +46,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Continue playing | automatic | `GCP.launch.continue`, `GCP.resume` | none | saves |
 | Shared game data | available | `GCP.shared.get` | `game_data` (set, get, list, delete) | saves |
 | Leaderboards | available | `GCP.leaderboard` | `game_data` (leaderboard, clear_leaderboard) | saves |
+| Seed of the day and daily challenges | available | `GCP.daily()` | `GET /api/challenges` | saves |
 | Realtime multiplayer rooms | available | `GCP.room` | `game_room`, `get_stats` | multiplayer |
 | Server-run matches | available unless switched off | `GCP.match.find` | `upload_files`, `deploy_preview`, `get_stats` | matches |
 | Matchmaking and ratings | available unless switched off | `GCP.match.find` | `get_stats` | matches |

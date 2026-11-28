@@ -1,6 +1,7 @@
 // Back office: every product parameter, every user, every game, sales, payments and withdrawals.
 import { Hono } from 'hono';
 import { AppError, bad, notFound, type Env, type User } from '../env';
+import { setDaily } from '../challenges.js';
 import { requireAdmin } from '../auth';
 import { balanceOf, freeSkillShared, recordPurchase } from '../earnings';
 import { adminRefund, adminRefundRequests, adminRefundRequestsPage, decideRefund, setRefundReview, stripePay } from '../refunds';
@@ -24,6 +25,13 @@ import { pageMeta, parsePage } from '../paging';
 
 export const admin = new Hono<{ Bindings: Env; Variables: { user: User | null; origin: string } }>();
 admin.use('*', async (c, next) => { requireAdmin(c as any); await next(); });
+// An admin picks the daily challenge of a day (src/challenges.js): a free, live game and one of its leaderboards.
+admin.put('/challenges/:day', async (c) => {
+  const me = requireAdmin(c as any), b = await c.req.json<{ project?: string; board?: string }>().catch(() => ({} as { project?: string; board?: string }));
+  try { return c.json(await setDaily(c.env.DB, c.req.param('day'), String(b.project || ''), String(b.board || 'default'), me.id)); }
+  catch (e) { throw new AppError(400, (e as Error).message, 'bad_request'); }
+});
+
 
 // Brings game Workers up to this build's runtime now, instead of waiting for the scheduled rollout (16 every 10 minutes).
 // Run it again while `remaining` is above 0. A security fix to the runtime reaches every game this way.

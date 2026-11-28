@@ -9,6 +9,7 @@ import { ContinueRow } from '../continue';
 import { ComingSoonShelf } from '../wishlist-ui';
 import { ForYouShelf } from '../foryou-ui';
 import { JamShelf } from '../jam-ui';
+import { ChallengesCard } from '../challenge-ui';
 import { Cartridges, lastVisit, QueueBand, Shelf, Since, Spotlight, Stats, TabbedLists, type Genre, type StoreStats } from '../store';
 
 interface HomeData { stats: StoreStats; shelves: { picks?: GameCard[]; trending: GameCard[]; playing: GameCard[]; new: GameCard[]; new_shelf?: GameCard[]; top: GameCard[]; free: GameCard[]; sale?: GameCard[] }; genres: Genre[] }
@@ -62,6 +63,8 @@ export function Home() {
         ]} />
         {/* picked from this player's own history (src/recommend.js); nothing for visitors and new players */}
         <ForYouShelf />
+        {/* today's daily challenge and the week's shared goal (src/challenges.js) */}
+        <ChallengesCard />
         {/* the platform's jam or festival that is on now (src/jams.js) */}
         <JamShelf />
         {!!sh.sale?.length && <Shelf title={t('On sale', '限时特价')} note={t('Limited-time prices, for a few days only.', '限时折扣，仅限几天。')} to="/browse?price=sale" games={sh.sale} />}

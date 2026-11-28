@@ -188,6 +188,17 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'saves',
     },
     {
+      id: 'daily', name: 'Seed of the day and daily challenges', category: 'player data', status: 'available',
+      what: 'A seed of the day that is the same for every player of a game, and a platform-wide daily challenge: one free game a day whose best scores of the day make a board on the store, with streaks for coming back each day. Each week one game also gets a shared goal of minutes played by everyone.',
+      how_it_works: 'GCP.daily() resolves to { day, seed, challenge, board, ends_at }: seed is 16 hex digits, the same for all players of this game that UTC day, so a daily mode can give everyone the same run. Each day the platform picks a free, live game that is not adults-only, with a leaderboard on which at least 3 players scored in the last 90 days, as the daily challenge (challenge true). Scores signed-in players send that day to the challenge board make the day\'s board on the store\'s home page; starting the game on consecutive days builds the player\'s streak, shown on their profile.',
+      use_for: ['A daily run or puzzle that is the same for everyone', 'Being picked as the daily challenge: a free game with a leaderboard players use', 'Bringing players back each day'],
+      sdk: ['GCP.daily()'], mcp_tools: [],
+      http: ['GET /api/challenges'],
+      limits: { pick: 'free, live, not adults-only, a board with 3+ scorers in 90 days, not picked in the last 14 days', day: 'UTC', board_shown: 10 },
+      guidelines: ['Seed a daily mode from GCP.daily().seed so every player gets the same run that day.', 'Submit scores with GCP.leaderboard.submit as usual: on the day the game is the challenge, the board it names counts.', 'Treat the seed as public: anyone can read it.'],
+      guide: 'saves',
+    },
+    {
       id: 'multiplayer', name: 'Realtime multiplayer rooms', category: 'multiplayer', status: 'available',
       what: 'WebSocket rooms on the platform\'s servers: presence, a host with automatic migration, messages (JSON or binary) to everyone, one peer or the host, and a stored snapshot for late joiners. Host-authoritative: one player\'s browser runs the game for everyone, so rooms suit co-op, party, casual versus and turn-based games, not ranked or high-intensity competitive play.',
       how_it_works: 'GCP.room(code) connects to one Durable Object per game, environment and room code, created by the first player to join. The first player in is the host; when the host leaves, the longest-connected player becomes host. The room relays messages, it does not run game logic: the host is the authority. The host can store one snapshot that every newcomer gets in its open event. The SDK reconnects by itself with backoff and measures the round trip (room.rtt). An empty room forgets everything. Rooms use WebSocket hibernation, so idle rooms cost nothing. A room is created in the region of the player who opens it. Each player has a message budget: past it, messages are dropped with a rate_limited error, and a player who keeps flooding is disconnected (close code 4008).',

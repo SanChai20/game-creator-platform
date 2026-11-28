@@ -3,6 +3,7 @@
 import { readOptions } from '../file-read';
 import { Hono, type Context } from 'hono';
 import { AppError, bad, type Env } from '../env';
+import { dailyFor, recordScore as recordDailyScore } from '../challenges.js';
 import { isGuestId, rateLimit } from '../auth';
 import { playKey, runtimeHash, storeKey } from '../deploy';
 import { getSettings } from '../settings';
@@ -251,6 +252,14 @@ rt.post('/resume', async (c) => {
   return c.json(await guard(() => resumeOp(c.env.DB, tok, b, now())));
 });
 
+// The seed of the day (GCP.daily): the same for every player of this game today, and whether the game is today's daily
+// challenge (src/challenges.js). A preview gets the seed too, never the challenge.
+rt.post('/daily', async (c) => {
+  const b = await body(c), tok = await authPlay(c.env, b.t);
+  const d = await dailyFor(c.env.DB, tok.g);
+  return c.json(tok.e === 'live' ? d : { ...d, challenge: false, board: null });
+});
+
 rt.post('/score', async (c) => {
   const b = await body(c), tok = await authPlay(c.env, b.t);
   const board = String(b.board || 'default').slice(0, 40), scope = scopeOf(tok.g, tok.e), me = playerOf(tok), db = c.env.DB;
@@ -274,7 +283,9 @@ rt.post('/score', async (c) => {
     }
     if (keeps) await c.env.DB.prepare(`INSERT INTO scores (project_id, board, user_id, name, score, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, board, user_id) DO UPDATE SET score = ${asc ? 'MIN' : 'MAX'}(score, excluded.score), name = excluded.name, updated_at = excluded.updated_at`).bind(scope, board, me, tok.n, score, now()).run();
     const mine = await c.env.DB.prepare('SELECT score FROM scores WHERE project_id = ? AND board = ? AND user_id = ?').bind(scope, board, me).first<{ score: number }>();
-    return c.json({ ok: true, best: mine?.score ?? score, ...(keeps ? {} : { recorded: false }) });
+    // today's daily challenge (src/challenges.js): a signed-in player's score on its board also goes on the day's board
+    const daily = keeps && tok.e === 'live' && tok.k === 'player' && !isGuestId(tok.u) ? await recordDailyScore(db, tok.g, board, tok.u, tok.n, score) : false;
+    return c.json({ ok: true, best: mine?.score ?? score, ...(daily ? { daily: true } : {}), ...(keeps ? {} : { recorded: false }) });
   }
   const rows = await c.env.DB.prepare(`SELECT name, score, user_id = ?4 AS me FROM scores WHERE project_id = ?1 AND board = ?2 ORDER BY score ${asc ? 'ASC' : 'DESC'} LIMIT ?3`).bind(scope, board, clamp(Number(b.limit) || 10, 1, 100), me).all();
   return c.json({ rows: rows.results });

@@ -32,7 +32,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.14.0', fixes: {} };
+  var RT = S.runtime = { version: '2.15.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -1824,6 +1824,11 @@
     var list = Object.keys(trackBuf).map(function (k) { return trackBuf[k]; }); trackBuf = {};
     for (var i = 0; i < list.length; i += 20) api('track', { events: list.slice(i, i + 20) }).catch(function () { /* analytics never get in the way */ });
   }
+  // a seed of 16 hex digits from a string (GCP.daily offline); the platform's seeds come from the server
+  function dailySeed(str) {
+    function h(x) { var v = 0x811c9dc5; for (var i = 0; i < x.length; i++) { v ^= x.charCodeAt(i); v = Math.imul(v, 0x01000193) >>> 0; } return ('0000000' + (v >>> 0).toString(16)).slice(-8); }
+    return h(str + ':a') + h(str + ':b');
+  }
   function track(name, value) {
     name = String(name == null ? '' : name);
     if (!TRACK_NAME.test(name)) { note(S.errors, 'GCP.track: "' + name.slice(0, 50) + '" is not a valid event name (1 to 40 characters of a-z, 0-9, _, . and -).'); return false; }
@@ -2120,6 +2125,14 @@
         Batched and sent at most every 10 seconds. Returns false for an invalid name. List names in order in gcp.json
         "funnel" to see how many new players reach each step. */
     track: track,
+    /** The seed of the day: resolves to { day: 'YYYY-MM-DD' (UTC), seed: 16 hex digits, challenge, board, ends_at }. The seed
+        is the same for every player of this game that day, so a daily mode can give everyone the same run. challenge is
+        true when the platform picked this game as today's daily challenge: scores sent to board that day make the day's
+        board on the store, and players keep a streak by coming back each day. Offline it resolves with a seed made here. */
+    daily: function () {
+      var day = new Date().toISOString().slice(0, 10), local = { day: day, seed: dailySeed(day + ':' + cfg.gameId), challenge: false, board: null, ends_at: Date.parse(day + 'T00:00:00Z') + 86400000 };
+      return standalone ? Promise.resolve(local) : api('daily', {}).catch(function () { return local; });
+    },
     /** Achievements declared in gcp.json "achievements" ({ id, name, description?, hidden?, stat?, goal? }). The platform
         unlocks one with stat and goal by itself when GCP.playerStats makes that stat reach the goal. */
     achievements: {
