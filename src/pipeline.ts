@@ -9,6 +9,7 @@ import { browserVerify } from './verify';
 import { afterPublish } from './implementations';
 import { announceFirstRelease } from './creator-news';
 import { postPatchNotes } from './devlog-news';
+import { wishReleased } from './wishlist-news';
 import { syncMature } from './mature';
 import { originalityCheck } from './originality-check';
 import { gateText, noteWaivers, recordGate, releaseGate, type GateMode } from './release-gate';
@@ -127,6 +128,9 @@ async function runPublish(env: Env, job: Job, p: Project, v: Version): Promise<v
   if (!p.published_at) {
     const news = await announceFirstRelease(env, p.id);
     if (news.notified) await logEvent(env, p.id, 'followers_told', `${news.notified} follower${news.notified === 1 ? '' : 's'} told about the new game`, v.n, job.actor);
+    // ...and for the players who wished for it on its coming soon page (src/wishlist-news.ts)
+    const wish = await wishReleased(env, p.id);
+    if (wish.notified) await logEvent(env, p.id, 'wishlists_told', `${wish.notified} player${wish.notified === 1 ? '' : 's'} who wishlisted it told it is out`, v.n, job.actor);
   }
   // the patch notes handed to publish go on the game page; an update's are news for its players (src/devlog-news.ts)
   if (mode === 'publish') {

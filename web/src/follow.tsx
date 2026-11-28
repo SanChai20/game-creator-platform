@@ -87,6 +87,9 @@ function noteView(n: Note): { text: string; to: string } | null {
     case 'new_game': return g ? { text: t('{name} published a new game: {game}', '{name} 发布了新游戏：{game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
     // a devlog or patch note on a game the player follows the creator of, keeps, bought or played (src/devlogs.js)
     case 'devlog': return g ? { text: t('{name} posted news about {game}', '{name} 发布了 {game} 的动态', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}#news` } : null;
+    // a game on the player's wishlist came out, or went on sale (src/wishlist.js)
+    case 'wish_release': return g ? { text: t('{game} from your wishlist is out now', '你愿望单中的 {game} 现已推出', { game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
+    case 'wish_sale': return g ? { text: t('{game} from your wishlist is on sale', '你愿望单中的 {game} 正在促销', { game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;
     // gifts between friends (src/gifts.ts)
     case 'gift_request': return g ? { text: t('{name} would like {game} as a gift', '{name} 想请你赠送 {game}', { name: n.actor.name, game: g.title }), to: '/gifts' } : null;
     case 'gift_declined': return g ? { text: t('{name} won\'t gift you {game} this time', '{name} 这次不会赠送你 {game}', { name: n.actor.name, game: g.title }), to: `/g/${encodeURIComponent(g.slug)}` } : null;

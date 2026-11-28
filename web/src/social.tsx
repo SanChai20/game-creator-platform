@@ -124,6 +124,12 @@ function onMessage(m: any) {
       if (ev.game?.slug) toast({ kind: 'new_game', title: t('News from {game}', '{game} 有新动态', { game: local(ev.game, 'title') }), body: String(ev.devlog?.title || '').slice(0, 120),
         actions: [{ label: t('Read', '查看'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}#news`) }] });
       break;
+    case 'wish_release': case 'wish_sale':
+      // a game on this player's wishlist came out, or went on sale (src/wishlist.js)
+      notesArrived();
+      if (ev.game?.slug) toast({ kind: 'new_game', title: ev.kind === 'wish_release' ? t('From your wishlist: out now', '愿望单：现已推出') : t('From your wishlist: on sale', '愿望单：正在促销'), body: local(ev.game, 'title'),
+        actions: [{ label: t('Open', '打开'), primary: true, run: () => navigate(`/g/${encodeURIComponent(ev.game.slug)}`) }] });
+      break;
     case 'message': {
       const open = S.chat && S.chat.peer === ev.peer && S.open?.peer?.id === ev.peer;
       if (open && ev.msg && !S.chat!.messages.some((x) => x.id === ev.msg.id)) { S.chat!.messages = [...S.chat!.messages, ev.msg]; emit(); if (!ev.mine) void api(`/social/chat/${ev.peer}/read`, { method: 'POST' }).catch(() => {}); }

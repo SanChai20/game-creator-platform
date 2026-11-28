@@ -35,11 +35,13 @@ export function cleanPatchNotes(raw, version) {
   return cleanPost({ title: o.title || `Version ${version}`, body: o.body });
 }
 
-/** The players a post about this game is announced to (never its author). */
+/** The players a post about this game is announced to (never its author): followers of its creator, and players who
+    keep, bought, recently played or wished for it. */
 const AUDIENCE = `SELECT follower_id AS uid FROM follows WHERE creator_id = ?2
   UNION SELECT user_id FROM library_games WHERE project_id = ?1
   UNION SELECT user_id FROM purchases WHERE project_id = ?1 AND status = 'paid'
-  UNION SELECT user_id FROM player_games WHERE project_id = ?1 AND last_at >= ?3`;
+  UNION SELECT user_id FROM player_games WHERE project_id = ?1 AND last_at >= ?3
+  UNION SELECT user_id FROM wishlists WHERE project_id = ?1`;
 
 /**
  * Writes a post and announces it. game: { id, owner_id, status }. Returns { id, notified, live: [user ids to push to] }.
@@ -61,7 +63,9 @@ export async function postDevlog(db, game, author, raw, { kind = 'post', version
     const prev = await db.prepare("SELECT id FROM devlogs WHERE project_id = ? AND version = ? AND kind = 'patch'").bind(game.id, version).first();
     return { id: prev?.id || null, notified: 0, live: [], existing: true };
   }
-  if (!announce || game.status !== 'live') return { id, notified: 0, live: [] };
+  // announced while players can see the game: live, or on its coming soon page (src/wishlist.js)
+  const visible = game.status === 'live' || (!!game.coming_soon_at && !game.published_at && game.status !== 'removed');
+  if (!announce || !visible) return { id, notified: 0, live: [] };
   const data = JSON.stringify({ project: game.id, devlog: id });
   const since = t - LIMITS.played_days * 86400_000;
   const r = await db.prepare(`INSERT INTO notifications (user_id, kind, actor_id, data, created_at)
