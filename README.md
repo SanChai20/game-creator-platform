@@ -166,6 +166,16 @@ the screen, and Quit returns to `/tv`. Inside a game the controller is the game'
 menu on the Home button or on Start + Select held for half a second, and that menu is navigated with the controller too.
 When a controller connects on an ordinary page, the site offers big-screen mode once per visit. Tests: `tests/gamepad.mjs`.
 
+## Publish to YouTube Playables
+
+The console's Publish elsewhere card (`web/src/export-ui.tsx`) exports a verified version as a YouTube Playables package
+for the creator to submit to YouTube. `GET /api/console/projects/:id/export/youtube` checks it (`src/youtube-check.js`:
+verified, has `index.html`, and what works differently inside YouTube), and `.../download` streams the zip
+(`src/youtube-export.ts`): the version's files without `server/`, `index.html` loading YouTube's SDK and then the
+HearthCade SDK from `gcp/gcp.js`, the platform files the game imports (three.js, the kits) under `gcp/` with an import map
+pointing at them, and a `PLAYABLES.md` checklist. Inside YouTube the SDK (2.18.0, `GCP.host === 'youtube'`) talks only
+to YouTube: cloud save for `GCP.save`, scores, pause, sound and language. Tests: `tests/youtube-export.mjs`.
+
 ## Player-made levels
 
 Players make levels, maps or mods inside a game and share them with everyone who plays it (`src/levels.js`, migration

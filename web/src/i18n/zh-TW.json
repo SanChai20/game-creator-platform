@@ -3451,5 +3451,15 @@
   "Controller connected": "已連接手把",
   "Browse and play with it in big-screen mode.": "在大螢幕模式下用手把瀏覽和遊玩。",
   "Open big screen": "開啟大螢幕模式",
-  "Back to big screen": "返回大螢幕模式"
+  "Back to big screen": "返回大螢幕模式",
+  "Publish elsewhere": "發布到其他平台",
+  "Export a verified version as a YouTube Playables package: a zip with your game, the files it loads from HearthCade, and YouTube's SDK wired to saves, pause, sound and scores. You submit it to YouTube yourself.": "將已驗證的版本匯出為 YouTube Playables 套件：一個包含你的遊戲、它從 HearthCade 載入的檔案，以及已接好存檔、暫停、聲音和分數的 YouTube SDK 的 zip。你需要自己提交給 YouTube。",
+  "Check for YouTube Playables": "檢查能否匯出到 YouTube Playables",
+  "Checking the game…": "正在檢查遊戲…",
+  "Version {n} (live) · {size}": "版本 {n}（已上線）· {size}",
+  "Version {n} · {size}": "版本 {n} · {size}",
+  "What will not work the same inside YouTube": "在 YouTube 中會有所不同的地方",
+  "Nothing to change: the game should run inside YouTube as it is.": "無需修改：遊戲應可直接在 YouTube 中執行。",
+  "Download the package": "下載套件",
+  "PLAYABLES.md inside lists the steps to submit it.": "套件內的 PLAYABLES.md 列出了提交步驟。"
 }
