@@ -60,7 +60,7 @@ function view(cl, origin = BASE) {
 
 // the catalog the bridges see: one known agent, the mock, so "Add an agent" can start it from a page
 const CATALOG_FILE = join(mkdtempSync(join(tmpdir(), 'acp-cat-')), 'agents.json');
-writeFileSync(CATALOG_FILE, JSON.stringify({ agents: [{ id: 'mock2', name: 'Mock Two', description: 'test', launch: { bin: process.execPath, args: [MOCK] } }] }));
+writeFileSync(CATALOG_FILE, JSON.stringify({ agents: [{ id: 'mock2', name: 'Mock Two', version: '1.0.0', description: 'test', launch: { bin: process.execPath, args: [MOCK] } }] }));
 
 function startBridge(home, extra = []) {
   const out = [];

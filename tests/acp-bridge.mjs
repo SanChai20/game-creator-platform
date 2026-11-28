@@ -4,12 +4,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync, statSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { deflateRawSync } from 'node:zlib';
+import { bundledRegistry, findAgent, installBinary, launchPlan, platformKey, unzip } from '../acp-bridge/registry.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { estimateSize, watchNpxDownload } from '../acp-bridge/download.mjs';
-import { BridgeCore, VIEW_METHODS, agentError, launchOf, splitCommand, systemFolder, winCommandLine } from '../acp-bridge/core.mjs';
+import { BridgeCore, VIEW_METHODS, agentError, splitCommand, systemFolder, winCommandLine } from '../acp-bridge/core.mjs';
 
 const MOCK = fileURLToPath(new URL('./acp-mock-agent.mjs', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -35,19 +38,67 @@ function harness(env = {}, extra = {}) {
   return { core, out, until, rpc, cwd };
 }
 
-test('catalog: every agent has a launch command; commands split like a shell', () => {
-  const cat = JSON.parse(readFileSync(new URL('../acp-bridge/agents.json', import.meta.url), 'utf8')).agents;
-  assert.ok(cat.length >= 30);
+// a .zip with the given files (deflated), as the registry's archives are
+function makeZip(files) {
+  const locals = [], centrals = []; let off = 0;
+  for (const [name, text, mode = 0o644] of files) {
+    const raw = Buffer.from(text), data = deflateRawSync(raw), n = Buffer.from(name);
+    const l = Buffer.alloc(30); l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(20, 4); l.writeUInt16LE(8, 8); l.writeUInt32LE(data.length, 18); l.writeUInt32LE(raw.length, 22); l.writeUInt16LE(n.length, 26);
+    const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(0x031e, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(8, 10); c.writeUInt32LE(data.length, 20); c.writeUInt32LE(raw.length, 24); c.writeUInt16LE(n.length, 28); c.writeUInt32LE(((0o100000 | mode) << 16) >>> 0, 38); c.writeUInt32LE(off, 42);
+    locals.push(l, n, data); centrals.push(c, n); off += 30 + n.length + data.length;
+  }
+  const cd = Buffer.concat(centrals), e = Buffer.alloc(22);
+  e.writeUInt32LE(0x06054b50, 0); e.writeUInt16LE(files.length, 8); e.writeUInt16LE(files.length, 10); e.writeUInt32LE(cd.length, 12); e.writeUInt32LE(off, 16);
+  return Buffer.concat([...locals, cd, e]);
+}
+
+test('registry: the official ACP Registry, every agent starts somewhere; commands split like a shell', () => {
+  const cat = bundledRegistry();
+  assert.ok(cat.length >= 40);
   const ids = new Set();
   for (const a of cat) {
     assert.ok(!ids.has(a.id), 'duplicate id ' + a.id); ids.add(a.id);
-    const l = launchOf(a); assert.ok(l && l.command, a.id);
-    assert.ok(/^https?:\/\//.test(a.website), a.id);
+    assert.ok(a.name && a.version && a.description, a.id);
+    const ok = ['darwin', 'linux', 'win32'].some((p) => ['x64', 'arm64'].some((c) => !launchPlan(a, { platform: p, arch: c, musl: false }).error));
+    assert.ok(ok, a.id + ' starts on no platform');
   }
-  for (const id of ['claude', 'codex', 'gemini', 'copilot', 'cursor', 'opencode', 'qwen', 'goose', 'kimi']) assert.ok(ids.has(id), id);
-  assert.deepEqual(launchOf(cat.find((a) => a.id === 'claude')), { command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp@latest'] });
-  assert.deepEqual(launchOf({ launch: { npx: 'some-agent@1.2.3' } }).args, ['-y', 'some-agent@1.2.3'], 'a pinned version stays');
+  assert.ok(!ids.has('github-copilot'), 'the registry leaves the older Copilot entry out');
+  for (const id of ['claude-acp', 'codex-acp', 'gemini', 'github-copilot-cli', 'cursor', 'opencode', 'qwen-code', 'goose']) assert.ok(ids.has(id), id);
+  const claude = launchPlan(findAgent(cat, 'claude'));
+  assert.equal(claude.kind, 'npx');
+  assert.match(claude.args[1], /^@agentclientprotocol\/claude-agent-acp@\d/, 'pinned to the registry version');
+  assert.equal(findAgent(cat, 'nope'), null);
+  // binaries: this platform's build, a musl Linux falls back to glibc, otherwise a clear error
+  const bin = { id: 'b', name: 'B', distribution: { binary: { 'linux-x86_64': { archive: 'https://x.test/b.tar.gz', cmd: './b', args: ['acp'] } } } };
+  assert.equal(launchPlan(bin, { platform: 'linux', arch: 'x64', musl: true }).kind, 'binary');
+  assert.match(launchPlan(bin, { platform: 'win32', arch: 'x64' }).error, /no build for this computer \(windows-x86_64\).*linux-x86_64/);
+  assert.equal(platformKey('darwin', 'arm64'), 'darwin-aarch64');
+  assert.equal(launchPlan({ distribution: { uvx: { package: 'a==1' } } }).command, 'uvx');
   assert.deepEqual(splitCommand(`my-agent --flag "two words" 'x y' ""`), ['my-agent', '--flag', 'two words', 'x y', '']);
+});
+
+test('registry: a binary agent is downloaded once, checked against its SHA-256 and unpacked', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'acp-agents-'));
+  const zip = makeZip([['dist/agent', '#!/bin/sh\necho hi\n', 0o755], ['dist/README', 'x']]);
+  const sha = createHash('sha256').update(zip).digest('hex');
+  let gets = 0;
+  const fetchImpl = async () => { gets++; return new Response(zip, { headers: { 'content-length': String(zip.length) } }); };
+  const entry = { id: 'zipped', name: 'Zipped', version: '1.2.3' };
+  const plan = { kind: 'binary', url: 'https://x.test/agent.zip', sha256: sha, cmd: './dist/agent', args: ['acp'], env: {}, platform: 'linux-x86_64' };
+  const seen = [];
+  const r = await installBinary(entry, plan, { home, fetchImpl, onProgress: (p) => seen.push(p) });
+  assert.equal(readFileSync(r.command, 'utf8'), '#!/bin/sh\necho hi\n');
+  assert.deepEqual(r.args, ['acp']);
+  assert.equal(seen.at(-1).bytes, zip.length);
+  if (process.platform !== 'win32') assert.ok(statSync(r.command).mode & 0o100, 'executable');
+  await installBinary(entry, plan, { home, fetchImpl });
+  assert.equal(gets, 1, 'kept after the first download');
+  // a download that does not match the registry is not unpacked
+  await assert.rejects(installBinary({ ...entry, version: '2' }, { ...plan, sha256: 'ab'.repeat(32) }, { home, fetchImpl }), /does not match the registry's checksum/);
+  assert.ok(!existsSync(join(home, 'zipped', '2', 'linux-x86_64', 'dist')));
+  // an archive cannot write outside its folder, nor a command point outside it
+  assert.throws(() => unzip(makeZip([['../evil', 'x']]), mkdtempSync(join(tmpdir(), 'acp-z-'))), /outside its folder/);
+  await assert.rejects(installBinary(entry, { ...plan, cmd: '../../x' }, { home, fetchImpl }), /outside its folder/);
 });
 
 test('initialize, a session with the platform tools, streaming and the transcript', async () => {

@@ -9,11 +9,33 @@ import { ConsoleTabs } from './Console';
 import { acpCommand } from './Creators';
 import { agentTitle, answer, cancel, fold, launchAgent, quitAgent, reconnectNow, restart, rpc, useWorkbench, type Ask, type BridgeState, type ConfigOption, type Item, type Plan, type SessionInfo, type ToolCall } from '../workbench/store';
 import { Diff, Markdown } from '../workbench/render';
-import CATALOG from '../../../acp-bridge/agents.json';
+import REGISTRY from '../workbench/registry.json';
 import '../workbench/workbench.css';
 
-interface CatalogAgent { id: string; registry: string; name: string; description: string; website: string; featured?: boolean; launch: { npx?: string; uvx?: string; bin?: string; args: string[] } }
-const AGENTS = (CATALOG as { agents: CatalogAgent[] }).agents;
+/** An agent of the official ACP Registry (github.com/agentclientprotocol/registry), the list Zed and JetBrains offer. */
+interface RegAgent { id: string; name: string; version: string; description: string; repository: string | null; website: string | null; license: string | null; authors: string[]; dist: { npx?: string; uvx?: string; binary?: string[] } }
+/** The page's copy (scripts/acp-registry.mjs), replaced by the live registry from /acp/registry.json once it loads. */
+let AGENTS: RegAgent[] = (REGISTRY as { agents: RegAgent[] }).agents;
+const ICONS = new Set(AGENTS.map((a) => a.id));   // web/public/acp-icons/<id>.svg
+/** The ids the bridge used before it followed the registry (an older bridge still reports them). */
+const ALIASES: Record<string, string> = { claude: 'claude-acp', codex: 'codex-acp', copilot: 'github-copilot-cli', qwen: 'qwen-code', kimi: 'kimi-code', vibe: 'mistral-vibe', droid: 'factory-droid', amp: 'amp-acp', grok: 'grok-build', codebuddy: 'codebuddy-code', minimax: 'minimax-code', minion: 'minion-code', muse: 'muse-code' };
+let registryAsked = false;
+/** Loads the live registry once; the components re-render when it arrives. */
+function useRegistry() {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (registryAsked) return;
+    registryAsked = true;
+    fetch('/acp/registry.json').then((r) => (r.ok ? r.json() : null)).then((r: { agents?: any[] } | null) => {
+      const list = (r?.agents || []).filter((a) => a && typeof a.id === 'string' && typeof a.name === 'string').map((a): RegAgent => {
+        const d = a.distribution || {};
+        return { id: a.id, name: a.name, version: String(a.version || ''), description: String(a.description || ''), repository: a.repository || null, website: a.website || null, license: a.license_url || null, authors: Array.isArray(a.authors) ? a.authors : [],
+          dist: { ...(d.npx ? { npx: d.npx.package } : {}), ...(d.uvx ? { uvx: d.uvx.package } : {}), ...(d.binary ? { binary: Object.keys(d.binary).sort() } : {}) } };
+      });
+      if (list.length >= 5) { AGENTS = list; bump((n) => n + 1); }
+    }).catch(() => { /* the bundled copy stays */ });
+  }, []);
+}
 interface Overview {
   command: string; command_base: string; version: string; server: string;
   links: { id: string; host: string; os: string | null; created_at: number; last_used_at: number | null; expires_at: number; project_scope: 'all' | 'selected'; projects: { id: string; title: string; slug: string | null }[] | null }[];
@@ -23,6 +45,8 @@ interface Overview {
 const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
 const initials = (name: string) => name.replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '·';
 export function AgentMark({ id, name, size = 'm' }: { id: string; name: string; size?: 's' | 'm' | 'l' }) {
+  const rid = ALIASES[id] || id;
+  if (ICONS.has(rid)) return <span className={`wb-mark ${size} icon`} aria-hidden="true"><i style={{ ['--icon' as string]: `url(/acp-icons/${rid}.svg)` }} /></span>;
   return <span className={`wb-mark ${size}`} style={{ ['--h' as string]: hue(id || name) }} aria-hidden="true">{initials(name)}</span>;
 }
 /** A path inside the agent's folder, shown relative to it. */
@@ -37,11 +61,49 @@ function useStored(key: string): [boolean, (v: boolean) => void] {
 const PanelIcon = ({ side }: { side: 'left' | 'right' }) => (
   <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" /><rect x={side === 'left' ? 2.5 : 12.5} y="3.5" width="5" height="13" rx="1" fill="currentColor" opacity=".35" /><path d={side === 'left' ? 'M7.5 4v12' : 'M12.5 4v12'} stroke="currentColor" strokeWidth="1.5" /></svg>
 );
-const agentById = (id?: string) => AGENTS.find((a) => a.id === id);
-const isBin = (a: CatalogAgent) => !!a.launch.bin;
+const agentById = (id?: string) => { const x = String(id || ''); return AGENTS.find((a) => a.id === x) || AGENTS.find((a) => a.id === ALIASES[x]); };
+/** How the agent starts on the creator's computer, in a sentence. */
+function startsHow(a: RegAgent) {
+  if (a.dist.npx) return t('{name} {version} is downloaded with npx the first time; the progress shows here.', '首次运行时会通过 npx 下载 {name} {version}，进度会显示在这里。', { name: a.name, version: a.version });
+  if (a.dist.binary) return t('The bridge downloads {name} {version} for that computer the first time, checks it against the registry and keeps it.', '首次运行时，桥接程序会为那台电脑下载 {name} {version}，按注册表校验后保存。', { name: a.name, version: a.version });
+  return t('{name} {version} starts with uvx, so uv must be installed on that computer (docs.astral.sh/uv).', '{name} {version} 通过 uvx 启动，因此那台电脑上需要安装 uv（docs.astral.sh/uv）。', { name: a.name, version: a.version });
+}
+/** A tag for an agent that cannot start everywhere: no build for Windows or macOS, or uv needed. */
+function reach(a: RegAgent): string | null {
+  if (a.dist.npx) return null;
+  const b = a.dist.binary || [];
+  if (b.length && !a.dist.uvx) {
+    if (!b.some((k) => k.startsWith('windows'))) return t('No Windows build', '无 Windows 版');
+    if (!b.some((k) => k.startsWith('darwin'))) return t('No macOS build', '无 macOS 版');
+    if (!b.some((k) => k.startsWith('linux'))) return t('No Linux build', '无 Linux 版');
+    return null;
+  }
+  return b.length ? null : t('Needs uv', '需要 uv');
+}
+const LinkIcon = ({ kind }: { kind: 'repo' | 'web' | 'doc' }) => (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">{kind === 'repo'
+    ? <path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.83 1.23.83.71 1.23 1.88.87 2.34.67.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.83-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.22 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z" />
+    : kind === 'web'
+      ? <g fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="8" cy="8" r="6.3" /><path d="M1.7 8h12.6M8 1.7c1.8 1.9 2.6 4 2.6 6.3S9.8 12.4 8 14.3C6.2 12.4 5.4 10.3 5.4 8S6.2 3.6 8 1.7Z" /></g>
+      : <g fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"><path d="M3.5 1.7h6l3 3v9.6h-9z" /><path d="M9.5 1.7v3h3M5.6 8h4.8M5.6 10.6h4.8" /></g>}</svg>
+);
+/** The details Zed shows for a registry agent: its links (repository, website, license) and its id. */
+function AgentLinks({ a }: { a: RegAgent }) {
+  const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
+  const link = (href: string | null, kind: 'repo' | 'web' | 'doc', label: string) => href && /^https:\/\//.test(href)
+    ? <a href={href} target="_blank" rel="noreferrer" className="wb-alink" title={label} aria-label={`${label}: ${a.name}`} onClick={stop} onMouseDown={stop}><LinkIcon kind={kind} /></a> : null;
+  return (
+    <span className="wb-alinks">
+      {link(a.repository, 'repo', t('Repository', '代码仓库'))}
+      {link(a.website, 'web', t('Website', '网站'))}
+      {link(a.license, 'doc', t('License', '许可证'))}
+    </span>
+  );
+}
 
 // ----- the page ------------------------------------------------------------------------------------------------------
 export function Workbench() {
+  useRegistry();
   const loc = useLocation();
   const pair = query().get('pair');
   const wb = useWorkbench();
@@ -115,7 +177,7 @@ function AgentSelect({ value, onChange, running }: { value: string; onChange: (i
   const [open, setOpen] = useState(false), [q, setQ] = useState(''), [hi, setHi] = useState(0);
   const box = useRef<HTMLDivElement>(null), listRef = useRef<HTMLDivElement>(null);
   const needle = q.trim().toLowerCase();
-  const shown = needle ? AGENTS.filter((x) => (x.name + ' ' + x.id + ' ' + (x.description || '')).toLowerCase().includes(needle)) : AGENTS;
+  const shown = needle ? AGENTS.filter((x) => (x.name + ' ' + x.id + ' ' + (x.description || '') + ' ' + x.authors.join(' ')).toLowerCase().includes(needle)) : AGENTS;
   const ids = [...shown.map((x) => x.id), 'custom'];
   const cur = agentById(value);
   useEffect(() => {
@@ -140,19 +202,24 @@ function AgentSelect({ value, onChange, running }: { value: string; onChange: (i
         onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); toggle(); } }}>
         {cur ? <AgentMark id={cur.id} name={cur.name} size="s" /> : <span className="wb-mark s plain" aria-hidden="true">+</span>}
         <b className="clip">{cur ? cur.name : t('Another agent', '其他智能体')}</b>
+        {cur && <span className="wb-aver">{cur.version}</span>}
         <span className="dim clip grow">{cur ? cur.description : t('Any program that speaks ACP', '任何支持 ACP 的程序')}</span>
         <svg className="wb-chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
       {open && (
         <div className="wb-asel-pop">
           <input className="input" type="search" autoFocus placeholder={t('Search {n} agents', '搜索 {n} 个智能体', { n: AGENTS.length })} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={key} aria-label={t('Search agents', '搜索智能体')} />
+          <p className="dim fs-xs wb-asrc">{t('The agents of the', '来自')} <a href="https://github.com/agentclientprotocol/registry" target="_blank" rel="noreferrer">{t('ACP Registry', 'ACP 注册表')}</a>{t(', the same list Zed offers.', '，与 Zed 提供的列表相同。')}</p>
           <div className="wb-asel-list" role="listbox" aria-label={t('Agent', '智能体')} ref={listRef}>
             {shown.map((x, i) => (
               <div key={x.id} data-i={i} role="option" aria-selected={value === x.id} className={`${value === x.id ? 'on' : ''}${hi === i ? ' hi' : ''}`} onMouseEnter={() => setHi(i)} onClick={() => choose(x.id)}>
-                <AgentMark id={x.id} name={x.name} size="s" />
-                <b className="clip">{x.name}</b>
-                <span className="dim clip grow">{x.description}</span>
-                {running?.has(x.id) ? <span className="wb-tag on">{t('Running', '运行中')}</span> : isBin(x) && <span className="wb-tag" title={t('Install it first', '需要先安装')}>{t('Install first', '需先安装')}</span>}
+                <AgentMark id={x.id} name={x.name} />
+                <span className="wb-arow grow">
+                  <span className="wb-aline"><b className="clip">{x.name}</b><span className="wb-aver">{x.version}</span>
+                    {running?.has(x.id) ? <span className="wb-tag on">{t('Running', '运行中')}</span> : reach(x) && <span className="wb-tag">{reach(x)}</span>}</span>
+                  <span className="dim wb-adesc">{x.description}</span>
+                  <span className="wb-aline"><span className="wb-aid mono">{t('ID: {id}', 'ID：{id}', { id: x.id })}</span><AgentLinks a={x} /></span>
+                </span>
               </div>
             ))}
             {!shown.length && <p className="dim fs-sm pad-s">{t('No agent in the list matches. Add it as another agent below.', '列表中没有匹配的智能体。可以在下方把它添加为其他智能体。')}</p>}
@@ -188,9 +255,7 @@ function AgentPicker({ ov, value, onChange, custom, setCustom, select = true }: 
       )}
       <Code text={cmd} />
       <p className="dim fs-sm">
-        {a && isBin(a)
-          ? <>{t('Install {name} first, so the command "{bin}" works in your terminal.', '请先安装 {name}，确保终端里可以运行 “{bin}” 命令。', { name: a.name, bin: a.launch.bin! })} <a href={a.website} target="_blank" rel="noreferrer">{t('Get {name}', '获取 {name}', { name: a.name })}</a>. </>
-          : a ? <>{t('{name} is fetched with npx the first time.', '首次运行时会通过 npx 下载 {name}。', { name: a.name })} <a href={a.website} target="_blank" rel="noreferrer">{t('About {name}', '关于 {name}', { name: a.name })}</a>. </> : null}
+        {a && <>{startsHow(a)}{(a.website || a.repository) && <> <a href={(a.website || a.repository)!} target="_blank" rel="noreferrer">{t('About {name}', '关于 {name}', { name: a.name })}</a>.</>} </>}
         {t('Run it in your game\'s folder. Needs Node.js 22 or newer. Sign in to the agent the way it asks (for example its own login or API key).', '在你的游戏文件夹中运行。需要 Node.js 22 或更高版本。按智能体自己的方式登录（例如它自带的登录或 API 密钥）。')}
       </p>
     </div>
@@ -198,7 +263,7 @@ function AgentPicker({ ov, value, onChange, custom, setCustom, select = true }: 
 }
 
 function Setup({ ov, conn, reloadOv }: { ov: Overview; conn: string; reloadOv: () => void }) {
-  const [agent, setAgent] = useState(() => { try { return localStorage.getItem('wb.agent') || 'claude'; } catch { return 'claude'; } });
+  const [agent, setAgent] = useState(() => { try { return agentById(localStorage.getItem('wb.agent') || '')?.id || (localStorage.getItem('wb.agent') === 'custom' ? 'custom' : 'claude-acp'); } catch { return 'claude-acp'; } });
   const [custom, setCustom] = useState('');
   const pick = (id: string) => { setAgent(id); try { localStorage.setItem('wb.agent', id); } catch { /* private */ } };
   return (
@@ -362,7 +427,7 @@ function AddAgent({ ov, bridges, current, onStarted }: { ov: Overview; bridges: 
   const tb = targets.find((x) => x.info.id === target) || targets[0];
   const here = (x: BridgeState) => !!tb && x.info.host === tb.info.host && x.info.cwd === tb.info.cwd;
   const running = new Set(bridges.filter(here).map((x) => x.info.agentId || ''));
-  const [agent, setAgent] = useState(() => AGENTS.find((a) => !running.has(a.id))?.id || 'claude'), [custom, setCustom] = useState('');
+  const [agent, setAgent] = useState(() => (running.has('claude-acp') ? AGENTS.find((a) => !running.has(a.id))?.id : null) || 'claude-acp'), [custom, setCustom] = useState('');
   const { busy, act } = useAct();
   const [err, setErr] = useState('');
   const known = !!agentById(agent);
@@ -398,7 +463,7 @@ function AddAgent({ ov, bridges, current, onStarted }: { ov: Overview; bridges: 
       </div>
       {err && <Notice tone="bad">{err}</Notice>}
       <p className="dim fs-sm">
-        {isBin(a) ? t('{name} must be installed on that computer ("{bin}" works in a terminal).', '{name} 需要已安装在那台电脑上（终端中可以运行 “{bin}”）。', { name: a.name, bin: a.launch.bin! }) : t('{name} is downloaded with npx the first time; the progress shows here.', '首次运行时会通过 npx 下载 {name}，进度会显示在这里。', { name: a.name })}{' '}
+        {startsHow(a)}{' '}
         {t('It stops when the first agent in that folder stops.', '该文件夹中的第一个智能体停止时，它也会停止。')}
       </p>
       <details className="wb-more">
@@ -501,7 +566,7 @@ function AgentState({ b }: { b: BridgeState }) {
       actions={<Button size="sm" variant="primary" onClick={() => restart(b.info.id, true)}>{t('Retry', '重试')}</Button>}>
       <div className="stack s">
         <span>{b.detail}</span>
-        {/not found/i.test(b.detail) && a && <span>{t('Install {name} on that computer first:', '请先在那台电脑上安装 {name}：', { name: a.name })} <a href={a.website} target="_blank" rel="noreferrer">{a.website}</a></span>}
+        {/not found|ENOENT|uvx/i.test(b.detail) && a && <span>{startsHow(a)} {(a.website || a.repository) && <a href={(a.website || a.repository)!} target="_blank" rel="noreferrer">{a.website || a.repository}</a>}</span>}
         {b.stderr.length > 0 && <details className="wb-log" open={b.status === 'failed'}><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{b.stderr.slice(-30).join('\n')}</pre></details>}
       </div>
     </Notice>
@@ -518,9 +583,10 @@ function isSystemFolder(cwd: string) {
 export function errorHint(text: string, code: number | null, b: { name: string; agentId?: string; host?: string; cwd?: string }): string {
   const x = text.toLowerCase();
   if (code === -32000 || /auth|log ?in|api key|apikey|unauthori[sz]ed|\b401\b|credential|not signed|subscription/.test(x)) {
-    const how = b.agentId === 'claude' ? t('For Claude Agent: run "claude" in a terminal and sign in with /login, or set ANTHROPIC_API_KEY.', '对于 Claude Agent：在终端中运行 “claude” 并用 /login 登录，或设置 ANTHROPIC_API_KEY。')
-      : b.agentId === 'codex' ? t('For Codex: run "codex login" in a terminal, or set OPENAI_API_KEY.', '对于 Codex：在终端中运行 “codex login”，或设置 OPENAI_API_KEY。')
-      : b.agentId === 'gemini' ? t('For Gemini CLI: run "gemini" once in a terminal to sign in, or set GEMINI_API_KEY.', '对于 Gemini CLI：在终端中运行一次 “gemini” 登录，或设置 GEMINI_API_KEY。') : '';
+    const id = ALIASES[b.agentId || ''] || b.agentId;
+    const how = id === 'claude-acp' ? t('For Claude Agent: run "claude" in a terminal and sign in with /login, or set ANTHROPIC_API_KEY.', '对于 Claude Agent：在终端中运行 “claude” 并用 /login 登录，或设置 ANTHROPIC_API_KEY。')
+      : id === 'codex-acp' ? t('For Codex: run "codex login" in a terminal, or set OPENAI_API_KEY.', '对于 Codex：在终端中运行 “codex login”，或设置 OPENAI_API_KEY。')
+      : id === 'gemini' ? t('For Gemini CLI: run "gemini" once in a terminal to sign in, or set GEMINI_API_KEY.', '对于 Gemini CLI：在终端中运行一次 “gemini” 登录，或设置 GEMINI_API_KEY。') : '';
     return [t('Sign in to {name} on {host} the way it asks, then restart the agent and try again.', '在 {host} 上按 {name} 要求的方式登录，然后重启智能体再试。', { name: b.name, host: b.host || t('that computer', '那台电脑') }), how].filter(Boolean).join(' ');
   }
   if (/invalid .*(permissions|settings|defaultmode|mode)|unknown (setting|option)/.test(x)) return t('{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.', '{name} 不认识其设置文件中的某个设置（旧版本不支持）。请重启智能体：工作台现在会启动最新版本。', { name: b.name });

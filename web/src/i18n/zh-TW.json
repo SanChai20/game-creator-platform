@@ -2841,5 +2841,19 @@
   "This is a system folder": "這是系統資料夾",
   "The agent works in {folder}, where a terminal opened as administrator starts. Agents often cannot work there. Stop it with Ctrl+C, open a terminal in your game's folder, and run the command again.": "代理在 {folder} 中工作，以系統管理員身分開啟的終端機會從這裡開始。代理通常無法在這裡正常工作。請按 Ctrl+C 停止，在你的遊戲資料夾中開啟終端機，然後重新執行指令。",
   "Stop this agent": "停止這個代理",
-  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} 不認得其設定檔中的某個設定（舊版本不支援）。請重新啟動代理：工作台現在會啟動最新版本。"
+  "{name} turned down a setting from its own settings file, which an older copy of it does not know. Restart the agent: the workbench now starts the latest version.": "{name} 不認得其設定檔中的某個設定（舊版本不支援）。請重新啟動代理：工作台現在會啟動最新版本。",
+  "{name} {version} is downloaded with npx the first time; the progress shows here.": "首次執行時會透過 npx 下載 {name} {version}，進度會顯示在這裡。",
+  "The bridge downloads {name} {version} for that computer the first time, checks it against the registry and keeps it.": "首次執行時，橋接程式會為那台電腦下載 {name} {version}，依登錄表校驗後保存。",
+  "{name} {version} starts with uvx, so uv must be installed on that computer (docs.astral.sh/uv).": "{name} {version} 透過 uvx 啟動，因此那台電腦上需要安裝 uv（docs.astral.sh/uv）。",
+  "No Windows build": "無 Windows 版",
+  "No macOS build": "無 macOS 版",
+  "No Linux build": "無 Linux 版",
+  "Needs uv": "需要 uv",
+  "Repository": "程式碼儲存庫",
+  "Website": "網站",
+  "License": "授權條款",
+  "The agents of the": "來自",
+  "ACP Registry": "ACP 登錄表",
+  ", the same list Zed offers.": "，與 Zed 提供的清單相同。",
+  "ID: {id}": "ID：{id}"
 }

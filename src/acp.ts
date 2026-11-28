@@ -23,6 +23,7 @@ import { b64u, now, sha256, token } from './util';
 import { listSelectableProjects, parseStoredProjectIds, resolveAllowedProjects } from './mcp/scope';
 import type { TokenExchange } from './routes/device';
 import BRIDGE_PKG from '../acp-bridge/package.json';
+import REGISTRY_SNAPSHOT from '../acp-bridge/registry.json';
 
 export const BRIDGE_VERSION: string = BRIDGE_PKG.version;
 export const BRIDGE_FILE = `hearthcade-acp-${BRIDGE_VERSION}.tgz`;
@@ -392,4 +393,24 @@ export class AcpHub extends DurableObject<Env> {
     for (const v of this.views()) this.put(v.ws, msg);
     return n;
   }
+}
+
+// ----- the ACP Registry ----------------------------------------------------------------------------------------------
+// The workbench supports exactly the agents of the official ACP Registry (the list Zed and JetBrains offer). The site
+// serves the live index (cached for an hour at the edge) to the page and the bridge, and the snapshot it was built with
+// (scripts/acp-registry.mjs) when the registry cannot be reached.
+export const REGISTRY_URL = 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json';
+const REGISTRY_EXCLUDE = new Set(['github-copilot']);
+type RegistryAgent = { id: string; name: string; version: string; description?: string; distribution?: Record<string, unknown>; [k: string]: unknown };
+export async function acpRegistry(fetchImpl: typeof fetch = fetch): Promise<{ agents: RegistryAgent[]; live: boolean; snapshot?: string }> {
+  try {
+    const r = await fetchImpl(REGISTRY_URL, { cf: { cacheTtl: 3600, cacheEverything: true }, signal: AbortSignal.timeout(5000) } as RequestInit);
+    if (r.ok) {
+      const j = await r.json() as { agents?: RegistryAgent[] };
+      const agents = (Array.isArray(j.agents) ? j.agents : []).filter((a) => a && typeof a.id === 'string' && /^[a-z0-9-]{1,64}$/.test(a.id) && typeof a.name === 'string' && a.distribution && !REGISTRY_EXCLUDE.has(a.id) && !/\(legacy ID\)$/.test(a.name));
+      if (agents.length >= 5) return { agents: agents.sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })), live: true };
+    }
+  } catch { /* the snapshot */ }
+  const snap = REGISTRY_SNAPSHOT as { snapshot: string; agents: RegistryAgent[] };
+  return { agents: snap.agents, live: false, snapshot: snap.snapshot };
 }

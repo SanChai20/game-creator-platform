@@ -5,9 +5,9 @@ Use your own coding agent in the HearthCade console. The bridge starts an agent 
 (`/console/workbench`). The agent runs with your files; the console is its window.
 
 ```sh
-npx -y https://hearthcade.com/acp/hearthcade-acp-1.0.5.tgz claude     # or codex, gemini, copilot, cursor, opencode…
-npx -y https://hearthcade.com/acp/hearthcade-acp-1.0.5.tgz list       # every agent it knows
-npx -y https://hearthcade.com/acp/hearthcade-acp-1.0.5.tgz -- my-agent --acp   # any ACP agent by its command
+npx -y https://hearthcade.com/acp/hearthcade-acp-1.0.6.tgz claude-acp   # any id from the ACP Registry: codex-acp, gemini, cursor, opencode…
+npx -y https://hearthcade.com/acp/hearthcade-acp-1.0.6.tgz list         # the agents of the ACP Registry
+npx -y https://hearthcade.com/acp/hearthcade-acp-1.0.6.tgz -- my-agent --acp   # any ACP agent by its command
 ```
 
 Needs Node.js 22 or newer. The first run shows a code to approve in the console; the computer is then remembered

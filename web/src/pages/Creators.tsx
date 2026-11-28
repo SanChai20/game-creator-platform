@@ -4,7 +4,7 @@ import { Button, Card, CelScene, Code, Eyebrow, Segmented, Steps } from '../ui';
 import BRIDGE_PKG from '../../../acp-bridge/package.json';
 
 /** The command that starts the workbench's bridge with an agent (src/acp.ts bridgeCommand says the same). */
-export function acpCommand(origin: string, agent = 'claude', custom?: string, name?: string) {
+export function acpCommand(origin: string, agent = 'claude-acp', custom?: string, name?: string) {
   const base = `npx -y ${origin}/acp/hearthcade-acp-${BRIDGE_PKG.version}.tgz`, server = origin === 'https://hearthcade.com' ? '' : ` --server ${origin}`;
   const label = name && name.trim() ? ` --name "${name.trim().replace(/["\\$`]/g, '')}"` : '';
   return custom !== undefined ? `${base}${server}${label} -- ${custom}` : `${base} ${agent}${server}`;

@@ -60,7 +60,7 @@ import { giftCleanupStmts } from './gifts';
 import { ensurePicks, oldPicksStmt, runJob } from './rankings';
 import { engagementStmt, graduate, tuneStmts } from './store-quality';
 import { desktop } from './desktop';
-import { acpApi, acpCleanupStmts, acpMachine, BRIDGE_FILE } from './acp';
+import { acpApi, acpCleanupStmts, acpMachine, acpRegistry, BRIDGE_FILE } from './acp';
 export { GameRoom } from './room';
 export { Matchmaker } from './matchmaker';
 export { BotFleet } from './bots';
@@ -143,6 +143,12 @@ app.get('/acp/:file{hearthcade-acp-[0-9.]+\\.tgz}', async (c) => {
   const r = await c.env.ASSETS.fetch(new Request(new URL(`/acp/${BRIDGE_FILE}`, c.req.url)));
   if (!r.ok) return c.text('Not found', 404);
   return new Response(r.body, { headers: { 'content-type': 'application/gzip', 'cache-control': current ? 'public, max-age=86400' : 'no-cache', 'access-control-allow-origin': '*' } });
+});
+
+// The ACP Registry the workbench follows: the page lists it, the bridge starts agents from it.
+app.get('/acp/registry.json', async (c) => {
+  const r = await acpRegistry();
+  return c.json({ source: 'https://github.com/agentclientprotocol/registry', live: r.live, ...(r.snapshot ? { snapshot: r.snapshot } : {}), agents: r.agents }, 200, { 'cache-control': 'public, max-age=900', 'access-control-allow-origin': '*' });
 });
 
 // Platform-hosted modules that games import cross-origin.
