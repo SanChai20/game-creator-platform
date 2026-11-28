@@ -43,6 +43,7 @@ The live version of this list, with the numbers this platform is set to, is the 
 | Devlogs and patch notes | available | none | `devlog`, `publish` (`patch_notes`) | metadata |
 | Achievements | available | `GCP.achievements` | `deploy_preview` (checks `gcp.json` `achievements`) | saves |
 | Player-made levels | available | `GCP.levels`, `GCP.launch.level` | none (gcp.json `levels`) | saves |
+| Publish to YouTube Playables | available | `GCP.host` | none (the console's Publish elsewhere card) | services |
 | Play record | automatic | `GCP.playRecord()` | `game_data` (summary) | saves |
 | Continue playing | automatic | `GCP.launch.continue`, `GCP.resume` | none | saves |
 | Shared game data | available | `GCP.shared.get` | `game_data` (set, get, list, delete) | saves |
@@ -431,6 +432,25 @@ Before a verified version goes live it is compared with other creators' live gam
 - The game never takes payments itself and never needs to check ownership: the platform only opens a paid game for owners and trial players.
 
 Ask the user before setting or changing a price.
+
+## Publish to YouTube Playables
+
+The console's **Publish elsewhere** card exports a verified version as a YouTube Playables package for the creator to submit to YouTube. It checks the version first and lists what works differently there, then downloads a zip with:
+
+- the version's files, without `server/` (server code runs only on HearthCade);
+- `index.html` loading YouTube's Playables SDK, then the HearthCade SDK from `gcp/gcp.js`, with `window.__GCP_HOST = 'youtube'`;
+- the platform files the game imports (three.js, the `@gcp/` kits) under `gcp/`, and the import map pointing at them;
+- `PLAYABLES.md`, the steps to test and submit it.
+
+Inside YouTube `GCP.host` is `'youtube'` (`'hearthcade'` on the platform, `null` opened on its own). There is no HearthCade sign-in, so:
+
+- `GCP.save` keeps progress in YouTube's cloud save (one blob, loaded at start and written a second after the last change);
+- `GCP.leaderboard.submit` on a higher-is-better board, and `GCP.gameOver({ score })`, send the score to YouTube as a whole number;
+- YouTube's pause and resume pause the game like the platform menu (`GCP.paused`, `GCP.onPause`), its sound switch mutes it, and `GCP.lang` follows YouTube's language;
+- `GCP.ready()` tells YouTube the game is playable, and the first frame drawn tells it the game is shown;
+- rooms, matches, friends, shared levels, achievements and HearthCade leaderboards answer as they do offline: hide those screens when `GCP.host === 'youtube'`.
+
+A Playable loads everything from its own package: keep fonts, art and audio in the game's files, not on other servers.
 
 ## Analytics and runtime errors
 

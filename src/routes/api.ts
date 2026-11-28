@@ -24,6 +24,7 @@ import { listingLangs } from '../listing';
 import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { currentChecks, gateError, gateView, recordGate, releaseGate, storedGate } from '../release-gate';
 import { PRICE_NOW_SQL, applySale, checkoutExpiry, saleOf, saleView } from '../sales';
+import { exportZip, planExport } from '../youtube-export';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -1084,6 +1085,23 @@ api.get('/games/:slug/tournaments', async (c) => {
   return c.json({ tournaments: (await listTournaments(c.env.DB, { game: p.id })).map((x: any) => tourCard(c.get('origin'), x)) });
 });
 // the creator's side: a game's tournaments, all of them, and a new one (admins may make official ones for any game)
+// Exporting a verified version as a YouTube Playables package (src/youtube-export.ts, src/youtube-check.js).
+api.get('/console/projects/:id/export/youtube', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  c.header('cache-control', 'private, no-store');
+  const n = Number(c.req.query('version')) || null, plan = await planExport(c.env, p, c.get('origin'), n);
+  return c.json({ version: plan.v.n, live: plan.v.n === p.live_version, status: plan.v.status, ...plan.result, platform_files: plan.platform.size });
+});
+api.get('/console/projects/:id/export/youtube/download', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await rateLimit(c.env, 'ytexport:' + u.id, 30, 3600);
+  const n = Number(c.req.query('version')) || null, plan = await planExport(c.env, p, c.get('origin'), n);
+  if (plan.result.blockers.length) throw new AppError(409, plan.result.blockers[0].message, plan.result.blockers[0].code);
+  await logEvent(c.env, p.id, 'export', 'Exported as a YouTube Playables package', plan.v.n, u.name || u.id).catch(() => {});
+  return new Response(exportZip(c.env, p, c.get('origin'), plan), { headers: {
+    'content-type': 'application/zip', 'content-disposition': `attachment; filename="${p.slug}-v${plan.v.n}-youtube-playables.zip"`, 'cache-control': 'no-store',
+  } });
+});
 api.get('/console/projects/:id/tournaments', async (c) => {
   const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
   c.header('cache-control', 'private, no-store');

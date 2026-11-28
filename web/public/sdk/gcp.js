@@ -16,6 +16,11 @@
   try { var cs = document.currentScript, prev = cs && cs.previousElementSibling; if (prev && prev.tagName === 'SCRIPT' && prev.textContent.indexOf('__GCP_CONFIG') >= 0) prev.remove(); } catch (e) { /* not in a document */ }
   var standalone = !cfg;           // opened outside the platform (local file / local dev server)
   if (standalone) cfg = { api: '', token: '', gameId: 'local', version: 0, env: 'local', base: '', player: { id: 'local', name: 'Player' }, kind: 'owner', session: 'local' };
+  // Where the game runs outside HearthCade (2.18.0): 'youtube' inside a YouTube Playables package the platform exported
+  // (src/youtube-export.ts sets window.__GCP_HOST and loads YouTube's SDK first). The SDK then makes no network calls of
+  // its own and speaks to YouTube instead: ready, pause, sound, language, cloud save and score (see "YouTube Playables").
+  var YT = standalone && window.__GCP_HOST === 'youtube' && window.ytgame && typeof window.ytgame === 'object' ? window.ytgame : null;
+  var host = YT ? 'youtube' : standalone ? null : 'hearthcade';
   var q = new URLSearchParams(location.search);
   var S = window.__GCP = { boot: performance.now(), ready: false, readyAt: 0, frames: 0, fatal: null, errors: [], warnings: [], progress: 0, label: '', missing: [], stats: null,
     // the score and endings the game reported (GCP.score, GCP.gameOver, GCP.leaderboard.submit, a server-run match ending)
@@ -32,7 +37,7 @@
   //     behaviour only on the devices that need it);
   //   - it never throws: a fix that cannot be applied is skipped, and the game runs as it would without it;
   //   - a game that handles something itself wins (its own CSS, its own touch controls, its own context-loss handling).
-  var RT = S.runtime = { version: '2.17.0', fixes: {} };
+  var RT = S.runtime = { version: '2.18.0', fixes: {} };
   function fix(id, active) { RT.fixes[id] = !!active; return !!active; }
 
   // ---- Fonts before the first frame. A game draws its loading screen at once, often in a canvas, while its fonts are
@@ -559,6 +564,16 @@
   // The offline copy is kept per game, environment and player, so two people who share a browser never see each other's saves.
   function lsKey(k) { return 'gcp:' + cfg.gameId + ':' + cfg.env + ':' + (cfg.player && cfg.player.id || 'anon') + ':' + k; }
   var LS = { get: function (k) { try { var v = localStorage.getItem(lsKey(k)); return v == null ? null : JSON.parse(v); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(lsKey(k), JSON.stringify(v)); } catch (e) { /* private mode */ } }, del: function (k) { try { localStorage.removeItem(lsKey(k)); } catch (e) { /* ignore */ } } };
+  // YouTube Playables: saves are one cloud blob (ytgame.game.loadData / saveData, at most 3 MiB), loaded once at start
+  // (YouTube refuses a save before the load) and written a second after the last change.
+  var ytReady = Promise.resolve();
+  if (YT) (function () {
+    var data = {}, timer = 0, loaded = false;
+    function flush() { timer = 0; if (!loaded) return; try { var p = YT.game.saveData(JSON.stringify(data)); if (p && p.catch) p.catch(function (e) { console.warn('[GCP] YouTube save failed', e); }); } catch (e) { console.warn('[GCP] YouTube save failed', e); } }
+    function later() { clearTimeout(timer); timer = setTimeout(flush, 1000); }
+    ytReady = Promise.resolve().then(function () { return YT.game.loadData(); }).then(function (raw) { try { var d = raw ? JSON.parse(raw) : {}; if (d && typeof d === 'object') data = d; } catch (e) { /* not ours */ } }, function (e) { console.warn('[GCP] YouTube load failed', e); }).then(function () { loaded = true; });
+    LS = { get: function (k) { return Object.prototype.hasOwnProperty.call(data, k) ? JSON.parse(JSON.stringify(data[k])) : null; }, set: function (k, v) { data[k] = v === undefined ? null : JSON.parse(JSON.stringify(v)); later(); }, del: function (k) { delete data[k]; later(); } };
+  })();
 
   // Smooth playback of timed samples from one remote sender (GCP.smooth). Samples arrive in bursts; stamping them with
   // their arrival time turns network jitter into movement jitter, and a fixed small delay runs dry whenever one message is
@@ -1064,7 +1079,8 @@
     releaseKeys();
     try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (e) { /* not locked */ }
   }
-  function audioHold() { if (TL.audioHold) TL.audioHold(PZ.audio && (display.paused || document.visibilityState === 'hidden')); }
+  var ytMuted = false;
+  function audioHold() { if (TL.audioHold) TL.audioHold((PZ.audio && (display.paused || document.visibilityState === 'hidden')) || ytMuted); }
   document.addEventListener('visibilitychange', audioHold);
   // Keys the player is holding down when the game loses the keyboard (the platform menu opens, focus leaves the frame) are
   // let go of with a keyup, as the browser never sends one: otherwise the game keeps walking after the menu closes.
@@ -2084,6 +2100,9 @@
         right now (docs/game-runtime.md lists them). For information only: a game never has to read it or do anything. */
     get runtime() { return runtimeInfo(); },
     env: cfg.env, gameId: cfg.gameId, version: cfg.version, player: cfg.player, standalone: standalone,
+    /** Where the game runs: 'hearthcade' on the platform, 'youtube' inside an exported YouTube Playables package, null
+        opened on its own. Outside HearthCade there is no sign-in, multiplayer, friends or leaderboards: hide them. */
+    host: host,
     /** The player's platform language as a BCP 47 tag (en, zh, zh-TW, ja, ko, es), from ?gcp_lang or the browser. A game that
         declares languages.follows_platform in gcp.json opens in this language when it has it, and otherwise in its default. */
     lang: String(q.get('gcp_lang') || (navigator.language || 'en')).slice(0, 20),
@@ -2103,6 +2122,7 @@
     ready: function (info) {
       fontHold.release(); splash.send('ready');
       if (S.ready) return; S.ready = true; S.readyAt = performance.now(); S.progress = 1; if (info) S.stats = info;
+      if (YT) { ytFirstFrame(); try { YT.game.gameReady(); } catch (e) { /* older YouTube SDK */ } }
       if (GCP.test.autostart) setTimeout(function () { autostartFns.forEach(function (fn) { try { fn(); } catch (e) { note(S.errors, 'autostart hook threw: ' + (e && e.message || e)); } }); }, 0);
       if (!standalone) { api('beat', { frames: S.frames, active: false, first: true, loadMs: Math.round(S.readyAt - S.boot) }).then(onBeat).catch(function () { }); }
     },
@@ -2121,12 +2141,13 @@
       var r = result && typeof result === 'object' ? result : { outcome: result };
       S.outcome.ends++; S.outcome.last = String(r.outcome == null ? 'done' : r.outcome).slice(0, 20);
       if (r.score != null && isFinite(+r.score)) { S.outcome.scores++; S.outcome.score = +r.score; }
+      if (YT && r.score != null) ytScore(r.score);
     },
     /** Per-player cloud saves (JSON, 256 KB per key). Falls back to localStorage offline. */
     save: {
-      get: function (key) { return api('save', { op: 'get', key: key }).then(function (r) { if (r.value != null) LS.set(key, r.value); return r.value; }).catch(function () { return LS.get(key); }); },
-      set: function (key, value) { LS.set(key, value); return api('save', { op: 'set', key: key, value: value }).then(function () { return true; }).catch(function () { return false; }); },
-      remove: function (key) { LS.del(key); return api('save', { op: 'delete', key: key }).then(function () { return true; }).catch(function () { return false; }); },
+      get: function (key) { return api('save', { op: 'get', key: key }).then(function (r) { if (r.value != null) LS.set(key, r.value); return r.value; }).catch(function () { return ytReady.then(function () { return LS.get(key); }); }); },
+      set: function (key, value) { LS.set(key, value); return api('save', { op: 'set', key: key, value: value }).then(function () { return true; }).catch(function () { return !!YT; }); },
+      remove: function (key) { LS.del(key); return api('save', { op: 'delete', key: key }).then(function () { return true; }).catch(function () { return !!YT; }); },
     },
     /** Named numbers kept per player and game: add (default +1), max, min, set. Each resolves to the stored value, or null offline. */
     playerStats: {
@@ -2186,7 +2207,7 @@
     shared: { get: function (key) { return api('save', { op: 'get', key: key, shared: true }).then(function (r) { return r.value; }).catch(function () { return null; }); } },
     leaderboard: {
       /** Keeps each player's best score per board. order: 'desc' (default, higher is better) or 'asc'. */
-      submit: function (board, score, order) { S.outcome.submits++; return api('score', { op: 'submit', board: board, score: +score, order: order || 'desc' }).catch(function () { return null; }); },
+      submit: function (board, score, order) { S.outcome.submits++; if (YT && (order || 'desc') === 'desc') ytScore(score); return api('score', { op: 'submit', board: board, score: +score, order: order || 'desc' }).catch(function () { return null; }); },
       top: function (board, limit, order) { return api('score', { op: 'top', board: board, limit: limit || 10, order: order || 'desc' }).then(function (r) { return r.rows; }).catch(function () { return []; }); },
     },
     /** Realtime room on the platform (Durable Object WebSocket relay). First player in is the host. */
@@ -3266,6 +3287,21 @@
     });
   }
   function clipStop(id) { if (clipRec && clipRec.id === id && clipRec.rec.state !== 'inactive') clipRec.rec.stop(); }
+  // ---- YouTube Playables (2.18.0) ----
+  // Inside an exported Playables package: the first frame and GCP.ready() tell YouTube the game is shown and playable,
+  // YouTube's pause and resume pause the game like the platform menu does (GCP.paused, GCP.onPause), its sound switch
+  // mutes the game, GCP.lang follows the language YouTube gives, and scores go to YouTube (sendScore, whole numbers).
+  function ytScore(v) { var n = Math.round(+v); if (!isFinite(n)) return; try { var p = YT.engagement.sendScore({ value: n }); if (p && p.catch) p.catch(function () { }); } catch (e) { /* not available */ } }
+  // YouTube wants firstFrameReady before gameReady: a game that calls GCP.ready() before a frame is drawn sends both then
+  var ytFirst = false;
+  function ytFirstFrame() { if (ytFirst) return; ytFirst = true; try { YT.game.firstFrameReady(); } catch (e) { /* older SDK */ } }
+  if (YT) (function () {
+    frameHooks.push(ytFirstFrame);
+    try { YT.system.onPause(function () { display.paused = true; pauseNotify('platform'); }); YT.system.onResume(function () { display.paused = false; pauseNotify('platform'); }); } catch (e) { /* not available */ }
+    try { ytMuted = !YT.system.isAudioEnabled(); audioHold(); YT.system.onAudioEnabledChange(function (on) { ytMuted = !on; audioHold(); }); } catch (e) { /* not available */ }
+    try { var lp = YT.system.getLanguage(); if (lp && lp.then) lp.then(function (l) { if (l) setLang(l); }, function () { }); } catch (e) { /* not available */ }
+  })();
+
   // ---- controllers: the platform menu (2.17.0) ----
   // In the platform's big-screen mode a player has only a controller, so the game's frame hands the platform its menu on
   // the controller's Home button, or on Start + Select held together for half a second (games keep Start for their own
