@@ -291,3 +291,6 @@
 .wb-more[open] > summary { margin-bottom: 10px; }
 @media (max-width: 760px) { .wb-launch { flex-direction: column; align-items: stretch; } }
 .wb-err pre { white-space: pre-wrap; word-break: break-word; }
+/* a folded log or block: room between its title and what it opens */
+.wb-log > summary { cursor: pointer; font-size: 13px; }
+.wb-log[open] > summary, .wb-start-log[open] > summary, .wb-res[open] > summary, .wb-thought[open] > summary { margin-bottom: 8px; }

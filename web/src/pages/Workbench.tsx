@@ -273,10 +273,15 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
   const [sel, setSel] = useState<string>(() => { try { return sessionStorage.getItem('wb.bridge') || ''; } catch { return ''; } });
   const b = bridges.find((x) => x.info.id === sel) || bridges[bridges.length - 1];
   const sessions = useMemo(() => [...b.sessions.values()].sort((x, y) => y.createdAt - x.createdAt), [b.sessions, b.sessions.size]);
-  // '' follows the newest session; NEW is a fresh conversation the creator asked for (its session starts with the
-  // first message)
+  // '' follows the newest session; NEW is a fresh conversation the creator asked for. A fresh conversation gets its
+  // session at once (not with the first message), so the agent's settings (model, effort, mode…) can be set first; a
+  // session nobody wrote in yet is reused rather than piling up, and is listed only while it is open.
   const [sid, setSid] = useState<string>('');
   const s = b.sessions.get(sid) || null;
+  const blank = (x: SessionInfo) => !x.title && !x.running && !(b.transcripts.get(x.sessionId)?.length);
+  const draft = sessions.find(blank);
+  useEffect(() => { if (sid === NEW && draft) setSid(draft.sessionId); }, [sid, draft]);
+  const autoStart = b.ready && !s && !draft && (sid === NEW || !sessions.length);
   const [adding, setAdding] = useState(false), [rail, setRail] = useState(false);
   // an agent started from "Add an agent": it is selected as soon as it shows up
   const [want, setWant] = useState<{ agentId: string; host?: string; cwd?: string } | null>(null);
@@ -314,10 +319,10 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
 
         <div className="wb-side-h">
           {t('Sessions', '会话')}
-          <button className="btn btn-sm btn-ghost" onClick={() => setSid(NEW)} disabled={b.status !== 'ready'}>+ {t('New', '新建')}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => setSid(draft ? draft.sessionId : NEW)} disabled={b.status !== 'ready'}>+ {t('New', '新建')}</button>
         </div>
         <div className="wb-sessions">
-          {sessions.length ? sessions.map((x) => (
+          {sessions.some((x) => !blank(x) || x.sessionId === sid) ? sessions.filter((x) => !blank(x) || x.sessionId === sid).map((x) => (
             <button key={x.sessionId} className={`wb-session ${x.sessionId === sid ? 'on' : ''}`} onClick={() => setSid(x.sessionId)}>
               <span className="clip">{x.title || t('New session', '新会话')}</span>
               <small className="dim">{x.running ? <><span className="wb-dot pulse" />{t('working', '工作中')}</> : ago(x.updatedAt)}{[...b.asks.values()].some((a) => a.sessionId === x.sessionId) && <Badge tone="accent">{t('Needs you', '需要你处理')}</Badge>}</small>
@@ -327,7 +332,7 @@ function Bench({ bridges, ov, reloadOv }: { bridges: BridgeState[]; ov: Overview
       </aside>
 
       <section className="wb-main" aria-label={t('Conversation', '对话')}>
-        <Conversation key={b.info.id + '|' + (s?.sessionId || 'new')} b={b} s={s} onSession={setSid} onRail={toggleRail} onSide={() => setSideOff(!sideOff)} sideOff={sideOff} railOff={(typeof window !== 'undefined' && window.matchMedia('(max-width: 1180px)').matches) ? !rail : railOff} />
+        <Conversation key={b.info.id + '|' + (s?.sessionId || 'new')} b={b} s={s} autoStart={autoStart} onSession={setSid} onRail={toggleRail} onSide={() => setSideOff(!sideOff)} sideOff={sideOff} railOff={(typeof window !== 'undefined' && window.matchMedia('(max-width: 1180px)').matches) ? !rail : railOff} />
       </section>
 
       <aside className="wb-rail" aria-label={t('Plan and files', '计划与文件')}>
@@ -411,7 +416,7 @@ function StatusDot({ b }: { b: BridgeState }) {
 }
 
 // ----- one conversation -------------------------------------------------------------------------------------------
-function Conversation({ b, s, onSession, onRail, onSide, sideOff, railOff }: { b: BridgeState; s: SessionInfo | null; onSession: (id: string) => void; onRail: () => void; onSide: () => void; sideOff: boolean; railOff: boolean }) {
+function Conversation({ b, s, autoStart, onSession, onRail, onSide, sideOff, railOff }: { b: BridgeState; s: SessionInfo | null; autoStart: boolean; onSession: (id: string) => void; onRail: () => void; onSide: () => void; sideOff: boolean; railOff: boolean }) {
   const { toast } = useApp();
   const entries = (s && b.transcripts.get(s.sessionId)) || EMPTY;
   const { items } = useMemo(() => fold(entries), [entries, entries.length]);
@@ -434,6 +439,13 @@ function Conversation({ b, s, onSession, onRail, onSide, sideOff, railOff }: { b
       return null;
     } finally { setCreating(false); }
   };
+
+  // a fresh conversation starts its session as soon as the agent is ready, so its settings show before the first message
+  const started = useRef(false);
+  useEffect(() => {
+    if (!autoStart || started.current || s || b.status !== 'ready') return;
+    started.current = true; void newSession();
+  }, [autoStart, s, b.status]);
 
   const send = async (blocks: any[]) => {
     const id = s?.sessionId || await newSession();
@@ -462,7 +474,7 @@ function Conversation({ b, s, onSession, onRail, onSide, sideOff, railOff }: { b
           {authNeeded !== null && <AuthCard b={b} detail={authNeeded} onDone={() => { setAuthNeeded(null); void newSession(); }} />}
           {failure && <AgentError b={b} f={failure} onRetry={() => void newSession()} />}
           {s?.trimmed && <p className="dim fs-sm wb-trim">{t('The start of this long session is not shown.', '这个长会话的开头部分未显示。')}</p>}
-          {!s && b.status === 'ready' && authNeeded === null && !failure && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
+          {(!s || !items.length) && b.status === 'ready' && authNeeded === null && !failure && <Welcome b={b} onPick={(text) => void send([{ type: 'text', text }])} busy={creating} />}
           {items.map((it, i) => (
             <Fragment key={it.key}>
               {it.kind !== 'user' && it.kind !== 'end' && (i === 0 || items[i - 1].kind === 'user') && <div className="wb-who"><AgentMark id={b.info.agentId || ''} name={agentTitle(b)} size="s" /><b>{agentTitle(b)}</b></div>}
@@ -490,7 +502,7 @@ function AgentState({ b }: { b: BridgeState }) {
       <div className="stack s">
         <span>{b.detail}</span>
         {/not found/i.test(b.detail) && a && <span>{t('Install {name} on that computer first:', '请先在那台电脑上安装 {name}：', { name: a.name })} <a href={a.website} target="_blank" rel="noreferrer">{a.website}</a></span>}
-        {b.stderr.length > 0 && <details open={b.status === 'failed'}><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{b.stderr.slice(-30).join('\n')}</pre></details>}
+        {b.stderr.length > 0 && <details className="wb-log" open={b.status === 'failed'}><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{b.stderr.slice(-30).join('\n')}</pre></details>}
       </div>
     </Notice>
   );
@@ -530,7 +542,7 @@ function AgentError({ b, f, onRetry }: { b: BridgeState; f: AgentFail; onRetry?:
           {onRetry && <Button size="sm" variant="primary" onClick={onRetry}>{t('Try again', '重试')}</Button>}
           <Button size="sm" onClick={() => restart(b.info.id, true)}>{t('Restart agent', '重启智能体')}</Button>
         </div>
-        {f.log.length > 0 && <details><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{f.log.join('\n')}</pre></details>}
+        {f.log.length > 0 && <details className="wb-log"><summary>{t('What the agent printed', '智能体输出的内容')}</summary><pre className="wb-pre small">{f.log.join('\n')}</pre></details>}
       </div>
     </Notice>
   );
