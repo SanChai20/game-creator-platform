@@ -54,6 +54,8 @@ import { DevlogError, deleteDevlog, editDevlog, listDevlogs } from '../devlogs.j
 // @ts-ignore plain JS module
 import { ProfileError, access, profileOf, publicIds, setSettings, settingsOf, showcaseChoices } from '../profiles.js';
 // @ts-ignore plain JS module
+import { dismiss, forYou } from '../recommend.js';
+// @ts-ignore plain JS module
 import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
 // @ts-ignore plain JS module
 import { declaredFor, rarityOf, unlocksOf, viewOf } from '../achievements.js';
@@ -856,6 +858,26 @@ api.put('/me/profile', async (c) => {
   await rateLimit(c.env, 'profile:' + u.id, 60, 3600);
   const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
   return c.json({ id: u.id, ...(await setSettings(c.env.DB, u.id, { visibility: b.visibility, bio: b.bio, showcase: b.showcase }).catch(profileErr)) });
+});
+
+// For you (src/recommend.js): picked from the player's own history; each card says why it is there.
+api.get('/me/for-you', async (c) => {
+  const u = requireUser(c), origin = c.get('origin');
+  const picks = await forYou(c.env.DB, u.id, Math.min(24, Number(c.req.query('limit')) || 12)) as { id: string; score: number; reason: { kind: string; game?: string; tag?: string } }[];
+  if (!picks.length) return c.json({ games: [] });
+  const ids = [...new Set([...picks.map((x) => x.id), ...picks.map((x) => x.reason.game).filter(Boolean) as string[]])];
+  const rows = (await c.env.DB.prepare(`SELECT p.*, u.name AS author FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all<Record<string, any>>()).results;
+  const by = new Map(rows.map((r) => [r.id, r]));
+  c.header('cache-control', 'private, max-age=60');
+  return c.json({ games: picks.filter((x) => by.has(x.id)).map((x) => {
+    const src = x.reason.game ? by.get(x.reason.game) : null;
+    return { ...card(origin, by.get(x.id)!), reason: { kind: x.reason.kind, ...(x.reason.tag ? { tag: x.reason.tag } : {}), ...(src ? { game: { slug: src.slug, title: src.title, ...listingLangs(src, ['title'], (k) => media(origin, k)) } } : {}) } };
+  }) });
+});
+api.post('/me/for-you/:slug/dismiss', async (c) => {
+  const u = requireUser(c), p = await c.env.DB.prepare('SELECT id FROM projects WHERE slug = ?').bind(c.req.param('slug')).first<{ id: string }>();
+  if (!p) throw notFound('That game is not available.');
+  return c.json(await dismiss(c.env.DB, u.id, p.id));
 });
 
 // Wishlists and coming soon pages (src/wishlist.js)

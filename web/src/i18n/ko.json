@@ -2970,5 +2970,12 @@
   "Pick up to 6 games to show first. With none picked, your most played games show.": "먼저 보여 줄 게임을 최대 6개 고르세요. 고르지 않으면 가장 많이 플레이한 게임이 표시됩니다.",
   "Play a game and it shows up here.": "게임을 플레이하면 여기에 표시됩니다.",
   "Save profile": "프로필 저장",
-  "View your profile": "내 프로필 보기"
+  "View your profile": "내 프로필 보기",
+  "Players of {game} play this": "{game} 플레이어들이 즐기는 게임",
+  "Because you like {tag}": "{tag}을(를) 좋아하셔서",
+  "Popular with players like you": "나와 비슷한 플레이어에게 인기",
+  "For you": "추천 게임",
+  "Picked from the games you play, keep and rate.": "플레이하고, 담고, 평가한 게임을 바탕으로 골랐습니다.",
+  "Not for me: {game}": "관심 없음: {game}",
+  "Not for me": "관심 없음"
 }

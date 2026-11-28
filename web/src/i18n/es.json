@@ -2969,5 +2969,12 @@
   "Pick up to 6 games to show first. With none picked, your most played games show.": "Elige hasta 6 juegos para mostrar primero. Si no eliges ninguno, se muestran los que más has jugado.",
   "Play a game and it shows up here.": "Juega a un juego y aparecerá aquí.",
   "Save profile": "Guardar perfil",
-  "View your profile": "Ver tu perfil"
+  "View your profile": "Ver tu perfil",
+  "Players of {game} play this": "Lo juegan los jugadores de {game}",
+  "Because you like {tag}": "Porque te gusta {tag}",
+  "Popular with players like you": "Popular entre jugadores como tú",
+  "For you": "Para ti",
+  "Picked from the games you play, keep and rate.": "Elegidos a partir de los juegos que juegas, guardas y valoras.",
+  "Not for me: {game}": "No me interesa: {game}",
+  "Not for me": "No me interesa"
 }

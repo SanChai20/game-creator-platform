@@ -2991,5 +2991,12 @@
   "Pick up to 6 games to show first. With none picked, your most played games show.": "最多選擇 6 款遊戲優先展示。未選擇時顯示你玩得最多的遊戲。",
   "Play a game and it shows up here.": "玩過的遊戲會出現在這裡。",
   "Save profile": "儲存個人檔案",
-  "View your profile": "查看我的個人檔案"
+  "View your profile": "查看我的個人檔案",
+  "Players of {game} play this": "{game} 的玩家也在玩",
+  "Because you like {tag}": "因為你喜歡{tag}",
+  "Popular with players like you": "和你相似的玩家喜歡",
+  "For you": "為你推薦",
+  "Picked from the games you play, keep and rate.": "根據你玩過、收藏和評分的遊戲挑選。",
+  "Not for me: {game}": "不感興趣：{game}",
+  "Not for me": "不感興趣"
 }

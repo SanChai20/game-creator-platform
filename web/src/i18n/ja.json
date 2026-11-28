@@ -2970,5 +2970,12 @@
   "Pick up to 6 games to show first. With none picked, your most played games show.": "最初に表示するゲームを最大6本選べます。選ばない場合は最もプレイしたゲームが表示されます。",
   "Play a game and it shows up here.": "ゲームを遊ぶとここに表示されます。",
   "Save profile": "プロフィールを保存",
-  "View your profile": "プロフィールを見る"
+  "View your profile": "プロフィールを見る",
+  "Players of {game} play this": "{game} のプレイヤーが遊んでいます",
+  "Because you like {tag}": "{tag}が好きなあなたに",
+  "Popular with players like you": "あなたに似たプレイヤーに人気",
+  "For you": "あなたへのおすすめ",
+  "Picked from the games you play, keep and rate.": "あなたが遊んだ、保存した、評価したゲームから選んでいます。",
+  "Not for me: {game}": "興味なし：{game}",
+  "Not for me": "興味なし"
 }
