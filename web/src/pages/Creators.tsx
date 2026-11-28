@@ -4,9 +4,10 @@ import { Button, Card, CelScene, Code, Eyebrow, Segmented, Steps } from '../ui';
 import BRIDGE_PKG from '../../../acp-bridge/package.json';
 
 /** The command that starts the workbench's bridge with an agent (src/acp.ts bridgeCommand says the same). */
-export function acpCommand(origin: string, agent = 'claude', custom?: string) {
+export function acpCommand(origin: string, agent = 'claude', custom?: string, name?: string) {
   const base = `npx -y ${origin}/acp/hearthcade-acp-${BRIDGE_PKG.version}.tgz`, server = origin === 'https://hearthcade.com' ? '' : ` --server ${origin}`;
-  return custom !== undefined ? `${base}${server} -- ${custom}` : `${base} ${agent}${server}`;
+  const label = name && name.trim() ? ` --name "${name.trim().replace(/["\\$`]/g, '')}"` : '';
+  return custom !== undefined ? `${base}${server}${label} -- ${custom}` : `${base} ${agent}${server}`;
 }
 
 type Way = 'mcp' | 'acp';
@@ -33,12 +34,7 @@ export function ConnectChoice({ initial }: { initial?: Way }) {
       <p className="dim fs-sm">{t('Pick one. Both reach the same tools, games and versions, and you can switch at any time.', '任选其一。两种方式使用相同的工具、游戏和版本，随时可以切换。')}</p>
       {way === 'mcp' ? <ConnectAgent /> : (
         <div className="stack">
-          <Code text={acpCommand(config.origin)} />
-          <Steps items={[
-            t('Run this in your game\'s folder (Node.js 22 or newer). Swap "claude" for codex, gemini, copilot, cursor, opencode or any of 36 ACP agents.', '在你的游戏文件夹中运行（需要 Node.js 22 或更高版本）。可把 “claude” 换成 codex、gemini、copilot、cursor、opencode 等 36 个 ACP 智能体中的任意一个。'),
-            t('Approve the code it shows, once per computer.', '确认它显示的代码，每台电脑只需一次。'),
-            t('Work with the agent in the workbench: it edits your files, asks before it acts, and deploys with HearthCade\'s tools.', '在工作台中与智能体协作：它修改你的文件、行动前征求你的同意，并用 HearthCade 的工具部署。'),
-          ]} />
+          <p className="mute fs-sm">{t('Claude Agent, Codex, Gemini CLI, Copilot, Cursor or any other ACP agent. The workbench shows how to connect it.', 'Claude Agent、Codex、Gemini CLI、Copilot、Cursor 或任何其他 ACP 智能体。连接方法见工作台。')}</p>
           <div className="row wrapx"><Button variant="primary" size="sm" to="/console/workbench">{t('Open the workbench', '打开工作台')} <em aria-hidden="true">→</em></Button></div>
         </div>
       )}
@@ -152,8 +148,8 @@ export function Creators() {
             <Card pad>
               <div className="stack">
                 <div className="row"><span className="way-tag">ACP</span><b>{t('Your agent in HearthCade', '把你的智能体接入 HearthCade')}</b></div>
-                <Code text={acpCommand(config.origin)} />
                 <span className="mute">{t('Run Claude Agent, Codex, Gemini CLI, Copilot, Cursor or 30 more ACP agents on your computer and work with them in the console\'s workbench.', '在你的电脑上运行 Claude Agent、Codex、Gemini CLI、Copilot、Cursor 等 30 多个 ACP 智能体，在控制台的工作台中与它们协作。')}</span>
+                <div className="row"><Button size="sm" to="/console/workbench">{t('See the workbench for details', '详情见工作台')} <em aria-hidden="true">→</em></Button></div>
               </div>
             </Card>
           </div>

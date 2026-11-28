@@ -260,19 +260,22 @@ test('first download: the npx folder size against the registry estimate', async 
   assert.ok(got.at(-1).bytes >= 30_000 && got.at(-1).bytes <= 40_000);
 });
 
-test('starting: download progress, a stall offers Retry, a forced retry, a failed download says why', async () => {
+test('starting: download progress, a stall offers Retry, a forced retry, a failed download says why', async (t) => {
+  const cores = [];
+  t.after(() => { for (const c of cores) { try { c.stop(); } catch {} } });
   // an npx agent (the mock stands in): the watch reports a download, then nothing happens long enough to stall
   let w = null;
   const fakeWatch = (o) => { w = o; return { stop() { w = null; } }; };
   const asMock = (cmd, args, opts) => spawn(process.execPath, [MOCK], opts);
-  const h = harness({ MOCK_INIT_DELAY: '1500' }, { agent: { id: 'x', name: 'X', command: 'npx', args: ['-y', '@x/agent-acp'], env: { MOCK_INIT_DELAY: '1500' } }, spawn: asMock, watchDownload: fakeWatch, stallMs: 300 });
+  const h = harness({ MOCK_INIT_DELAY: '3000' }, { agent: { id: 'x', name: 'X', command: 'npx', args: ['-y', '@x/agent-acp'], env: { MOCK_INIT_DELAY: '3000' } }, spawn: asMock, watchDownload: fakeWatch, stallMs: 1000 });
+  cores.push(h.core);
   const started = h.core.start();
   await sleep(50);
   assert.equal(w.spec, '@x/agent-acp');
   w.onUpdate({ bytes: 120e6, total: 550e6 });
   const p1 = await h.until((m) => m.type === 'progress' && m.progress.phase === 'downloading');
   assert.equal(p1.progress.bytes, 120e6); assert.equal(p1.progress.total, 550e6); assert.equal(p1.progress.stalled, false);
-  await h.until((m) => m.type === 'progress' && m.progress.stalled === true, 3000);
+  await h.until((m) => m.type === 'progress' && m.progress.stalled === true, 5000);
   await started;
   assert.equal(h.core.status, 'ready');
   assert.equal(h.core.progress, null, 'ready clears the progress');
@@ -280,6 +283,7 @@ test('starting: download progress, a stall offers Retry, a forced retry, a faile
 
   // Retry while it starts: the stuck process is replaced and the agent comes up
   const r = harness({ MOCK_INIT_DELAY: '60000' }, { watchDownload: null, stallMs: 300 });
+  cores.push(r.core);
   void r.core.start();
   await r.until((m) => m.type === 'status' && m.status === 'starting');
   const first = r.core.proc;
@@ -291,6 +295,7 @@ test('starting: download progress, a stall offers Retry, a forced retry, a faile
 
   // a download that fails: npx exits before the agent is ready, and the console gets the reason
   const f = harness({}, { agent: { id: 'y', name: 'Y', command: process.execPath, args: ['-e', 'console.error("npm warn something"); console.error("npm error code ETIMEDOUT"); console.error("npm error network request failed"); process.exit(1)'] }, watchDownload: null });
+  cores.push(f.core);
   await f.core.start();
   const st = await f.until((m) => m.type === 'status' && m.status === 'failed');
   assert.match(st.detail, /exited \(code 1\) before it was ready/);

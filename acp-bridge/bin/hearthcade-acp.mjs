@@ -49,6 +49,7 @@ const server = (opt('--server') || process.env.HEARTHCADE_SERVER || DEFAULT_SERV
 const cwdArg = opt('--cwd');
 const fresh = flag('--new');
 const verbose = flag('--verbose');
+const nameArg = opt('--name');
 const cmd = args[0] || '';
 
 if (cmd === 'list') { listAgents(); process.exit(0); }
@@ -57,7 +58,7 @@ if (cmd === 'logout') { forget(); say(green('✓ ') + `This machine is no longer
 let agent;
 if (custom && custom.length) {
   const parts = custom.length === 1 ? splitCommand(custom[0]) : custom;
-  agent = { id: 'custom', name: cmd && cmd !== 'custom' ? cmd : parts[0], command: parts[0], args: parts.slice(1) };
+  agent = { id: 'custom', name: (nameArg && nameArg.trim().slice(0, 60)) || (cmd && cmd !== 'custom' ? cmd : parts[0].split(/[\\/]/).pop()), command: parts[0], args: parts.slice(1) };
 } else {
   if (!cmd) { help(); process.exit(1); }
   const e = CATALOG.find((a) => a.id === cmd.toLowerCase() || a.registry === cmd.toLowerCase());
@@ -79,11 +80,19 @@ function forget() { const all = creds(); delete all[server]; try { if (Object.ke
 
 const UA = `hearthcade-acp/${PKG.version} (${platform()} ${release()}; node ${process.versions.node})`;
 async function call(path, body, secret) {
-  const r = await fetch(server + path, { method: 'POST', headers: { 'content-type': 'application/json', 'user-agent': UA, ...(secret ? { authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body || {}) });
+  let r;
+  for (let attempt = 1; ; attempt++) {
+    try { r = await fetch(server + path, { method: 'POST', headers: { 'content-type': 'application/json', 'user-agent': UA, ...(secret ? { authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify(body || {}), signal: AbortSignal.timeout(30_000) }); break; }
+    catch (e) {
+      if (attempt >= 4) die(`Cannot reach ${server} (${e?.cause?.code || e?.cause?.message || e?.message || e}). Check the internet connection on this computer and run the command again.`);
+      await sleep(1000 * attempt);
+    }
+  }
   let j = null; try { j = await r.json(); } catch { /* not json */ }
   return { status: r.status, json: j || {} };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+process.on('unhandledRejection', (e) => die(String(e?.message || e)));
 const host = hostname().replace(/\.local$/, '').slice(0, 60);
 
 async function pair() {
@@ -259,7 +268,7 @@ function help() {
   say(`${bold('hearthcade-acp')} ${PKG.version}: use your own coding agent in the HearthCade console (Agent Client Protocol).
 
   hearthcade-acp <agent> [--cwd <folder>]       start a known agent (see "list")
-  hearthcade-acp -- <command…>                   start any ACP agent by its command
+  hearthcade-acp [--name <name>] -- <command…>   start any ACP agent by its command
   hearthcade-acp list                            the agents it knows
   hearthcade-acp logout                          forget this machine's connection
   options: --server <url>  --new (connect again)  --verbose (show the agent's log)`);

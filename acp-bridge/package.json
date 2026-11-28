@@ -1,6 +1,6 @@
 {
   "name": "hearthcade-acp",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Use your own coding agent in the HearthCade console, over the Agent Client Protocol (ACP).",
   "type": "module",
   "bin": { "hearthcade-acp": "bin/hearthcade-acp.mjs" },

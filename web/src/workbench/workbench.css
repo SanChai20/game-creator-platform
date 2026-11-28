@@ -87,7 +87,14 @@
 .wb-top .stack { gap: 2px; }
 .wb-top b { font-size: 14.5px; }
 .wb-top small { font-size: 12px; }
-.wb-rail-btn { display: none; }
+.wb-tog { display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; border: 0; border-radius: var(--r-sm); background: none; color: var(--text-3); cursor: pointer; }
+.wb-tog svg { width: 18px; height: 18px; }
+.wb-tog:hover { background: rgb(var(--text-rgb) / .07); color: var(--text); }
+.wb-tog.on { color: var(--text-2); }
+.wb.side-off { grid-template-columns: minmax(0, 1fr) 290px; }
+.wb.rail-off { grid-template-columns: 250px minmax(0, 1fr); }
+.wb.side-off.rail-off { grid-template-columns: minmax(0, 1fr); }
+.wb.side-off .wb-side, .wb.rail-off .wb-rail { display: none; }
 
 .wb-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px clamp(14px, 4vw, 44px) 16px; scroll-behavior: auto; }
 .wb-thread { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 800px; min-height: 100%; margin: 0 auto; }
@@ -235,13 +242,14 @@
 
 /* ---- narrower screens --------------------------------------------------------------------------------------------- */
 @media (max-width: 1180px) {
-  .wb { grid-template-columns: 230px minmax(0, 1fr); }
+  .wb, .wb.rail-off { grid-template-columns: 230px minmax(0, 1fr); }
+  .wb.side-off, .wb.side-off.rail-off { grid-template-columns: minmax(0, 1fr); }
   .wb-rail { display: none; }
   .wb.rail-open .wb-rail { display: block; position: absolute; right: var(--gut, 16px); width: min(320px, 86vw); max-height: 70vh; margin-top: 64px; background: var(--surface); box-shadow: var(--shadow-3); border: 1px solid var(--line); border-radius: var(--r-lg); z-index: 3; }
-  .wb-rail-btn { display: inline-flex; }
 }
 @media (max-width: 760px) {
   .wb { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: calc(100vh - 150px); min-height: 520px; }
+  .wb.side-off { grid-template-rows: minmax(0, 1fr); }
   .wb-side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 150px; flex-direction: row; overflow-x: auto; overflow-y: hidden; }
   .wb-side-h, .wb-add { display: none; }
   .wb-bridges, .wb-sessions { display: flex; padding: 8px; gap: 6px; flex: none; }
@@ -252,3 +260,20 @@
   .wb-steps { padding: 4px 16px 16px; }
   .wb-steps > li { padding-left: 40px; }
 }
+
+/* ---- choosing an agent: a list --------------------------------------------------------------------------------------- */
+.wb-alist { display: grid; max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.wb-alist button { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--text); text-align: left; font-size: 13.5px; cursor: pointer; }
+.wb-alist button:last-child { border-bottom: 0; }
+.wb-alist button:hover { background: rgb(var(--text-rgb) / .04); }
+.wb-alist button.on { background: rgb(var(--accent-rgb) / .08); box-shadow: inset 3px 0 0 var(--accent); }
+.wb-alist button > b { flex: none; max-width: 40%; font-weight: 600; }
+.wb-alist button > .dim { font-size: 12.5px; }
+.wb-other { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; padding: 6px 12px; border: 1px dashed var(--line-3); border-radius: var(--r-md); background: none; color: var(--text); text-align: left; font-size: 13.5px; cursor: pointer; }
+.wb-other:hover { border-color: var(--text-3); }
+.wb-other.on { border-style: solid; border-color: var(--accent); background: rgb(var(--accent-rgb) / .06); }
+.wb-other > .dim { font-size: 12.5px; }
+.wb-tag { flex: none; height: 20px; padding: 0 7px; border-radius: 999px; background: var(--sunk); color: var(--text-3); font-size: 11px; line-height: 20px; white-space: nowrap; }
+.wb-custom { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); background: rgb(var(--text-rgb) / .03); border: 1px solid var(--line); }
+.wb-custom p { margin: 0; }
+@media (max-width: 760px) { .wb-alist button > .dim { display: none; } .wb-alist button > b { max-width: none; flex: 1; } }
