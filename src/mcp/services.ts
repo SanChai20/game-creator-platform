@@ -375,6 +375,16 @@ export function platformServices(s: Settings, origin: string): Service[] {
       guide: 'testing',
     },
     {
+      id: 'coupons', name: 'Discount codes and keys', category: 'business', status: on(s.paid_games_enabled),
+      what: 'Discount codes and single-use keys for a paid game, for streamers, press and giveaways.',
+      how_it_works: 'coupons {action: "discount"} makes a code for 5 to 90% off the regular price with a number of uses and an optional end; players enter it on the game page before checkout, each account once, and pay the lower of it and any sale, never below 50 cents. coupons {action: "keys"} makes up to 100 single-use keys at a time; a signed-in player redeems one on /redeem and owns the game at no charge. A key is not a sale: the creator is not credited and there is nothing to refund. Codes and unused keys can be switched off.',
+      use_for: ['Giving streamers and press a copy', 'A launch discount for the game\'s community', 'Giveaways'],
+      sdk: [], mcp_tools: ['coupons'],
+      limits: { discount_codes: 20, unused_keys: 1000, keys_per_batch: 100, percent_off: '5 to 90' },
+      guidelines: ['Ask the user before making codes or keys: they decide who gets them.', 'Give the user the keys from the keys or batch action to hand out; they are not shown anywhere public.'],
+      guide: null,
+    },
+    {
       id: 'jams', name: 'Game jams and festivals', category: 'business', status: 'available',
       what: 'Timed events on the /jams page: themed jams with voting, and festivals that show games together for a few days.',
       how_it_works: 'Licensed creators and the platform host events on the /jams page. A jam keeps its theme hidden until it starts, takes entries (live games, made for the jam when it says so) until its entries close, then players who played an entry score it from 1 to 5 on the host\'s criteria; entries with enough voters are ranked when voting closes, and entrants are told under the bell when voting opens and when the results are out. A festival shows live and coming soon games together, with no voting. The platform\'s own event gets a shelf on the store\'s home page. jam {action: "enter"} enters a game.',

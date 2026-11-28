@@ -58,6 +58,7 @@ import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
 import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
+import { CouponError, LIMITS as COUPON_LIMITS, batchKeys, checkDiscount, countDiscountUse, createDiscount, createKeys, disable as disableCoupon, discounted, listCoupons, redeemKey } from '../coupons.js';
 import { LIMITS as PLAYTEST_LIMITS, PlaytestError, answer, byCode, canPlay, closeExpired, closePlaytest, inviteView, join, listPlaytests, openPlaytest, results } from '../playtests.js';
 import { WishError, addWish, announceIssues, canWish, comingSoonGames, isComingSoon, isWished, removeWish, setComingSoon, wishCount, wishlistOf } from '../wishlist.js';
 // @ts-ignore plain JS module
@@ -991,6 +992,54 @@ api.put('/jams/:slug/votes/:pid', async (c) => {
   return c.json(await vote(c.env.DB, j, u.id, c.req.param('pid'), b.scores).catch(jamErr));
 });
 
+// Coupons and keys (src/coupons.js): the creator's discount codes and batches of free keys for a paid game; a buyer
+// enters a code at checkout, a key holder redeems it on /redeem.
+const couponErr = (e: unknown): never => { if (e instanceof CouponError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+api.get('/console/projects/:id/coupons', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ price_cents: p.price_cents, limits: COUPON_LIMITS, ...(await listCoupons(c.env.DB, p.id)) });
+});
+api.post('/console/projects/:id/coupons', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await rateLimit(c.env, 'coupon:' + u.id, 60, 3600);
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  if (b.kind === 'keys') {
+    const r = await createKeys(c.env.DB, p, b).catch(couponErr);
+    await logEvent(c.env, p.id, 'coupon', `${r.codes.length} keys made${r.note ? `: ${r.note}` : ''}`, null, 'console');
+    return c.json({ ok: true, ...r });
+  }
+  const row = await createDiscount(c.env.DB, p, b).catch(couponErr);
+  await logEvent(c.env, p.id, 'coupon', `Discount code ${row.code}: ${row.percent_off}% off, ${row.max_uses} uses`, null, 'console');
+  return c.json({ ok: true, coupon: row });
+});
+api.post('/console/projects/:id/coupons/off', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  const b = await c.req.json<{ id?: string; batch?: string }>().catch(() => ({} as { id?: string; batch?: string }));
+  return c.json(await disableCoupon(c.env.DB, p.id, b).catch(couponErr));
+});
+api.get('/console/projects/:id/coupons/keys/:batch', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ keys: await batchKeys(c.env.DB, p.id, c.req.param('batch')) });
+});
+// What a discount code makes the game cost for this buyer, before checkout.
+api.get('/games/:slug/coupon', async (c) => {
+  const u = requireUser(c), p = await liveGame(c, c.req.param('slug'));
+  await rateLimit(c.env, 'couponpeek:' + u.id, 30, 600);
+  const cp = await checkDiscount(c.env.DB, c.req.query('code'), p, u.id).catch(couponErr);
+  const sale = saleOf(p);
+  return c.json({ code: cp.code, percent_off: cp.percent_off, regular_cents: p.price_cents, price_cents: discounted(p.price_cents, cp.percent_off, sale ? sale.price_cents : null) });
+});
+api.post('/redeem', async (c) => {
+  const u = requireUser(c);
+  await rateLimit(c.env, 'redeem:' + u.id, 20, 3600);
+  const b = await c.req.json<{ key?: string }>().catch(() => ({} as { key?: string }));
+  const r = await redeemKey(c.env.DB, b.key, u.id).catch(couponErr);
+  await logEvent(c.env, r.project_id, 'coupon', 'A key was redeemed', null, 'player');
+  return c.json({ ok: true, slug: r.slug, title: r.title });
+});
+
 // Playtests (src/playtests.js): the creator opens the preview to real players through an invite link and reads how
 // each tester played and what they answered. The console side is the owner's; the tester side is anyone with the link.
 const playtestErr = (e: unknown): never => { if (e instanceof PlaytestError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
@@ -1297,8 +1346,12 @@ api.post('/games/:slug/buy', async (c) => {
   // During a sale the buyer pays the sale price. The checkout closes when the sale ends (Stripe keeps a session open at
   // least 30 minutes), so a sale price is never charged long after the sale. Stripe's amount_total is what gets recorded,
   // and what a refund gives back.
-  const sale = saleOf(p), amount = sale ? sale.price_cents : p.price_cents;
-  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
+  // A discount code comes off the regular price; the buyer pays the lower of it and any sale (src/coupons.js).
+  const b = await c.req.json<{ coupon?: string }>().catch(() => ({} as { coupon?: string }));
+  const cp = b.coupon ? await checkDiscount(c.env.DB, b.coupon, p, u.id).catch(couponErr) : null;
+  const sale = saleOf(p), base = sale ? sale.price_cents : p.price_cents;
+  const amount = cp ? discounted(p.price_cents, cp.percent_off, sale ? sale.price_cents : null) : base;
+  return checkout(c, u, p.title, amount, { kind: 'game', user_id: u.id, project_id: p.id, ...(sale ? { sale_regular_cents: String(sale.regular_cents), sale_ends_at: String(sale.ends_at) } : {}), ...(cp ? { coupon_id: cp.id } : {}) }, `/g/${p.slug}`, true, sale ? sale.ends_at : undefined);
 });
 
 // ----- gifts between friends (src/gifts.ts) -------------------------------------------------------------------------------
@@ -1495,6 +1548,7 @@ async function applySession(env: Env, session: any): Promise<string> {
         .bind('pur_' + rid(20), m.user_id, p.id, p.owner_id, sale.priceCents, session.id, pi, now(), now()).run();
       return 'duplicate_refunded';
     }
+    if (m.coupon_id) await countDiscountUse(env.DB, m.coupon_id, m.user_id, session.id);
     return 'game';
   }
   if (m.kind === 'gift' && m.user_id && m.recipient_id && m.project_id) {

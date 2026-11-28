@@ -44,6 +44,7 @@ export const TOOL_ROLES: Record<string, Role> = {
   publish: 'admin', rollback: 'admin', unpublish: 'admin',
   jam: 'admin', // enters the game in a public event under the owner's name
   playtest: 'maintain', // opens the preview to outside players
+  coupons: 'admin', // discounts and free copies of a paid game
   devlog: 'admin', // posts news to the game's players, like a release
 };
 

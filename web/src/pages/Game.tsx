@@ -20,6 +20,7 @@ import { GiftDialog, type GameGift } from '../gift-ui';
 import { DevlogSection } from '../devlog-ui';
 import { ShareCard } from '../share-ui';
 import { ComingSoonPanel, WishButton } from '../wishlist-ui';
+import { CouponField, type Applied } from '../coupon-ui';
 
 
 export { Stage } from '../player';
@@ -116,6 +117,7 @@ export function Game({ slug }: { slug: string }) {
   useEffect(() => { setWished(!!data?.wished); }, [data?.wished]);
   const [url, setUrl] = useState<string | null>(null), stage = useRef<StageCtl>(null), session = useRef<string | null>(null), ticket = useRef<string | null>(null);
   const [giftMode, setGiftMode] = useState<{ mode: 'give' | 'ask'; to?: string } | null>(null);
+  const [coupon, setCoupon] = useState<Applied | null>(null);
   useInstallHold(!!url || busy === 'play');   // the install popup never opens over a game that is starting or running
   // While the game is open, this page checks in with the platform every 30 seconds: the platform's own play clock, which
   // every play number comes from (plays, play time, players online, trial and refund time), not the game's heartbeats.
@@ -222,7 +224,7 @@ export function Game({ slug }: { slug: string }) {
   };
   const buy = () => {
     if (!user) return navigate(loginUrl());
-    void act('buy', async () => { const r = await api<{ url: string }>(`/games/${slug}/buy`, { method: 'POST' }); location.href = r.url; });
+    void act('buy', async () => { const r = await api<{ url: string }>(`/games/${slug}/buy`, coupon ? { body: { coupon: coupon.code } } : { method: 'POST' }); location.href = r.url; });
   };
   // The library: a free game is added (or removed) here; a paid one is in it from the moment it is bought.
   const inLibrary = data.library as 'bought' | 'added' | null;
@@ -241,8 +243,8 @@ export function Game({ slug }: { slug: string }) {
   // The panel beside the stage (see the aside below): one primary action, the secondary ones under it, small print last.
   const canGift = !!user && !!data.gift && !data.is_owner && !!config.payments;
   const cta = !live ? null : locked
-    ? (canGift ? <BuyMenu label={<>{t('Buy game', '购买游戏')} · {price(g.price_cents)}</>} price={price(g.price_cents)} disabled={busy === 'buy' || !config.payments} onBuy={buy} onAsk={() => setGiftMode({ mode: 'ask' })} />
-      : <Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy game', '购买游戏')} · {price(g.price_cents)}</Button>)
+    ? (canGift ? <BuyMenu label={<>{t('Buy game', '购买游戏')} · {price(coupon ? coupon.price_cents : g.price_cents)}</>} price={price(coupon ? coupon.price_cents : g.price_cents)} disabled={busy === 'buy' || !config.payments} onBuy={buy} onAsk={() => setGiftMode({ mode: 'ask' })} />
+      : <Button variant="primary" size="lg" block onClick={buy} disabled={busy === 'buy' || !config.payments}>{t('Buy game', '购买游戏')} · {price(coupon ? coupon.price_cents : g.price_cents)}</Button>)
     : <><Button variant="primary" size="lg" block onClick={() => toStage()} disabled={busy === 'play' || !!url}>{url ? t('Playing', '游玩中') : <><i className="play-tri" aria-hidden="true" />{cont ? t('Continue', '继续游戏') : t('Play now', '立即游玩')}</>}</Button>
       {cont && !url && <p className="gp-resume"><span className="clip">{resumeLine(cont)}</span>{cont.resume?.progress != null && <span className="cont-bar" aria-hidden="true"><b style={{ width: `${Math.round(cont.resume.progress * 100)}%` }} /></span>}<button type="button" className="linkish" onClick={() => toStage(false)}>{t('Start from the title screen', '从标题画面开始')}</button></p>}</>;
   const tryBtn = live && locked && canTry && !url ? <Button block onClick={() => toStage()} disabled={busy === 'play'}>{tryLabel}</Button> : null;
@@ -302,6 +304,7 @@ export function Game({ slug }: { slug: string }) {
                 <div className="gp-price-row"><PriceTag g={g} className="gp-price" /><SaleTag g={g} />{trial && locked && <span className="trial-tag">{trial.over ? t('Free trial used', '已用完免费试玩') : trialLabel(trial.minutes)}</span>}{paid && data.owned && !data.is_owner && <Badge tone="good">{t('Owned', '已拥有')}</Badge>}</div>
                 {locked && saleOn(g) && <p className="gp-sale-ends">{saleEnds(saleOn(g)!.ends_at)} · {t('then {price}', '之后恢复 {price}', { price: price(saleOn(g)!.regular_cents) })}</p>}
                 <div className="gp-buy-act">{cta}</div>
+                {locked && !data.is_owner && config.payments && <CouponField slug={slug} applied={coupon} onApply={setCoupon} />}
                 {(tryBtn || giftBtn) && <div className={'gp-more' + (tryBtn && giftBtn ? ' two' : '')}>{tryBtn}{giftBtn}</div>}
                 {canGift && <GiftRequests gift={data.gift as GameGift} locked={locked} onGive={(to) => setGiftMode({ mode: 'give', to })} />}
                 {data.refund && !data.is_owner && <RefundBox st={data.refund as RefundState} title={title} onDone={reload} compact />}
