@@ -25,6 +25,7 @@ import { OPERATOR, DEFAULT_BRAND } from '../../web/src/operator';
 import { currentChecks, gateError, gateView, recordGate, releaseGate, storedGate } from '../release-gate';
 import { PRICE_NOW_SQL, applySale, checkoutExpiry, saleOf, saleView } from '../sales';
 import { exportZip, planExport } from '../youtube-export';
+import { checkCover, COVER, imageSize } from '../cover-spec.js';
 import { ensureCompat, ensureVersionMeta, getProject, getVersion, listFiles, logEvent, ownedProject, publicVersion, updateProjectMeta, versionEligible } from '../projects';
 import { budgetOf, latestRequest } from '../storage';
 import { getSettings, SETTING_DEFS } from '../settings';
@@ -940,6 +941,32 @@ api.put('/console/projects/:id/coming-soon', async (c) => {
   const v = await comingSoonView(c, p);
   if (v.coming_soon !== before) await logEvent(c.env, p.id, v.coming_soon ? 'coming_soon' : 'coming_soon_off', v.coming_soon ? `Coming soon page is up${v.release_note ? ` (${v.release_note})` : ''}` : 'Coming soon page taken down', null, 'console');
   return c.json(v);
+});
+
+// The game's cover from the console (the agent sets it with update_project's cover): a png, jpg or webp under 2 MB,
+// 16:9 at 1920x1080 ideally. It is the picture of the store card, the game page and a coming soon page.
+api.get('/console/projects/:id/cover', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  c.header('cache-control', 'private, no-store');
+  return c.json({ cover: p.cover_key ? `${c.get('origin')}/api/media/${p.cover_key}` : null, spec: { width: COVER.width, height: COVER.height, max_bytes: COVER.max_bytes } });
+});
+api.put('/console/projects/:id/cover', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await rateLimit(c.env, 'cover:' + u.id, 30, 3600);
+  const len = Number(c.req.header('content-length') || 0);
+  if (len > COVER.max_bytes) throw bad('The cover must be under 2 MB.');
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  if (!bytes.length) throw bad('Choose an image to upload.');
+  if (bytes.length > COVER.max_bytes) throw bad('The cover must be under 2 MB.');
+  const size = imageSize(bytes);
+  if (!size) throw bad('The cover must be a png, jpg or webp image.');
+  const ext = size.type === 'jpeg' ? 'jpg' : size.type, ctype = size.type === 'jpeg' ? 'image/jpeg' : `image/${size.type}`;
+  const key = `covers/${p.id}-${now().toString(36)}.${ext}`;
+  await c.env.FILES.put(key, bytes, { httpMetadata: { contentType: ctype } });
+  await c.env.DB.prepare('UPDATE projects SET cover_key = ?, updated_at = ? WHERE id = ?').bind(key, now(), p.id).run();
+  await logEvent(c.env, p.id, 'cover', 'Cover uploaded from the console', null, u.name || u.id).catch(() => {});
+  const chk = checkCover(bytes);
+  return c.json({ cover: `${c.get('origin')}/api/media/${key}`, size: chk.size, notes: chk.notes });
 });
 
 // Daily and weekly challenges (src/challenges.js): today's game with the day's board and the viewer's streak, and the

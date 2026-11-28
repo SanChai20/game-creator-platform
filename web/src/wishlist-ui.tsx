@@ -1,5 +1,6 @@
 // Coming soon pages and wishlists (src/wishlist.js): the wishlist button, the coming soon panel on a game page, the
 // store's Coming soon shelf, the library's wishlist, and the console card where a creator announces a game.
+import { CoverUpload } from './cover-ui';
 import { useState } from 'react';
 import { api, date, GameTile, Link, loginUrl, num, t, useAct, useApp, useData, type GameCard } from './lib';
 import { Badge, Button, Card, Input } from './ui';
@@ -59,6 +60,13 @@ export function WishlistSection() {
 interface SoonState { coming_soon: boolean; release_note: string | null; coming_soon_at: number | null; released: boolean; issues: { field: string; message: string }[]; wishlists: number; recent: number; page: string }
 
 /** The console card: put up the coming soon page before the first release, and see how many wished for the game. */
+/** What a coming soon page still needs, in the player's language (the server's messages are English). */
+const issueText = (i: { field: string; message: string }) => ({
+  cover: t('Upload a cover: it is the picture of the coming soon page and of its store card. You can upload it right here.', '上传封面：它是即将推出页面和商店卡片上的图片。可以直接在下面上传。'),
+  title: t('Give the game a title.', '给游戏起个标题。'),
+  tagline: t('Write a tagline: one line that says what the game is.', '写一句简介：用一句话说明这是什么游戏。'),
+} as Record<string, string>)[i.field] || i.message;
+
 export function ComingSoonCard({ id, onChange }: { id: string; onChange?: () => void }) {
   const { data, reload } = useData<SoonState>(`/console/projects/${id}/coming-soon`);
   const { busy, act } = useAct(), [note, setNote] = useState<string | null>(null);
@@ -82,7 +90,8 @@ export function ComingSoonCard({ id, onChange }: { id: string; onChange?: () => 
           <div className="row wrap-row">{wishes}<span className="grow" /><Link className="sig fs-sm" to={new URL(data.page).pathname}>{t('View page', '查看页面')}</Link><Button size="sm" variant="ghost" onClick={() => void save({ on: false }, t('The coming soon page is down.', '即将推出页面已下线。'))} disabled={busy === 'soon'}>{t('Take down', '下线')}</Button></div>
         ) : (
           <>
-            {data.issues.length > 0 && <ul className="mute fs-sm">{data.issues.map((i) => <li key={i.field}>{i.message}</li>)}</ul>}
+            {data.issues.length > 0 && <ul className="mute fs-sm ytx-list">{data.issues.map((i) => <li key={i.field}>{issueText(i)}</li>)}</ul>}
+            {data.issues.some((i) => i.field === 'cover') && <CoverUpload id={id} compact onChange={() => { void reload(); onChange?.(); }} />}
             <div><Button size="sm" variant="primary" onClick={() => void save({ on: true, ...(note !== null ? { release_note: note } : {}) }, t('Your coming soon page is up.', '即将推出页面已上线。'))} disabled={busy === 'soon' || data.issues.length > 0}>{t('Put up the coming soon page', '上线即将推出页面')}</Button></div>
           </>
         )}
