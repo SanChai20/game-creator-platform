@@ -265,3 +265,7 @@
 .lv-acts { flex: 0 0 auto; }
 .lv-rate button { width: 32px; height: 32px; }
 .lv-rate svg { width: 22px; height: 22px; }
+
+/* Publish elsewhere (export-ui.tsx) */
+.ytx-list { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.ytx-list li { list-style: disc; }
