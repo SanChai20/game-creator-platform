@@ -13,6 +13,7 @@ import { AgeBadge, ageLabel } from '../meta-ui';
 import { TestPlayers } from '../test-bots';
 import { DevlogCard } from '../devlog-ui';
 import { ComingSoonCard } from '../wishlist-ui';
+import { PlaytestCard } from '../playtest-ui';
 
 /** What this version needs from a player's browser, checked against yours: the store page shows players the same. */
 const metaField = (f: string) => ({ genre: t('Genre', '类型'), tags: t('Tags from the platform list', '平台标签'), requirements: t('Compatibility requirements', '兼容性要求'), languages: t('Languages', '语言'), players: t('Players', '玩家'), content: t('Content descriptors (age rating)', '内容描述（年龄分级）') } as Record<string, string>)[f] ?? f;
@@ -320,6 +321,7 @@ export function Project({ id }: { id: string }) {
             {s.paid_games_enabled && s.trials_enabled !== false && <FreeTrial id={id} paid={p.price_cents > 0} trial={data.trial} max={Number(s.trial_max_minutes) || 120} reload={reload} />}
             <BuildSkill id={id} p={p} skill={data.skill} reload={reload} />
             {p.status !== 'removed' && <ComingSoonCard id={id} onChange={reload} />}
+            {p.status !== 'removed' && <PlaytestCard id={id} />}
             {p.status !== 'removed' && <DevlogCard id={id} slug={p.slug} live={p.status === 'live' || (!!p.coming_soon_at && !p.published_at)} />}
             <Card title={t('Details', '详情')} pad>
               <KeyValue items={[

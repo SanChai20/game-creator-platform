@@ -18,6 +18,7 @@ import { actBots, botOptions, botStatus, inviteBotFor, startBots, stopBots } fro
 import { getSettings } from '../settings';
 import { applySale, saleView } from '../sales';
 // @ts-ignore plain JS module
+import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
 import { WishError, announceIssues, isComingSoon, setComingSoon, wishCount } from '../wishlist.js';
 import { licenseText, offersText } from '../license';
 import { STORAGE_GUIDE, budgetOf, mb, overBudget, assertFits, requestStorage, storageLine, storageReport } from '../storage';
@@ -1628,6 +1629,38 @@ The whole set as one page: get_started {topic: "standards"}.`,
       if (a.action === 'edit') return guard(() => editDevlog(c.env.DB, p.id, a.id, { title: a.title, body: a.body }));
       if (a.action === 'delete') return guard(() => deleteDevlog(c.env.DB, p.id, a.id));
       throw bad('action must be list, post, edit or delete.');
+    },
+  },
+  {
+    name: 'playtest', title: 'Playtest the preview with real players',
+    description: 'Invite real players to the game\'s preview through a link, ask them up to 5 questions afterwards, and read how each tester played: sessions, minutes, the custom events they reached (GCP.track) and their answers, with an enjoyment score from 1 to 5. Testers\' play is preview play and never counts toward the live game. Actions: list (the game\'s playtests with their links), open (title, optional note on what to try, questions, seats 1 to 500 default 50, days 1 to 30 default 7; needs a verified preview and no other open playtest), close (id) and results (id). Testers play whatever preview is deployed while the playtest is open, so deploy fixes to the preview as you go. Ask the user before opening one: they share the link with their players.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'open', 'close', 'results'] },
+      id: { type: 'string', description: 'close and results: the playtest\'s id from list.' },
+      title: { type: 'string', description: 'open: what this round tests, up to 80 characters, e.g. "Level 2 balance".' },
+      note: { type: 'string', description: 'open: what testers should try, up to 600 characters.' },
+      questions: { type: 'array', items: { type: 'string' }, description: 'open: up to 5 questions asked after playing, each up to 160 characters.' },
+      seats: { type: 'integer', description: 'open: how many testers it takes, 1 to 500. Default 50.' },
+      days: { type: 'integer', description: 'open: how long it stays open, 1 to 30 days. Default 7.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof PlaytestError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      const link = (code: string) => `${c.origin}/playtest/${code}`;
+      if (a.action === 'list') return { playtests: ((await listPlaytests(c.env.DB, p.id)) as any[]).map((x) => ({ ...x, link: link(x.code) })) };
+      if (a.action === 'open') {
+        const row = await guard(() => openPlaytest(c.env.DB, p, a));
+        await logEvent(c.env, p.id, 'playtest', `Playtest opened: ${row.title} (preview v${row.version})`, null, c.client);
+        return { ok: true, id: row.id, link: link(row.code), closes_at: row.closes_at, next: 'Give the user the link to share with their testers. Read results {id} as they play.' };
+      }
+      if (a.action === 'close') return guard(() => closePlaytest(c.env.DB, p.id, a.id));
+      if (a.action === 'results') {
+        const pt = await c.env.DB.prepare('SELECT * FROM playtests WHERE id = ? AND project_id = ?').bind(String(a.id || ''), p.id).first();
+        if (!pt) throw bad('No playtest with that id on this game.', 'Run playtest {action: "list"} for the ids.');
+        return { ...(await playtestResults(c.env.DB, pt)), link: link((pt as any).code) };
+      }
+      throw bad('action must be list, open, close or results.');
     },
   },
   {

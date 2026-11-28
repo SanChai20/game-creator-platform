@@ -49,6 +49,7 @@ import { FriendsButton, SocialRoot } from './social';
 import { NotificationsButton } from './follow';
 import { Creator } from './pages/Creator';
 import { Profile } from './pages/Profile';
+import { PlaytestPage } from './playtest-ui';
 import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
 import { pushLanguage, startPwa } from './pwa';
@@ -275,6 +276,7 @@ function Routes({ user }: { user: Me | null }) {
   if ((m = path.match(/^\/g\/([^/]+)$/))) return <Game key={m[1]} slug={decodeURIComponent(m[1])} />;
   if ((m = path.match(/^\/creator\/([^/]+)$/))) return <Creator key={m[1]} id={decodeURIComponent(m[1])} />;
   if ((m = path.match(/^\/u\/([^/]+)$/))) return <Profile key={m[1]} id={decodeURIComponent(m[1])} />;
+  if ((m = path.match(/^\/playtest\/([a-z0-9]{6,20})$/))) return <PlaytestPage key={m[1]} code={m[1]} />;
   if (path === '/login' || path === '/signup') return <Auth mode={path === '/login' ? 'login' : 'signup'} tools={<><ThemeSwitch /><LangPicker short /></>} />;
   if (path === '/verify') return <Verify />;
   // passwords are gone: old reset links and bookmarks land on the sign-in page
