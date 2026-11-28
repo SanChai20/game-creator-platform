@@ -19,6 +19,7 @@ import { getSettings } from '../settings';
 import { applySale, saleView } from '../sales';
 // @ts-ignore plain JS module
 import { JamError, bySlug as jamBySlug, eligibleGames as jamEligible, entriesOf as jamEntries, listJams, publicView as jamView, submit as jamSubmit, withdraw as jamWithdraw } from '../jams.js';
+import { CouponError, batchKeys, createDiscount, createKeys, disable as disableCoupon, listCoupons } from '../coupons.js';
 import { PlaytestError, closePlaytest, listPlaytests, openPlaytest, results as playtestResults } from '../playtests.js';
 import { WishError, announceIssues, isComingSoon, setComingSoon, wishCount } from '../wishlist.js';
 import { licenseText, offersText } from '../license';
@@ -1690,6 +1691,41 @@ The whole set as one page: get_started {topic: "standards"}.`,
         return { ...(await playtestResults(c.env.DB, pt)), link: link((pt as any).code) };
       }
       throw bad('action must be list, open, close or results.');
+    },
+  },
+  {
+    name: 'coupons', title: 'Discount codes and free keys for a paid game',
+    description: 'Discount codes and keys for a paid game, for streamers, press and giveaways. A discount code (5 to 90% off the regular price, a number of uses, optional days until it ends) is entered on the game page before checkout; each account uses a code once, and during a sale the buyer pays whichever price is lower, never below 50 cents. A key is single use and gives the game at no charge on /redeem: no sale is counted, the creator is not credited, and there is nothing to refund. Actions: list, discount (percent_off, optional code, max_uses default 100, days, note), keys (count 1 to 100, note; returns the keys), batch (batch id: its keys and which were used) and off (id of a discount code, or batch to switch off a batch\'s unused keys). The owner only. Ask the user before making codes or keys: they decide who gets them.',
+    inputSchema: obj({
+      project: PROJECT,
+      action: { type: 'string', enum: ['list', 'discount', 'keys', 'batch', 'off'] },
+      percent_off: { type: 'integer', description: 'discount: 5 to 90.' },
+      code: { type: 'string', description: 'discount: the code players type, 4 to 24 letters and digits. Made up when left out.' },
+      max_uses: { type: 'integer', description: 'discount: how many accounts can use it, 1 to 10000. Default 100.' },
+      days: { type: 'integer', description: 'discount: days until it ends, 1 to 365. No end when left out.' },
+      count: { type: 'integer', description: 'keys: how many, 1 to 100.' },
+      note: { type: 'string', description: 'discount and keys: who it is for, up to 80 characters, e.g. "Streamers, March".' },
+      id: { type: 'string', description: 'off: a discount code\'s id from list.' },
+      batch: { type: 'string', description: 'batch and off: a key batch\'s id from list.' },
+    }, ['project', 'action']),
+    run: async (a, c) => {
+      const p = await scopedProject(c, a.project);
+      assertCan(roleIn(c, p), 'pricing', 'making discount codes and keys');
+      const guard = async <T>(fn: () => Promise<T>): Promise<T> => { try { return await fn(); } catch (e) { if (e instanceof CouponError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; } };
+      if (a.action === 'list') return { redeem_page: `${c.origin}/redeem`, ...(await listCoupons(c.env.DB, p.id)) };
+      if (a.action === 'discount') {
+        const row = await guard(() => createDiscount(c.env.DB, p, a));
+        await logEvent(c.env, p.id, 'coupon', `Discount code ${row.code}: ${row.percent_off}% off, ${row.max_uses} uses`, null, c.client);
+        return { ok: true, coupon: row, next: `Players enter ${row.code} on the game page (${c.origin}/g/${p.slug}) before buying.` };
+      }
+      if (a.action === 'keys') {
+        const r = await guard(() => createKeys(c.env.DB, p, a));
+        await logEvent(c.env, p.id, 'coupon', `${r.codes.length} keys made${r.note ? `: ${r.note}` : ''}`, null, c.client);
+        return { ok: true, ...r, next: `Each key is redeemed once at ${c.origin}/redeem. Give the keys to the user to hand out.` };
+      }
+      if (a.action === 'batch') return { keys: await batchKeys(c.env.DB, p.id, String(a.batch || '')) };
+      if (a.action === 'off') return guard(() => disableCoupon(c.env.DB, p.id, { id: a.id, batch: a.batch }));
+      throw bad('action must be list, discount, keys, batch or off.');
     },
   },
   {
