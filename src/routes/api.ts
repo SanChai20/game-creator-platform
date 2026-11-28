@@ -58,6 +58,7 @@ import { dismiss, forYou } from '../recommend.js';
 // @ts-ignore plain JS module
 import { challengesView, recordPlay as recordDailyPlay } from '../challenges.js';
 import { JamError, LIMITS as JAM_LIMITS, bySlug as jamBySlug, cancelJam, eligibleGames, entriesOf, featuredNow, hostJam, listJams, publicView, submit, vote, withdraw } from '../jams.js';
+import { cancel as cancelTournament, create as createTournament, join as joinTournament, leave as leaveTournament, list as listTournaments, tick as tickTournaments, TournamentError, view as viewTournament } from '../tournaments.js';
 import { addClip, ClipError, clipsOf, clipsOpen, countView, deleteClip, getClip, LIMITS as CLIP_LIMITS, myClips, prepareClip, reportClip, setClipsOff, setHidden as setClipHidden } from '../clips.js';
 import { CommunityError, editPost, moderatePost, removePost, removeReviewReply, reply as boardReply, replyToReview, reportPost, setBoard, startThread, thread as boardThread, threads as boardThreads, withReplies } from '../community.js';
 import { CollectionError, addGame as addToList, browse as browseLists, createCollection, deleteCollection, follow as followList, listsFor, removeGame as removeFromList, reorder as reorderList, staffPicks, updateCollection, view as listView } from '../collections.js';
@@ -1052,6 +1053,53 @@ api.post('/games/:slug/board/posts/:id/report', async (c) => {
   requireUser(c); const { p, v } = await boardGame(c), b = await c.req.json<{ reason?: string }>().catch(() => ({} as { reason?: string }));
   await rateLimit(c.env, 'boardreport:' + v!.id, 30, 3600);
   return c.json(await reportPost(c.env.DB, p, v, c.req.param('id'), String(b.reason || '')).catch(communityErr));
+});
+
+// Tournaments (src/tournaments.js): timed cups and brackets on top of matchmaking.
+const tourErr = (e: unknown): never => { if (e instanceof TournamentError) throw new AppError((e as any).status, e.message, (e as any).code); throw e; };
+const tourCard = (origin: string, x: any) => (x.game ? { ...x, game: { ...x.game, cover: media(origin, x.game.cover_key), cover_key: undefined } } : x);
+api.get('/tournaments', async (c) => {
+  const v = viewerOf(c), all = await listTournaments(c.env.DB);
+  const mine = v ? new Set(((await c.env.DB.prepare('SELECT tournament_id FROM tournament_players WHERE user_id = ?').bind(v.id).all<{ tournament_id: string }>()).results || []).map((r) => r.tournament_id)) : new Set<string>();
+  return c.json({ tournaments: all.map((x: any) => ({ ...tourCard(c.get('origin'), x), joined: mine.has(x.id) })) });
+});
+api.get('/tournaments/:slug', async (c) => {
+  c.header('cache-control', 'private, no-store');
+  await tickTournaments(c.env.DB).catch(() => null);   // a round or a cup that just ran out shows its result
+  const v = viewerOf(c), x = await viewTournament(c.env.DB, c.req.param('slug'), v?.id || null);
+  if (!x) throw notFound('No such tournament.');
+  const owner = await c.env.DB.prepare('SELECT owner_id FROM projects WHERE id = ?').bind(x.game?.id || '').first<{ owner_id: string }>();
+  return c.json({ tournament: { ...tourCard(c.get('origin'), x), can_cancel: !!v && (v.role === 'admin' || (!x.official && (v.id === x.created_by || v.id === owner?.owner_id))) } });
+});
+api.post('/tournaments/:slug/join', async (c) => {
+  requireUser(c); const v = viewerOf(c); if (!v) throw new AppError(401, 'Sign in to take part.', 'unauthenticated');
+  await rateLimit(c.env, 'tjoin:' + v.id, 30, 600);
+  return c.json(await joinTournament(c.env.DB, v.id, c.req.param('slug')).catch(tourErr));
+});
+api.delete('/tournaments/:slug/join', async (c) => { const u = requireUser(c); return c.json(await leaveTournament(c.env.DB, u.id, c.req.param('slug')).catch(tourErr)); });
+api.post('/tournaments/:slug/cancel', async (c) => { const u = requireUser(c); return c.json(await cancelTournament(c.env.DB, { id: u.id, admin: u.role === 'admin' }, c.req.param('slug')).catch(tourErr)); });
+api.get('/games/:slug/tournaments', async (c) => {
+  const { p } = await boardGame(c);
+  return c.json({ tournaments: (await listTournaments(c.env.DB, { game: p.id })).map((x: any) => tourCard(c.get('origin'), x)) });
+});
+// the creator's side: a game's tournaments, all of them, and a new one (admins may make official ones for any game)
+api.get('/console/projects/:id/tournaments', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  c.header('cache-control', 'private, no-store');
+  const lv = p.live_version ? await getVersion(c.env, p.id, p.live_version) : null;
+  let matches = false; try { matches = !!JSON.parse(lv?.manifest || '{}').hasMatch; } catch { /* old manifest */ }
+  return c.json({ tournaments: (await listTournaments(c.env.DB, { game: p.id, all: true })).map((x: any) => tourCard(c.get('origin'), x)), live: p.status === 'live', matches, admin: u.role === 'admin' });
+});
+api.post('/console/projects/:id/tournaments', async (c) => {
+  const u = requireUser(c), p = await ownedProject(c.env, u, c.req.param('id'));
+  await rateLimit(c.env, 'tcreate:' + u.id, 20, 3600);
+  const lv = p.live_version ? await getVersion(c.env, p.id, p.live_version) : null;
+  let matches = false; try { matches = !!JSON.parse(lv?.manifest || '{}').hasMatch; } catch { /* old manifest */ }
+  if (!matches) throw new AppError(409, 'Tournaments run on server-run matches: the live version needs server/match.js.', 'no_match_code');
+  const b = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+  const r = await createTournament(c.env.DB, { id: u.id, admin: u.role === 'admin' }, p, b).catch(tourErr);
+  await logEvent(c.env, p.id, 'tournament', `Tournament scheduled: ${String(b.title || '').slice(0, 80)}`, null, 'console');
+  return c.json(r);
 });
 
 // Clips (src/clips.js): short recordings players make while playing, stored in R2 and shared by link.

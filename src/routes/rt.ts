@@ -1,5 +1,6 @@
 // Runtime API called from inside games (cross-origin, authenticated by the signed play token):
 // the game's heartbeat (started, errors), cloud saves, leaderboards, realtime rooms, and the store used by game server code.
+import { pairingFor, recordMatch } from '../tournaments.js';
 import { readOptions } from '../file-read';
 import { Hono, type Context } from 'hono';
 import { AppError, bad, type Env } from '../env';
@@ -396,7 +397,10 @@ rt.get('/match', async (c) => {
     seat.code = lobby.c; seat.priv = true; seat.own = own;
     seat.lk = await signLobby(c.env, { g: tok.g, e: tok.e, c: lobby.c, q: q.queue, n: q.size, m: q.min, t: q.teams, o: q.mode });
   }
-  const name = lobby ? `${tok.g}:${tok.e}:pcode:${lobby.c}` : q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
+  // a player with a bracket match to play now (src/tournaments.js) meets only their opponent, in a room of the pair's own
+  const duel = !lobby && !q.code && tok.e === 'live' && !isGuestId(tok.u) ? await pairingFor(c.env.DB, tok.g, q.queue, tok.u).catch(() => null) : null;
+  if (duel) { seat.size = 2; seat.min = 2; seat.teams = 0; }
+  const name = duel ? `${tok.g}:${tok.e}:tm:${duel.room}` : lobby ? `${tok.g}:${tok.e}:pcode:${lobby.c}` : q.code ? `${tok.g}:${tok.e}:code:${q.code}` : `${tok.g}:${tok.e}:q:${q.queue}:${q.size}:${q.min}:${q.teams}:${q.mode}`;
   // the game's owner searched in their preview: test bots that follow them search the same queue or enter the same
   // lobby code. A private lobby of their own is entered by invite only, by bots as by friends (src/bots.ts inviteBot).
   if (tok.e === 'preview' && tok.k === 'owner') {
@@ -461,6 +465,8 @@ rt.post('/match-result', async (c) => {
       ON CONFLICT(project_id, env, queue, user_id) DO UPDATE SET rating = ROUND(rating + ?5, 1), games = games + 1, wins = wins + ?6, updated_at = ?7`)
     .bind(g, e, m.queue, u, Math.round((delta.get(u) || 0) * 10) / 10, ranking[0].includes(u) ? 1 : 0, t));
   await c.env.DB.batch(stmts);
+  // tournaments on this queue: cup points and bracket results (src/tournaments.js)
+  if (e === 'live') await recordMatch(c.env.DB, g, m.queue, ranking, id, t).catch((err) => console.warn('tournament result', String((err as Error).message || err)));
   return c.json({ ok: true, rated: ids.length });
 });
 

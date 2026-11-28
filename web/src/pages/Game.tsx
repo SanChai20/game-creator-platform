@@ -25,6 +25,7 @@ import { BundleLines, type BundleLine } from '../bundle-ui';
 import { AddToList } from '../collection-ui';
 import { CommunityBoard, ReviewReply } from '../community-ui';
 import { ClipSaveDialog, ClipsSection } from '../clip-ui';
+import { GameTournaments } from '../tournament-ui';
 import type { ClipTake } from '../player';
 
 
@@ -394,6 +395,7 @@ export function Game({ slug }: { slug: string }) {
               <Stat label={t('Rating', '评分')} value={g.rating != null ? `★ ${g.rating.toFixed(1)}` : '—'} />
             </StatGrid>
             {user && live && <MyProgress slug={slug} playing={!!url} />}
+            {live && <GameTournaments slug={slug} />}
             {live && <Achievements slug={slug} playing={!!url} />}
             {live && <ShareCard slug={slug} title={title} />}
             <Card title={t('What players think', '玩家怎么看')} aside={count(g.rating_count, 'rating', 'ratings', '个评分')} pad>

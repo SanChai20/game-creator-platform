@@ -56,6 +56,7 @@ export const TOOL_GROUPS: ToolGroup[] = [
     ['community', 'read reviews and the game\'s discussion board, and answer players as the creator'],
     ['bundles', 'group your paid games so owning one lowers the price of the rest'],
     ['coupons', 'discount codes and single-use free keys for a paid game, for streamers, press and giveaways'],
+    ['tournaments', 'timed cups and brackets on a game\'s server-run matches, shown on /tournaments'],
     ['playtest', 'invite real players to the preview by link, ask them questions, read how each played and what they said'],
     ['preview_bots', 'bot players in the preview for online games: real matchmaker and rooms, regions, bad networks, drops, invites, with the game\'s server/bot.js'],
     ['get_stats', 'players online, sessions and play time, devices, ratings, reviews, sales, and the errors players\' browsers reported'],

@@ -54,6 +54,7 @@ import { RedeemPage } from './coupon-ui';
 import { BundlePage } from './bundle-ui';
 import { CollectionPage, CollectionsPage } from './collection-ui';
 import { ClipPage, MyClipsPage } from './clip-ui';
+import { TournamentPage, TournamentsPage } from './tournament-ui';
 import { JamPage, JamsPage } from './jam-ui';
 import { InstallAppLink, InstallPrompt } from './install-tip';
 import { desktopShell } from './desktop-app';
@@ -286,6 +287,8 @@ function Routes({ user }: { user: Me | null }) {
   if (path === '/redeem') return <RedeemPage />;
   if (path === '/collections') return <CollectionsPage />;
   if (path === '/clips') return <MyClipsPage />;
+  if (path === '/tournaments') return <TournamentsPage />;
+  if ((m = path.match(/^\/tournaments\/([a-z0-9-]{1,60})$/))) return <TournamentPage key={m[1]} slug={m[1]} />;
   if ((m = path.match(/^\/clip\/(clp_[a-z0-9]{6,20})$/))) return <ClipPage key={m[1]} id={m[1]} />;
   if ((m = path.match(/^\/collections\/([a-z0-9-]{1,60})$/))) return <CollectionPage key={m[1]} slug={m[1]} />;
   if ((m = path.match(/^\/bundles\/([a-z0-9-]{1,60})$/))) return <BundlePage key={m[1]} slug={m[1]} />;
@@ -364,7 +367,7 @@ function App() {
             <p className="foot-tag">{state.config.settings.tagline}</p>
             <p className="foot-web">{t('Web games only: every game here runs in a browser page.', '仅支持网页游戏：这里的每款游戏都在浏览器页面中运行。')}</p>
           </div>
-          <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link><Link to="/collections">{t('Lists', '清单')}</Link><Link to="/jams">{t('Jams and festivals', '游戏创作节与游戏节')}</Link><Link to="/redeem">{t('Redeem a key', '兑换激活码')}</Link><Link to="/download">{t('Get the app', '下载应用')}</Link></nav>
+          <nav className="foot-col" aria-label={t('Store', '商店')}><b>{t('Store', '商店')}</b><Link to="/">{t('Front page', '首页')}</Link><Link to="/browse">{t('All games', '全部游戏')}</Link><Link to="/categories">{t('Categories', '分类')}</Link><Link to="/browse?sort=new">{t('New releases', '新品')}</Link><Link to="/browse?sort=top">{t('Top rated', '好评榜')}</Link><Link to="/browse?price=free">{t('Free to play', '免费游戏')}</Link><Link to="/queue">{t('Discovery queue', '探索队列')}</Link><Link to="/collections">{t('Lists', '清单')}</Link><Link to="/jams">{t('Jams and festivals', '游戏创作节与游戏节')}</Link><Link to="/tournaments">{t('Tournaments', '锦标赛')}</Link><Link to="/redeem">{t('Redeem a key', '兑换激活码')}</Link><Link to="/download">{t('Get the app', '下载应用')}</Link></nav>
           <nav className="foot-col" aria-label={t('Creators', '创作者')}><b>{t('Creators', '创作者')}</b><Link to="/create">{t('Make a game', '创作游戏')}</Link><Link to="/creator-store">{t('Creator Store', '创作者商店')}</Link><Link to="/jams">{t('Host a jam', '主办游戏创作节')}</Link><Link to="/docs">{t('Docs', '文档')}</Link><Link to="/console">{t('Console', '控制台')}</Link><a href="/guides/platform-contract.md" target="_blank" rel="noreferrer">{t('Platform contract', '平台约定')}</a></nav>
           <nav className="foot-col" aria-label={t('Legal', '法律信息')}><b>{t('Legal', '法律信息')}</b>{LEGAL_DOCS.map((d) => <Link key={d} to={`/legal/${d}`}>{legalTitle(d)}</Link>)}</nav>
         </div>

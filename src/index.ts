@@ -58,6 +58,7 @@ import { claimedGuestCleanupStmts } from './session-binding.js';
 import { oldSeatsStmt } from './match-seats.js';
 // @ts-ignore plain JS module
 import { cleanupStmts as socialCleanupStmts } from './social-rules.js';
+import { tick as tickTournaments } from './tournaments.js';
 
 import { recentStmt, refreshCatalog } from './catalog';
 import { giftCleanupStmts } from './gifts';
@@ -663,6 +664,8 @@ const handler = {
     job('transfers', () => retryTransfers(env));
     // jam entrants hear when voting opens and when the results are out (src/jams.js)
     job('jams', () => jamNotices(env.DB));
+    // tournaments start, rounds whose time ran out close, cups finish (src/tournaments.js)
+    job('tournaments', () => tickTournaments(env.DB));
     // bring game Workers deployed with an older runtime up to this build's (a no-op once all are current)
     job('rollout', () => rolloutRuntime(env));
     // live games published before adult games were labelled get their age rating on the project (a no-op once all have one)
