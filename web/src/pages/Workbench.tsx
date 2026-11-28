@@ -1,7 +1,8 @@
 // The workbench: the creator's own coding agent, on their machine, used from the console over the Agent Client Protocol.
 // The platform hosts no agent. A bridge on the creator's machine (acp-bridge/) runs it and relays to this page; see
 // src/acp.ts for the platform side and web/src/workbench/store.ts for the live connection.
-import { Fragment, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { ago, api, date, Fail, Link, navigate, num, query, t, useAct, useApp, useData, useLocation } from '../lib';
 import { Badge, Button, Card, Code, Modal, Notice, PageHeader } from '../ui';
 import { Skeleton, SkRows } from '../ui/skeleton';
@@ -19,6 +20,16 @@ let AGENTS: RegAgent[] = (REGISTRY as { agents: RegAgent[] }).agents;
 const ICONS = new Set(AGENTS.map((a) => a.id));   // web/public/acp-icons/<id>.svg
 /** The ids the bridge used before it followed the registry (an older bridge still reports them). */
 const ALIASES: Record<string, string> = { claude: 'claude-acp', codex: 'codex-acp', copilot: 'github-copilot-cli', qwen: 'qwen-code', kimi: 'kimi-code', vibe: 'mistral-vibe', droid: 'factory-droid', amp: 'amp-acp', grok: 'grok-build', codebuddy: 'codebuddy-code', minimax: 'minimax-code', minion: 'minion-code', muse: 'muse-code' };
+/** The agents a bridge before 1.0.6 knows, by the ids it used then. */
+const OLD_IDS = new Set('claude codex gemini copilot cursor opencode qwen goose kimi kiro cline auggie vibe droid junie amp grok devin kilo autohand bob codebuddy crow-cli deepagents dimcode dirac fast-agent kimchi minimax minion muse nova poolside qoder stakpak vtcode'.split(' '));
+const older = (v: string | undefined, than: string) => { const a = String(v || '0').split('.').map(Number), b = than.split('.').map(Number); for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) < (b[i] || 0); return false; };
+/** The id to ask a bridge for: a bridge before 1.0.6 knows the registry's agents by its old ids, or not at all (null). */
+function idFor(bridgeVersion: string | undefined, id: string): string | null {
+  if (!older(bridgeVersion, '1.0.6')) return id;
+  const old = Object.keys(ALIASES).find((k) => ALIASES[k] === id);
+  if (old) return old;
+  return OLD_IDS.has(id) && !ALIASES[id] ? id : null;   // "kimi" meant Kimi Code there, not the registry's Kimi
+}
 let registryAsked = false;
 /** Loads the live registry once; the components re-render when it arrives. */
 function useRegistry() {
@@ -45,7 +56,7 @@ interface Overview {
 const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
 const initials = (name: string) => name.replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '·';
 export function AgentMark({ id, name, size = 'm' }: { id: string; name: string; size?: 's' | 'm' | 'l' }) {
-  const rid = ALIASES[id] || id;
+  const rid = ICONS.has(id) ? id : ALIASES[id] || id;
   if (ICONS.has(rid)) return <span className={`wb-mark ${size} icon`} aria-hidden="true"><i style={{ ['--icon' as string]: `url(/acp-icons/${rid}.svg)` }} /></span>;
   return <span className={`wb-mark ${size}`} style={{ ['--h' as string]: hue(id || name) }} aria-hidden="true">{initials(name)}</span>;
 }
@@ -175,16 +186,29 @@ function PairApproval({ code, onDone }: { code: string; onDone: () => void }) {
 /** A dropdown of the known agents with a search box, and "Another agent" for anything else. */
 function AgentSelect({ value, onChange, running }: { value: string; onChange: (id: string) => void; running?: Set<string> }) {
   const [open, setOpen] = useState(false), [q, setQ] = useState(''), [hi, setHi] = useState(0);
-  const box = useRef<HTMLDivElement>(null), listRef = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null), btn = useRef<HTMLButtonElement>(null), pop = useRef<HTMLDivElement>(null), listRef = useRef<HTMLDivElement>(null);
   const needle = q.trim().toLowerCase();
   const shown = needle ? AGENTS.filter((x) => (x.name + ' ' + x.id + ' ' + (x.description || '') + ' ' + x.authors.join(' ')).toLowerCase().includes(needle)) : AGENTS;
   const ids = [...shown.map((x) => x.id), 'custom'];
   const cur = agentById(value);
+  // The list floats over everything (a dialog included) at a fixed size that fits the screen, below the button or above
+  // it when there is more room there, and only the list itself scrolls.
+  const [at, setAt] = useState<{ left: number; width: number; top?: number; bottom?: number; height: number } | null>(null);
+  const place = () => {
+    const r = btn.current?.getBoundingClientRect();
+    if (!r) return;
+    const below = innerHeight - r.bottom - 12, above = r.top - 12, down = below >= 360 || below >= above;
+    setAt({ left: r.left, width: r.width, height: Math.max(160, Math.min(460, down ? below : above)), ...(down ? { top: r.bottom + 4 } : { bottom: innerHeight - r.top + 4 }) });
+  };
+  useLayoutEffect(() => { if (open) place(); else setAt(null); }, [open]);
   useEffect(() => {
     if (!open) return;
-    const off = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', off);
-    return () => document.removeEventListener('mousedown', off);
+    const inside = (n: EventTarget | null) => !!(n && (box.current?.contains(n as Node) || pop.current?.contains(n as Node)));
+    const off = (e: Event) => { if (!inside(e.target)) setOpen(false); };
+    const moved = (e: Event) => { if (!pop.current?.contains(e.target as Node)) place(); };
+    document.addEventListener('mousedown', off); document.addEventListener('touchstart', off);
+    addEventListener('scroll', moved, true); addEventListener('resize', place);
+    return () => { document.removeEventListener('mousedown', off); document.removeEventListener('touchstart', off); removeEventListener('scroll', moved, true); removeEventListener('resize', place); };
   }, [open]);
   useEffect(() => { setHi(0); }, [needle]);
   useEffect(() => { listRef.current?.querySelector<HTMLElement>(`[data-i="${hi}"]`)?.scrollIntoView({ block: 'nearest' }); }, [hi, open]);
@@ -194,11 +218,11 @@ function AgentSelect({ value, onChange, running }: { value: string; onChange: (i
     if (e.key === 'ArrowDown') { e.preventDefault(); setHi((i) => Math.min(ids.length - 1, i + 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((i) => Math.max(0, i - 1)); }
     else if (e.key === 'Enter') { e.preventDefault(); choose(ids[hi]); }
-    else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); btn.current?.focus(); }   // not the dialog around it
   };
   return (
     <div className="wb-asel" ref={box}>
-      <button type="button" className="wb-asel-btn" aria-haspopup="listbox" aria-expanded={open} onClick={toggle}
+      <button ref={btn} type="button" className="wb-asel-btn" aria-haspopup="listbox" aria-expanded={open} onClick={toggle}
         onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); toggle(); } }}>
         {cur ? <AgentMark id={cur.id} name={cur.name} size="s" /> : <span className="wb-mark s plain" aria-hidden="true">+</span>}
         <b className="clip">{cur ? cur.name : t('Another agent', '其他智能体')}</b>
@@ -206,8 +230,8 @@ function AgentSelect({ value, onChange, running }: { value: string; onChange: (i
         <span className="dim clip grow">{cur ? cur.description : t('Any program that speaks ACP', '任何支持 ACP 的程序')}</span>
         <svg className="wb-chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
-      {open && (
-        <div className="wb-asel-pop">
+      {open && at && createPortal(
+        <div className="wb-asel-pop" ref={pop} style={{ left: at.left, width: at.width, top: at.top ?? 'auto', bottom: at.bottom ?? 'auto', maxHeight: at.height }}>
           <input className="input" type="search" autoFocus placeholder={t('Search {n} agents', '搜索 {n} 个智能体', { n: AGENTS.length })} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={key} aria-label={t('Search agents', '搜索智能体')} />
           <p className="dim fs-xs wb-asrc">{t('The agents of the', '来自')} <a href="https://github.com/agentclientprotocol/registry" target="_blank" rel="noreferrer">{t('ACP Registry', 'ACP 注册表')}</a>{t(', the same list Zed offers.', '，与 Zed 提供的列表相同。')}</p>
           <div className="wb-asel-list" role="listbox" aria-label={t('Agent', '智能体')} ref={listRef}>
@@ -229,7 +253,7 @@ function AgentSelect({ value, onChange, running }: { value: string; onChange: (i
             <b>{t('Another agent', '其他智能体')}</b>
             <span className="dim clip grow">{t('Any program that speaks ACP: give its command', '任何支持 ACP 的程序：填写它的启动命令')}</span>
           </div>
-        </div>
+        </div>, document.fullscreenElement || document.body,
       )}
     </div>
   );
@@ -426,7 +450,7 @@ function AddAgent({ ov, bridges, current, onStarted }: { ov: Overview; bridges: 
   const [target, setTarget] = useState(() => (targets.find((x) => x.info.host === current.info.host && x.info.cwd === current.info.cwd) || targets[0])?.info.id || '');
   const tb = targets.find((x) => x.info.id === target) || targets[0];
   const here = (x: BridgeState) => !!tb && x.info.host === tb.info.host && x.info.cwd === tb.info.cwd;
-  const running = new Set(bridges.filter(here).map((x) => x.info.agentId || ''));
+  const running = new Set(bridges.filter(here).map((x) => { const id = x.info.agentId || ''; return older(x.info.version, '1.0.6') ? ALIASES[id] || id : id; }));
   const [agent, setAgent] = useState(() => (running.has('claude-acp') ? AGENTS.find((a) => !running.has(a.id))?.id : null) || 'claude-acp'), [custom, setCustom] = useState('');
   const { busy, act } = useAct();
   const [err, setErr] = useState('');
@@ -444,7 +468,9 @@ function AddAgent({ ov, bridges, current, onStarted }: { ov: Overview; bridges: 
   const a = agentById(agent)!, already = running.has(agent);
   const start = () => act('launch', async () => {
     setErr('');
-    try { await launchAgent(tb.info.id, agent); onStarted({ agentId: agent, host: tb.info.host, cwd: tb.info.cwd }); }
+    const ask = idFor(tb.info.version, agent);
+    if (!ask) { setErr(t('The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under "Another computer or folder?" below) to get the latest one.', '{host} 上的连接程序是旧版本（{version}），无法启动 {name}。请按 Ctrl+C 停止它，然后重新运行命令（见下方“其他电脑或文件夹？”）以获取最新版本。', { host: tb.info.host || '', version: tb.info.version || '?', name: a.name })); return; }
+    try { await launchAgent(tb.info.id, ask); onStarted({ agentId: ask, host: tb.info.host, cwd: tb.info.cwd }); }
     catch (e: any) { setErr(String(e?.message || e)); }
   });
   return (

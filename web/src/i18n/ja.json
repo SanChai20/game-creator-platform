@@ -2835,6 +2835,7 @@
   "ACP Registry": "ACP レジストリ",
   ", the same list Zed offers.": "のエージェント。Zed と同じリストです。",
   "ID: {id}": "ID：{id}",
+  "The connector on {host} is an older version ({version}) that cannot start {name}. Stop it with Ctrl+C and run the command again (under \"Another computer or folder?\" below) to get the latest one.": "{host} のコネクターは古いバージョン（{version}）のため、{name} を起動できません。Ctrl+C で止め、コマンドをもう一度実行して（下の「別のコンピューターやフォルダー？」）最新版を入手してください。",
   "Achievements": "実績",
   "{n} of {total} unlocked": "{total}個中{n}個解除",
   "Hidden achievement": "隠し実績",
