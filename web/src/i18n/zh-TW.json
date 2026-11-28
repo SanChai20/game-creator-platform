@@ -3438,5 +3438,18 @@
   "Let players share levels": "允許玩家分享關卡",
   "Turn level sharing off": "關閉關卡分享",
   "You have not shared a level of this game yet.": "你還沒有分享過這款遊戲的關卡。",
-  "No levels yet. Make one in the game and share it.": "還沒有關卡。在遊戲裡製作一個並分享吧。"
+  "No levels yet. Make one in the game and share it.": "還沒有關卡。在遊戲裡製作一個並分享吧。",
+  "Big screen": "大螢幕模式",
+  "Full screen": "全螢幕",
+  "Exit big screen": "退出大螢幕模式",
+  "Loading games…": "正在載入遊戲…",
+  "No games to show yet.": "暫時沒有可顯示的遊戲。",
+  "Back": "返回",
+  "Game menu (or Start + Select)": "遊戲選單（或 Start + Select）",
+  "Move": "移動",
+  "Connect a controller to play from the couch.": "連接手把即可坐在沙發上玩。",
+  "Controller connected": "已連接手把",
+  "Browse and play with it in big-screen mode.": "在大螢幕模式下用手把瀏覽和遊玩。",
+  "Open big screen": "開啟大螢幕模式",
+  "Back to big screen": "返回大螢幕模式"
 }

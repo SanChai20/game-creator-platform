@@ -1,0 +1,43 @@
+/* Big-screen mode (/tv, bigscreen.tsx): large type and covers for a screen across the room, always dark. */
+.tv { --tv-bg: #0d0b12; --tv-fg: #f6f1ea; --tv-dim: rgb(246 241 234 / .68); --tv-ring: var(--accent); position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: auto auto 1fr auto; background: var(--tv-bg); color: var(--tv-fg); overflow: hidden; font-size: clamp(15px, 1.15vw, 22px); }
+.tv-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: clamp(12px, 2vh, 28px) clamp(16px, 4vw, 64px); position: relative; z-index: 2; }
+.tv-brand { display: flex; align-items: center; gap: 12px; font-weight: 800; font-size: 1.3em; letter-spacing: .01em; }
+.tv-brand .logo { width: 1.6em; height: 1.6em; }
+.tv-brand small { font-weight: 600; font-size: .62em; text-transform: uppercase; letter-spacing: .14em; color: var(--tv-dim); }
+.tv-top-r { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.tv-user { color: var(--tv-dim); font-weight: 600; margin-right: 6px; }
+.tv-btn { font: inherit; font-weight: 700; font-size: .85em; color: var(--tv-fg); background: rgb(255 255 255 / .08); border: 2px solid transparent; border-radius: 999px; padding: .5em 1.1em; cursor: pointer; }
+.tv-btn:hover, .tv-btn:focus-visible, .pad-nav .tv-btn:focus { background: rgb(255 255 255 / .16); border-color: var(--tv-ring); outline: none; }
+.tv-hero { position: relative; min-height: clamp(160px, 30vh, 380px); display: flex; align-items: flex-end; padding: 0 clamp(16px, 4vw, 64px) clamp(8px, 2vh, 24px); }
+.tv-back { position: absolute; inset: -80px 0 -40px; background-size: cover; background-position: center 30%; opacity: .5; filter: saturate(1.1); mask-image: linear-gradient(to bottom, #000 30%, transparent), linear-gradient(to left, #000 20%, transparent 80%); mask-composite: intersect; -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent); transition: background-image .3s; }
+.tv-hero-b { position: relative; max-width: 60ch; display: grid; gap: .4em; }
+.tv-title { margin: 0; font-size: clamp(30px, 3.6vw, 68px); line-height: 1.02; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.tv-tag { margin: 0; font-size: 1.15em; color: var(--tv-dim); }
+.tv-meta { margin: 0; display: flex; flex-wrap: wrap; gap: .4em 1.2em; font-weight: 600; color: var(--tv-dim); }
+.tv-rows { overflow-y: auto; overflow-x: hidden; padding: 0 0 24px; scroll-behavior: smooth; scrollbar-width: none; }
+.tv-rows::-webkit-scrollbar { display: none; }
+.tv-sec { margin-top: clamp(8px, 1.5vh, 20px); }
+.tv-sec h2 { margin: 0 0 .5em; padding: 0 clamp(16px, 4vw, 64px); font-size: 1.15em; font-weight: 800; letter-spacing: .02em; }
+.tv-row { display: flex; gap: clamp(10px, 1.2vw, 22px); overflow-x: auto; padding: 8px clamp(16px, 4vw, 64px) 12px; scroll-padding-inline: clamp(16px, 4vw, 64px); scrollbar-width: none; }
+.tv-row::-webkit-scrollbar { display: none; }
+.tv-tile { flex: 0 0 auto; width: clamp(150px, 15vw, 300px); display: grid; gap: .45em; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.tv-art { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #1c1824; outline: 3px solid transparent; outline-offset: 3px; transition: transform .16s ease, outline-color .16s ease; }
+.tv-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tv-mono { position: absolute; inset: 0; display: grid; place-items: center; padding: 10px; text-align: center; font-weight: 800; font-size: 1.1em; color: #fff; text-shadow: 0 1px 8px rgb(0 0 0 / .4); }
+.tv-name { font-weight: 700; font-size: .95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--tv-dim); }
+.tv-tile:focus { outline: none; }
+.tv-tile:focus .tv-art, .tv-tile:hover .tv-art { outline-color: var(--tv-ring); transform: scale(1.05); }
+.tv-tile:focus .tv-name { color: var(--tv-fg); }
+.tv-note { padding: 0 clamp(16px, 4vw, 64px); color: var(--tv-dim); }
+.tv-hints { display: flex; gap: 2em; flex-wrap: wrap; padding: 10px clamp(16px, 4vw, 64px) clamp(12px, 2vh, 24px); color: var(--tv-dim); font-weight: 600; font-size: .85em; border-top: 1px solid rgb(255 255 255 / .08); }
+.tv-hints span { display: inline-flex; align-items: center; gap: .5em; }
+.tv-hints kbd { font: inherit; font-weight: 800; min-width: 1.8em; height: 1.8em; padding: 0 .45em; display: inline-grid; place-items: center; border-radius: 999px; background: rgb(255 255 255 / .14); color: var(--tv-fg); }
+@media (prefers-reduced-motion: reduce) { .tv-art, .tv-rows { transition: none; scroll-behavior: auto; } .tv-tile:focus .tv-art, .tv-tile:hover .tv-art { transform: none; } }
+
+/* the "controller connected" offer on ordinary pages */
+.tv-prompt { position: fixed; right: 16px; bottom: 16px; z-index: 80; max-width: min(360px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 14px 16px; border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 10px 40px rgb(0 0 0 / .25); border: 1.5px solid var(--line-2); }
+
+/* the focus ring while a controller (or the arrow keys on /tv) moves the focus */
+.pad-nav :focus { outline: 3px solid var(--accent); outline-offset: 3px; }
+.pad-nav .tv-tile:focus { outline: none; }
+@media (max-width: 600px) { .tv-brand small { display: none; } .tv-btn { font-size: .78em; padding: .45em .9em; } }

@@ -155,6 +155,17 @@ Players add friends by name or by friend code (`XXXX-XXXX`); a request becomes a
 - Parties and voice: friends group up (at most 8, one party at a time) from the friends panel; any member invites their own friends from a friend's menu. When the leader starts a game, the others get a Play button for it. Voice chat is audio only and peer to peer between members (WebRTC): the platform passes the connection messages over the friends connection (`/api/social/party/signal`, only between members of the same party) and never carries the audio. A bar in the corner mutes or hangs up on any page and over fullscreen games. STUN is Cloudflare's public server; set the `TURN_KEY_ID` and `TURN_KEY_TOKEN` secrets (a Cloudflare Realtime TURN key) to relay players behind strict networks. Rules in `src/parties.js` (migration `0068_parties.sql`, tests in `tests/parties.mjs`); admin settings `parties_enabled` and `party_voice_enabled`.
 - Limits (admin settings, group "Friends and chat"): friends per account, requests per day, messages per minute, invites per 10 minutes, days chat is kept. Guests and the verifier have no friends.
 
+## Big-screen mode
+
+`/tv` is the store laid out for a TV or a desktop across the room (`web/src/bigscreen.tsx`): rows of large covers
+(Continue, your games, today's picks, trending, playing now, new, top rated, free) under a panel showing the focused
+game. A controller drives it, and so do the arrow keys or a TV remote (`web/src/gamepad.ts`). Spatial navigation moves
+the focus on every platform page while a controller is connected and the page has the focus. A presses and B goes back.
+A page can take a button itself through the `gcp-pad` window event. A game opens from there with `?play=1&tv=1`: it fills
+the screen, and Quit returns to `/tv`. Inside a game the controller is the game's. The SDK (2.17.0) opens the platform
+menu on the Home button or on Start + Select held for half a second, and that menu is navigated with the controller too.
+When a controller connects on an ordinary page, the site offers big-screen mode once per visit. Tests: `tests/gamepad.mjs`.
+
 ## Player-made levels
 
 Players make levels, maps or mods inside a game and share them with everyone who plays it (`src/levels.js`, migration

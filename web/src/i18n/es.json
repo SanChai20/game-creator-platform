@@ -3416,5 +3416,18 @@
   "Let players share levels": "Permitir que los jugadores compartan niveles",
   "Turn level sharing off": "Desactivar compartir niveles",
   "You have not shared a level of this game yet.": "Aún no has compartido ningún nivel de este juego.",
-  "No levels yet. Make one in the game and share it.": "Aún no hay niveles. Crea uno en el juego y compártelo."
+  "No levels yet. Make one in the game and share it.": "Aún no hay niveles. Crea uno en el juego y compártelo.",
+  "Big screen": "Pantalla grande",
+  "Full screen": "Pantalla completa",
+  "Exit big screen": "Salir de pantalla grande",
+  "Loading games…": "Cargando juegos…",
+  "No games to show yet.": "Aún no hay juegos para mostrar.",
+  "Back": "Atrás",
+  "Game menu (or Start + Select)": "Menú del juego (o Start + Select)",
+  "Move": "Mover",
+  "Connect a controller to play from the couch.": "Conecta un mando para jugar desde el sofá.",
+  "Controller connected": "Mando conectado",
+  "Browse and play with it in big-screen mode.": "Explora y juega con él en el modo pantalla grande.",
+  "Open big screen": "Abrir pantalla grande",
+  "Back to big screen": "Volver a pantalla grande"
 }
